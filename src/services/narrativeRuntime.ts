@@ -287,6 +287,21 @@ export function getCurrentChoiceEpoch(conversation: GroupChat) {
   return Math.max(explicit, 1, ...branchEpochs);
 }
 
+function hasEnoughDecisionPressure(conversation: GroupChat) {
+  const state = conversation.scenarioState;
+  if (!state) return false;
+  const pressureSignals = [
+    state.currentScene?.visibleThreat,
+    ...(state.openQuestions || []).slice(-2),
+    ...(state.clues || []).slice(-2),
+    ...(state.stakes || []).slice(-2),
+    ...(state.relationshipShifts || []).slice(-2),
+  ].map((item) => compactStoryAssetText(item || '', 36)).filter(Boolean);
+  const hasScenePressure = Boolean(state.currentScene?.visibleThreat || state.stakes?.length);
+  const hasActionAnchor = Boolean(state.clues?.length || state.openQuestions?.length || state.relationshipShifts?.length);
+  return pressureSignals.length >= 3 && hasScenePressure && hasActionAnchor;
+}
+
 export function resolveStoryBeatPlan(conversation: GroupChat): StoryBeatPlan {
   const phase = conversation.scenarioState?.phase || 'scene';
   const sceneBeatCount = Number(conversation.scenarioState?.sceneBeatCount || 0);
@@ -301,6 +316,9 @@ export function resolveStoryBeatPlan(conversation: GroupChat): StoryBeatPlan {
   }
   if (sceneBeatCount === 1) {
     return { beatKind: 'pressure', choicePolicy: 'forbid', reason: 'build visible pressure before choices' };
+  }
+  if (sceneBeatCount >= 2 && hasEnoughDecisionPressure(conversation)) {
+    return { beatKind: 'decision', choicePolicy: 'require', reason: 'visible story pressure is ready for a meaningful choice' };
   }
   if (sceneBeatCount >= 3) {
     return { beatKind: 'decision', choicePolicy: 'require', reason: 'enough setup beats have accumulated' };

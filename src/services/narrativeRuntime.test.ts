@@ -167,6 +167,39 @@ describe('narrativeRuntime', () => {
     ]));
   });
 
+  it('opens a decision early when visible pressure already has clues, stakes, and relationship tension', () => {
+    const pressureReadyChat = normalizeConversation({
+      ...chat,
+      scenarioState: {
+        phase: 'scene',
+        sceneBeatCount: 2,
+        currentScene: { location: '旧医院走廊', visibleThreat: '护士开始隐瞒停电记录', presentActorIds: ['lin', 'nurse'] },
+        openQuestions: ['停电记录是谁改过的？'],
+        clues: ['墙边的新鲜血迹'],
+        stakes: ['护士可能反咬一口'],
+        relationshipShifts: ['林医生开始怀疑护士'],
+      },
+    });
+    const pressureThinChat = normalizeConversation({
+      ...chat,
+      scenarioState: {
+        phase: 'scene',
+        sceneBeatCount: 2,
+        currentScene: { location: '旧医院走廊', visibleThreat: '走廊尽头传来脚步声' },
+      },
+    });
+
+    expect(resolveStoryBeatPlan(pressureReadyChat)).toEqual(expect.objectContaining({
+      beatKind: 'decision',
+      choicePolicy: 'require',
+      reason: 'visible story pressure is ready for a meaningful choice',
+    }));
+    expect(resolveStoryBeatPlan(pressureThinChat)).toEqual(expect.objectContaining({
+      beatKind: 'new_pressure',
+      choicePolicy: 'allow',
+    }));
+  });
+
   it('adds a visible reading panel when a story beat opens choices', () => {
     const turn = buildNarrativeTurnFromStoryEvents({
       conversation: normalizeConversation({
