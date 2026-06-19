@@ -177,6 +177,8 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
       roleAssignments: [],
       storyBackground: input.storyBackground || '',
       storyDirection: input.storyDirection || '',
+      storyGoal: isStoryReader ? input.storyDirection || input.topic.trim() || input.name.trim() : undefined,
+      storySituation: isStoryReader ? input.storyBackground || input.topic.trim() || input.name.trim() : undefined,
       storyOutline: input.storyOutline || '',
       storyBeatKind: isStoryReader ? 'establish' : undefined,
       storyChoicePolicy: isStoryReader ? 'forbid' : undefined,

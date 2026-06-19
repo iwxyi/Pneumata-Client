@@ -178,6 +178,10 @@ describe('narrativeRuntime', () => {
       ...chat,
       scenarioState: {
         phase: 'branch',
+        storyDirection: '查清旧医院停电真相',
+        storyGoal: '查清旧医院失踪案',
+        storySituation: '林医生刚进入旧医院',
+        selectedChoice: { branchId: 'ask', label: '追问停电记录', prompt: '逼护士说出停电期间谁进过档案室', choiceEpoch: 2 },
         selectedChoiceEpoch: 2,
         choiceHistory: [{ branchId: 'ask', label: '追问停电记录', risk: '激怒护士', reward: '得到线索', choiceEpoch: 2 }],
         openQuestions: ['旧医院为什么停电？'],
@@ -200,6 +204,8 @@ describe('narrativeRuntime', () => {
       clues: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
       stakes: expect.arrayContaining(['暴露位置', '发现证据']),
       relationshipShifts: expect.arrayContaining(['护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。']),
+      storyGoal: '逼护士说出停电期间谁进过档案室',
+      storySituation: '护士承认停电时有人进入档案室。',
     }));
 
     const recap = buildChapterRecap({
@@ -224,6 +230,8 @@ describe('narrativeRuntime', () => {
     }));
     expect(prompt).toEqual(expect.arrayContaining([
       expect.stringContaining('Use these story assets as continuity anchors'),
+      expect.stringContaining('Current chapter goal: 逼护士说出停电期间谁进过档案室'),
+      expect.stringContaining('Current situation: 护士承认停电时有人进入档案室。'),
       expect.stringContaining('outcome=护士承认停电时有人进入档案室。'),
     ]));
   });

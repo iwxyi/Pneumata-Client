@@ -311,6 +311,13 @@ function getStoryProgressCopy(chat: GroupChat, members: AICharacter[]) {
       chips: [beatLabel || '后果'].filter(Boolean),
     };
   }
+  if (state.storyGoal) {
+    return {
+      title: '可以继续剧情',
+      body: `当前目标：${formatNarrativeLineText(state.storyGoal, members)}`,
+      chips: [beatLabel || '主线推进'].filter(Boolean),
+    };
+  }
   const question = state.openQuestions?.slice(-1)[0];
   return {
     title: '可以继续剧情',
@@ -379,6 +386,16 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
         {state.chapterMemory ? (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
             {formatNarrativeLineText(state.chapterMemory, members)}
+          </Typography>
+        ) : null}
+        {state.storyGoal ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            当前目标：{formatNarrativeLineText(state.storyGoal, members)}
+          </Typography>
+        ) : null}
+        {state.storySituation ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            当前处境：{formatNarrativeLineText(state.storySituation, members)}
           </Typography>
         ) : null}
         {renderAssetChips('悬念', state.openQuestions, members)}

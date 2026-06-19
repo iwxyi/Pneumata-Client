@@ -21,6 +21,8 @@ export interface StoryAssetPatch {
   stakes: string[];
   relationshipShifts: string[];
   chapterMemory: string;
+  storyGoal?: string;
+  storySituation?: string;
 }
 
 function compactText(value: unknown, max = 1200) {
@@ -355,12 +357,18 @@ export function extractStoryAssets(params: {
     params.summary,
   ].filter(Boolean);
   const chapterMemory = compactStoryAssetText(chapterMemoryParts.join(' / '), CHAPTER_MEMORY_LIMIT);
+  const state = params.conversation.scenarioState;
+  const selectedGoal = state?.selectedChoice?.prompt || state?.selectedChoice?.label || '';
+  const storyGoal = compactStoryAssetText(selectedGoal || state?.storyGoal || state?.storyDirection || params.conversation.topic || '', 120);
+  const storySituation = compactStoryAssetText(params.summary || text || state?.storySituation || state?.storyBackground || '', 180);
   return {
     openQuestions: mergeStoryAssetList(params.conversation.scenarioState?.openQuestions, openQuestionCandidates),
     clues: mergeStoryAssetList(params.conversation.scenarioState?.clues, clueCandidates),
     stakes: mergeStoryAssetList(params.conversation.scenarioState?.stakes, stakeCandidates),
     relationshipShifts: mergeStoryAssetList(params.conversation.scenarioState?.relationshipShifts, relationshipCandidates),
     chapterMemory,
+    ...(storyGoal ? { storyGoal } : {}),
+    ...(storySituation ? { storySituation } : {}),
   };
 }
 
@@ -369,6 +377,8 @@ export function buildStoryAssetPrompt(conversation: GroupChat) {
   if (!state) return [];
   const recap = state.chapterRecap;
   const lines = [
+    state.storyGoal ? `Current chapter goal: ${state.storyGoal}` : '',
+    state.storySituation ? `Current situation: ${state.storySituation}` : '',
     recap?.summary ? `Latest chapter recap: ${recap.summary}` : '',
     state.chapterMemory ? `Chapter memory: ${state.chapterMemory}` : '',
     state.openQuestions?.length ? `Open questions to preserve or answer deliberately: ${state.openQuestions.slice(-4).join(' / ')}` : '',

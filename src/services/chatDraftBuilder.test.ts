@@ -103,6 +103,8 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     expect(draft.modeConfig.showRoleActions).toBe(false);
     expect(draft.scenarioState?.storyBackground).toBe('旧医院连续有人失踪。');
     expect(draft.scenarioState?.storyDirection).toBe('悬疑探索');
+    expect(draft.scenarioState?.storyGoal).toBe('悬疑探索');
+    expect(draft.scenarioState?.storySituation).toBe('旧医院连续有人失踪。');
   });
 
   it('normalizes operator ids and filters user/member duplicates', () => {

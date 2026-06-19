@@ -172,6 +172,8 @@ describe('ChatNarrativePanel', () => {
       sessionKind: { family: 'conversation' as const, scenarioId: 'story-reader', surfaceProfile: 'hybrid' as const, topology: 'group' as const },
       scenarioState: {
         phase: 'scene',
+        storyGoal: `${uuidA} 查清旧医院失踪案`,
+        storySituation: `${uuidB} 刚从地下档案室逃出来`,
         storyBeatKind: 'pressure' as const,
         chapterMemory: `${uuidA} 在旧医院发现血迹`,
         openQuestions: [`${uuidB} 为什么隐瞒停电记录？`],
@@ -208,7 +210,7 @@ describe('ChatNarrativePanel', () => {
 
     expect(html).toContain('新的抉择点');
     expect(html).toContain('可以继续剧情');
-    expect(html).toContain('下一段可以继续追踪：灰太狼 为什么隐瞒停电记录？');
+    expect(html).toContain('当前目标：红太狼 查清旧医院失踪案');
     expect(html).toContain('加压');
     expect(html).not.toContain('pressure');
     expect(html).toContain('回顾线索');
@@ -221,6 +223,7 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('已走路径');
     expect(html).toContain('当时还可以选择');
     expect(html).toContain('红太狼 在旧医院发现血迹');
+    expect(html).toContain('当前处境：灰太狼 刚从地下档案室逃出来');
     expect(html).toContain('灰太狼 去地下档案室');
     expect(html).toContain('后果：护士承认停电时有人进入档案室');
     expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
