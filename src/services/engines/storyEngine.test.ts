@@ -420,6 +420,136 @@ describe('STORY_ENGINE', () => {
     ]));
   });
 
+  it('does not append duplicate choice history when the same epoch is selected again before state catches up', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      phase: 'choice',
+      choiceEpoch: 2,
+      branches: [
+        { branchId: 'ask', label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', status: 'available', choiceEpoch: 2 },
+        { branchId: 'blood', label: '让主角检查墙上的血迹', prompt: '主角检查血迹', status: 'available', choiceEpoch: 2 },
+      ],
+      choiceHistory: [
+        { branchId: 'ask', label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', choiceEpoch: 2, chosenAt: 10 },
+      ],
+    };
+
+    const duplicate = runSessionActionExecutor(chat, {
+      type: 'choose_story_branch',
+      actorId: 'user',
+      payload: { branchId: 'ask', prompt: '林医生逼问护士' },
+    });
+
+    if (!duplicate?.chatPatch) throw new Error('Expected duplicate branch action to produce a chat patch');
+    expect(duplicate?.runtimeEvents?.[0]?.metrics).toEqual(expect.objectContaining({ duplicate: true }));
+    expect(duplicate.chatPatch.scenarioState).toBeUndefined();
+  });
+
+  it('runs a readable long story rhythm from consequence to pressure before the next decision', async () => {
+    const choiceChat = buildStoryChat();
+    choiceChat.memberIds = ['lin', 'nurse'];
+    choiceChat.scenarioState = {
+      phase: 'choice',
+      sceneBeatCount: 0,
+      choiceEpoch: 2,
+      branches: [
+        { branchId: 'ask', label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', status: 'available', choiceEpoch: 2, risk: '激怒护士', reward: '得到停电线索' },
+        { branchId: 'blood', label: '让主角检查墙上的血迹', prompt: '主角检查血迹', status: 'available', choiceEpoch: 2, risk: '暴露位置', reward: '发现新证据' },
+      ],
+      openQuestions: ['旧医院为什么停电？'],
+      clues: ['墙上的新鲜血迹'],
+      stakes: ['护士可能反咬一口'],
+      relationshipShifts: [],
+      choiceHistory: [],
+    };
+    const branchResult = runSessionActionExecutor(choiceChat, {
+      type: 'choose_story_branch',
+      actorId: 'user',
+      payload: { branchId: 'ask', prompt: '林医生逼问护士' },
+    });
+    if (!branchResult?.chatPatch) throw new Error('Expected story branch action to return a chat patch');
+    const branchChat = normalizeConversation({
+      ...choiceChat,
+      scenarioState: { ...(choiceChat.scenarioState || {}), ...(branchResult.chatPatch.scenarioState || {}) },
+      worldState: { ...choiceChat.worldState, ...(branchResult.chatPatch.worldState || {}) },
+    });
+
+    const consequenceResult = await STORY_ENGINE.onMessageCommitted({
+      conversation: branchChat,
+      characters: [{ id: 'lin', name: '林医生' }, { id: 'nurse', name: '护士' }] as never,
+      message: {
+        content: '林医生逼问护士后，护士承认停电时有人进入档案室，代价是她开始拒绝继续同行。',
+        type: 'ai',
+        senderId: 'narrator',
+      },
+    });
+    const afterConsequence = normalizeConversation({
+      ...branchChat,
+      scenarioState: { ...(branchChat.scenarioState || {}), ...(consequenceResult.chatPatch.scenarioState || {}) },
+    });
+    expect(afterConsequence.scenarioState).toEqual(expect.objectContaining({
+      phase: 'scene',
+      sceneBeatCount: 1,
+      storyBeatKind: 'pressure',
+      storyChoicePolicy: 'forbid',
+      selectedChoice: null,
+    }));
+
+    const pressureResult = await STORY_ENGINE.onMessageCommitted({
+      conversation: afterConsequence,
+      characters: [{ id: 'lin', name: '林医生' }, { id: 'nurse', name: '护士' }] as never,
+      message: {
+        content: '旧医院走廊忽然再次停电，档案室门缝里露出新鲜血迹，护士的手指攥紧袖口，像还在隐瞒另一个名字。',
+        type: 'ai',
+        senderId: 'narrator',
+        metadata: {
+          storyChoices: [
+            { label: '让林医生立刻打开档案室门', prompt: '林医生打开档案室门', risk: '暴露自己已经掌握停电线索', reward: '直接确认血迹来源' },
+            { label: '让护士说出袖口里藏着什么', prompt: '护士交代袖口里的东西', risk: '激怒护士彻底沉默', reward: '得到她隐瞒的名字' },
+          ],
+        },
+      },
+    });
+    const afterPressure = normalizeConversation({
+      ...afterConsequence,
+      scenarioState: { ...(afterConsequence.scenarioState || {}), ...(pressureResult.chatPatch.scenarioState || {}) },
+    });
+    expect(afterPressure.scenarioState).toEqual(expect.objectContaining({
+      phase: 'scene',
+      sceneBeatCount: 2,
+      storyBeatKind: 'decision',
+      storyChoicePolicy: 'require',
+    }));
+    expect(afterPressure.scenarioState?.branches?.filter((branch) => branch.choiceEpoch === 3)).toHaveLength(0);
+
+    const decisionResult = await STORY_ENGINE.onMessageCommitted({
+      conversation: afterPressure,
+      characters: [{ id: 'lin', name: '林医生' }, { id: 'nurse', name: '护士' }] as never,
+      message: {
+        content: '走廊尽头传来第二个人的脚步声，档案室门锁却从里面轻轻响了一下，林医生必须决定先抓住哪条线。',
+        type: 'ai',
+        senderId: 'narrator',
+        metadata: {
+          storyChoices: [
+            { label: '让林医生推开档案室门查看里面的人', prompt: '林医生推门查看档案室', risk: '惊动门内的人', reward: '确认谁进入过档案室' },
+            { label: '让护士守住走廊尽头拦下脚步声', prompt: '护士守住走廊尽头', risk: '护士可能趁机传递消息', reward: '阻止第二个人逃走' },
+          ],
+        },
+      },
+    });
+    expect(decisionResult.chatPatch.scenarioState).toEqual(expect.objectContaining({
+      phase: 'choice',
+      choiceEpoch: 3,
+      sceneBeatCount: 0,
+      storyBeatKind: 'decision',
+      storyChoicePolicy: 'require',
+    }));
+    expect(decisionResult.chatPatch.scenarioState?.branches?.filter((branch) => branch.choiceEpoch === 3).map((branch) => branch.label)).toEqual([
+      '让林医生推开档案室门查看里面的人',
+      '让护士守住走廊尽头拦下脚步声',
+    ]);
+  });
+
   it('marks choice phase as branch-only', () => {
     const choicePhase = STORY_ENGINE.getPhaseDefinitions?.(buildStoryChat()).find((phase) => phase.key === 'choice');
     expect(choicePhase?.allowedActions).toEqual(['branch_choose']);

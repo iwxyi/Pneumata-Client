@@ -259,7 +259,7 @@ function handleStoryBranch(chat: GroupChat, action: SessionActionDefinition): Se
     Number(choice.choiceEpoch || 0) === currentEpoch
     && (choice.branchId === branchId || (selectedBranch?.label && choice.label === selectedBranch.label))
   ));
-  if (alreadySelected && chat.scenarioState?.phase === 'branch') {
+  if (alreadySelected) {
     return buildActionResult(chat, action, '剧情分支已选择', summary, 'story_branch', {
       branchId,
       prompt: branchPrompt,
