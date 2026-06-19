@@ -111,6 +111,17 @@ export function isStoryChoicePending(params: {
   });
 }
 
+export function getStoryTailStatus(params: {
+  hasRunLoopStatus: boolean;
+  canContinueStory: boolean;
+  isStoryChoiceSubmitting: boolean;
+}) {
+  if (params.hasRunLoopStatus) return 'status' as const;
+  if (params.isStoryChoiceSubmitting) return 'submitting_choice' as const;
+  if (params.canContinueStory) return 'continue' as const;
+  return null;
+}
+
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
   const [state, setState] = useState<ChatShareState>(() => ({
     enabled: Boolean(chat.shareEnabled),
@@ -978,10 +989,32 @@ export default function ChatDetailPage() {
       }
     }
   }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceSourceMessage?.id, updateChat]);
-  const storyBranchSuggestionContent = runLoopStatusContent || canContinueStory ? (
+  const storyTailStatus = getStoryTailStatus({
+    hasRunLoopStatus: Boolean(runLoopStatusContent),
+    canContinueStory,
+    isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
+  });
+  const storyBranchSuggestionContent = storyTailStatus ? (
     <>
       {runLoopStatusContent}
-      {canContinueStory ? (
+      {storyTailStatus === 'submitting_choice' ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
+          <Chip
+            size="small"
+            label="正在进入你选择的剧情"
+            variant="outlined"
+            sx={(theme) => ({
+              borderRadius: 2,
+              px: 0.8,
+              py: 1.75,
+              fontWeight: 700,
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(15,23,42,0.72)',
+              boxShadow: '0 8px 22px rgba(15,23,42,0.10)',
+            })}
+          />
+        </Box>
+      ) : null}
+      {storyTailStatus === 'continue' ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
           <Button
             variant="contained"

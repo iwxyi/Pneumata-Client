@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryChoicePendingKey, isStoryChoicePending, shouldShowStoryContinueButton } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, getStoryTailStatus, isStoryChoicePending, shouldShowStoryContinueButton } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -75,5 +75,28 @@ describe('ChatDetailPage pause/resume behavior', () => {
       choiceEpoch: 3,
       sourceMessageId: 'choice-message',
     })).toBe(false);
+  });
+
+  it('prioritizes story tail status for errors, choice submission, and continue entry', () => {
+    expect(getStoryTailStatus({
+      hasRunLoopStatus: true,
+      canContinueStory: true,
+      isStoryChoiceSubmitting: true,
+    })).toBe('status');
+    expect(getStoryTailStatus({
+      hasRunLoopStatus: false,
+      canContinueStory: true,
+      isStoryChoiceSubmitting: true,
+    })).toBe('submitting_choice');
+    expect(getStoryTailStatus({
+      hasRunLoopStatus: false,
+      canContinueStory: true,
+      isStoryChoiceSubmitting: false,
+    })).toBe('continue');
+    expect(getStoryTailStatus({
+      hasRunLoopStatus: false,
+      canContinueStory: false,
+      isStoryChoiceSubmitting: false,
+    })).toBeNull();
   });
 });
