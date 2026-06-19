@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { shouldShowStoryContinueButton } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, shouldShowStoryContinueButton } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -27,5 +27,25 @@ describe('ChatDetailPage pause/resume behavior', () => {
     expect(shouldShowStoryContinueButton({ ...base, isStoryRoom: false })).toBe(false);
     expect(shouldShowStoryContinueButton({ ...base, isRemoteDeletedChat: true })).toBe(false);
     expect(shouldShowStoryContinueButton({ ...base, hasChat: false })).toBe(false);
+  });
+
+  it('locks a whole story choice epoch instead of a single branch value', () => {
+    const key = buildStoryChoicePendingKey({
+      chatId: 'story-1',
+      choiceEpoch: 3,
+      sourceMessageId: 'choice-message',
+    });
+
+    expect(key).toBe('story-1:3:choice-message');
+    expect(buildStoryChoicePendingKey({
+      chatId: 'story-1',
+      choiceEpoch: 3,
+      sourceMessageId: 'choice-message',
+    })).toBe(key);
+    expect(buildStoryChoicePendingKey({
+      chatId: 'story-1',
+      choiceEpoch: 4,
+      sourceMessageId: 'choice-message',
+    })).not.toBe(key);
   });
 });

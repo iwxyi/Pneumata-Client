@@ -87,6 +87,14 @@ export function shouldShowStoryContinueButton(params: {
     && (!params.isRunning || params.isPaused);
 }
 
+export function buildStoryChoicePendingKey(params: {
+  chatId: string;
+  choiceEpoch?: number | null;
+  sourceMessageId?: string | null;
+}) {
+  return `${params.chatId}:${params.choiceEpoch || 0}:${params.sourceMessageId || ''}`;
+}
+
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
   const [state, setState] = useState<ChatShareState>(() => ({
     enabled: Boolean(chat.shareEnabled),
@@ -887,7 +895,11 @@ export default function ChatDetailPage() {
     const branchId = selectedBranch?.branchId || optionValue;
     const storyDirection = selectedBranch?.prompt || selectedBranch?.description || option?.prompt || option?.label || chat.scenarioState?.storyDirection;
     const choiceLabel = option?.label || selectedBranch?.label || storyDirection || branchId;
-    const choiceKey = `${id}:${chat.scenarioState?.choiceEpoch || 0}:${storyChoiceSourceMessage?.id || ''}:${branchId}`;
+    const choiceKey = buildStoryChoicePendingKey({
+      chatId: id,
+      choiceEpoch: chat.scenarioState?.choiceEpoch,
+      sourceMessageId: storyChoiceSourceMessage?.id,
+    });
     if (pendingStoryChoiceRef.current === choiceKey) return;
     pendingStoryChoiceRef.current = choiceKey;
     let actionSucceeded = false;
