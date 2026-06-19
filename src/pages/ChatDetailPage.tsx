@@ -54,6 +54,7 @@ import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 import { buildStoryBranchOptions, normalizeStoryChoiceSuggestions } from '../services/storyChoices';
+import { messagesShareIdentity } from '../services/messageIdentity';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -127,6 +128,19 @@ export function shouldAutoStartStoryRoom(params: {
 function getNarrativeRevealIdentityKeys(message: Message) {
   if (message.type !== 'ai' || !message.metadata?.narrativeTurn) return [];
   return [message.id, message.clientKey, message.serverId].filter((key): key is string => Boolean(key));
+}
+
+export function shouldRegisterLiveNarrativeReveal(message: Message) {
+  const revealKeys = getNarrativeRevealIdentityKeys(message);
+  if (!revealKeys.length) return false;
+  const state = useMessageStore.getState();
+  const currentMessages = state.messageWindowsByChatId[message.chatId]?.messages || state.messages.filter((item) => item.chatId === message.chatId);
+  const existing = currentMessages.find((item) => messagesShareIdentity(item, message));
+  if (existing?.isStreaming) return true;
+  if (existing) return false;
+  const latestHistoricalTimestamp = currentMessages
+    .reduce((latest, item) => Math.max(latest, Number(item.timestamp || 0)), 0);
+  return Number(message.timestamp || 0) > latestHistoricalTimestamp;
 }
 
 export function findVisibleStoryChoiceSourceMessage(params: {
@@ -338,7 +352,7 @@ export default function ChatDetailPage() {
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
   const upsertMessageWithLiveReveal = useCallback((message: Message) => {
     const revealKeys = getNarrativeRevealIdentityKeys(message);
-    if (revealKeys.length) {
+    if (revealKeys.length && shouldRegisterLiveNarrativeReveal(message)) {
       setNarrativeRevealMessageKeys((current) => {
         const next = new Set(current);
         let changed = false;

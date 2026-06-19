@@ -1,8 +1,39 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom } from './ChatDetailPage';
+import type { Message } from '../types/message';
+import { useMessageStore } from '../stores/useMessageStore';
+import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom, shouldRegisterLiveNarrativeReveal } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
+}
+
+function buildNarrativeMessage(id: string, timestamp: number): Message {
+  return {
+    id,
+    chatId: 'story-1',
+    type: 'ai',
+    senderId: 'narrator',
+    senderName: '旁白',
+    content: '雨还在下。',
+    emotion: 0,
+    timestamp,
+    isDeleted: false,
+    metadata: {
+      narrativeTurn: {
+        turnId: id,
+        turnKind: 'narrative_beat',
+        povActorId: 'narrator',
+        blocks: [{
+          id: `${id}-prose`,
+          actorId: 'narrator',
+          actorKind: 'narrator',
+          kind: 'prose',
+          displayMode: 'paragraph',
+          text: '雨还在下。',
+        }],
+      },
+    },
+  };
 }
 
 describe('ChatDetailPage pause/resume behavior', () => {
@@ -93,6 +124,29 @@ describe('ChatDetailPage pause/resume behavior', () => {
     expect(shouldAutoStartStoryRoom({ ...base, hasRunLoopError: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isStoryRoom: false })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, canAutoRunConversation: false })).toBe(false);
+  });
+
+  it('does not register restored narrative history for live reveal after returning to a chat', () => {
+    const history = [
+      buildNarrativeMessage('story-old-1', 10),
+      buildNarrativeMessage('story-old-2', 20),
+    ];
+    useMessageStore.setState({
+      messages: history,
+      activeChatId: 'story-1',
+      messageWindowsByChatId: {
+        'story-1': {
+          messages: history,
+          lastSyncedAt: 20,
+          updatedAt: 20,
+          remoteExhausted: true,
+          activeLimit: 40,
+        },
+      },
+    });
+
+    expect(shouldRegisterLiveNarrativeReveal(buildNarrativeMessage('story-old-2', 20))).toBe(false);
+    expect(shouldRegisterLiveNarrativeReveal(buildNarrativeMessage('story-new', 21))).toBe(true);
   });
 
   it('does not revive old story choices outside the active choice phase', () => {

@@ -42,7 +42,6 @@ export function RevealedMarkdownText({ text, reveal = false, onComplete }: { tex
     if (!reveal) {
       setVisibleLength(text.length);
       completedTextRef.current = text;
-      onCompleteRef.current?.();
       return undefined;
     }
     if (completedTextRef.current === text) {

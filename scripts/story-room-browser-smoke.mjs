@@ -87,12 +87,16 @@ const seedStoryRoomExpression = String.raw`
     { useChatStore },
     { useMessageStore },
     { useCharacterStore },
+    { useAuthStore },
+    { flushBufferedPersistenceWrites },
     { normalizeConversation },
     characterTypes,
   ] = await Promise.all([
     import('/src/stores/useChatStore.ts'),
     import('/src/stores/useMessageStore.ts'),
     import('/src/stores/useCharacterStore.ts'),
+    import('/src/stores/useAuthStore.ts'),
+    import('/src/stores/storePersistenceScope.ts'),
     import('/src/types/chat.ts'),
     import('/src/types/character.ts'),
   ]);
@@ -200,16 +204,61 @@ const seedStoryRoomExpression = String.raw`
       },
     },
   ];
+  const writeIndexedDbJson = (key, value) => new Promise((resolve, reject) => {
+    const request = indexedDB.open('pneumata-local-store', 1);
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains('kv')) database.createObjectStore('kv');
+    };
+    request.onerror = () => reject(request.error || new Error('open indexeddb failed'));
+    request.onsuccess = () => {
+      const database = request.result;
+      const transaction = database.transaction('kv', 'readwrite');
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        const error = transaction.error || new Error('write indexeddb failed');
+        database.close();
+        reject(error);
+      };
+      transaction.objectStore('kv').put(JSON.stringify(value), key);
+    };
+  });
+  localStorage.setItem('pneumata-auth-mode', 'local');
+  localStorage.removeItem('pneumata-token');
+  localStorage.removeItem('pneumata-user');
+  localStorage.setItem('pneumata-cloud-sync-enabled', '0');
+  useAuthStore.setState({ authMode: 'local', token: null, user: null, isLoggedIn: false, isLoading: false });
+  await Promise.all([
+    useChatStore.persist.hasHydrated() ? undefined : useChatStore.persist.rehydrate(),
+    useMessageStore.persist.hasHydrated() ? undefined : useMessageStore.persist.rehydrate(),
+    useCharacterStore.persist.hasHydrated() ? undefined : useCharacterStore.persist.rehydrate(),
+  ]);
   useCharacterStore.setState({
     characters: [
       { ...baseCharacter, id: 'lin', name: '林医生' },
       { ...baseCharacter, id: 'nurse', name: '护士' },
     ],
+    lastSyncedAt: now,
+    pendingOperations: [],
+    pendingEditSyncCount: 0,
+    pendingEditSyncError: null,
+    fieldConflicts: [],
+    isLoading: false,
   });
   useChatStore.setState({
     chats: [chat],
+    currentChatId: chat.id,
+    lastSyncedAt: now,
+    pendingOperations: [],
+    pendingEditSyncCount: 0,
+    pendingEditSyncError: null,
     remoteDeletedChatIds: [],
     remoteDeletedChats: [],
+    fieldConflicts: [],
+    chatSummaryLoadedAt: now,
     isLoading: false,
   });
   useMessageStore.setState({
@@ -228,6 +277,47 @@ const seedStoryRoomExpression = String.raw`
     isLoadingOlder: false,
     hasMore: false,
   });
+  flushBufferedPersistenceWrites();
+  await Promise.all([
+    writeIndexedDbJson('pneumata-chats-guest', {
+      state: {
+        chats: [chat],
+        currentChatId: chat.id,
+        lastSyncedAt: now,
+        pendingOperations: [],
+        fieldConflicts: [],
+      },
+      version: 3,
+    }),
+    writeIndexedDbJson('pneumata-messages-guest', {
+      state: {
+        messageWindowsByChatId: {
+          [chat.id]: {
+            messages,
+            lastSyncedAt: now,
+            updatedAt: now + 1,
+            remoteExhausted: true,
+            activeLimit: 40,
+          },
+        },
+        pendingOperations: [],
+      },
+      version: 3,
+    }),
+    writeIndexedDbJson('pneumata-characters-guest', {
+      state: {
+        characters: [
+          { ...baseCharacter, id: 'lin', name: '林医生' },
+          { ...baseCharacter, id: 'nurse', name: '护士' },
+        ],
+        lastSyncedAt: now,
+        pendingOperations: [],
+        fieldConflicts: [],
+      },
+      version: 3,
+    }),
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 350));
   history.pushState(null, '', '/chats/story-browser-smoke');
   window.dispatchEvent(new PopStateEvent('popstate'));
   return 'seeded';
@@ -270,6 +360,44 @@ async function main() {
     assertCondition(before.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing', before.buttons);
 
     await evaluate(cdp, `(() => {
+      const avatar = document.querySelector('[data-message-id="intro:narrative-block:intro-speech"] .MuiAvatar-root');
+      if (!avatar) throw new Error('story speech avatar not found');
+      avatar.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      return 'avatar-clicked';
+    })()`);
+    await wait(900);
+    await evaluate(cdp, `(() => {
+      const detailsButton = Array.from(document.querySelectorAll('button')).find((item) => item.innerText.trim() === '角色详情');
+      if (!detailsButton) throw new Error('character details action not found');
+      detailsButton.click();
+      return 'details-clicked';
+    })()`);
+    await wait(1200);
+    const characterPage = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      path: location.pathname,
+      search: location.search,
+      text: document.body.innerText.slice(0, 1200)
+    })`));
+    assertCondition(characterPage.path.includes('/characters/lin/edit'), 'Avatar details did not navigate to the character editor', characterPage);
+    await evaluate(cdp, `history.back(); 'back-requested'`);
+    await wait(2200);
+    const afterReturn = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      path: location.pathname,
+      text: document.body.innerText,
+      buttons: Array.from(document.querySelectorAll('button')).map((button) => button.innerText.trim()).filter(Boolean),
+      messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
+      hasDiagnosticText: document.body.innerText.includes('新的抉择点'),
+      hasChoicePrompt: document.body.innerText.includes('选择接下来的剧情走向'),
+      hasSpeech: document.body.innerText.includes('不要碰那道血迹')
+    })`));
+    assertCondition(afterReturn.path === '/chats/story-browser-smoke', 'Story smoke did not return to the seeded chat after character details', afterReturn);
+    assertCondition(afterReturn.hasChoicePrompt, 'Story choice panel disappeared after returning from character details', afterReturn);
+    assertCondition(afterReturn.hasSpeech, 'Story speech bubble disappeared after returning from character details', afterReturn);
+    assertCondition(!afterReturn.hasDiagnosticText, 'Developer-only story diagnostic text leaked after returning from character details', afterReturn);
+    assertCondition(afterReturn.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing after returning from character details', afterReturn.buttons);
+    assertCondition(new Set(afterReturn.messageIds).size === afterReturn.messageIds.length, 'Story message nodes duplicated after returning from character details', afterReturn.messageIds);
+
+    await evaluate(cdp, `(() => {
       const button = Array.from(document.querySelectorAll('button')).find((item) => item.innerText.includes('让林医生追问护士昨晚去向'));
       if (!button) throw new Error('choice button not found');
       button.click();
@@ -300,6 +428,10 @@ async function main() {
       before: {
         messageTypes: before.messageTypes,
         buttons: before.buttons.filter((button) => button.includes('让')),
+      },
+      afterReturn: {
+        messageIds: afterReturn.messageIds,
+        buttons: afterReturn.buttons.filter((button) => button.includes('让')),
       },
       after: {
         messageTypes: after.messageTypes,
