@@ -206,6 +206,19 @@ export function shouldRouteTextAsStoryCustomDirection(params: {
     && Boolean(params.content.trim());
 }
 
+export function getStoryReaderComposerPlaceholder() {
+  return '输入自定义剧情走向，例如试探、追问、转移地点';
+}
+
+export function buildStoryReaderTextInputCapabilities<T extends { imageInput?: boolean; multiImageInput?: boolean; fileInput?: boolean }>(capabilities: T): T {
+  return {
+    ...capabilities,
+    imageInput: false,
+    multiImageInput: false,
+    fileInput: false,
+  };
+}
+
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
   const [state, setState] = useState<ChatShareState>(() => ({
     enabled: Boolean(chat.shareEnabled),
@@ -543,6 +556,11 @@ export default function ChatDetailPage() {
   });
   const sidebarTabValue = activeSidebarTab === 'actions' ? 'activities' : activeSidebarTab;
   const isStoryRoom = chat?.sessionKind?.scenarioId === 'story-reader';
+  const effectiveTextInputCapabilities = useMemo(
+    () => (isStoryRoom && !effectiveSpeakAsChar ? buildStoryReaderTextInputCapabilities(textInputCapabilities) : textInputCapabilities),
+    [effectiveSpeakAsChar, isStoryRoom, textInputCapabilities],
+  );
+  const effectiveTextInputCapabilityWarning = isStoryRoom && !effectiveSpeakAsChar ? undefined : textInputCapabilityWarning;
   const effectiveComposerSurfaces = useMemo(() => {
     const primaryTextSurface = composerSurfaces.find((surface) => surface.type === 'text') || { key: 'member-guide-text', type: 'text' as const };
     const nonTextSurfaces = isStoryRoom ? [] : composerSurfaces.filter((surface) => surface.type !== 'text');
@@ -558,6 +576,17 @@ export default function ChatDetailPage() {
       };
       return [nextSurface, ...nonTextSurfaces];
     }
+    if (!effectiveSpeakAsChar && isStoryRoom) {
+      return [{
+        ...primaryTextSurface,
+        key: 'story-reader-direction-text',
+        type: 'text' as const,
+        mode: 'memberSpeak' as const,
+        actorId: 'user',
+        capability: 'speak' as const,
+        placeholder: getStoryReaderComposerPlaceholder(),
+      }];
+    }
     if (!effectiveSpeakAsChar && chat?.type === 'group' && chat.memberIds.includes('user')) {
       return [{
         ...primaryTextSurface,
@@ -566,7 +595,7 @@ export default function ChatDetailPage() {
         mode: 'memberSpeak' as const,
         actorId: 'user',
         capability: 'speak' as const,
-        placeholder: '输入消息',
+        placeholder: isStoryRoom ? getStoryReaderComposerPlaceholder() : '输入消息',
       }, ...nonTextSurfaces];
     }
     if (!effectiveSpeakAsChar && chat?.type === 'direct') {
@@ -1468,8 +1497,8 @@ export default function ChatDetailPage() {
             onCloseSpeakAs={effectiveSpeakAsChar && chat.type !== 'ai_direct' ? () => setSpeakAsCharacter(null) : undefined}
             sendingLabel="等待角色发言结束"
             hideSpeakAsChip={chat.type === 'ai_direct'}
-            inputCapabilities={textInputCapabilities}
-            inputCapabilityWarning={textInputCapabilityWarning}
+            inputCapabilities={effectiveTextInputCapabilities}
+            inputCapabilityWarning={effectiveTextInputCapabilityWarning}
             onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
             onDraftActivity={(activity) => {
               userDraftActivityRef.current = activity;

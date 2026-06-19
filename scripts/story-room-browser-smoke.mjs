@@ -579,6 +579,11 @@ async function main() {
       return 'custom-input-seeded';
     }))()`, true);
     await wait(1800);
+    const customInputBefore = JSON.parse(await evaluate(cdp, `JSON.stringify({
+      path: location.pathname,
+      placeholders: Array.from(document.querySelectorAll('textarea, input')).map((input) => input.getAttribute('placeholder') || '').filter(Boolean)
+    })`));
+    assertCondition(customInputBefore.placeholders.some((placeholder) => placeholder.includes('自定义剧情走向')), 'Story custom direction input did not expose a story-specific placeholder', customInputBefore);
     await evaluate(cdp, `(() => {
       const input = document.querySelector('textarea, input');
       if (!input) throw new Error('story custom direction input not found');

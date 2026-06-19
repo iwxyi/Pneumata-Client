@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../types/message';
 import { useMessageStore } from '../stores/useMessageStore';
-import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom, shouldRegisterLiveNarrativeReveal, shouldRouteTextAsStoryCustomDirection } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, buildStoryReaderTextInputCapabilities, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryReaderComposerPlaceholder, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom, shouldRegisterLiveNarrativeReveal, shouldRouteTextAsStoryCustomDirection } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -134,6 +134,23 @@ describe('ChatDetailPage pause/resume behavior', () => {
       hasGuideTargetMember: false,
       content: '   ',
     })).toBe(false);
+  });
+
+  it('presents story room reader input as text-only story direction control', () => {
+    expect(getStoryReaderComposerPlaceholder()).toContain('自定义剧情走向');
+    expect(buildStoryReaderTextInputCapabilities({
+      imageInput: true,
+      multiImageInput: true,
+      fileInput: true,
+      maxAttachments: 10,
+      supportedMimeTypes: ['image/png'],
+    })).toEqual({
+      imageInput: false,
+      multiImageInput: false,
+      fileInput: false,
+      maxAttachments: 10,
+      supportedMimeTypes: ['image/png'],
+    });
   });
 
   it('auto-starts story rooms only when the story is ready to keep running', () => {
