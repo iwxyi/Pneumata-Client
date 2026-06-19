@@ -9,6 +9,7 @@ Required environment:
 
 Optional environment:
   PNEUMATA_STORY_LLM_BASE_URL  OpenAI-compatible base URL. Defaults to ${DEFAULT_BASE_URL}
+  PNEUMATA_STORY_LLM_TIMEOUT_MS Request timeout. Defaults to 45000
 
 Example:
   PNEUMATA_STORY_LLM_API_KEY=... PNEUMATA_STORY_LLM_MODEL=gpt-4.1 \\
@@ -24,6 +25,7 @@ const config = {
   apiKey: process.env.PNEUMATA_STORY_LLM_API_KEY || '',
   model: process.env.PNEUMATA_STORY_LLM_MODEL || '',
   baseUrl: process.env.PNEUMATA_STORY_LLM_BASE_URL || DEFAULT_BASE_URL,
+  timeoutMs: parseTimeoutMs(process.env.PNEUMATA_STORY_LLM_TIMEOUT_MS),
 };
 
 if (!config.apiKey || !config.model) {
@@ -34,6 +36,11 @@ if (!config.apiKey || !config.model) {
 
 function trimTrailingSlashes(value) {
   return value.replace(/\/+$/, '');
+}
+
+function parseTimeoutMs(value) {
+  const parsed = Number(value || 45000);
+  return Number.isFinite(parsed) ? Math.max(5000, parsed) : 45000;
 }
 
 function chatUrl(baseUrl) {
@@ -107,6 +114,36 @@ function normalizeChoice(raw) {
     risk: clip(raw.risk, 120),
     reward: clip(raw.reward, 120),
   };
+}
+
+function isAbstractChoice(choice) {
+  const text = normalizeWhitespace(`${choice.label} ${choice.prompt}`);
+  return [
+    /^(追查|调查|寻找|收集|整理|推进|深化|面对|探索|观察)(?:线索|真相|剧情|关系|情绪|内心|环境)?$/,
+    /(?:推进剧情|深入内心|追查线索|调查真相|继续探索|面对关键人物|做出选择)/,
+    /^(选项|路线|方向|分支)[一二三四1234]/,
+  ].some((pattern) => pattern.test(text));
+}
+
+function hasAuthorNote(text) {
+  const normalized = normalizeWhitespace(text);
+  return [
+    /^(接下来|下一步|后续|本轮|这一轮|这一段|本段)(?:的)?(?:剧情|故事|叙事|场景|内容|走向|分支|节拍)?(?:会|将|应该|需要|可以|要)/,
+    /^(剧情|故事|叙事|场景|分支|节拍)(?:走向|安排|设计|说明|分析|总结|规划|目标|方向)/,
+    /^(作者|编剧|导演|系统|旁白)(?:说明|提示|分析|安排|规划)/,
+    /^(选择后|用户选择后)(?:剧情|故事|叙事|场景)?(?:会|将|应该|需要)/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function selectedChoiceAnchors(choice) {
+  const text = normalizeWhitespace(`${choice?.label || ''} ${choice?.prompt || ''}`);
+  const domainAnchors = text.match(/名单|钥匙|血迹|档案室|袖口|停电|失踪|门锁|走廊|医院|推开|交出|追问|逼问|检查/g) || [];
+  const phraseAnchors = (text.match(/[\u4e00-\u9fa5]{2,}/g) || [])
+    .filter((token) => !['让林医生', '林医生', '护士', '主角', '立刻', '先', '再'].includes(token))
+    .filter((token) => token.length >= 2)
+    .sort((left, right) => right.length - left.length);
+  return Array.from(new Set([...domainAnchors, ...phraseAnchors]))
+    .slice(0, 8);
 }
 
 function normalizeEvents(value) {
@@ -186,25 +223,35 @@ function assertCondition(condition, message, detail) {
 }
 
 async function generateStoryEvents(messages) {
-  const response = await fetch(chatUrl(config.baseUrl), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: 0.75,
-      max_tokens: 1200,
-      response_format: { type: 'json_object' },
-      messages,
-    }),
-  });
-  if (!response.ok) throw new Error(`LLM request failed: ${response.status} ${await response.text()}`);
-  const payload = await response.json();
-  const content = payload.choices?.[0]?.message?.content || '';
-  const parsed = parseJsonObject(content);
-  return normalizeEvents(parsed.storyEvents || parsed.events);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
+  try {
+    const response = await fetch(chatUrl(config.baseUrl), {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: config.model,
+        temperature: 0.75,
+        max_tokens: 1200,
+        response_format: { type: 'json_object' },
+        messages,
+      }),
+    });
+    if (!response.ok) throw new Error(`LLM request failed: ${response.status} ${await response.text()}`);
+    const payload = await response.json();
+    const content = payload.choices?.[0]?.message?.content || '';
+    const parsed = parseJsonObject(content);
+    return normalizeEvents(parsed.storyEvents || parsed.events);
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error(`LLM request timed out after ${config.timeoutMs}ms`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function buildSystemPrompt() {
@@ -214,6 +261,7 @@ function buildSystemPrompt() {
     'storyEvents 是唯一可见正文。旁白写外部动作、场景变化、后果和压力；角色台词只写角色能说出口的话。',
     '不要复述上一轮原句，不要输出作者说明、剧情规划、意图分析或“下一步将会”。',
     '抉择只在要求 choice_point 的轮次出现；每个选项必须是具体人物、地点、线索、威胁或目标上的行动。',
+    '禁止抽象选项，例如“追查线索”“推进剧情”“深入内心”“面对关键人物”。',
   ].join('\n');
 }
 
@@ -225,6 +273,7 @@ function buildUserPrompt(turn, transcript, selectedChoice) {
     transcript.length ? transcript.slice(-4).map((item, index) => `${index + 1}. ${item}`).join('\n') : '无',
   ];
   if (selectedChoice) base.push(`用户刚才选择：${selectedChoice.label}。必须把这个选择当作正史兑现，不能写未选分支已经发生。`);
+  base.push('连续性资产：当前地点=旧医院走廊；线索=新鲜血迹、铜钥匙、被雨水洇开的名单；压力=护士隐瞒停电时档案室有人进入；未解问题=失踪名单少了谁。');
   const policy = {
     establish: '本轮是开场 establish。禁止 choice_point。开头必须在走廊现场，有具体物件/声音/动作，并至少一条角色台词。',
     pressure: '本轮是 pressure。禁止 choice_point。继续制造可见压力，给出新线索或关系裂缝，并至少一条角色台词。',
@@ -248,6 +297,8 @@ async function main() {
     const choices = events.flatMap((event) => event.type === 'choice_point' ? event.choices : []);
     assertCondition(quality.score >= (turn === 'decision' ? 82 : 72), `Quality score too low on ${turn}`, { quality, events });
     assertCondition(turn === 'decision' ? choices.length >= 2 : choices.length === 0, `Unexpected choice policy result on ${turn}`, { choiceCount: choices.length, events });
+    assertCondition(!hasAuthorNote(text), `Author note leaked into visible story text on ${turn}`, { text, events });
+    assertCondition(choices.every((choice) => !isAbstractChoice(choice)), `Abstract story choice leaked on ${turn}`, { choices });
     for (const previous of transcript) {
       assertCondition(textSimilarity(text, previous) < 0.72, `Near-duplicate story text on ${turn}`, { text, previous, similarity: textSimilarity(text, previous) });
     }
@@ -267,9 +318,11 @@ async function main() {
   const consequenceChoices = consequenceEvents.flatMap((event) => event.type === 'choice_point' ? event.choices : []);
   assertCondition(consequenceQuality.score >= 72, 'Quality score too low on consequence', { quality: consequenceQuality, consequenceEvents });
   assertCondition(consequenceChoices.length === 0, 'Consequence turn must not reopen choices immediately', { consequenceChoices, consequenceEvents });
+  assertCondition(!hasAuthorNote(consequenceText), 'Author note leaked into consequence visible story text', { consequenceText, consequenceEvents });
   assertCondition(textSimilarity(consequenceText, transcript.at(-1) || '') < 0.72, 'Consequence repeated the decision setup instead of resolving it', { consequenceText, previous: transcript.at(-1) });
-  const selectedTokens = normalizeRepeatText(`${selectedChoice?.prompt || ''}${selectedChoice?.label || ''}`);
-  assertCondition(!selectedTokens || normalizeRepeatText(consequenceText).includes(selectedTokens.slice(0, 6)), 'Consequence did not visibly connect to the selected branch', { selectedChoice, consequenceText });
+  const anchors = selectedChoiceAnchors(selectedChoice);
+  const normalizedConsequence = normalizeRepeatText(consequenceText);
+  assertCondition(!anchors.length || anchors.some((anchor) => normalizedConsequence.includes(normalizeRepeatText(anchor))), 'Consequence did not visibly connect to the selected branch', { selectedChoice, anchors, consequenceText });
   summaries.push({ turn: 'consequence', quality: consequenceQuality, choiceCount: consequenceChoices.length, sample: consequenceText.slice(0, 120) });
 
   console.log(JSON.stringify({
