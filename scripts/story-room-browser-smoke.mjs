@@ -477,6 +477,11 @@ async function main() {
     })`));
     assertCondition(liveRevealDone.text.includes('第二段顺序验收'), 'Live narrative reveal did not eventually show the later block', liveRevealDone);
     assertCondition(new Set(liveRevealDone.messageIds).size === liveRevealDone.messageIds.length, 'Live narrative reveal duplicated message nodes', liveRevealDone.messageIds);
+    assertCondition(
+      liveRevealDone.bottomDistance == null || liveRevealDone.bottomDistance <= 160,
+      'Live narrative reveal did not keep the story view pinned near the bottom',
+      liveRevealDone,
+    );
 
     await evaluate(cdp, `(() => {
       const button = Array.from(document.querySelectorAll('button')).find((item) => item.innerText.includes('让林医生追问护士昨晚去向'));
