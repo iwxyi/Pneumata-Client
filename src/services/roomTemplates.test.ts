@@ -51,6 +51,40 @@ describe('roomTemplates story seeds', () => {
     }
   });
 
+  it('turns every story template into a concrete opening with pressure, clues, and hooks', () => {
+    for (const key of storyTemplateKeys) {
+      const template = getRoomTemplate(key);
+      const draft = buildStoryDraft(key, template.topicPlaceholder.replace(/^例如：/, '').split('、')[0] || template.label);
+      const state = draft.scenarioState;
+      const seedText = [
+        state?.storyGoal,
+        state?.storySituation,
+        state?.currentScene?.summary,
+        ...(state?.openQuestions || []),
+        ...(state?.clues || []),
+        ...(state?.stakes || []),
+        ...(state?.relationshipShifts || []),
+        state?.chapterMemory,
+      ].filter(Boolean).join('\n');
+
+      expect(state).toEqual(expect.objectContaining({
+        phase: 'scene',
+        storyBeatKind: 'establish',
+        storyChoicePolicy: 'forbid',
+        choiceHistory: [],
+        branches: [],
+      }));
+      expect(state?.storyGoal?.trim().length).toBeGreaterThan(20);
+      expect(state?.storySituation?.trim().length).toBeGreaterThan(20);
+      expect(state?.currentScene?.summary?.trim().length).toBeGreaterThan(20);
+      expect(state?.currentScene?.visibleThreat || state?.stakes?.[0]).toBeTruthy();
+      expect(state?.openQuestions?.length).toBeGreaterThanOrEqual(2);
+      expect(state?.clues?.length).toBeGreaterThanOrEqual(1);
+      expect(state?.stakes?.length).toBeGreaterThanOrEqual(1);
+      expect(seedText).toMatch(/秘密|真相|停电|失踪|匿名|误发|照片|语音|名单|压力|暴露|裂缝|竞争|误会|分手/);
+    }
+  });
+
   it('turns the default story seed into initial narrative assets', () => {
     const draft = buildStoryDraft('story_reader', '雨夜旧医院');
 
