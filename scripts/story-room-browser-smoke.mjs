@@ -91,6 +91,7 @@ const seedStoryRoomExpression = String.raw`
     { flushBufferedPersistenceWrites },
     { normalizeConversation },
     characterTypes,
+    narrativeRuntime,
   ] = await Promise.all([
     import('/src/stores/useChatStore.ts'),
     import('/src/stores/useMessageStore.ts'),
@@ -99,6 +100,7 @@ const seedStoryRoomExpression = String.raw`
     import('/src/stores/storePersistenceScope.ts'),
     import('/src/types/chat.ts'),
     import('/src/types/character.ts'),
+    import('/src/services/narrativeRuntime.ts'),
   ]);
   const now = Date.now();
   const baseCharacter = {
@@ -155,54 +157,62 @@ const seedStoryRoomExpression = String.raw`
     updatedAt: now,
     lastMessageAt: now,
   });
+  const storyCharacters = [
+    { id: 'lin', name: '林医生' },
+    { id: 'nurse', name: '护士' },
+  ];
+  const buildStoryEventMessage = ({ id, timestamp, events, extraBlocks = [] }) => {
+    const storyEvents = narrativeRuntime.normalizeStoryEvents(events);
+    const narrativeTurn = narrativeRuntime.buildNarrativeTurnFromStoryEvents({
+      conversation: chat,
+      events: storyEvents,
+      characters: storyCharacters,
+    });
+    return {
+      id,
+      chatId: chat.id,
+      type: 'ai',
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: narrativeRuntime.buildStoryEventsVisibleText(storyEvents, storyCharacters),
+      emotion: 0,
+      timestamp,
+      isDeleted: false,
+      metadata: {
+        storyEvents,
+        storyChoices: narrativeRuntime.getStoryChoicesFromEvents(storyEvents),
+        narrativeTurn: narrativeTurn ? {
+          ...narrativeTurn,
+          blocks: [...narrativeTurn.blocks, ...extraBlocks],
+        } : undefined,
+      },
+    };
+  };
   const messages = [
-    {
+    buildStoryEventMessage({
       id: 'intro',
-      chatId: chat.id,
-      type: 'ai',
-      senderId: 'narrator',
-      senderName: '旁白',
-      content: '雨水顺着旧医院走廊的窗缝往下流，墙上的新鲜血迹还没有干。',
-      emotion: 0,
       timestamp: now,
-      isDeleted: false,
-      metadata: {
-        narrativeTurn: {
-          turnId: 'intro-turn',
-          turnKind: 'narrative_beat',
-          povActorId: 'narrator',
-          blocks: [
-            { id: 'intro-narration', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '雨水顺着旧医院走廊的窗缝往下流，墙上的新鲜血迹还没有干。' },
-            { id: 'intro-speech', actorId: 'lin', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', characterId: 'lin', text: '不要碰那道血迹，先看护士的反应。' },
-          ],
-        },
-      },
-    },
-    {
+      events: [
+        { type: 'narration', text: '雨水顺着旧医院走廊的窗缝往下流，墙上的新鲜血迹还没有干。' },
+        { type: 'speech', characterId: 'lin', text: '不要碰那道血迹，先看护士的反应。' },
+      ],
+    }),
+    buildStoryEventMessage({
       id: 'choice-source',
-      chatId: chat.id,
-      type: 'ai',
-      senderId: 'narrator',
-      senderName: '旁白',
-      content: '',
-      emotion: 0,
       timestamp: now + 1,
-      isDeleted: false,
-      metadata: {
-        narrativeTurn: {
-          turnId: 'choice-source-turn',
-          turnKind: 'choice_prompt',
-          povActorId: 'narrator',
-          blocks: [
-            { id: 'choice-diagnostic', actorId: 'narrator', actorKind: 'system', kind: 'system_note', displayMode: 'system_panel', text: '新的抉择点\n前情：林医生在走廊发现血迹。\n取舍：逼问护士 / 检查血迹' },
+      events: [
+        {
+          type: 'choice_point',
+          choices: [
+            { label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士说出停电时的真相', intent: '逼问', risk: '激怒护士', reward: '得到停电线索' },
+            { label: '让主角检查墙上的新鲜血迹', prompt: '主角检查墙上的新鲜血迹', intent: '探索', risk: '暴露位置', reward: '发现新证据' },
           ],
         },
-        storyChoices: [
-          { label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士说出停电时的真相', intent: '逼问', risk: '激怒护士', reward: '得到停电线索' },
-          { label: '让主角检查墙上的新鲜血迹', prompt: '主角检查墙上的新鲜血迹', intent: '探索', risk: '暴露位置', reward: '发现新证据' },
-        ],
-      },
-    },
+      ],
+      extraBlocks: [
+        { id: 'choice-diagnostic', actorId: 'narrator', actorKind: 'system', kind: 'system_note', displayMode: 'system_panel', text: '新的抉择点\n前情：林医生在走廊发现血迹。\n取舍：逼问护士 / 检查血迹' },
+      ],
+    }),
   ];
   const writeIndexedDbJson = (key, value) => new Promise((resolve, reject) => {
     const request = indexedDB.open('pneumata-local-store', 1);
@@ -362,9 +372,18 @@ async function main() {
     assertCondition(!before.hasDeveloperChoiceMeta, 'Developer-only story choice meta leaked to normal UI', before);
     assertCondition(!before.hasContinueButton, 'Story room exposed a continue button instead of auto-running', before);
     assertCondition(before.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing', before.buttons);
+    const choiceSourceMetadata = JSON.parse(await evaluate(cdp, `import('/src/stores/useMessageStore.ts').then(({ useMessageStore }) => {
+      const message = useMessageStore.getState().messages.find((item) => item.id === 'choice-source');
+      return JSON.stringify({
+        storyEventTypes: message?.metadata?.storyEvents?.map((event) => event.type) || [],
+        storyChoiceLabels: message?.metadata?.storyChoices?.map((choice) => choice.label) || [],
+      });
+    })`, true));
+    assertCondition(choiceSourceMetadata.storyEventTypes.includes('choice_point'), 'Story smoke choice source did not use storyEvents.choice_point', choiceSourceMetadata);
+    assertCondition(choiceSourceMetadata.storyChoiceLabels.includes('让林医生追问护士昨晚去向'), 'Story smoke did not derive visible choices from storyEvents', choiceSourceMetadata);
 
     await evaluate(cdp, `(() => {
-      const root = document.querySelector('[data-message-id="intro:narrative-block:intro-speech"]');
+      const root = Array.from(document.querySelectorAll('[data-message-id]')).find((node) => node.textContent?.includes('不要碰那道血迹'));
       if (!root) throw new Error('story speech bubble node not found');
       const candidates = Array.from(root.querySelectorAll('*')).filter((node) => node.textContent?.includes('不要碰那道血迹'));
       const bubble = candidates.at(-1);
@@ -388,7 +407,9 @@ async function main() {
     await wait(250);
 
     await evaluate(cdp, `(() => {
-      const avatar = document.querySelector('[data-message-id="intro:narrative-block:intro-speech"] .MuiAvatar-root');
+      const root = Array.from(document.querySelectorAll('[data-message-id]')).find((node) => node.textContent?.includes('不要碰那道血迹'));
+      if (!root) throw new Error('story speech bubble node not found for avatar click');
+      const avatar = root.querySelector('.MuiAvatar-root');
       if (!avatar) throw new Error('story speech avatar not found');
       avatar.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
       return 'avatar-clicked';
