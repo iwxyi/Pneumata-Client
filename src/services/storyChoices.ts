@@ -23,6 +23,14 @@ const abstractStoryChoicePatterns = [
   /^调查真相$/,
 ];
 
+function sanitizeStoryChoiceLabel(label: string) {
+  return label
+    .trim()
+    .replace(/^(?:选项|选择|方案|分支)\s*(?:[A-Da-d]|\d+|[一二三四])?\s*[：:、.)）-]?\s*/u, '')
+    .replace(/[\s（(【[]*(?:意图|风险|收益|回报|奖励|代价)\s*[：:].*$/u, '')
+    .trim();
+}
+
 export function isConcreteStoryChoiceLabel(label: string) {
   const normalized = label.replace(/\s+/g, '').trim();
   if (!normalized) return false;
@@ -106,7 +114,7 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
     .map((choice) => {
       if (!choice || typeof choice !== 'object') return { label: '', prompt: '' };
       const item = choice as Partial<Record<keyof StoryChoiceSuggestion, unknown>>;
-      const label = typeof item.label === 'string' ? item.label.trim() : '';
+      const label = typeof item.label === 'string' ? sanitizeStoryChoiceLabel(item.label) : '';
       const prompt = typeof item.prompt === 'string' ? item.prompt.trim() : '';
       const intent = typeof item.intent === 'string' ? item.intent.trim() : '';
       const risk = typeof item.risk === 'string' ? item.risk.trim() : '';
