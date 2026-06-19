@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { buildChatRenderItems } from './chatRenderModel';
-import { isNarrativeRevealAllowed, resolveNarrativeRevealTracking, selectNewNarrativeRevealKeys } from './MessageList';
+import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed, resolveNarrativeRevealTracking, selectNewNarrativeRevealKeys } from './MessageList';
 
 function buildMessage(id: string, overrides: Partial<Message> = {}): Message {
   return {
@@ -187,5 +187,34 @@ describe('MessageList narrative reveal eligibility', () => {
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['other-message']) })).toBe(false);
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['client-story-live']) })).toBe(true);
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['server-story-live']) })).toBe(true);
+  });
+
+  it('hides developer-only story panels from the normal narrative stream', () => {
+    const systemPanelOnly = buildMessage('choice-diagnostic', {
+      metadata: {
+        narrativeTurn: {
+          turnId: 'choice-diagnostic',
+          turnKind: 'choice_prompt',
+          povActorId: 'narrator',
+          blocks: [{
+            id: 'choice-diagnostic-panel',
+            actorId: 'narrator',
+            actorKind: 'system',
+            kind: 'system_note',
+            displayMode: 'system_panel',
+            text: '新的抉择点\n前情：走廊尽头还有脚步声。',
+          }],
+        },
+        storyChoices: [
+          { label: '让林医生推门查看脚步声来源', prompt: '林医生推门查看脚步声来源' },
+          { label: '让护士守在楼梯口观察退路', prompt: '护士守住楼梯口' },
+        ],
+      },
+    });
+
+    expect(getVisibleNarrativeDisplayBlocks(systemPanelOnly, false)).toEqual([]);
+    expect(getVisibleNarrativeDisplayBlocks(systemPanelOnly, true)).toEqual([
+      expect.objectContaining({ displayMode: 'system_panel', text: expect.stringContaining('新的抉择点') }),
+    ]);
   });
 });

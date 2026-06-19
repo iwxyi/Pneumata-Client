@@ -242,6 +242,11 @@ export function isNarrativeRevealAllowed(params: {
   ].some((key) => Boolean(key && keys.has(key)));
 }
 
+export function getVisibleNarrativeDisplayBlocks(message: Message, showDeveloperDetails: boolean) {
+  return getNarrativeDisplayBlocks(message)
+    .filter((block) => block.displayMode !== 'system_panel' || showDeveloperDetails);
+}
+
 export default function MessageList({
   messages,
   characters,
@@ -347,9 +352,19 @@ export default function MessageList({
     if (item.renderKind === 'event') return <EventMessageItem key={item.key} message={item.message} members={characters} />;
     const showStoryChoices = item.renderKind === 'narrative' && item.message.id === storyChoiceMessageId && Boolean(onChooseStoryChoice);
     const blocks = item.renderKind === 'narrative'
-      ? getNarrativeDisplayBlocks(item.message).filter((block) => block.displayMode !== 'system_panel' || developerMode)
+      ? getVisibleNarrativeDisplayBlocks(item.message, developerMode)
       : [];
-    if (!blocks.length) return renderBubble(item);
+    if (!blocks.length) {
+      if (showStoryChoices && onChooseStoryChoice) {
+        return (
+          <Box key={item.key} sx={{ display: 'grid' }}>
+            <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} />
+          </Box>
+        );
+      }
+      if (item.renderKind === 'narrative') return null;
+      return renderBubble(item);
+    }
     const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: narrativeRevealMessageKeys || revealEligibleKeys });
     const activeRevealIndex = recentNarrative
       ? blocks.findIndex((candidate, candidateIndex) => {
