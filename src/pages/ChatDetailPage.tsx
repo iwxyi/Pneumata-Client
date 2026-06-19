@@ -6,7 +6,6 @@ import LoadingState from '../components/common/LoadingState';
 import PeopleIcon from '@mui/icons-material/People';
 import InfoIcon from '@mui/icons-material/Info';
 import PlayIcon from '@mui/icons-material/PlayArrow';
-import AutoStoriesIcon from '@mui/icons-material/AutoStories';
 import PauseIcon from '@mui/icons-material/Pause';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
@@ -72,23 +71,6 @@ function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
 }
 
-export function shouldShowStoryContinueButton(params: {
-  isStoryRoom: boolean;
-  isStoryWaitingForChoice: boolean;
-  isStoryChoiceSubmitting?: boolean;
-  isRemoteDeletedChat: boolean;
-  hasChat: boolean;
-  isRunning: boolean;
-  isPaused: boolean;
-}) {
-  return params.isStoryRoom
-    && !params.isStoryWaitingForChoice
-    && !params.isStoryChoiceSubmitting
-    && !params.isRemoteDeletedChat
-    && params.hasChat
-    && (!params.isRunning || params.isPaused);
-}
-
 export function buildStoryChoicePendingKey(params: {
   chatId: string;
   choiceEpoch?: number | null;
@@ -113,12 +95,10 @@ export function isStoryChoicePending(params: {
 
 export function getStoryTailStatus(params: {
   hasRunLoopStatus: boolean;
-  canContinueStory: boolean;
   isStoryChoiceSubmitting: boolean;
 }) {
   if (params.hasRunLoopStatus) return 'status' as const;
   if (params.isStoryChoiceSubmitting) return 'submitting_choice' as const;
-  if (params.canContinueStory) return 'continue' as const;
   return null;
 }
 
@@ -930,20 +910,6 @@ export default function ChatDetailPage() {
       {chatError || runLoopError}
     </Alert>
   ) : null;
-  const canContinueStory = shouldShowStoryContinueButton({
-    isStoryRoom,
-    isStoryWaitingForChoice,
-    isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
-    isRemoteDeletedChat,
-    hasChat: Boolean(chat),
-    isRunning,
-    isPaused,
-  });
-  const handleContinueStory = useCallback(() => {
-    if (!chat || !id) return;
-    resume();
-    startConversationLoopIfNeeded(chat);
-  }, [chat, id, resume, startConversationLoopIfNeeded]);
   const handleChooseStoryBranch = useCallback(async (optionValue: string) => {
     if (!chat || !id) return;
     const option = storyBranchOptions.find((item) => item.value === optionValue);
@@ -1011,7 +977,6 @@ export default function ChatDetailPage() {
   }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceSourceMessage?.id, updateChat]);
   const storyTailStatus = getStoryTailStatus({
     hasRunLoopStatus: Boolean(runLoopStatusContent),
-    canContinueStory,
     isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
   });
   const storyBranchSuggestionContent = storyTailStatus ? (
@@ -1032,25 +997,6 @@ export default function ChatDetailPage() {
               boxShadow: '0 8px 22px rgba(15,23,42,0.10)',
             })}
           />
-        </Box>
-      ) : null}
-      {storyTailStatus === 'continue' ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
-          <Button
-            variant="contained"
-            size="small"
-            startIcon={<AutoStoriesIcon fontSize="small" />}
-            onClick={handleContinueStory}
-            sx={{
-              borderRadius: 2,
-              px: 1.8,
-              py: 0.8,
-              fontWeight: 700,
-              boxShadow: '0 10px 26px rgba(15,23,42,0.16)',
-            }}
-          >
-            继续剧情
-          </Button>
         </Box>
       ) : null}
     </>
@@ -1104,6 +1050,26 @@ export default function ChatDetailPage() {
   }, [fromTab, navigate]);
 
   const canAutoRunConversation = chat?.type !== 'direct' && !isRemoteDeletedChat;
+
+  useEffect(() => {
+    if (!chat || !id || !canAutoRunConversation || !isStoryRoom) return;
+    if (isRunning || isPaused) return;
+    if (isStoryWaitingForChoice || isCurrentStoryChoiceSubmitting) return;
+    if (chatError || runLoopError) return;
+    startConversationLoopIfNeeded(chat);
+  }, [
+    canAutoRunConversation,
+    chat,
+    chatError,
+    id,
+    isCurrentStoryChoiceSubmitting,
+    isPaused,
+    isRunning,
+    isStoryRoom,
+    isStoryWaitingForChoice,
+    runLoopError,
+    startConversationLoopIfNeeded,
+  ]);
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;

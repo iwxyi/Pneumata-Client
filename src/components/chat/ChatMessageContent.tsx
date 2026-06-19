@@ -1,5 +1,5 @@
 import { Box, Button, Chip, LinearProgress, Typography, keyframes } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Message, MessageAttachment, NarrativeBlock } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
@@ -33,10 +33,14 @@ export function PendingTypingDots() {
 
 export function RevealedMarkdownText({ text, reveal = false, onComplete }: { text: string; reveal?: boolean; onComplete?: () => void }) {
   const [visibleLength, setVisibleLength] = useState(reveal ? 0 : text.length);
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
   useEffect(() => {
     if (!reveal) {
       setVisibleLength(text.length);
-      onComplete?.();
+      onCompleteRef.current?.();
       return undefined;
     }
     setVisibleLength(0);
@@ -46,13 +50,13 @@ export function RevealedMarkdownText({ text, reveal = false, onComplete }: { tex
         const next = Math.min(text.length, current + step);
         if (next >= text.length) {
           window.clearInterval(timer);
-          window.setTimeout(() => onComplete?.(), 0);
+          window.setTimeout(() => onCompleteRef.current?.(), 0);
         }
         return next;
       });
     }, 28);
     return () => window.clearInterval(timer);
-  }, [onComplete, reveal, text]);
+  }, [reveal, text]);
   return <MarkdownText text={text.slice(0, visibleLength)} />;
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { normalizeConversation } from '../types/chat';
 import { buildChatRenderItems } from '../components/chat/chatRenderModel';
 import { getNarrativeParagraphBlocks } from '../components/chat/messageBubblePresentation';
-import { buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, shouldShowStoryContinueButton } from '../pages/ChatDetailPage';
+import { buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus } from '../pages/ChatDetailPage';
 import { buildStoryBranchOptions } from './storyChoices';
 import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
 import { STORY_ENGINE } from './engines/storyEngine';
@@ -63,7 +63,7 @@ function message(overrides: Partial<Message>): Message {
 }
 
 describe('story room user flow', () => {
-  it('keeps choices, selection, consequence, continuation, and story assets coherent', async () => {
+  it('keeps choices, selection, consequence, auto-run readiness, and story assets coherent', async () => {
     const chat = buildStoryChat();
     const choiceMessage = message({
       id: 'choice-source',
@@ -98,16 +98,6 @@ describe('story room user flow', () => {
       '让林医生追问护士昨晚去向',
       '让主角检查墙上的血迹',
     ]);
-    expect(shouldShowStoryContinueButton({
-      isStoryRoom: true,
-      isStoryWaitingForChoice: options.length > 0,
-      isStoryChoiceSubmitting: false,
-      isRemoteDeletedChat: false,
-      hasChat: true,
-      isRunning: false,
-      isPaused: false,
-    })).toBe(false);
-
     const selected = options[0];
     const selectionMessage = message({
       id: 'choice-selection',
@@ -200,16 +190,7 @@ describe('story room user flow', () => {
     }));
     expect(getStoryTailStatus({
       hasRunLoopStatus: false,
-      canContinueStory: shouldShowStoryContinueButton({
-        isStoryRoom: true,
-        isStoryWaitingForChoice: false,
-        isStoryChoiceSubmitting: false,
-        isRemoteDeletedChat: false,
-        hasChat: true,
-        isRunning: false,
-        isPaused: false,
-      }),
       isStoryChoiceSubmitting: false,
-    })).toBe('continue');
+    })).toBeNull();
   });
 });

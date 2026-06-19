@@ -173,6 +173,48 @@ function buildNarrativeBlockMessage(parent: Message, block: NarrativeBlock, turn
   };
 }
 
+export function selectNewNarrativeRevealKeys(params: {
+  previousKeys: Set<string>;
+  items: ChatRenderItem[];
+}) {
+  if (params.previousKeys.size === 0) return [];
+  const lastPreviousIndex = params.items.reduce((latest, item, index) => (
+    params.previousKeys.has(item.key) ? index : latest
+  ), -1);
+  if (lastPreviousIndex < 0) return [];
+  return params.items
+    .slice(lastPreviousIndex + 1)
+    .filter((item) => (
+      !params.previousKeys.has(item.key)
+      && item.renderKind === 'narrative'
+      && item.message.type === 'ai'
+      && getNarrativeDisplayBlocks(item.message).some((block) => block.displayMode !== 'hidden' && block.text.trim())
+    ))
+    .map((item) => item.key);
+}
+
+export function resolveNarrativeRevealTracking(params: {
+  initialized: boolean;
+  previousKeys: Set<string>;
+  items: ChatRenderItem[];
+}) {
+  const nextKeys = new Set(params.items.map((item) => item.key));
+  if (!params.initialized) {
+    if (params.items.length === 0) {
+      return { initialized: false, nextSeenKeys: params.previousKeys, newRevealKeys: [] as string[] };
+    }
+    return { initialized: true, nextSeenKeys: nextKeys, newRevealKeys: [] as string[] };
+  }
+  return {
+    initialized: true,
+    nextSeenKeys: nextKeys,
+    newRevealKeys: selectNewNarrativeRevealKeys({
+      previousKeys: params.previousKeys,
+      items: params.items,
+    }),
+  };
+}
+
 export default function MessageList({
   messages,
   characters,
@@ -201,7 +243,10 @@ export default function MessageList({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [completedRevealKeys, setCompletedRevealKeys] = useState<Set<string>>(() => new Set());
+  const [revealEligibleKeys, setRevealEligibleKeys] = useState<Set<string>>(() => new Set());
   const [viewerKey, setViewerKey] = useState<string | null>(null);
+  const revealKeyTrackingInitializedRef = useRef(false);
+  const seenRenderKeysRef = useRef<Set<string>>(new Set());
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const hasJumpedToBottomRef = useRef(false);
@@ -275,7 +320,7 @@ export default function MessageList({
       ? getNarrativeDisplayBlocks(item.message).filter((block) => block.displayMode !== 'system_panel' || developerMode)
       : [];
     if (!blocks.length) return renderBubble(item);
-    const recentNarrative = !item.pending && item.message.type === 'ai' && Date.now() - item.message.timestamp < 15000;
+    const recentNarrative = !item.pending && revealEligibleKeys.has(item.key);
     const activeRevealIndex = recentNarrative
       ? blocks.findIndex((candidate, candidateIndex) => {
         const candidateKey = `${item.key}:block:${candidate.id || candidateIndex}`;
@@ -309,7 +354,7 @@ export default function MessageList({
         ) : null}
       </Box>
     );
-  }, [characters, completedRevealKeys, developerMode, onChooseStoryChoice, renderBubble, storyChoiceMessageId, storyChoiceOptions]);
+  }, [characters, completedRevealKeys, developerMode, onChooseStoryChoice, renderBubble, revealEligibleKeys, storyChoiceMessageId, storyChoiceOptions]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -357,6 +402,31 @@ export default function MessageList({
     }
     return snapshot;
   }, [captureScrollAnchor, isLoadingOlder]);
+
+  useLayoutEffect(() => {
+    const tracking = resolveNarrativeRevealTracking({
+      initialized: revealKeyTrackingInitializedRef.current,
+      previousKeys: seenRenderKeysRef.current,
+      items: renderItems,
+    });
+    revealKeyTrackingInitializedRef.current = tracking.initialized;
+    seenRenderKeysRef.current = tracking.nextSeenKeys;
+    setRevealEligibleKeys((current) => {
+      let changed = false;
+      const next = new Set<string>();
+      current.forEach((key) => {
+        if (tracking.nextSeenKeys.has(key)) next.add(key);
+        else changed = true;
+      });
+      tracking.newRevealKeys.forEach((key) => {
+        if (!next.has(key)) {
+          next.add(key);
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [renderItems]);
 
   const updatePinnedState = useCallback(() => {
     const container = containerRef.current;

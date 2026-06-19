@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending, shouldShowStoryContinueButton } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryTailStatus, isStoryChoicePending } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -8,26 +8,6 @@ function buildPauseResumeMessages() {
 describe('ChatDetailPage pause/resume behavior', () => {
   it('does not add system messages for pause/resume', () => {
     expect(buildPauseResumeMessages()).toEqual([]);
-  });
-
-  it('shows the story continue fallback only when a story room is stopped or paused without pending choices', () => {
-    const base = {
-      isStoryRoom: true,
-      isStoryWaitingForChoice: false,
-      isRemoteDeletedChat: false,
-      hasChat: true,
-      isRunning: false,
-      isPaused: false,
-    };
-
-    expect(shouldShowStoryContinueButton(base)).toBe(true);
-    expect(shouldShowStoryContinueButton({ ...base, isRunning: true, isPaused: true })).toBe(true);
-    expect(shouldShowStoryContinueButton({ ...base, isRunning: true, isPaused: false })).toBe(false);
-    expect(shouldShowStoryContinueButton({ ...base, isStoryWaitingForChoice: true })).toBe(false);
-    expect(shouldShowStoryContinueButton({ ...base, isStoryChoiceSubmitting: true })).toBe(false);
-    expect(shouldShowStoryContinueButton({ ...base, isStoryRoom: false })).toBe(false);
-    expect(shouldShowStoryContinueButton({ ...base, isRemoteDeletedChat: true })).toBe(false);
-    expect(shouldShowStoryContinueButton({ ...base, hasChat: false })).toBe(false);
   });
 
   it('locks a whole story choice epoch instead of a single branch value', () => {
@@ -77,25 +57,17 @@ describe('ChatDetailPage pause/resume behavior', () => {
     })).toBe(false);
   });
 
-  it('prioritizes story tail status for errors, choice submission, and continue entry', () => {
+  it('prioritizes story tail status for errors and choice submission only', () => {
     expect(getStoryTailStatus({
       hasRunLoopStatus: true,
-      canContinueStory: true,
       isStoryChoiceSubmitting: true,
     })).toBe('status');
     expect(getStoryTailStatus({
       hasRunLoopStatus: false,
-      canContinueStory: true,
       isStoryChoiceSubmitting: true,
     })).toBe('submitting_choice');
     expect(getStoryTailStatus({
       hasRunLoopStatus: false,
-      canContinueStory: true,
-      isStoryChoiceSubmitting: false,
-    })).toBe('continue');
-    expect(getStoryTailStatus({
-      hasRunLoopStatus: false,
-      canContinueStory: false,
       isStoryChoiceSubmitting: false,
     })).toBeNull();
   });
