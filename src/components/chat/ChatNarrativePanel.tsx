@@ -24,6 +24,7 @@ interface ChatNarrativePanelProps {
 type LineFilter = 'all' | 'main' | NarrativeLineType;
 type StoryChoiceHistoryItem = NonNullable<NonNullable<GroupChat['scenarioState']>['choiceHistory']>[number];
 type StoryBranchItem = NonNullable<NonNullable<GroupChat['scenarioState']>['branches']>[number];
+type StoryQualityTrace = NonNullable<Message['metadata']>['storyQuality'];
 
 const LINE_FILTERS: Array<{ key: LineFilter; label: string }> = [
   { key: 'all', label: '全部' },
@@ -245,6 +246,71 @@ function renderAssetChips(label: string, values: string[] | undefined, members: 
   );
 }
 
+const STORY_QUALITY_LABELS: Record<string, string> = {
+  has_narration: '旁白',
+  has_speech: '气泡',
+  has_choice_point: '抉择',
+  concrete_scene: '具体场景',
+  has_story_hook: '悬念钩子',
+  has_relationship_pressure: '关系压力',
+  choices_have_tradeoffs: '选择取舍',
+};
+
+const STORY_QUALITY_GAPS: Record<string, string> = {
+  missing_narration: '缺少旁白',
+  weak_concrete_scene: '场景细节弱',
+  missing_story_hook: '缺少悬念钩子',
+  no_character_speech: '缺少角色气泡',
+  too_few_choices: '选项不足',
+  choice_tradeoff_missing: '选择取舍不足',
+};
+
+function formatStoryQualityLabel(value: string) {
+  return STORY_QUALITY_LABELS[value] || value;
+}
+
+function formatStoryQualityGap(value: string) {
+  return STORY_QUALITY_GAPS[value] || value;
+}
+
+function getLatestStoryQuality(messages: Message[]): StoryQualityTrace | null {
+  return messages.slice().reverse().find((message) => message.metadata?.storyQuality)?.metadata?.storyQuality || null;
+}
+
+function renderStoryQuality(messages: Message[], showDebugDetails: boolean) {
+  if (!showDebugDetails) return null;
+  const quality = getLatestStoryQuality(messages);
+  if (!quality) return null;
+  const score = Math.max(0, Math.min(100, Math.round(Number(quality.score || 0))));
+  const labels = (quality.labels || []).map(formatStoryQualityLabel).filter(Boolean).slice(0, 8);
+  const gaps = (quality.gaps || []).map(formatStoryQualityGap).filter(Boolean).slice(0, 6);
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.45 }}>故事质量</Typography>
+      <Box
+        sx={(theme) => ({
+          px: 0.9,
+          py: 0.75,
+          borderRadius: 1.5,
+          border: '1px solid',
+          borderColor: theme.palette.mode === 'light' ? 'rgba(245,158,11,0.2)' : 'rgba(251,191,36,0.22)',
+          bgcolor: theme.palette.mode === 'light' ? 'rgba(255,251,235,0.72)' : 'rgba(120,53,15,0.2)',
+        })}
+      >
+        <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: labels.length || gaps.length ? 0.45 : 0 }}>
+          <Chip size="small" label={`质量 ${score}`} variant="outlined" sx={compactPillChipSx} />
+          {labels.map((label) => <Chip key={label} size="small" label={label} variant="outlined" sx={compactPillChipSx} />)}
+        </Stack>
+        {gaps.length ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.6 }}>
+            待补：{gaps.join(' / ')}
+          </Typography>
+        ) : null}
+      </Box>
+    </Box>
+  );
+}
+
 function renderChoiceReview(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
   const choices = chat.scenarioState?.choiceHistory || [];
   const branches = chat.scenarioState?.branches || [];
@@ -411,8 +477,9 @@ function renderStoryProgressCard(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
-function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDebugDetails: boolean) {
-  if (!hasStoryAssets(chat)) return null;
+function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], messages: Message[], showDebugDetails: boolean) {
+  const qualityPanel = renderStoryQuality(messages, showDebugDetails);
+  if (!hasStoryAssets(chat) && !qualityPanel) return null;
   const state = chat.scenarioState || {};
   const recap = state.chapterRecap || null;
   return (
@@ -456,6 +523,7 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
         {renderAssetChips('线索', state.clues, members)}
         {showDebugDetails ? renderAssetChips('代价', state.stakes, members) : null}
         {renderAssetChips('关系压力', state.relationshipShifts, members)}
+        {qualityPanel}
         {renderChoiceReview(chat, members, showDebugDetails)}
       </Stack>
     </Box>
@@ -505,14 +573,16 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
   const language = useSettingsStore((state) => state.language);
   const isZh = language.startsWith('zh');
-  const showDebugDetails = developerMode && showAdvancedRuntimePanels;
+  const settingsSnapshot = useSettingsStore.getState();
+  const showDebugDetails = (developerMode || settingsSnapshot.developerMode)
+    && (showAdvancedRuntimePanels || settingsSnapshot.developerUI.showAdvancedRuntimePanels);
   const runtimePressure = useMemo(() => projectRuntimePressure({ chat, characters: members, messages }), [chat, members, messages]);
   const narrativeLines = useMemo(() => projectNarrativeLines({ chat, characters: members, messages }), [chat, members, messages]);
   const mainLineId = runtimePressure.primaryLine?.id || narrativeLines[0]?.id || null;
   const showDirectorIntent = Boolean(runtimePressure.directorIntent) && activeFilter === 'main';
   const visibleLines = narrativeLines.filter((line) => activeFilter === 'all' ? true : activeFilter === 'main' ? line.id === mainLineId : line.type === activeFilter);
   const storyProgressCard = activeFilter === 'all' || activeFilter === 'main' ? renderStoryProgressCard(chat, members) : null;
-  const storyAssetSummary = activeFilter === 'all' || activeFilter === 'main' ? renderStoryAssetSummary(chat, members, showDebugDetails) : null;
+  const storyAssetSummary = activeFilter === 'all' || activeFilter === 'main' ? renderStoryAssetSummary(chat, members, messages, showDebugDetails) : null;
   const filters = LINE_FILTERS.map((filter) => ({
     ...filter,
     count: filter.key === 'all' ? narrativeLines.length : filter.key === 'main' ? (mainLineId ? 1 : 0) : narrativeLines.filter((line) => line.type === filter.key).length,

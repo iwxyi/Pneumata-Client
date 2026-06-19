@@ -462,4 +462,76 @@ describe('ChatNarrativePanel', () => {
     expect(html).not.toContain('拿到缺页名单');
   });
 
+  it('shows story quality trace only in developer advanced mode', async () => {
+    const memoryStorage = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => memoryStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => { memoryStorage.set(key, value); },
+        removeItem: (key: string) => { memoryStorage.delete(key); },
+        clear: () => { memoryStorage.clear(); },
+      },
+    });
+    const { default: ChatNarrativePanel } = await import('./ChatNarrativePanel');
+    const { useSettingsStore } = await import('../../stores/useSettingsStore');
+    const chat = {
+      ...buildChat(),
+      mode: 'scripted_play' as const,
+      sessionKind: { family: 'conversation' as const, scenarioId: 'story-reader', surfaceProfile: 'hybrid' as const, topology: 'group' as const },
+      scenarioState: {
+        phase: 'scene',
+        storyGoal: '追查旧医院停电真相',
+      },
+    } satisfies GroupChat;
+    const messages = [{
+      id: 'story-quality-message',
+      chatId: chat.id,
+      type: 'ai' as const,
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '他们继续往前走。',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+      metadata: {
+        storyQuality: {
+          score: 58,
+          labels: ['has_narration', 'has_story_hook'],
+          gaps: ['weak_concrete_scene', 'no_character_speech'],
+        },
+      },
+    }];
+
+    const normalHtml = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={chat}
+        members={[buildCharacter(uuidA, '红太狼'), buildCharacter(uuidB, '灰太狼')]}
+        messages={messages}
+      />,
+    );
+    expect(normalHtml).not.toContain('故事质量');
+    expect(normalHtml).not.toContain('质量 58');
+    expect(normalHtml).not.toContain('场景细节弱');
+
+    useSettingsStore.setState({
+      developerMode: true,
+      developerUI: { ...useSettingsStore.getState().developerUI, showAdvancedRuntimePanels: true },
+    });
+    const developerHtml = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={chat}
+        members={[buildCharacter(uuidA, '红太狼'), buildCharacter(uuidB, '灰太狼')]}
+        messages={messages}
+      />,
+    );
+    expect(developerHtml).toContain('故事质量');
+    expect(developerHtml).toContain('质量 58');
+    expect(developerHtml).toContain('旁白');
+    expect(developerHtml).toContain('悬念钩子');
+    expect(developerHtml).toContain('待补：场景细节弱 / 缺少角色气泡');
+  });
+
 });
