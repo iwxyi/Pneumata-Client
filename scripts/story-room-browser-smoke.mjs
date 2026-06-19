@@ -525,6 +525,35 @@ async function main() {
     assertCondition(after.messageTypes.includes('user'), 'Selected choice did not render as a user narrative node', after);
     assertCondition(!after.hasDeveloperChoiceMeta, 'Developer-only selected choice meta leaked to normal UI', after);
     assertCondition(!after.hasContinueButton, 'Story room exposed a continue button after choosing', after);
+    const normalChoiceStore = JSON.parse(await evaluate(cdp, `Promise.all([
+      import('/src/stores/useChatStore.ts'),
+      import('/src/stores/useMessageStore.ts'),
+    ]).then(([{ useChatStore }, { useMessageStore }]) => {
+      const chat = useChatStore.getState().chats.find((item) => item.id === 'story-browser-smoke');
+      const messages = useMessageStore.getState().messageWindowsByChatId['story-browser-smoke']?.messages || [];
+      return JSON.stringify({
+        phase: chat?.scenarioState?.phase,
+        storyDirection: chat?.scenarioState?.storyDirection,
+        selectedChoice: chat?.scenarioState?.selectedChoice,
+        selectedChoiceEpoch: chat?.scenarioState?.selectedChoiceEpoch,
+        choiceHistory: chat?.scenarioState?.choiceHistory,
+        branches: chat?.scenarioState?.branches,
+        messages: messages.map((message) => ({
+          type: message.type,
+          content: message.content,
+          storyChoiceSelection: message.metadata?.storyChoiceSelection || null,
+        })),
+      });
+    })`, true));
+    assertCondition(normalChoiceStore.phase === 'branch', 'Normal story choice did not move the story into branch consequence phase', normalChoiceStore);
+    assertCondition(normalChoiceStore.storyDirection === '林医生逼问护士说出停电时的真相', 'Normal story choice did not write the selected prompt into storyDirection', normalChoiceStore);
+    assertCondition(normalChoiceStore.selectedChoice?.branchId === 'ask-nurse', 'Normal story choice did not preserve the selected branch id', normalChoiceStore);
+    assertCondition(normalChoiceStore.selectedChoice?.risk === '激怒护士' && normalChoiceStore.selectedChoice?.reward === '得到停电线索', 'Normal story choice lost risk/reward metadata before consequence generation', normalChoiceStore);
+    assertCondition(normalChoiceStore.selectedChoiceEpoch === 2, 'Normal story choice did not preserve the active choice epoch', normalChoiceStore);
+    assertCondition(normalChoiceStore.choiceHistory?.some((choice) => choice.branchId === 'ask-nurse' && choice.label === '让林医生追问护士昨晚去向'), 'Normal story choice was not written into choiceHistory', normalChoiceStore);
+    assertCondition(normalChoiceStore.branches?.some((branch) => branch.branchId === 'ask-nurse' && branch.status === 'chosen'), 'Normal story choice did not mark the selected branch as chosen', normalChoiceStore);
+    assertCondition(normalChoiceStore.branches?.some((branch) => branch.branchId === 'inspect-blood' && branch.status === 'completed'), 'Normal story choice did not keep the unchosen branch as a completed alternative', normalChoiceStore);
+    assertCondition(normalChoiceStore.messages?.some((message) => message.storyChoiceSelection?.branchId === 'ask-nurse'), 'Normal story choice was not persisted as a storyChoiceSelection message', normalChoiceStore);
 
     await evaluate(cdp, `(() => Promise.all([
       import('/src/stores/useChatStore.ts'),
