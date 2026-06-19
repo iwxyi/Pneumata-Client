@@ -136,4 +136,44 @@ describe('MessageList narrative reveal eligibility', () => {
       items: nextItems,
     })).toEqual([]);
   });
+
+  it('keeps the seen timestamp baseline across return-page hydration so restored history cannot restart reveal', () => {
+    const firstPaintItems = buildChatRenderItems([
+      buildNarrativeMessage('story-before', { timestamp: 1 }),
+      buildNarrativeMessage('local-story-tail', { clientKey: 'local-story-tail', timestamp: 2 }),
+    ]);
+    const baseline = resolveNarrativeRevealTracking({
+      initialized: false,
+      previousKeys: new Set(),
+      items: firstPaintItems,
+    });
+    const hydratedItems = buildChatRenderItems([
+      buildNarrativeMessage('story-before', { timestamp: 1 }),
+      buildNarrativeMessage('server-story-tail', { timestamp: 2 }),
+      buildNarrativeMessage('restored-story-a', { timestamp: 3 }),
+      buildNarrativeMessage('restored-story-b', { timestamp: 4 }),
+    ]);
+    const hydrated = resolveNarrativeRevealTracking({
+      initialized: baseline.initialized,
+      previousKeys: baseline.nextSeenKeys,
+      previousMaxTimestamp: baseline.nextMaxTimestamp,
+      items: hydratedItems,
+    });
+    const nextLiveItems = buildChatRenderItems([
+      ...hydratedItems.map((item) => item.message),
+      buildNarrativeMessage('live-story', { timestamp: 5 }),
+    ]);
+    const live = resolveNarrativeRevealTracking({
+      initialized: hydrated.initialized,
+      previousKeys: hydrated.nextSeenKeys,
+      previousMaxTimestamp: hydrated.nextMaxTimestamp,
+      items: nextLiveItems,
+    });
+
+    expect(baseline.newRevealKeys).toEqual([]);
+    expect(baseline.nextMaxTimestamp).toBe(2);
+    expect(hydrated.newRevealKeys).toEqual([]);
+    expect(hydrated.nextMaxTimestamp).toBe(4);
+    expect(live.newRevealKeys).toEqual([expect.stringContaining('live-story')]);
+  });
 });
