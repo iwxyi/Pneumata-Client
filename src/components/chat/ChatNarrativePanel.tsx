@@ -415,15 +415,6 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
   if (!hasStoryAssets(chat)) return null;
   const state = chat.scenarioState || {};
   const recap = state.chapterRecap || null;
-  const recentChoices = (state.choiceHistory || [])
-    .slice(-3)
-    .map((choice) => [
-      choice.label,
-      showDebugDetails && choice.risk ? `风险：${choice.risk}` : '',
-      showDebugDetails && choice.reward ? `收益：${choice.reward}` : '',
-      choice.outcome ? `后果：${choice.outcome}` : '',
-      choice.impact ? `影响：${choice.impact}` : '',
-    ].filter(Boolean).join(' · '));
   return (
     <Box sx={{ p: { xs: 0.9, sm: 1 }, borderRadius: 2, bgcolor: 'rgba(123,31,162,0.06)' }}>
       <Stack spacing={0.85}>
@@ -465,7 +456,6 @@ function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], showDe
         {renderAssetChips('线索', state.clues, members)}
         {showDebugDetails ? renderAssetChips('代价', state.stakes, members) : null}
         {renderAssetChips('关系压力', state.relationshipShifts, members)}
-        {renderAssetChips('最近选择', recentChoices, members)}
         {renderChoiceReview(chat, members, showDebugDetails)}
       </Stack>
     </Box>

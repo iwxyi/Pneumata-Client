@@ -248,7 +248,7 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('压力：门外还有脚步声');
     expect(html).not.toContain('在场：');
     expect(html).toContain('灰太狼 去地下档案室');
-    expect(html).toContain('后果：护士承认停电时有人进入档案室');
+    expect(html).not.toContain('最近选择');
     expect(html).toContain('影响：关系变化：护士开始怀疑林医生');
     expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('地下档案室的病历被撕掉一页');
@@ -368,6 +368,98 @@ describe('ChatNarrativePanel', () => {
     expect(html).not.toContain('关系：旧关系：林医生犹豫');
     expect(html).not.toContain('影响：旧影响：护士沉默');
     expect(html).not.toContain('未解：旧问题：门后是谁？');
+  });
+
+  it('renders multiple story choices as one clear review trail without debug leakage', async () => {
+    const memoryStorage = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => memoryStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => { memoryStorage.set(key, value); },
+        removeItem: (key: string) => { memoryStorage.delete(key); },
+        clear: () => { memoryStorage.clear(); },
+      },
+    });
+    const { default: ChatNarrativePanel } = await import('./ChatNarrativePanel');
+    const chat = {
+      ...buildChat(),
+      mode: 'scripted_play' as const,
+      sessionKind: { family: 'conversation' as const, scenarioId: 'story-reader', surfaceProfile: 'hybrid' as const, topology: 'group' as const },
+      scenarioState: {
+        phase: 'scene',
+        storyGoal: '确认旧医院名单缺页的去向',
+        storyBeatKind: 'new_pressure' as const,
+        branches: [
+          { branchId: 'ask-nurse', label: '追问护士昨晚停电记录', status: 'chosen' as const, choiceEpoch: 2, intent: '逼问', risk: '激怒护士', reward: '得到停电线索' },
+          { branchId: 'follow-blood', label: '跟着血迹去旧住院楼', status: 'completed' as const, choiceEpoch: 2, intent: '追踪', risk: '暴露位置', reward: '找到异常脚印' },
+          { branchId: 'open-file', label: '打开被封存的病历柜', status: 'chosen' as const, choiceEpoch: 4, intent: '揭露', risk: '触发警报', reward: '拿到缺页名单' },
+          { branchId: 'protect-nurse', label: '先带护士离开走廊', status: 'completed' as const, choiceEpoch: 4, intent: '保护', risk: '错过黑衣人', reward: '换取护士信任' },
+        ],
+        choiceHistory: [
+          {
+            branchId: 'ask-nurse',
+            label: '追问护士昨晚停电记录',
+            intent: '逼问',
+            risk: '激怒护士',
+            reward: '得到停电线索',
+            outcome: '护士承认停电前有人改过值班表',
+            impact: '林医生开始相信护士隐瞒了关键名单',
+            choiceEpoch: 2,
+          },
+          {
+            branchId: 'open-file',
+            label: '打开被封存的病历柜',
+            intent: '揭露',
+            risk: '触发警报',
+            reward: '拿到缺页名单',
+            outcome: '柜门后的警报灯亮起，缺页名单被红太狼抢先收进衣袋',
+            impact: '保安正在赶来，但失踪者姓名第一次变得完整',
+            choiceEpoch: 4,
+          },
+        ],
+        chapterRecap: {
+          title: '阶段回顾',
+          summary: '旧医院的秘密开始指向被撕掉的名单。',
+          discoveredClues: ['缺页名单藏在封存病历柜里'],
+          unresolvedQuestions: ['是谁提前改过值班表？'],
+          changedRelationships: ['护士开始愿意配合红太狼'],
+          stakes: ['保安正在赶来'],
+          lastChoiceLabels: ['打开被封存的病历柜'],
+          choiceImpacts: ['保安正在赶来，但失踪者姓名第一次变得完整'],
+          updatedAt: 5,
+          beatCount: 8,
+        },
+      },
+    } satisfies GroupChat;
+
+    const html = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={chat}
+        members={[buildCharacter(uuidA, '红太狼'), buildCharacter(uuidB, '灰太狼')]}
+        messages={[]}
+      />,
+    );
+
+    expect(html).toContain('关键抉择');
+    expect(html).toContain('节点 2');
+    expect(html).toContain('节点 4');
+    expect(html).toContain('追问护士昨晚停电记录');
+    expect(html).toContain('打开被封存的病历柜');
+    expect(html).toContain('结果：护士承认停电前有人改过值班表');
+    expect(html).toContain('影响：林医生开始相信护士隐瞒了关键名单');
+    expect(html).toContain('结果：柜门后的警报灯亮起，缺页名单被红太狼抢先收进衣袋');
+    expect(html).toContain('影响：保安正在赶来，但失踪者姓名第一次变得完整');
+    expect(html).toContain('未走路径：跟着血迹去旧住院楼');
+    expect(html).toContain('未走路径：先带护士离开走廊');
+    expect(html).not.toContain('最近选择');
+    expect(html).not.toContain('意图：');
+    expect(html).not.toContain('风险：');
+    expect(html).not.toContain('收益：');
+    expect(html).not.toContain('逼问');
+    expect(html).not.toContain('触发警报');
+    expect(html).not.toContain('拿到缺页名单');
   });
 
 });
