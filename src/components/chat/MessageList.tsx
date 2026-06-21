@@ -576,13 +576,20 @@ export default function MessageList({
     const initialPosition = initialScrollPositionRef.current;
     if (initialPosition && !initialPosition.pinned) {
       const restored = restoreScrollAnchor(initialPosition);
+      if (!restored) {
+        scrollToBottom('auto');
+        hasJumpedToBottomRef.current = true;
+        shouldStickToBottomRef.current = true;
+        if (lastReportedBottomPinnedRef.current !== true) {
+          lastReportedBottomPinnedRef.current = true;
+          onBottomPinnedChange?.(true);
+        }
+        return;
+      }
       hasJumpedToBottomRef.current = true;
       shouldStickToBottomRef.current = false;
       lastReportedBottomPinnedRef.current = false;
       onBottomPinnedChange?.(false);
-      if (!restored) {
-        lastScrollTopRef.current = container.scrollTop;
-      }
       const handle = window.requestAnimationFrame(() => {
         restoreScrollAnchor(initialPosition);
         lastScrollTopRef.current = container.scrollTop;
