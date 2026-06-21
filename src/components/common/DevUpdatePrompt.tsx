@@ -2,19 +2,61 @@ import { useEffect, useState } from 'react';
 import Button from '@mui/material/Button';
 import AppSnackbar from './AppSnackbar';
 
+const DEV_UPDATE_POLL_INTERVAL_MS = 2500;
+
+async function fetchDevUpdateVersion(signal: AbortSignal) {
+  const response = await fetch('/__pneumata_dev_updates', {
+    cache: 'no-store',
+    signal,
+  });
+  if (!response.ok) return null;
+  const payload = await response.json() as { version?: unknown };
+  return typeof payload.version === 'number' ? payload.version : null;
+}
+
 export default function DevUpdatePrompt() {
   const [needRefresh, setNeedRefresh] = useState(false);
 
   useEffect(() => {
     if (!import.meta.env.DEV) return;
 
-    const source = new EventSource('/__pneumata_dev_updates');
-    source.addEventListener('update', () => {
-      setNeedRefresh(true);
-    });
+    let disposed = false;
+    let baselineVersion: number | null = null;
+    let pollTimer: number | null = null;
+    let controller: AbortController | null = null;
+
+    const schedulePoll = () => {
+      if (disposed) return;
+      pollTimer = window.setTimeout(() => void poll(), DEV_UPDATE_POLL_INTERVAL_MS);
+    };
+
+    const poll = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      try {
+        const version = await fetchDevUpdateVersion(controller.signal);
+        if (disposed || version === null) return;
+        if (baselineVersion === null) {
+          baselineVersion = version;
+        } else if (version !== baselineVersion) {
+          setNeedRefresh(true);
+          baselineVersion = version;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted && import.meta.env.DEV) {
+          // Dev server restarts are expected while coding; retry quietly.
+        }
+      } finally {
+        schedulePoll();
+      }
+    };
+
+    void poll();
 
     return () => {
-      source.close();
+      disposed = true;
+      if (pollTimer !== null) window.clearTimeout(pollTimer);
+      controller?.abort();
     };
   }, []);
 

@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite'
 import type { Plugin } from 'vite'
-import type { ServerResponse } from 'node:http'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
@@ -9,14 +8,10 @@ const allowedHosts = process.env.VITE_ALLOWED_HOSTS
   : true
 
 function manualDevUpdatePlugin(): Plugin {
-  const clients = new Set<ServerResponse>()
+  let updateVersion = Date.now()
 
   const notifyClients = () => {
-    const payload = JSON.stringify({ updatedAt: Date.now() })
-    for (const response of clients) {
-      response.write(`event: update\n`)
-      response.write(`data: ${payload}\n\n`)
-    }
+    updateVersion = Date.now()
   }
 
   return {
@@ -28,18 +23,11 @@ function manualDevUpdatePlugin(): Plugin {
           next()
           return
         }
-
         response.writeHead(200, {
-          'Content-Type': 'text/event-stream',
-          'Cache-Control': 'no-cache, no-transform',
-          Connection: 'keep-alive',
+          'Content-Type': 'application/json; charset=utf-8',
+          'Cache-Control': 'no-store, max-age=0',
         })
-        response.write('\n')
-        clients.add(response)
-
-        request.on('close', () => {
-          clients.delete(response)
-        })
+        response.end(JSON.stringify({ version: updateVersion }))
       })
 
       server.watcher.on('change', notifyClients)
