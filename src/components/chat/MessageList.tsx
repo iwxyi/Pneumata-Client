@@ -16,7 +16,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
-const JUMP_TO_BOTTOM_THRESHOLD = 420;
+const JUMP_TO_BOTTOM_PAGE_MULTIPLIER = 3;
 const BOTTOM_RESTORE_ANCHOR_THRESHOLD = 700;
 const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
 const FOLLOW_SCROLL_DURATION_MS = 180;
@@ -445,6 +445,10 @@ export default function MessageList({
     element.scrollHeight - element.scrollTop - element.clientHeight
   ), []);
 
+  const shouldShowJumpToBottomButton = useCallback((element: HTMLDivElement) => (
+    getDistanceFromBottom(element) > element.clientHeight * JUMP_TO_BOTTOM_PAGE_MULTIPLIER
+  ), [getDistanceFromBottom]);
+
   const captureScrollAnchor = useCallback(() => {
     const container = containerRef.current;
     if (!container) return null;
@@ -519,14 +523,14 @@ export default function MessageList({
     if (!container) return false;
     const distance = getDistanceFromBottom(container);
     const pinned = distance <= BOTTOM_STICKY_THRESHOLD && !hasMoreNewer;
-    setShowJumpToBottom(distance > JUMP_TO_BOTTOM_THRESHOLD);
+    setShowJumpToBottom(shouldShowJumpToBottomButton(container));
     shouldStickToBottomRef.current = pinned;
     if (lastReportedBottomPinnedRef.current !== pinned) {
       lastReportedBottomPinnedRef.current = pinned;
       onBottomPinnedChange?.(pinned);
     }
     return pinned;
-  }, [getDistanceFromBottom, hasMoreNewer, onBottomPinnedChange]);
+  }, [getDistanceFromBottom, hasMoreNewer, onBottomPinnedChange, shouldShowJumpToBottomButton]);
 
   const stopFollowScrollAnimation = useCallback(() => {
     if (followScrollAnimationRef.current == null) return;
@@ -737,7 +741,7 @@ export default function MessageList({
         lastScrollTopRef.current = container.scrollTop;
         if (isScrollingUp) {
           shouldStickToBottomRef.current = false;
-          setShowJumpToBottom(getDistanceFromBottom(container) > JUMP_TO_BOTTOM_THRESHOLD);
+          setShowJumpToBottom(shouldShowJumpToBottomButton(container));
           if (lastReportedBottomPinnedRef.current !== false) {
             lastReportedBottomPinnedRef.current = false;
             onBottomPinnedChange?.(false);
