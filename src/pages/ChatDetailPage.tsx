@@ -1575,7 +1575,7 @@ export default function ChatDetailPage() {
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
-    logDeveloperDiagnostic('story-run:button', {
+    logDeveloperDiagnostic('chat-run:button', {
       chatId: id,
       phase: chat.scenarioState?.phase || null,
       isRunning,

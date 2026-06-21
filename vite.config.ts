@@ -23,11 +23,13 @@ function manualDevUpdatePlugin(): Plugin {
           next()
           return
         }
+        const payload = JSON.stringify({ version: updateVersion })
         response.writeHead(200, {
           'Content-Type': 'application/json; charset=utf-8',
           'Cache-Control': 'no-store, max-age=0',
+          'Content-Length': Buffer.byteLength(payload),
         })
-        response.end(JSON.stringify({ version: updateVersion }))
+        response.end(payload)
       })
 
       server.watcher.on('change', notifyClients)

@@ -31,10 +31,10 @@ export default function DevUpdatePrompt() {
     };
 
     const poll = async () => {
-      controller?.abort();
       controller = new AbortController();
+      const activeController = controller;
       try {
-        const version = await fetchDevUpdateVersion(controller.signal);
+        const version = await fetchDevUpdateVersion(activeController.signal);
         if (disposed || version === null) return;
         if (baselineVersion === null) {
           baselineVersion = version;
@@ -43,10 +43,11 @@ export default function DevUpdatePrompt() {
           baselineVersion = version;
         }
       } catch (error) {
-        if (!controller.signal.aborted && import.meta.env.DEV) {
+        if (!activeController.signal.aborted && import.meta.env.DEV) {
           // Dev server restarts are expected while coding; retry quietly.
         }
       } finally {
+        if (controller === activeController) controller = null;
         schedulePoll();
       }
     };
