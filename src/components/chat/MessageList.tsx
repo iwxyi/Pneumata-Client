@@ -1,4 +1,4 @@
-import { Box, CircularProgress, Stack, Typography } from '@mui/material';
+import { Box, CircularProgress, Stack, Typography, keyframes } from '@mui/material';
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Message, MessageAttachment, NarrativeBlock, NarrativeTurnMetadata } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -16,6 +16,10 @@ const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
 const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
 const FOLLOW_SCROLL_DURATION_MS = 180;
+const storyNodeFadeIn = keyframes`
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+`;
 type ResponsiveInset = number | string | Record<string, number | string>;
 interface ScrollAnchorSnapshot {
   messageId: string;
@@ -283,9 +287,9 @@ export default function MessageList({
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const developerMode = useSettingsStore((state) => state.developerMode);
+  const storyRevealMode = useSettingsStore((state) => state.chatAppearance.storyReader.revealMode);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const [completedRevealKeys, setCompletedRevealKeys] = useState<Set<string>>(() => new Set());
   const [revealEligibleKeys, setRevealEligibleKeys] = useState<Set<string>>(() => new Set());
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const revealKeyTrackingInitializedRef = useRef(false);
@@ -388,43 +392,36 @@ export default function MessageList({
       fallbackKeys: revealEligibleKeys,
     });
     const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: effectiveRevealMessageKeys });
-    const activeRevealIndex = recentNarrative
-      ? blocks.findIndex((candidate, candidateIndex) => {
-        const candidateKey = `${item.key}:block:${candidate.id || candidateIndex}`;
-        return !completedRevealKeys.has(candidateKey);
-      })
-      : -1;
-    const visibleBlocks = recentNarrative && activeRevealIndex >= 0 ? blocks.slice(0, activeRevealIndex + 1) : blocks;
-    const renderedBlocks = visibleBlocks.map((block, index) => {
+    const shouldFadeNode = recentNarrative && storyRevealMode === 'fade';
+    const renderedBlocks = blocks.map((block, index) => {
       const character = block.displayMode === 'bubble' ? resolveNarrativeBlockCharacter(block, characters) : undefined;
       const blockMessage = buildNarrativeBlockMessage(item.message, block, item.message.metadata?.narrativeTurn, index, character);
       const blockKey = `${item.key}:block:${block.id || index}`;
-      const revealText = recentNarrative && activeRevealIndex === index && !completedRevealKeys.has(blockKey);
       return renderBubble(item, {
         key: blockKey,
         message: blockMessage,
         character: character || (blockMessage.type === 'ai' ? resolveCharacterOrDeleted(characters, blockMessage.senderId, blockMessage.senderName) : undefined),
-        revealText,
-        onRevealComplete: revealText ? () => {
-          setCompletedRevealKeys((current) => {
-            if (current.has(blockKey)) return current;
-            const next = new Set(current);
-            next.add(blockKey);
-            return next;
-          });
-          if (index === blocks.length - 1) onNarrativeRevealComplete?.(item.message);
-        } : undefined,
       });
     });
     return (
-      <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
+      <Box
+        key={item.key}
+        {...anchorProps}
+        onAnimationEnd={shouldFadeNode ? () => onNarrativeRevealComplete?.(item.message) : undefined}
+        sx={{
+          display: 'grid',
+          ...(shouldFadeNode ? {
+            animation: `${storyNodeFadeIn} 220ms ease-out both`,
+          } : {}),
+        }}
+      >
         {renderedBlocks}
-        {showStoryChoices && onChooseStoryChoice && (!recentNarrative || activeRevealIndex < 0) ? (
+        {showStoryChoices && onChooseStoryChoice ? (
           <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} />
         ) : null}
       </Box>
     );
-  }, [characters, completedRevealKeys, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, revealEligibleKeys, storyChoiceMessageId, storyChoiceOptions]);
+  }, [characters, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, revealEligibleKeys, storyChoiceMessageId, storyChoiceOptions, storyRevealMode]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -499,6 +496,20 @@ export default function MessageList({
       return changed ? next : current;
     });
   }, [renderItems]);
+
+  useEffect(() => {
+    if (storyRevealMode !== 'instant' || !onNarrativeRevealComplete) return;
+    const effectiveRevealMessageKeys = resolveEffectiveNarrativeRevealKeys({
+      explicitKeys: narrativeRevealMessageKeys,
+      fallbackKeys: revealEligibleKeys,
+    });
+    if (!effectiveRevealMessageKeys.size) return;
+    renderItems.forEach((item) => {
+      if (item.renderKind === 'narrative' && isNarrativeRevealAllowed({ item, revealMessageKeys: effectiveRevealMessageKeys })) {
+        onNarrativeRevealComplete(item.message);
+      }
+    });
+  }, [narrativeRevealMessageKeys, onNarrativeRevealComplete, renderItems, revealEligibleKeys, storyRevealMode]);
 
   const updatePinnedState = useCallback(() => {
     const container = containerRef.current;

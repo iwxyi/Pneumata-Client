@@ -763,6 +763,7 @@ export interface ChatAppearanceSettings {
     fontFamily: 'default' | 'serif' | 'sans';
     fontSize: number;
     lineHeight: number;
+    revealMode: 'fade' | 'instant';
   };
 }
 
@@ -864,6 +865,7 @@ export const DEFAULT_CHAT_APPEARANCE_SETTINGS: ChatAppearanceSettings = {
     fontFamily: 'default',
     fontSize: 16,
     lineHeight: 2.05,
+    revealMode: 'fade',
   },
 };
 

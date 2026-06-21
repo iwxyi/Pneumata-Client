@@ -270,6 +270,7 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
         ...(state.chatAppearance?.storyReader || {}),
         fontSize: Math.max(14, Math.min(22, Number(state.chatAppearance?.storyReader?.fontSize || DEFAULT_CHAT_APPEARANCE_SETTINGS.storyReader.fontSize))),
         lineHeight: Math.max(1.55, Math.min(2.45, Number(state.chatAppearance?.storyReader?.lineHeight || DEFAULT_CHAT_APPEARANCE_SETTINGS.storyReader.lineHeight))),
+        revealMode: state.chatAppearance?.storyReader?.revealMode === 'instant' ? 'instant' as const : 'fade' as const,
       },
     },
     usageStats: {

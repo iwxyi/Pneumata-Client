@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Slider, FormControl, InputLabel, Select, MenuItem, Divider, FormControlLabel, Checkbox } from '@mui/material';
+import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Slider, FormControl, InputLabel, Select, MenuItem, Divider, FormControlLabel, Checkbox, CircularProgress } from '@mui/material';
 import PageSection from '../components/common/PageSection';
 import AppSnackbar from '../components/common/AppSnackbar';
 import LoadingState from '../components/common/LoadingState';
@@ -154,6 +154,18 @@ function ChatPageSettingsDialog({ open, onClose, isStoryRoom }: { open: boolean;
                   onChange={(_, value) => setChatAppearance({ storyReader: { ...chatAppearance.storyReader, lineHeight: Array.isArray(value) ? value[0] : value } })}
                 />
               </Box>
+              <FormControl size="small" fullWidth>
+                <InputLabel id="story-reader-reveal-mode-label">节点出现方式</InputLabel>
+                <Select
+                  labelId="story-reader-reveal-mode-label"
+                  label="节点出现方式"
+                  value={chatAppearance.storyReader.revealMode}
+                  onChange={(event) => setChatAppearance({ storyReader: { ...chatAppearance.storyReader, revealMode: event.target.value as typeof chatAppearance.storyReader.revealMode } })}
+                >
+                  <MenuItem value="fade">整节淡入</MenuItem>
+                  <MenuItem value="instant">立即显示</MenuItem>
+                </Select>
+              </FormControl>
             </>
           ) : null}
         </Stack>
@@ -190,9 +202,11 @@ export function isStoryChoicePending(params: {
 export function getStoryTailStatus(params: {
   hasRunLoopStatus: boolean;
   isStoryChoiceSubmitting: boolean;
+  isGeneratingStoryNode?: boolean;
 }) {
   if (params.hasRunLoopStatus) return 'status' as const;
   if (params.isStoryChoiceSubmitting) return 'submitting_choice' as const;
+  if (params.isGeneratingStoryNode) return 'generating_node' as const;
   return null;
 }
 
@@ -1299,6 +1313,7 @@ export default function ChatDetailPage() {
   const storyTailStatus = getStoryTailStatus({
     hasRunLoopStatus: Boolean(runLoopStatusContent),
     isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
+    isGeneratingStoryNode: Boolean(isStoryRoom && !isStoryWaitingForChoice && !isCurrentStoryChoiceSubmitting && isRunning && !isPaused && (thinkingId || hasPendingTurnWork)),
   });
   const storyBranchSuggestionContent = storyTailStatus ? (
     <>
@@ -1318,6 +1333,30 @@ export default function ChatDetailPage() {
               boxShadow: '0 8px 22px rgba(15,23,42,0.10)',
             })}
           />
+        </Box>
+      ) : null}
+      {storyTailStatus === 'generating_node' ? (
+        <Box data-message-id="story-generating-next-node" data-message-type="story-loading" sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
+          <Box
+            sx={(theme) => ({
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              maxWidth: '100%',
+              px: 1.4,
+              py: 0.9,
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: theme.palette.mode === 'light' ? 'rgba(148,163,184,0.28)' : 'rgba(226,232,240,0.14)',
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(15,23,42,0.72)',
+              boxShadow: '0 8px 22px rgba(15,23,42,0.10)',
+            })}
+          >
+            <CircularProgress size={16} thickness={4} />
+            <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+              正在生成下一节
+            </Typography>
+          </Box>
         </Box>
       ) : null}
     </>
