@@ -222,6 +222,7 @@ export default function MessageBubble({ message, character, characters = [], onD
   );
   const useNarrativeParagraph = !isFinalWithdrawn && (!pending || isNarrativeParagraphMessage(message));
   const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeDisplayBlocks(message) : [];
+  const contentMaxWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
   if (narrativeParagraphBlocks.length || (pending && useNarrativeParagraph)) {
     const narrativeCharacters = characters.length ? characters : effectiveCharacter ? [effectiveCharacter] : [];
     const storyReaderFontFamily = chatAppearance.storyReader.fontFamily === 'serif'
@@ -236,12 +237,20 @@ export default function MessageBubble({ message, character, characters = [], onD
             {...bubbleHandlers}
             sx={{
               width: '100%',
-              maxWidth: chatAppearance.maxContentWidth,
+              maxWidth: contentMaxWidth,
               px: { xs: 0.5, sm: 1 },
               py: 0.5,
               fontFamily: storyReaderFontFamily,
               fontSize: chatAppearance.storyReader.fontSize,
               lineHeight: chatAppearance.storyReader.lineHeight,
+              '& .MuiTypography-root': {
+                fontSize: 'inherit',
+                lineHeight: 'inherit',
+              },
+              '& .MuiBox-root': {
+                fontSize: 'inherit',
+                lineHeight: 'inherit',
+              },
             }}
           >
             {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} reveal={revealText} showDeveloperDetails={developerMode} activeBlockId={revealText ? narrativeParagraphBlocks[0]?.id || null : null} onRevealComplete={() => onRevealComplete?.()} /> : <PendingTypingDots />}
@@ -268,7 +277,7 @@ export default function MessageBubble({ message, character, characters = [], onD
           </Box>
         ) : null}
 
-        <Box sx={{ maxWidth: `min(100%, ${chatAppearance.maxContentWidth}px)`, minWidth: 0, display: 'grid', gap: 0.35, justifyItems: isUser ? 'end' : 'start' }}>
+        <Box sx={{ maxWidth: contentMaxWidth, minWidth: 0, display: 'grid', gap: 0.35, justifyItems: isUser ? 'end' : 'start' }}>
           <Tooltip title={formatTimestamp(message.timestamp)} placement="top" arrow>
             <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', textAlign: isUser ? 'right' : 'left' }}>
               {message.senderName}

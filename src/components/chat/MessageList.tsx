@@ -73,7 +73,8 @@ function ChoiceMeta({ label, value }: { label: string; value: string }) {
 }
 
 function StoryChoicePanel({ options, onChoose, showDeveloperDetails = false }: { options: NarrativeStoryChoiceOption[]; onChoose: (value: string) => void; showDeveloperDetails?: boolean }) {
-  const maxContentWidth = useSettingsStore((state) => state.chatAppearance.maxContentWidth);
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
+  const maxContentWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
   if (!options.length) return null;
   return (
     <Box data-message-id="story-choice-panel" data-message-type="story-choice" sx={{ px: { xs: 2, sm: 3 }, py: 0.75, width: '100%' }}>

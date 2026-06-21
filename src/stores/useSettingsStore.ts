@@ -264,6 +264,7 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       ...DEFAULT_CHAT_APPEARANCE_SETTINGS,
       ...(state.chatAppearance || {}),
       maxContentWidth: Math.max(560, Math.min(1080, Math.round(Number(state.chatAppearance?.maxContentWidth || DEFAULT_CHAT_APPEARANCE_SETTINGS.maxContentWidth)))),
+      maxContentWidthUnlimited: Boolean(state.chatAppearance?.maxContentWidthUnlimited),
       storyReader: {
         ...DEFAULT_CHAT_APPEARANCE_SETTINGS.storyReader,
         ...(state.chatAppearance?.storyReader || {}),

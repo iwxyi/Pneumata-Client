@@ -5,6 +5,7 @@ import type { AICharacter } from '../../types/character';
 import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
 import MarkdownText from '../common/MarkdownText';
 import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const typingBounce = keyframes`
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
@@ -68,6 +69,8 @@ export function RevealedMarkdownText({ text, reveal = false, onComplete }: { tex
 }
 
 function NarrativeChoiceCard({ block, showDeveloperDetails = false }: { block: NarrativeBlock; showDeveloperDetails?: boolean }) {
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
+  const maxContentWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
   const choice = block.choices?.[0];
   const meta = showDeveloperDetails ? [
     choice?.intent ? `意图：${choice.intent}` : '',
@@ -79,7 +82,7 @@ function NarrativeChoiceCard({ block, showDeveloperDetails = false }: { block: N
       <Box
         sx={(theme) => ({
           width: '100%',
-          maxWidth: 640,
+          maxWidth: maxContentWidth,
           borderRadius: 2,
           px: { xs: 1.35, sm: 1.6 },
           py: { xs: 1, sm: 1.15 },
@@ -105,6 +108,8 @@ function NarrativeChoiceCard({ block, showDeveloperDetails = false }: { block: N
 }
 
 function NarrativeSystemPanel({ block, characters, reveal = false, onRevealComplete }: { block: NarrativeBlock; characters: AICharacter[]; reveal?: boolean; onRevealComplete?: () => void }) {
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
+  const maxContentWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
   const lines = block.text.split('\n').map((line) => line.trim()).filter(Boolean);
   const title = lines[0] || '章节回顾';
   const bodyLines = lines.slice(1);
@@ -113,7 +118,7 @@ function NarrativeSystemPanel({ block, characters, reveal = false, onRevealCompl
       <Box
         sx={(theme) => ({
           width: '100%',
-          maxWidth: 680,
+          maxWidth: maxContentWidth,
           borderRadius: 2,
           px: { xs: 1.35, sm: 1.6 },
           py: { xs: 1, sm: 1.15 },
@@ -157,7 +162,7 @@ export function NarrativeParagraphContent({ blocks, characters = [], reveal = fa
       ) : block.displayMode === 'system_panel' ? (
         showDeveloperDetails ? <NarrativeSystemPanel key={block.id} block={block} characters={characters} reveal={shouldReveal} onRevealComplete={handleComplete} /> : null
       ) : (
-        <Box key={block.id} sx={{ typography: 'body1', lineHeight: 2.05, color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
+        <Box key={block.id} sx={{ fontSize: 'inherit', lineHeight: 'inherit', color: 'text.primary', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text' }}>
           <RevealedMarkdownText text={block.text} reveal={shouldReveal} onComplete={handleComplete} />
         </Box>
       );

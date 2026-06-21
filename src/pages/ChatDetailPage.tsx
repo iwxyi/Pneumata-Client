@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Slider, FormControl, InputLabel, Select, MenuItem, Divider } from '@mui/material';
+import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Slider, FormControl, InputLabel, Select, MenuItem, Divider, FormControlLabel, Checkbox } from '@mui/material';
 import PageSection from '../components/common/PageSection';
 import AppSnackbar from '../components/common/AppSnackbar';
 import LoadingState from '../components/common/LoadingState';
@@ -97,10 +97,21 @@ function ChatPageSettingsDialog({ open, onClose, isStoryRoom }: { open: boolean;
               max={1080}
               step={20}
               valueLabelDisplay="auto"
+              disabled={chatAppearance.maxContentWidthUnlimited}
               onChange={(_, value) => setChatAppearance({ maxContentWidth: Array.isArray(value) ? value[0] : value })}
             />
+            <FormControlLabel
+              control={(
+                <Checkbox
+                  checked={chatAppearance.maxContentWidthUnlimited}
+                  onChange={(event) => setChatAppearance({ maxContentWidthUnlimited: event.target.checked })}
+                />
+              )}
+              label="不限宽"
+              sx={{ mt: 0.25 }}
+            />
             <Typography variant="caption" color="text.secondary">
-              控制聊天气泡、旁白和选项卡片的最大内容宽度。
+              控制聊天气泡、发送者提示、旁白和选项卡片的最大内容宽度。
             </Typography>
           </Box>
 
