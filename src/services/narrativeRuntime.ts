@@ -39,6 +39,20 @@ function normalizeStoryChoices(value: unknown): StoryChoiceSuggestion[] {
   return normalizeStoryChoiceSuggestions(value).slice(0, MAX_CHOICES);
 }
 
+function normalizeStringList(value: unknown, maxItems = 4, maxLength = 60) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const items: string[] = [];
+  for (const item of value) {
+    const text = compactText(item, maxLength);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    items.push(text);
+    if (items.length >= maxItems) break;
+  }
+  return items;
+}
+
 function normalizeRepeatText(text: string) {
   return text
     .replace(/\s+/g, '')
@@ -179,6 +193,24 @@ export function normalizeStoryEvents(value: unknown, options: NormalizeStoryEven
     if (type === 'choice_point') {
       const choices = normalizeStoryChoices(item.choices);
       if (choices.length >= 2) events.push({ type, choices });
+      continue;
+    }
+    if (type === 'chapter_update') {
+      const title = compactText(item.title, 32);
+      const summary = compactText(item.summary, 240);
+      const status = item.status === 'completed' ? 'completed' : item.status === 'active' ? 'active' : undefined;
+      const keyChoices = normalizeStringList(item.keyChoices, 6, 80);
+      const startNewChapter = item.startNewChapter === true;
+      if (title || summary || status || keyChoices.length || startNewChapter) {
+        events.push({
+          type,
+          ...(title ? { title } : {}),
+          ...(summary ? { summary } : {}),
+          ...(status ? { status } : {}),
+          ...(keyChoices.length ? { keyChoices } : {}),
+          ...(startNewChapter ? { startNewChapter } : {}),
+        });
+      }
     }
   }
   return events;
@@ -201,6 +233,21 @@ export function getStoryChoicesFromEvents(events: StoryEvent[]): StoryChoiceSugg
     }
   }
   return choices;
+}
+
+export function getStoryChapterUpdateFromEvents(events: StoryEvent[]) {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index];
+    if (event.type !== 'chapter_update') continue;
+    return {
+      title: event.title?.trim() || '',
+      summary: event.summary?.trim() || '',
+      status: event.status,
+      startNewChapter: event.startNewChapter === true,
+      keyChoices: event.keyChoices || [],
+    };
+  }
+  return null;
 }
 
 function findCharacterLabel(event: StoryEvent, characters: AICharacter[]) {

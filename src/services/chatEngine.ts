@@ -543,11 +543,12 @@ function buildStoryProtocolPrompt(basePrompt: string) {
 
 Final story-reader output requirements:
 - Return exactly one valid JSON object, with no markdown and no prose outside JSON.
-- storyEvents is mandatory and must contain at least one narration, speech, or choice_point event.
+- storyEvents is mandatory and must contain at least one narration, speech, or choice_point event. It may also include a chapter_update event for structured chapter indexing.
 - Keep content="", extraMessages=null, narrativeText=null, and narrativeBlocks=null for normal story turns.
 - Do not put the visible story in content, narrativeText, markdown, or plain prose.
 - If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.
-- If you output a choice_point, each choice should include label, prompt, intent, risk, and reward.`;
+- If you output a choice_point, each choice should include label, prompt, intent, risk, and reward.
+- When opening or settling a chapter, add one chapter_update event with title and optional summary/status; do not put chapter metadata in visible prose.`;
 }
 
 function buildStoryProtocolRetryPrompt(basePrompt: string, priorAttempt: string) {

@@ -13,7 +13,7 @@ export interface InlineStoryChoice {
   reward?: string | null;
 }
 
-export type InlineStoryEventKind = 'narration' | 'speech' | 'choice_point';
+export type InlineStoryEventKind = 'narration' | 'speech' | 'choice_point' | 'chapter_update';
 
 export interface InlineStoryEvent {
   type: InlineStoryEventKind;
@@ -21,6 +21,11 @@ export interface InlineStoryEvent {
   actorName?: string | null;
   text?: string | null;
   choices?: InlineStoryChoice[] | null;
+  title?: string | null;
+  summary?: string | null;
+  status?: 'active' | 'completed' | null;
+  startNewChapter?: boolean | null;
+  keyChoices?: string[] | null;
 }
 
 export interface InlineStoryBlock {
@@ -202,7 +207,7 @@ export function buildInlineInteractionContract(params: {
   const aiDirectInteractionRules = params.chat.type === 'ai_direct'
     ? '\n8. In AI direct chats, target the other participant when the turn clearly supports, challenges, probes, defends, mocks, or dismisses them; do not target the speaker or the user unless the user is an actual participant.'
     : '';
-  const storyEnvelopeField = params.chat.sessionKind?.scenarioId === 'story-reader' ? '\n  "narrativeText": null,\n  "storyEvents": [\n    { "type": "narration", "actorId": "narrator", "text": "写一段当前场景中可见的动作或后果。" },\n    { "type": "speech", "actorId": "member-id", "actorName": "角色显示名", "text": "写一句角色真正说出口的话。" }\n  ],\n  "narrativeBlocks": null,' : '';
+  const storyEnvelopeField = params.chat.sessionKind?.scenarioId === 'story-reader' ? '\n  "narrativeText": null,\n  "storyEvents": [\n    { "type": "chapter_update", "title": "短章节名", "summary": "可选章节摘要", "status": "active" },\n    { "type": "narration", "actorId": "narrator", "text": "写一段当前场景中可见的动作或后果。" },\n    { "type": "speech", "actorId": "member-id", "actorName": "角色显示名", "text": "写一句角色真正说出口的话。" }\n  ],\n  "narrativeBlocks": null,' : '';
   const storyChoiceField = '';
   const storyNarrativeRules = params.chat.sessionKind?.scenarioId === 'story-reader'
     ? `\n\nRules for story event DSL:
@@ -211,6 +216,7 @@ export function buildInlineInteractionContract(params: {
    - {"type":"narration","actorId":"narrator","text":"brief external scene action or visible consequence"}
    - {"type":"speech","actorId":"character-id-or-null","actorName":"exact display name or null","text":"spoken line only"}
    - {"type":"choice_point","choices":[{"label":"让某人做具体动作","prompt":"选择后要推进的具体后果","intent":"逼问/保护/追踪/隐瞒/冒险/揭露","risk":"可能付出的代价","reward":"可能获得的信息或关系推进"}]}
+   - {"type":"chapter_update","title":"4-10 Chinese characters, concrete and memorable","summary":"optional short recap","status":"active or completed","startNewChapter":false}
 3. narration carries action, movement, consequences, inner pressure, scene changes, clue reveals, and time jumps. Narration renders as正文段落.
 4. speech is optional and should be brief. Use it only for words actually spoken aloud by a character; every speech event must include either a valid actorId or an exact actorName.
 5. A whole turn may contain only narration. This is valid when the beat needs setting, consequence, or pressure more than dialogue.
@@ -223,7 +229,8 @@ export function buildInlineInteractionContract(params: {
 12. Write visible scene execution, not author notes, beat analysis, future outline, or summaries like "接下来剧情将". If the user just chose a branch, first show what immediately changes on screen: a cost, clue, relationship shift, danger, or opportunity.
 13. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
 14. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
-15. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.`
+15. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.
+16. chapter_update is structured metadata for the chapter sidebar. It is not visible body text. Use it when opening a new chapter, renaming the current chapter, or settling a chapter; do not invent a generic title such as "阶段回顾".`
     : '';
   const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
     ? `\n\nRules for story choice points:

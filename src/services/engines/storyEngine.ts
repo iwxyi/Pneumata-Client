@@ -8,6 +8,8 @@ import {
   buildStoryAssetPrompt,
   extractStoryAssets,
   getCurrentChoiceEpoch,
+  getStoryChapterUpdateFromEvents,
+  normalizeStoryEvents,
   normalizeStoryBranches,
   resolveStoryBeatPlan,
   updateChoiceHistoryOutcome,
@@ -94,6 +96,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
     styleProfile: 'dramatic_room',
     promptPrefix: `Write this story beat as a chat-driven scene using storyEvents as the authoritative visible story body. The narrator is the active actor; narrator prose may carry setting, action, consequences, inner pressure, sensory detail, and scene movement, while the main visible rhythm should be character chat bubbles when characters need to speak. Characters must only say what they can speak aloud, not scene narration, inner monologue, camera direction, or omniscient analysis. Never let a character inherit another character's private object, gesture, memory, wording, or sensory detail unless the transcript explicitly makes it public. Character dialogue is optional and must appear only as storyEvents speech.${background}${direction}${outline}`,
     additionalConstraints: [
+      'When opening, renaming, or settling a chapter, include one storyEvents.chapter_update event with a short concrete title. Do not use generic titles such as "阶段回顾".',
       ...buildChoicePolicyPrompt(beatPlan),
       ...buildStoryAssetPrompt(params.conversation),
       ...buildSelectedChoiceConsequencePrompt(params.conversation),
@@ -209,33 +212,71 @@ function buildStoryChapters(params: {
   message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
   summary: string;
   openedChoice: boolean;
-  chapterTitle?: string | null;
+  chapterUpdate?: ReturnType<typeof getStoryChapterUpdateFromEvents>;
 }) {
   const existing = params.conversation.scenarioState?.storyChapters || [];
   const messageId = (params.message as Partial<Message>).id || `${params.conversation.id}:story-message:${Date.now()}`;
   const timestamp = Number((params.message as Partial<Message>).timestamp || Date.now());
-  const recapTitle = params.chapterTitle?.trim();
+  const update = params.chapterUpdate;
+  const updateTitle = update?.title?.trim() || '';
+  const updateSummary = update?.summary?.trim() || '';
+  const updateChoices = update?.keyChoices || [];
   if (!existing.length) {
     return [{
       id: `${params.conversation.id}:chapter:1`,
       index: 1,
-      title: recapTitle || '',
-      status: 'active' as const,
+      title: updateTitle,
+      status: update?.status || 'active' as const,
       startMessageId: messageId,
       startBeatId: `${params.conversation.id}:beat:${timestamp}`,
-      summary: undefined,
-      keyChoices: [],
+      summary: updateSummary || undefined,
+      keyChoices: updateChoices,
       openedAt: timestamp,
+      ...(update?.status === 'completed' ? { endMessageId: messageId, endBeatId: `${params.conversation.id}:beat:${timestamp}`, closedAt: timestamp } : {}),
     }];
   }
-  return existing.map((chapter, index) => (
-    index === existing.length - 1 && params.openedChoice
-      ? {
-          ...chapter,
-          keyChoices: Array.from(new Set([...(chapter.keyChoices || []), ...(params.conversation.scenarioState?.choiceHistory || []).slice(-1).map((choice) => choice.label)])).filter(Boolean),
-        }
-      : chapter
-  ));
+  const latestIndex = existing.length - 1;
+  const latest = existing[latestIndex];
+  const selectedChoiceLabels = params.openedChoice
+    ? (params.conversation.scenarioState?.choiceHistory || []).slice(-1).map((choice) => choice.label)
+    : [];
+  if (update?.startNewChapter) {
+    const closedLatest = latest.status === 'completed' ? latest : {
+      ...latest,
+      status: 'completed' as const,
+      endMessageId: messageId,
+      endBeatId: `${params.conversation.id}:beat:${timestamp}`,
+      closedAt: timestamp,
+    };
+    return [
+      ...existing.slice(0, latestIndex),
+      closedLatest,
+      {
+        id: `${params.conversation.id}:chapter:${existing.length + 1}`,
+        index: existing.length + 1,
+        title: updateTitle,
+        status: update.status || 'active' as const,
+        startMessageId: messageId,
+        startBeatId: `${params.conversation.id}:beat:${timestamp}`,
+        summary: updateSummary || undefined,
+        keyChoices: updateChoices,
+        openedAt: timestamp,
+        ...(update.status === 'completed' ? { endMessageId: messageId, endBeatId: `${params.conversation.id}:beat:${timestamp}`, closedAt: timestamp } : {}),
+      },
+    ];
+  }
+  return existing.map((chapter, index) => {
+    if (index !== latestIndex) return chapter;
+    const keyChoices = Array.from(new Set([...(chapter.keyChoices || []), ...selectedChoiceLabels, ...updateChoices])).filter(Boolean);
+    return {
+      ...chapter,
+      ...(updateTitle ? { title: updateTitle } : {}),
+      ...(updateSummary ? { summary: updateSummary } : {}),
+      ...(keyChoices.length ? { keyChoices } : {}),
+      ...(update?.status ? { status: update.status } : {}),
+      ...(update?.status === 'completed' ? { endMessageId: messageId, endBeatId: `${params.conversation.id}:beat:${timestamp}`, closedAt: timestamp } : {}),
+    };
+  });
 }
 
 function onMessageCommitted(params: {
@@ -297,6 +338,8 @@ function onMessageCommitted(params: {
   }
   const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices: modelChoices, summary, characters: params.characters });
   const normalized = normalizeStoryBranches(params.conversation, modelChoices);
+  const storyEvents = normalizeStoryEvents(params.message.metadata?.storyEvents);
+  const chapterUpdate = getStoryChapterUpdateFromEvents(storyEvents);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
   const previousChoiceHistory = params.conversation.scenarioState?.choiceHistory || [];
   const nextChoiceHistory = updateChoiceHistoryOutcome(params.conversation, summary, storyAssets);
@@ -330,7 +373,7 @@ function onMessageCommitted(params: {
     message: params.message,
     summary,
     openedChoice: normalized.openedChoice,
-    chapterTitle: chapterRecap?.title,
+    chapterUpdate,
   });
   if (storyChapters.length && !storyChapters[storyChapters.length - 1]?.title) {
     appendDiagnostic({

@@ -65,7 +65,7 @@ export interface StoryChoiceSuggestion {
   reward?: string | null;
 }
 
-export type StoryEventType = 'narration' | 'speech' | 'choice_point';
+export type StoryEventType = 'narration' | 'speech' | 'choice_point' | 'chapter_update';
 
 export interface StoryEventChoice {
   label: string;
@@ -81,6 +81,11 @@ export interface StoryEvent {
   speakerName?: string;
   characterId?: string;
   choices?: StoryEventChoice[];
+  title?: string;
+  summary?: string;
+  status?: 'active' | 'completed';
+  startNewChapter?: boolean;
+  keyChoices?: string[];
 }
 
 export interface StoryQualityTrace {

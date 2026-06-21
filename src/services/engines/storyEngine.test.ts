@@ -86,6 +86,39 @@ describe('STORY_ENGINE', () => {
     }));
   });
 
+  it('uses chapter_update events as the chapter index title source', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = { phase: 'scene', sceneBeatCount: 0, choiceEpoch: 1, branches: [] };
+    const result = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [],
+      message: {
+        id: 'chapter-start',
+        timestamp: 100,
+        content: '红烛烧到一半，枕下的寒意还留在她指尖。',
+        type: 'ai',
+        senderId: 'narrator',
+        metadata: {
+          storyEvents: [
+            { type: 'chapter_update', title: '枕下长剑', summary: '沈清婉发现枕下长剑。', status: 'active' },
+            { type: 'narration', text: '红烛烧到一半，枕下的寒意还留在她指尖。' },
+          ],
+        },
+      } as never,
+    });
+    expect(result.chatPatch.scenarioState?.storyChapters).toEqual([
+      expect.objectContaining({
+        index: 1,
+        title: '枕下长剑',
+        summary: '沈清婉发现枕下长剑。',
+        status: 'active',
+        startMessageId: 'chapter-start',
+        openedAt: 100,
+      }),
+    ]);
+    expect(result.chatPatch.scenarioState?.storyProtocolDiagnostics?.map((item) => item.code)).not.toContain('chapter_title_missing');
+  });
+
   it('records a protocol error when a required decision beat has no valid model choices', async () => {
     const chat = buildStoryChat();
     chat.memberIds = ['a', 'b'];

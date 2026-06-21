@@ -10,6 +10,7 @@ import {
   buildStoryEventsVisibleText,
   appendStoryReadingPanelBlock,
   extractStoryAssets,
+  getStoryChapterUpdateFromEvents,
   getStoryChoicesFromEvents,
   normalizeStoryBranches,
   normalizeStoryEvents,
@@ -74,6 +75,26 @@ describe('narrativeRuntime', () => {
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: '雨水顺着旧楼铁门往下流。' }),
       expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin', text: '不要开那扇门。' }),
     ]));
+  });
+
+  it('keeps chapter_update as structured metadata instead of visible story text', () => {
+    const events = normalizeStoryEvents([
+      { type: 'chapter_update', title: '枕下长剑', summary: '沈清婉发现枕下长剑。', status: 'active' },
+      { type: 'narration', text: '红烛烧到一半，枕下的寒意还留在她指尖。' },
+    ]);
+
+    expect(getStoryChapterUpdateFromEvents(events)).toEqual({
+      title: '枕下长剑',
+      summary: '沈清婉发现枕下长剑。',
+      status: 'active',
+      startNewChapter: false,
+      keyChoices: [],
+    });
+    expect(buildStoryEventsVisibleText(events, characters)).toBe('红烛烧到一半，枕下的寒意还留在她指尖。');
+    const turn = buildNarrativeTurnFromStoryEvents({ conversation: chat, events, characters });
+    expect(turn?.blocks).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: '红烛烧到一半，枕下的寒意还留在她指尖。' }),
+    ]);
   });
 
   it('scores story event quality with hooks, concrete scene detail, speech, and choice tradeoffs', () => {
