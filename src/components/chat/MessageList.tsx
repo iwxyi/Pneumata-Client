@@ -166,6 +166,14 @@ function resolveNarrativeBlockCharacter(block: NarrativeBlock, characters: AICha
   return actorName ? characters.find((character) => character.name === actorName) || null : null;
 }
 
+function buildNarrativeBlockScrollAnchor(message: Message, block: NarrativeBlock, index: number) {
+  return `${message.id}:story-block:${block.id || index}`;
+}
+
+function getElementScrollAnchorId(element: HTMLElement) {
+  return element.dataset.scrollAnchor || element.dataset.messageId || '';
+}
+
 function buildNarrativeBlockMessage(parent: Message, block: NarrativeBlock, turn: NarrativeTurnMetadata | undefined, index: number, character?: AICharacter | null): Message {
   const blockKey = `${parent.id}:narrative-block:${block.id || index}`;
   if (block.displayMode === 'bubble') {
@@ -352,7 +360,9 @@ export default function MessageList({
       if (showStoryChoices) {
         return (
           <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
-            <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
+            <Box data-scroll-anchor={`${item.message.id}:story-choice`}>
+              <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
+            </Box>
           </Box>
         );
       }
@@ -365,11 +375,15 @@ export default function MessageList({
       const character = block.displayMode === 'bubble' ? resolveNarrativeBlockCharacter(block, characters) : undefined;
       const blockMessage = buildNarrativeBlockMessage(item.message, block, item.message.metadata?.narrativeTurn, index, character);
       const blockKey = `${item.key}:block:${block.id || index}`;
-      return renderBubble(item, {
-        key: blockKey,
-        message: blockMessage,
-        character: character || (blockMessage.type === 'ai' ? resolveCharacterOrDeleted(characters, blockMessage.senderId, blockMessage.senderName) : undefined),
-      });
+      return (
+        <Box key={blockKey} data-scroll-anchor={buildNarrativeBlockScrollAnchor(item.message, block, index)}>
+          {renderBubble(item, {
+            key: `${blockKey}:bubble`,
+            message: blockMessage,
+            character: character || (blockMessage.type === 'ai' ? resolveCharacterOrDeleted(characters, blockMessage.senderId, blockMessage.senderName) : undefined),
+          })}
+        </Box>
+      );
     });
     return (
       <Box
@@ -385,7 +399,9 @@ export default function MessageList({
       >
         {renderedBlocks}
         {showStoryChoices ? (
-          <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
+          <Box data-scroll-anchor={`${item.message.id}:story-choice`}>
+            <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
+          </Box>
         ) : null}
       </Box>
     );
@@ -405,13 +421,23 @@ export default function MessageList({
     const container = containerRef.current;
     if (!container) return null;
     const containerRect = container.getBoundingClientRect();
-    const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
-    const firstVisible = nodes.find((node) => node.getBoundingClientRect().bottom > containerRect.top + 1) || nodes[0];
-    const messageId = firstVisible?.dataset.messageId;
-    if (!firstVisible || !messageId) return null;
+    const scrollAnchorNodes = Array.from(container.querySelectorAll<HTMLElement>('[data-scroll-anchor]'));
+    const messageAnchorNodes = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
+    const nodes = scrollAnchorNodes.length ? scrollAnchorNodes : messageAnchorNodes;
+    const visibleNodes = nodes.filter((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.bottom > containerRect.top + 1 && rect.top < containerRect.bottom - 1;
+    });
+    const candidates = visibleNodes.length ? visibleNodes : nodes;
+    const targetLine = containerRect.top + containerRect.height * 0.42;
+    const anchorNode = candidates
+      .map((node) => ({ node, distance: Math.abs(node.getBoundingClientRect().top - targetLine) }))
+      .sort((left, right) => left.distance - right.distance)[0]?.node;
+    const messageId = anchorNode ? getElementScrollAnchorId(anchorNode) : '';
+    if (!anchorNode || !messageId) return null;
     return {
       messageId,
-      offsetTop: firstVisible.getBoundingClientRect().top - containerRect.top,
+      offsetTop: anchorNode.getBoundingClientRect().top - containerRect.top,
     };
   }, []);
 
@@ -419,8 +445,8 @@ export default function MessageList({
     const container = containerRef.current;
     if (!container) return false;
     const containerRect = container.getBoundingClientRect();
-    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'))
-      .find((node) => node.dataset.messageId === snapshot.messageId);
+    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-scroll-anchor], [data-message-id]'))
+      .find((node) => getElementScrollAnchorId(node) === snapshot.messageId);
     if (!target) return false;
     const currentOffset = target.getBoundingClientRect().top - containerRect.top;
     const delta = currentOffset - snapshot.offsetTop;
@@ -557,7 +583,11 @@ export default function MessageList({
       if (!restored) {
         lastScrollTopRef.current = container.scrollTop;
       }
-      return;
+      const handle = window.requestAnimationFrame(() => {
+        restoreScrollAnchor(initialPosition);
+        lastScrollTopRef.current = container.scrollTop;
+      });
+      return () => window.cancelAnimationFrame(handle);
     }
     scrollToBottom('auto');
     hasJumpedToBottomRef.current = true;
