@@ -1497,4 +1497,42 @@ describe('sessionProjection', () => {
     expect(state.sidebarChat.privatePayloads[0]?.title).toBe('单聊上下文');
     expect(state.sidebarChat.privatePayloads[0]?.title).not.toContain('私聊');
   });
+
+  it('keeps the story chapter tab selected in projected sidebar state', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      id: 'story-1',
+      type: 'group',
+      sessionKind: { topology: 'group', family: 'simulation', scenarioId: 'story-reader', surfaceProfile: 'text' },
+      scenarioState: {
+        phase: 'scene',
+        storyChapters: [{
+          id: 'story-1:chapter:1',
+          index: 1,
+          title: '枕下长剑',
+          status: 'active',
+          startMessageId: 'm1',
+          startBeatId: 'beat-1',
+          openedAt: 1,
+        }],
+      },
+    });
+    const state = buildProjectedChatDetailState({
+      chat,
+      members: [{ id: 'a', name: '沈清婉' }] as never,
+      runtimeState: null,
+      privatePayloads: [],
+      visiblePanels: [
+        { key: 'members', title: '成员', type: 'members', tabKey: 'members' },
+        { key: 'runtime', title: '运行态', type: 'runtime', tabKey: 'world' },
+      ],
+      schemaActions: [],
+      rightPanelTab: 'chapters',
+      frameworkState: projectSessionFrameworkState(chat),
+    });
+
+    expect(state.activeSidebarTab).toBe('chapters');
+    expect(state.sidebarTitle).toBe('章节');
+    expect(state.showActionTab).toBe(false);
+  });
 });

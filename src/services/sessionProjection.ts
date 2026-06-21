@@ -1190,14 +1190,18 @@ export function buildProjectedChatDetailState(params: {
   const showMemberTab = Boolean(memberPanel);
   const showRuntimeTab = Boolean(runtimePanel);
   const actionList = params.schemaActions || [];
-  const showActionTab = params.chat.type === 'group' || Boolean(actionList.length);
+  const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
+  const showChapterTab = isStoryReader && showRuntimeTab;
+  const showActionTab = isStoryReader ? false : params.chat.type === 'group' || Boolean(actionList.length);
   const activeSidebarTab = (showMemberTab && params.rightPanelTab === 'members')
     ? 'members'
     : (showRuntimeTab && params.rightPanelTab === 'narrative')
       ? 'narrative'
-      : (showRuntimeTab && params.rightPanelTab === 'world')
-        ? 'world'
-        : showActionTab ? 'actions' : 'world';
+      : (showChapterTab && params.rightPanelTab === 'chapters')
+        ? 'chapters'
+        : (showRuntimeTab && params.rightPanelTab === 'world')
+          ? 'world'
+          : showActionTab ? 'actions' : showRuntimeTab ? 'world' : 'members';
   return {
     memberPanel,
     runtimePanel,
@@ -1205,7 +1209,13 @@ export function buildProjectedChatDetailState(params: {
     showRuntimeTab,
     showActionTab,
     activeSidebarTab,
-    sidebarTitle: activeSidebarTab === 'members' ? (memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色')) : activeSidebarTab === 'actions' ? '动作' : (runtimePanel?.title || '运行态'),
+    sidebarTitle: activeSidebarTab === 'members'
+      ? (memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'))
+      : activeSidebarTab === 'actions'
+        ? '动作'
+        : activeSidebarTab === 'chapters'
+          ? '章节'
+          : (runtimePanel?.title || '运行态'),
     memberTabTitle: memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'),
     runtimeTabTitle: runtimePanel?.title || '运行态',
     privatePayloadTitle: params.chat.type === 'direct' ? '单聊信息' : '私有信息',
