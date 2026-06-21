@@ -258,6 +258,34 @@ function findCharacterLabel(event: StoryEvent, characters: AICharacter[]) {
   return event.speakerName || event.characterId || '角色';
 }
 
+function normalizeStoryActorName(value?: string) {
+  return (value || '')
+    .replace(/[（(][^）)]{0,24}[）)]/g, '')
+    .replace(/\s+/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function resolveStoryEventSpeaker(event: StoryEvent, characters: AICharacter[]) {
+  const characterId = event.characterId?.trim() || '';
+  const speakerName = event.speakerName?.trim() || '';
+  const candidates = [characterId, speakerName].map(normalizeStoryActorName).filter(Boolean);
+  const isNarrator = candidates.some((item) => item === normalizeStoryActorName('旁白') || item === 'narrator');
+  if (isNarrator || !characterId && !speakerName) return null;
+  const character = characters.find((item) => item.id === characterId)
+    || characters.find((item) => candidates.includes(normalizeStoryActorName(item.name)));
+  if (character) return character;
+  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+    console.warn('[story-reader] Unknown storyEvent speech actor; downgraded to narrator prose.', {
+      actorId: characterId,
+      actorName: speakerName,
+      text: event.text,
+      knownCharacters: characters.map((item) => ({ id: item.id, name: item.name })),
+    });
+  }
+  return null;
+}
+
 export function buildStoryEventsVisibleText(events: StoryEvent[], characters: AICharacter[]) {
   return events
     .flatMap((event) => {
@@ -332,21 +360,26 @@ function storyEventToBlocks(event: StoryEvent, index: number, characters: AIChar
     }];
   }
   if (event.type === 'speech' && event.text?.trim()) {
-    const characterId = event.characterId || '';
-    const normalizedSpeaker = event.speakerName?.trim();
-    const character = characterId
-      ? characters.find((item) => item.id === characterId) || characters.find((item) => normalizedSpeaker && item.name === normalizedSpeaker)
-      : characters.find((item) => normalizedSpeaker && item.name === normalizedSpeaker);
-    const actorId = character?.id || characterId || event.speakerName || 'character';
+    const character = resolveStoryEventSpeaker(event, characters);
+    if (!character) {
+      return [{
+        id: `block-${index + 1}`,
+        actorId: 'narrator',
+        actorKind: 'narrator',
+        kind: 'prose',
+        displayMode: 'paragraph',
+        text: event.text.trim(),
+      }];
+    }
     return [{
       id: `block-${index + 1}`,
-      actorId,
+      actorId: character.id,
       actorKind: 'character',
       kind: 'dialogue',
       displayMode: 'bubble',
       text: event.text.trim(),
-      actorName: character?.name || event.speakerName || characterId || '角色',
-      characterId: character?.id || characterId || undefined,
+      actorName: character.name,
+      characterId: character.id,
     }];
   }
   return [];

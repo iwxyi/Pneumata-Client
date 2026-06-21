@@ -683,22 +683,38 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
-  it('commits story narrativeBlocks as ordered prose and character bubble blocks', async () => {
+  it('rejects story narrativeBlocks as a legacy body and retries with storyEvents', async () => {
     generateResponseMock.mockReset();
-    generateResponseMock.mockResolvedValue(JSON.stringify({
-      narrativeText: '雨水从旧宅檐角连成一线。\n\n门缝里透出一截冷光。',
-      narrativeBlocks: [
-        { actorId: 'narrator', kind: 'prose', text: '雨水从旧宅檐角连成一线。' },
-        { actorId: 'mei', actorName: '阿梅', kind: 'dialogue', text: '别靠太近。' },
-        { actorId: 'narrator', kind: 'prose', text: '门缝里透出一截冷光。' },
-      ],
-      content: '',
-      extraMessages: null,
-      storyChoices: null,
-      interactionHints: null,
-      socialEventHints: null,
-      conflictFocus: null,
-    }));
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: '雨水从旧宅檐角连成一线。\n\n门缝里透出一截冷光。',
+        narrativeBlocks: [
+          { actorId: 'narrator', kind: 'prose', text: '雨水从旧宅檐角连成一线。' },
+          { actorId: 'mei', actorName: '阿梅', kind: 'dialogue', text: '别靠太近。' },
+          { actorId: 'narrator', kind: 'prose', text: '门缝里透出一截冷光。' },
+        ],
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: null,
+        storyEvents: [
+          { type: 'narration', actorId: 'narrator', text: '雨水从旧宅檐角连成一线。' },
+          { type: 'speech', actorId: 'mei', actorName: '阿梅', text: '别靠太近。' },
+          { type: 'narration', actorId: 'narrator', text: '门缝里透出一截冷光。' },
+        ],
+        narrativeBlocks: null,
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
     const narrator = buildCharacter('narrator', '旁白');
     const mei = buildCharacter('mei', '阿梅');
 
@@ -715,6 +731,8 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('legacy narrativeBlocks');
     expect(message.content).toBe('');
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
       expect.objectContaining({ actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '雨水从旧宅檐角连成一线。' }),
@@ -810,14 +828,16 @@ describe('chatEngine streaming preview', () => {
     ]);
   });
 
-  it('matches story dialogue actors by name and logs unknown actors', async () => {
+  it('matches story dialogue actors by name and logs unknown actors through storyEvents', async () => {
     generateResponseMock.mockReset();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     generateResponseMock.mockResolvedValue(JSON.stringify({
-      narrativeBlocks: [
-        { actorId: '阿梅', kind: 'dialogue', text: '别碰那盏灯。' },
-        { actorId: 'ghost', actorName: '幽灵角色', kind: 'dialogue', text: '我也拿着她手里的当归。' },
+      narrativeText: null,
+      storyEvents: [
+        { type: 'speech', actorId: '阿梅', text: '别碰那盏灯。' },
+        { type: 'speech', actorId: 'ghost', actorName: '幽灵角色', text: '我也拿着她手里的当归。' },
       ],
+      narrativeBlocks: null,
       content: '',
       extraMessages: null,
       storyChoices: null,
@@ -849,12 +869,14 @@ describe('chatEngine streaming preview', () => {
     warnSpy.mockRestore();
   });
 
-  it('recovers story dialogue from prose blocks that begin with a character heading', async () => {
+  it('projects storyEvent speech with actor names as character bubbles', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
-      narrativeBlocks: [
-        { actorId: 'narrator', kind: 'prose', text: '江采薇（宫女）\n皇后娘娘说的是……奴婢在针线房学过几年绣活。' },
+      narrativeText: null,
+      storyEvents: [
+        { type: 'speech', actorName: '江采薇', text: '皇后娘娘说的是……奴婢在针线房学过几年绣活。' },
       ],
+      narrativeBlocks: null,
       content: '',
       extraMessages: null,
       storyChoices: null,
@@ -887,9 +909,11 @@ describe('chatEngine streaming preview', () => {
     generateResponseMock.mockReset();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     generateResponseMock.mockResolvedValue(JSON.stringify({
-      narrativeBlocks: [
-        { actorId: '旁白', kind: 'dialogue', text: '门后的风忽然停了。' },
+      narrativeText: null,
+      storyEvents: [
+        { type: 'speech', actorId: '旁白', text: '门后的风忽然停了。' },
       ],
+      narrativeBlocks: null,
       content: '',
       extraMessages: null,
       storyChoices: null,
@@ -920,17 +944,33 @@ describe('chatEngine streaming preview', () => {
     warnSpy.mockRestore();
   });
 
-  it('does not fall back to story narrativeText as bubble content when nobody speaks', async () => {
+  it('rejects story narrativeText instead of committing it as body text', async () => {
     generateResponseMock.mockReset();
-    generateResponseMock.mockResolvedValue(JSON.stringify({
-      narrativeText: '走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。',
-      content: '',
-      extraMessages: null,
-      storyChoices: null,
-      interactionHints: null,
-      socialEventHints: null,
-      conflictFocus: null,
-    }));
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: '走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。',
+        storyEvents: null,
+        narrativeBlocks: null,
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: null,
+        storyEvents: [
+          { type: 'narration', actorId: 'narrator', text: '走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。' },
+        ],
+        narrativeBlocks: null,
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
     const narrator = buildCharacter('narrator', '旁白');
 
     const message = await generateSpeakerMessage({
@@ -946,10 +986,76 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('narrativeText');
     expect(message.content).toBe('');
     expect(message.extraMessages).toBeNull();
     expect(message.metadata?.narrativeTurn?.blocks[0]?.text).toBe('走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。');
     expect(message.metadata?.contextText).toContain('走廊尽头的灯忽明忽暗');
+  });
+
+  it('rejects overlong storyEvents that look like multiple alternate continuations', async () => {
+    generateResponseMock.mockReset();
+    const alternateNarrations = [
+      '沈清婉把梳子放回妆台，铜镜里映出月奴骤然绷紧的肩线，屋里静得像有人按住了烛火。',
+      '门外忽然传来管事婆子的咳嗽声，月奴借着那一点响动垂下眼，好像终于找到了退路。',
+      '红帐边缘垂下一粒松动的金珠，落在锦被上没有声音，却让沈清婉想起枕下那截冰冷剑柄。',
+      '月奴的袖口微微鼓起一角，像藏着一张被揉皱的纸条，又像只是昨夜来不及收好的帕子。',
+      '窗纸被晨风吹得轻轻发颤，铜台上的烛泪已经凝住，像两座刚刚冷下来的小山。',
+      '沈清婉没有立刻问剑，她先问早膳，语气平常得让月奴反而露出了一瞬来不及遮掩的慌乱。',
+      '廊下脚步声由远及近，又在门前三步外停住，仿佛有人一直等着屋里这句话落地。',
+      '那枚军器监的烙印还贴着沈清婉的掌心，边缘硌得发疼，提醒她这不是一场普通的新婚试探。',
+    ];
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: null,
+        storyEvents: [
+          ...alternateNarrations.map((text) => ({ type: 'narration', actorId: 'narrator', text })),
+        ],
+        narrativeBlocks: null,
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        narrativeText: null,
+        storyEvents: [
+          { type: 'narration', actorId: 'narrator', text: '沈清婉把梳子放回妆台，屋里安静得只剩烛芯轻响。' },
+          { type: 'speech', actorId: 'mei', actorName: '阿梅', text: '别靠太近。' },
+        ],
+        narrativeBlocks: null,
+        content: '',
+        extraMessages: null,
+        storyChoices: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'branch', choiceEpoch: 2, branches: [], selectedChoice: { branchId: 'b1', label: '追问月奴', prompt: '追问月奴' }, selectedChoiceEpoch: 2 },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('我选择：追问月奴', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('Output one committed beat only');
+    expect(message.metadata?.narrativeTurn?.blocks).toEqual([
+      expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: '沈清婉把梳子放回妆台，屋里安静得只剩烛芯轻响。' }),
+      expect.objectContaining({ actorId: 'mei', actorName: '阿梅', displayMode: 'bubble', text: '别靠太近。' }),
+    ]);
   });
 
   it('rejects story-reader JSON that puts visible story only in content', async () => {

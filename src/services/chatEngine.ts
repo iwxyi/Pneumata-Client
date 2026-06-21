@@ -1,6 +1,6 @@
 import { getCharacterModelProfileId, type AICharacter } from '../types/character';
 import { resolveShowRoleActions, type GroupChat } from '../types/chat';
-import type { Message } from '../types/message';
+import type { Message, StoryEvent } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { MediaGenerationDecision, MessageAttachment, MessageMetadata, NarrativeBlock } from '../types/message';
 import type { SessionGenerationPromptContext } from '../types/sessionEngine';
@@ -97,6 +97,10 @@ type GenerationWithGuidanceTrace = {
 };
 
 const MAX_EXTRA_MESSAGES = 4;
+const MAX_STORY_VISIBLE_EVENTS_PER_TURN = 7;
+const MAX_STORY_NARRATION_EVENTS_PER_TURN = 4;
+const MAX_STORY_SPEECH_EVENTS_PER_TURN = 5;
+const MAX_STORY_VISIBLE_CHARS_PER_TURN = 2200;
 const emotionMap: Record<string, number> = {};
 
 class EmptyGeneratedResponseError extends Error {
@@ -557,6 +561,95 @@ function buildStoryProtocolRetryPrompt(basePrompt: string, priorAttempt: string)
 Story protocol retry:
 - The previous draft was rejected because it did not provide a structured story body.
 - Rejected draft: ${priorAttempt.slice(0, 240)}`;
+}
+
+function buildStoryProtocolQualityRetryPrompt(basePrompt: string, priorAttempt: string, reason: string) {
+  return `${buildStoryProtocolPrompt(basePrompt)}
+
+Story protocol retry:
+- The previous draft was rejected because it violated the storyEvents contract: ${reason}
+- Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
+- Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
+- Keep this beat concise enough for live chat reading: use at most ${MAX_STORY_VISIBLE_EVENTS_PER_TURN} visible narration/speech events and keep the total visible story under ${MAX_STORY_VISIBLE_CHARS_PER_TURN} Chinese characters.
+- Rejected draft: ${priorAttempt.slice(0, 360)}`;
+}
+
+function hasLegacyNarrativeBlocks(value: unknown) {
+  return Array.isArray(value) && value.some((block) => (
+    block
+    && typeof block === 'object'
+    && typeof (block as { text?: unknown }).text === 'string'
+    && (block as { text: string }).text.trim()
+  ));
+}
+
+function storyEventVisibleText(event: StoryEvent) {
+  if (event.type !== 'narration' && event.type !== 'speech') return '';
+  return (event.text || '').trim();
+}
+
+function validateStoryReaderGeneration(params: {
+  parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
+  storyEvents?: StoryEvent[] | null;
+  narrativeText?: string | null;
+  narrativeBlocks?: NarrativeBlock[] | null;
+  finalResponse?: string;
+  rawContent?: string;
+}) {
+  const storyEvents = params.storyEvents || [];
+  const visibleEvents = storyEvents.filter((event) => event.type === 'narration' || event.type === 'speech');
+  const visibleText = visibleEvents.map(storyEventVisibleText).join('\n');
+  const parsed = params.parsedEnvelope as (ReturnType<typeof parseInlineInteractionEnvelope> & {
+    narrativeBlocks?: unknown;
+    narrativeText?: unknown;
+    content?: unknown;
+    extraMessages?: unknown;
+  }) | null;
+  if (!visibleEvents.length) {
+    if (hasLegacyNarrativeBlocks(parsed?.narrativeBlocks) || params.narrativeBlocks?.length) {
+      return {
+        code: 'legacy_narrative_blocks',
+        message: '故事房生成结果使用了 legacy narrativeBlocks 作为正文，必须改为 storyEvents。',
+      };
+    }
+    if (typeof parsed?.narrativeText === 'string' && parsed.narrativeText.trim()) {
+      return {
+        code: 'legacy_narrative_text',
+        message: '故事房生成结果使用了 narrativeText 作为正文，必须改为 storyEvents。',
+      };
+    }
+    if (typeof parsed?.content === 'string' && parsed.content.trim()) {
+      return {
+        code: 'legacy_content_body',
+        message: '故事房生成结果使用了 content 作为正文，必须改为 storyEvents。',
+      };
+    }
+    return {
+      code: 'story_events_missing',
+      message: '故事房生成结果缺少可见 storyEvents narration/speech。',
+    };
+  }
+  const narrationCount = visibleEvents.filter((event) => event.type === 'narration').length;
+  const speechCount = visibleEvents.filter((event) => event.type === 'speech').length;
+  if (visibleEvents.length > MAX_STORY_VISIBLE_EVENTS_PER_TURN) {
+    return {
+      code: 'story_events_too_many',
+      message: `单轮故事正文包含 ${visibleEvents.length} 个可见事件，超过 ${MAX_STORY_VISIBLE_EVENTS_PER_TURN} 个，疑似把多个改写版本或多个后续一次性提交。`,
+    };
+  }
+  if (narrationCount > MAX_STORY_NARRATION_EVENTS_PER_TURN || speechCount > MAX_STORY_SPEECH_EVENTS_PER_TURN) {
+    return {
+      code: 'story_events_unbalanced',
+      message: `单轮故事正文旁白/对白数量过多：narration=${narrationCount}, speech=${speechCount}。`,
+    };
+  }
+  if (visibleText.length > MAX_STORY_VISIBLE_CHARS_PER_TURN) {
+    return {
+      code: 'story_events_too_long',
+      message: `单轮故事正文 ${visibleText.length} 字，超过 ${MAX_STORY_VISIBLE_CHARS_PER_TURN} 字，疑似包含前文复述或多个候选后续。`,
+    };
+  }
+  return null;
 }
 
 function cleanJsonLikeText(value: string) {
@@ -2116,32 +2209,49 @@ async function generateNonDuplicateResponse(params: {
     lastExtraMessages = generated.extraMessages || null;
     lastStoryEvents = generated.storyEvents || null;
     lastStoryChoices = generated.storyChoices || null;
-    const hasStructuredStoryBody = generated.narrativeBlocks.length > 0 || Boolean(generated.storyEvents?.some((event) => event.type === 'narration' || event.type === 'speech'));
-    if (isStoryReader && !hasStructuredStoryBody) {
+    const storyProtocolIssue = isStoryReader ? validateStoryReaderGeneration({
+      parsedEnvelope: generated.parsedEnvelope,
+      storyEvents: generated.storyEvents || null,
+      narrativeText: generated.narrativeText,
+      narrativeBlocks: generated.narrativeBlocks,
+      finalResponse: generated.finalResponse,
+      rawContent: generated.rawContent,
+    }) : null;
+    if (storyProtocolIssue) {
       const draft = generated.rawContent || generated.fullResponse;
       if (attempt < 2) {
         logAiGenerationFailure({
           chat: params.chat,
           speaker: params.speaker,
-          reason: 'story_protocol_invalid_retry',
-          message: '故事房回复缺少 storyEvents 或 narrativeBlocks，准备重试。',
+          reason: `${storyProtocolIssue.code}_retry`,
+          message: `${storyProtocolIssue.message} 准备重试。`,
           attempt: attempt + 1,
           draft,
-          details: { narrativeBlocks: generated.narrativeBlocks.length, hasParsedEnvelope: Boolean(generated.parsedEnvelope) },
+          details: {
+            code: storyProtocolIssue.code,
+            storyEvents: generated.storyEvents?.length || 0,
+            narrativeBlocks: generated.narrativeBlocks.length,
+            hasParsedEnvelope: Boolean(generated.parsedEnvelope),
+          },
         });
-        prompt = buildStoryProtocolRetryPrompt(params.systemPrompt, draft);
+        prompt = buildStoryProtocolQualityRetryPrompt(params.systemPrompt, draft, storyProtocolIssue.message);
         continue;
       }
       logAiGenerationFailure({
         chat: params.chat,
         speaker: params.speaker,
-        reason: 'story_protocol_invalid',
-        message: '故事房回复连续缺少结构化正文。',
+        reason: storyProtocolIssue.code,
+        message: storyProtocolIssue.message,
         attempt: attempt + 1,
         draft,
-        details: { narrativeBlocks: generated.narrativeBlocks.length, hasParsedEnvelope: Boolean(generated.parsedEnvelope) },
+        details: {
+          code: storyProtocolIssue.code,
+          storyEvents: generated.storyEvents?.length || 0,
+          narrativeBlocks: generated.narrativeBlocks.length,
+          hasParsedEnvelope: Boolean(generated.parsedEnvelope),
+        },
       });
-      throw new EmptyGeneratedResponseError(params.speaker.name, { reason: 'story_protocol_invalid' });
+      throw new EmptyGeneratedResponseError(params.speaker.name, { reason: 'story_protocol_invalid', message: storyProtocolIssue.message });
     }
     const evaluationResponse = generated.fullNarrativeResponse || generated.fullResponse;
     if (normalizeForComparison(evaluationResponse)) {
