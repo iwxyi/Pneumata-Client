@@ -29,6 +29,11 @@ interface ScrollAnchorSnapshot {
   messageId: string;
   offsetTop: number;
 }
+interface ScrollbarMetrics {
+  visible: boolean;
+  topPercent: number;
+  heightPercent: number;
+}
 export interface MessageListScrollPosition extends ScrollAnchorSnapshot {
   pinned: boolean;
   sourceTimestamp?: number;
@@ -291,6 +296,7 @@ export default function MessageList({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const [scrollbarMetrics, setScrollbarMetrics] = useState<ScrollbarMetrics>({ visible: false, topPercent: 0, heightPercent: 100 });
   const topLoadTriggeredRef = useRef(false);
   const bottomLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
@@ -449,6 +455,28 @@ export default function MessageList({
     getDistanceFromBottom(element) > element.clientHeight * JUMP_TO_BOTTOM_PAGE_MULTIPLIER
   ), [getDistanceFromBottom]);
 
+  const updateScrollbarMetrics = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const maxScrollTop = container.scrollHeight - container.clientHeight;
+    if (maxScrollTop <= 1) {
+      setScrollbarMetrics((current) => current.visible ? { visible: false, topPercent: 0, heightPercent: 100 } : current);
+      return;
+    }
+    const heightPercent = Math.max(8, Math.min(100, (container.clientHeight / container.scrollHeight) * 100));
+    const topPercent = Math.min(100 - heightPercent, Math.max(0, (container.scrollTop / maxScrollTop) * (100 - heightPercent)));
+    setScrollbarMetrics((current) => {
+      if (
+        current.visible
+        && Math.abs(current.topPercent - topPercent) < 0.2
+        && Math.abs(current.heightPercent - heightPercent) < 0.2
+      ) {
+        return current;
+      }
+      return { visible: true, topPercent, heightPercent };
+    });
+  }, []);
+
   const captureScrollAnchor = useCallback(() => {
     const container = containerRef.current;
     if (!container) return null;
@@ -556,7 +584,8 @@ export default function MessageList({
     if (effectiveBehavior === 'auto') {
       lastScrollTopRef.current = top;
     }
-  }, [hasMoreNewer, onBottomPinnedChange, stopFollowScrollAnimation]);
+    updateScrollbarMetrics();
+  }, [hasMoreNewer, onBottomPinnedChange, stopFollowScrollAnimation, updateScrollbarMetrics]);
 
   const followScrollToBottom = useCallback(() => {
     const container = containerRef.current;
@@ -584,6 +613,7 @@ export default function MessageList({
       const nextTop = startTop + distance * eased;
       container.scrollTop = nextTop;
       lastScrollTopRef.current = nextTop;
+      updateScrollbarMetrics();
       if (progress < 1) {
         followScrollAnimationRef.current = window.requestAnimationFrame(step);
       } else {
@@ -591,7 +621,7 @@ export default function MessageList({
       }
     };
     followScrollAnimationRef.current = window.requestAnimationFrame(step);
-  }, [stopFollowScrollAnimation]);
+  }, [stopFollowScrollAnimation, updateScrollbarMetrics]);
 
   useEffect(() => stopFollowScrollAnimation, [stopFollowScrollAnimation]);
 
@@ -604,6 +634,7 @@ export default function MessageList({
       if (frame != null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = null;
+        updateScrollbarMetrics();
         if (shouldStickToBottomRef.current) followScrollToBottom();
       });
     });
@@ -612,7 +643,11 @@ export default function MessageList({
       observer.disconnect();
       if (frame != null) window.cancelAnimationFrame(frame);
     };
-  }, [followScrollToBottom]);
+  }, [followScrollToBottom, updateScrollbarMetrics]);
+
+  useLayoutEffect(() => {
+    updateScrollbarMetrics();
+  }, [renderItems, tailContent, updateScrollbarMetrics]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -729,12 +764,14 @@ export default function MessageList({
   }, [hasMoreNewer, isLoadingNewer, renderItems.length, triggerReachBottom]);
 
   return (
-    <Box
-      ref={containerRef}
-      data-chat-message-list
-      onScroll={() => {
+    <Box sx={{ position: 'relative', flex: 1, height: '100%', minHeight: 0 }}>
+      <Box
+        ref={containerRef}
+        data-chat-message-list
+        onScroll={() => {
         const container = containerRef.current;
         if (!container) return;
+        updateScrollbarMetrics();
 
         const previousScrollTop = lastScrollTopRef.current;
         const isScrollingUp = container.scrollTop < previousScrollTop - 2;
@@ -768,28 +805,25 @@ export default function MessageList({
         prependRestoreRef.current = latestScrollAnchorRef.current || captureScrollAnchor();
         topLoadTriggeredRef.current = true;
         void onReachTop();
-      }}
-      sx={{
-        position: 'relative',
-        flex: 1,
-        height: '100%',
-        minHeight: 0,
-        boxSizing: 'border-box',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        pt: topInset || 2,
-        pb: bottomInset || 2,
-        bgcolor: 'transparent',
-        scrollPaddingTop: topInset || 16,
-        scrollPaddingBottom: bottomInset || 16,
-        overflowAnchor: 'none',
-        scrollbarGutter: 'stable',
-        '&::-webkit-scrollbar-track': {
-          mt: topInset || 0,
-          mb: bottomInset || 0,
-        },
-      }}
-    >
+        }}
+        sx={{
+          height: '100%',
+          minHeight: 0,
+          boxSizing: 'border-box',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+          pt: topInset || 2,
+          pb: bottomInset || 2,
+          bgcolor: 'transparent',
+          scrollPaddingTop: topInset || 16,
+          scrollPaddingBottom: bottomInset || 16,
+          overflowAnchor: 'none',
+          scrollbarWidth: 'none',
+          '&::-webkit-scrollbar': {
+            display: 'none',
+          },
+        }}
+      >
       {messages.length > 0 ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', px: 2, pb: 1, minHeight: 25 }}>
           {isLoadingOlder ? (
@@ -849,6 +883,38 @@ export default function MessageList({
         reachStartVersion={messages.length}
         onClose={() => setViewerKey(null)}
       />
+      </Box>
+      {scrollbarMetrics.visible ? (
+        <Box
+          aria-hidden
+          sx={{
+            position: 'absolute',
+            top: topInset || 0,
+            right: { xs: 2, sm: 3 },
+            bottom: bottomInset || 0,
+            width: 4,
+            borderRadius: 999,
+            pointerEvents: 'none',
+            zIndex: 4,
+            bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.06)' : 'rgba(226,232,240,0.08)',
+          }}
+        >
+          <Box
+            sx={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: `${scrollbarMetrics.topPercent}%`,
+              height: `${scrollbarMetrics.heightPercent}%`,
+              borderRadius: 999,
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(71,85,105,0.42)' : 'rgba(203,213,225,0.46)',
+              boxShadow: (theme) => theme.palette.mode === 'light'
+                ? '0 0 0 1px rgba(255,255,255,0.28)'
+                : '0 0 0 1px rgba(15,23,42,0.22)',
+            }}
+          />
+        </Box>
+      ) : null}
     </Box>
   );
 }
