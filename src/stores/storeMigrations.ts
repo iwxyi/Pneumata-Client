@@ -159,6 +159,21 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
 
 export function migrateUiStoreState<T extends Record<string, unknown>>(persisted: VersionedPersistedState<T>): VersionedPersistedState<T> {
   if (!persisted) return persisted;
+  const rawReadingPositions = persisted.chatReadingPositions && typeof persisted.chatReadingPositions === 'object'
+    ? persisted.chatReadingPositions as Record<string, Record<string, unknown>>
+    : {};
+  const chatReadingPositions = Object.fromEntries(Object.entries(rawReadingPositions)
+    .filter(([chatId, position]) => (
+      typeof chatId === 'string'
+      && typeof position?.messageId === 'string'
+      && typeof position?.offsetTop === 'number'
+    ))
+    .map(([chatId, position]) => [chatId, {
+      messageId: position.messageId as string,
+      offsetTop: position.offsetTop as number,
+      pinned: Boolean(position.pinned),
+      updatedAt: typeof position.updatedAt === 'number' ? position.updatedAt : 0,
+    }]));
   return {
     ...persisted,
     sidebarOpen: Boolean(persisted.sidebarOpen),
@@ -167,6 +182,7 @@ export function migrateUiStoreState<T extends Record<string, unknown>>(persisted
     topicGuideOpen: Boolean(persisted.topicGuideOpen),
     speakAsCharacterId: typeof persisted.speakAsCharacterId === 'string' ? persisted.speakAsCharacterId : null,
     rightPanelTab: persisted.rightPanelTab === 'world' || persisted.rightPanelTab === 'actions' || persisted.rightPanelTab === 'narrative' || persisted.rightPanelTab === 'chapters' ? persisted.rightPanelTab : 'members',
+    chatReadingPositions,
   } as T;
 }
 

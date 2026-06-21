@@ -19,7 +19,7 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { type DriverMessageCommitResult, type GroupChat, type StoryChapterState } from '../types/chat';
-import MessageList from '../components/chat/MessageList';
+import MessageList, { type MessageListScrollPosition } from '../components/chat/MessageList';
 import type { NarrativeStoryChoiceOption } from '../components/chat/messageBubblePresentation';
 import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
 import SessionComposerHost from '../components/session/SessionComposerHost';
@@ -64,6 +64,7 @@ const SessionActionPanel = lazy(() => import('../components/session/SessionActio
 const CHAT_MESSAGE_WINDOW_SIZE = 40;
 const CHAPTER_JUMP_MAX_OLDER_PAGES = 6;
 const STORY_CHOICE_COLLAPSE_MS = 420;
+const STORY_READING_POSITION_SAVE_MS = 700;
 
 type ProfilePreviewState =
   | { kind: 'character'; anchorRect: DOMRect; anchorElement: HTMLElement; character: AICharacter }
@@ -451,7 +452,7 @@ export default function ChatDetailPage() {
   const textProfile = getUsablePreferredAIProfile(aiProfiles, 'text');
   const textInputCapabilities = resolveAIModelInputCapabilities(textProfile);
   const textInputCapabilityWarning = getInputCapabilityWarning(textProfile, isZh ? 'zh' : 'en');
-  const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, setRightPanelOpen, rightPanelTab, setRightPanelTab } = useUIStore();
+  const { speakAsCharacterId, setSpeakAsCharacter, rightPanelOpen, toggleRightPanel, setRightPanelOpen, rightPanelTab, setRightPanelTab, chatReadingPositions, setChatReadingPosition } = useUIStore();
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const showLocalInterceptionHints = useSettingsStore((s) => s.developerMode && s.developerUI.showLocalInterceptionHints);
   const currentUser = useAuthStore((s) => s.user);
@@ -476,6 +477,7 @@ export default function ChatDetailPage() {
   const pendingStoryChoiceRef = useRef<string | null>(null);
   const pendingStoryChoiceVisualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStoryReaderAtTailRef = useRef(true);
+  const lastReadingPositionPersistRef = useRef<{ chatId: string; key: string; at: number } | null>(null);
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
@@ -591,6 +593,7 @@ export default function ChatDetailPage() {
     () => speakAsCharacterId ? characters.find((c) => c.id === speakAsCharacterId) ?? null : null,
     [characters, speakAsCharacterId]
   );
+  const savedStoryReadingPositionForChat = id ? chatReadingPositions[id] : null;
   useEffect(() => {
     if (!chat || chat.type !== 'ai_direct') {
       setAiDirectPerspectiveMemberId(null);
@@ -603,13 +606,16 @@ export default function ChatDetailPage() {
     setGuideTargetMemberId(null);
     setNarrativeRevealMessageKeys(new Set());
     setPendingStoryChoiceVisual(null);
-    setIsStoryReaderAtTail(true);
-    isStoryReaderAtTailRef.current = true;
+    const nextAtTail = chat?.sessionKind?.scenarioId === 'story-reader' && savedStoryReadingPositionForChat
+      ? savedStoryReadingPositionForChat.pinned
+      : true;
+    setIsStoryReaderAtTail(nextAtTail);
+    isStoryReaderAtTailRef.current = nextAtTail;
     if (pendingStoryChoiceVisualTimerRef.current) {
       clearTimeout(pendingStoryChoiceVisualTimerRef.current);
       pendingStoryChoiceVisualTimerRef.current = null;
     }
-  }, [id]);
+  }, [chat?.sessionKind?.scenarioId, id, savedStoryReadingPositionForChat?.pinned]);
   useEffect(() => () => {
     if (pendingStoryChoiceVisualTimerRef.current) clearTimeout(pendingStoryChoiceVisualTimerRef.current);
   }, []);
@@ -670,6 +676,16 @@ export default function ChatDetailPage() {
   });
   const sidebarTabValue = activeSidebarTab === 'actions' ? 'activities' : activeSidebarTab;
   const isStoryRoom = chat?.sessionKind?.scenarioId === 'story-reader';
+  const initialStoryReadingPosition = useMemo<MessageListScrollPosition | null>(() => {
+    if (!isStoryRoom || !id) return null;
+    const position = savedStoryReadingPositionForChat;
+    if (!position) return null;
+    return {
+      messageId: position.messageId,
+      offsetTop: position.offsetTop,
+      pinned: position.pinned,
+    };
+  }, [id, isStoryRoom, savedStoryReadingPositionForChat]);
   const effectiveTextInputCapabilities = useMemo(
     () => (isStoryRoom && !effectiveSpeakAsChar ? buildStoryReaderTextInputCapabilities(textInputCapabilities) : textInputCapabilities),
     [effectiveSpeakAsChar, isStoryRoom, textInputCapabilities],
@@ -1541,6 +1557,21 @@ export default function ChatDetailPage() {
     setIsStoryReaderAtTail(pinned);
   }, []);
 
+  const handleStoryReadingPositionChange = useCallback((position: MessageListScrollPosition) => {
+    if (!id || !isStoryRoom) return;
+    const roundedOffsetTop = Math.round(position.offsetTop);
+    const key = `${position.messageId}:${roundedOffsetTop}:${position.pinned ? '1' : '0'}`;
+    const now = Date.now();
+    const previous = lastReadingPositionPersistRef.current;
+    if (previous?.chatId === id && previous.key === key && now - previous.at < STORY_READING_POSITION_SAVE_MS) return;
+    lastReadingPositionPersistRef.current = { chatId: id, key, at: now };
+    setChatReadingPosition(id, {
+      messageId: position.messageId,
+      offsetTop: roundedOffsetTop,
+      pinned: position.pinned,
+    });
+  }, [id, isStoryRoom, setChatReadingPosition]);
+
   useEffect(() => {
     if (!shouldAutoStartStoryRoom({
       hasChat: Boolean(chat),
@@ -1807,6 +1838,8 @@ export default function ChatDetailPage() {
             storyChoiceSubmittingValue={displayedStoryChoiceSubmittingValue}
             onChooseStoryChoice={isStoryWaitingForChoice ? handleChooseStoryBranch : undefined}
             onBottomPinnedChange={isStoryRoom ? handleMessageListBottomPinnedChange : undefined}
+            initialScrollPosition={isStoryRoom ? initialStoryReadingPosition : null}
+            onScrollPositionChange={isStoryRoom ? handleStoryReadingPositionChange : undefined}
             narrativeRevealMessageKeys={narrativeRevealMessageKeys}
             onNarrativeRevealComplete={clearNarrativeRevealMessage}
           />

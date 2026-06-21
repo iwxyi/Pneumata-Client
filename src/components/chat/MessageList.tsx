@@ -25,6 +25,9 @@ interface ScrollAnchorSnapshot {
   messageId: string;
   offsetTop: number;
 }
+export interface MessageListScrollPosition extends ScrollAnchorSnapshot {
+  pinned: boolean;
+}
 
 interface MessageListProps {
   messages: Message[];
@@ -50,6 +53,8 @@ interface MessageListProps {
   storyChoiceSubmittingValue?: string | null;
   onChooseStoryChoice?: (value: string) => void;
   onBottomPinnedChange?: (pinned: boolean) => void;
+  initialScrollPosition?: MessageListScrollPosition | null;
+  onScrollPositionChange?: (position: MessageListScrollPosition) => void;
   narrativeRevealMessageKeys?: ReadonlySet<string>;
   onNarrativeRevealComplete?: (message: Message) => void;
 }
@@ -247,6 +252,8 @@ export default function MessageList({
   storyChoiceSubmittingValue = null,
   onChooseStoryChoice,
   onBottomPinnedChange,
+  initialScrollPosition = null,
+  onScrollPositionChange,
   narrativeRevealMessageKeys,
   onNarrativeRevealComplete,
 }: MessageListProps) {
@@ -260,6 +267,7 @@ export default function MessageList({
   const shouldStickToBottomRef = useRef(true);
   const lastReportedBottomPinnedRef = useRef<boolean | null>(null);
   const hasJumpedToBottomRef = useRef(false);
+  const initialScrollPositionRef = useRef(initialScrollPosition);
   const prependRestoreRef = useRef<ScrollAnchorSnapshot | null>(null);
   const latestScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
   const autoFillTriggeredRef = useRef(false);
@@ -409,26 +417,34 @@ export default function MessageList({
 
   const restoreScrollAnchor = useCallback((snapshot: ScrollAnchorSnapshot) => {
     const container = containerRef.current;
-    if (!container) return;
+    if (!container) return false;
     const containerRect = container.getBoundingClientRect();
     const target = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'))
       .find((node) => node.dataset.messageId === snapshot.messageId);
-    if (!target) return;
+    if (!target) return false;
     const currentOffset = target.getBoundingClientRect().top - containerRect.top;
     const delta = currentOffset - snapshot.offsetTop;
-    if (Math.abs(delta) < 1) return;
-    container.scrollTop += delta;
+    if (Math.abs(delta) >= 1) {
+      container.scrollTop += delta;
+    }
     lastScrollTopRef.current = container.scrollTop;
+    return true;
   }, []);
 
   const rememberScrollAnchor = useCallback(() => {
     const snapshot = captureScrollAnchor();
     latestScrollAnchorRef.current = snapshot;
+    if (snapshot) {
+      onScrollPositionChange?.({
+        ...snapshot,
+        pinned: shouldStickToBottomRef.current,
+      });
+    }
     if (isLoadingOlder && snapshot) {
       prependRestoreRef.current = snapshot;
     }
     return snapshot;
-  }, [captureScrollAnchor, isLoadingOlder]);
+  }, [captureScrollAnchor, isLoadingOlder, onScrollPositionChange]);
 
   useEffect(() => {
     if (storyRevealMode !== 'instant' || !onNarrativeRevealComplete) return;
@@ -531,6 +547,18 @@ export default function MessageList({
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!container || renderItems.length === 0 || hasJumpedToBottomRef.current) return;
+    const initialPosition = initialScrollPositionRef.current;
+    if (initialPosition && !initialPosition.pinned) {
+      const restored = restoreScrollAnchor(initialPosition);
+      hasJumpedToBottomRef.current = true;
+      shouldStickToBottomRef.current = false;
+      lastReportedBottomPinnedRef.current = false;
+      onBottomPinnedChange?.(false);
+      if (!restored) {
+        lastScrollTopRef.current = container.scrollTop;
+      }
+      return;
+    }
     scrollToBottom('auto');
     hasJumpedToBottomRef.current = true;
     shouldStickToBottomRef.current = true;
@@ -538,7 +566,7 @@ export default function MessageList({
       lastReportedBottomPinnedRef.current = true;
       onBottomPinnedChange?.(true);
     }
-  }, [onBottomPinnedChange, renderItems.length, scrollToBottom]);
+  }, [onBottomPinnedChange, renderItems.length, restoreScrollAnchor, scrollToBottom]);
 
   useLayoutEffect(() => {
     const snapshot = prependRestoreRef.current;

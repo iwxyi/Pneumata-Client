@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, type GroupChat } from '../types/chat';
-import { migrateChatStoreState } from './storeMigrations';
+import { migrateChatStoreState, migrateUiStoreState } from './storeMigrations';
 
 function chatWithCohesion(cohesion: number): GroupChat {
   return {
@@ -52,5 +52,20 @@ describe('storeMigrations', () => {
     expect(migrated?.chats?.[0]?.worldState.structuredRoomState?.cohesion).toBe(0);
     expect(migrated?.chats?.[1]?.worldState.structuredRoomState?.cohesion).toBe(14);
     expect(migrated?.chats?.[2]?.worldState.structuredRoomState?.cohesion).toBe(-8);
+  });
+
+  it('keeps valid chat reading positions while dropping invalid entries', () => {
+    const migrated = migrateUiStoreState({
+      rightPanelTab: 'chapters',
+      chatReadingPositions: {
+        'story-1': { messageId: 'message-2', offsetTop: 42, pinned: false, updatedAt: 123 },
+        broken: { messageId: 123, offsetTop: 'bad' },
+      },
+    });
+
+    expect(migrated?.rightPanelTab).toBe('chapters');
+    expect(migrated?.chatReadingPositions).toEqual({
+      'story-1': { messageId: 'message-2', offsetTop: 42, pinned: false, updatedAt: 123 },
+    });
   });
 });

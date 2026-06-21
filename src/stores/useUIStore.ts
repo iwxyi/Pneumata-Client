@@ -12,6 +12,7 @@ interface UIStore {
   topicGuideOpen: boolean;
   speakAsCharacterId: string | null;
   rightPanelTab: 'members' | 'narrative' | 'chapters' | 'world' | 'actions';
+  chatReadingPositions: Record<string, { messageId: string; offsetTop: number; pinned: boolean; updatedAt: number }>;
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
@@ -20,6 +21,7 @@ interface UIStore {
   setRightPanelGestureOffset: (offset: number | null) => void;
   setRightPanelGestureDragging: (dragging: boolean) => void;
   setRightPanelTab: (tab: 'members' | 'narrative' | 'chapters' | 'world' | 'actions') => void;
+  setChatReadingPosition: (chatId: string, position: { messageId: string; offsetTop: number; pinned: boolean }) => void;
   setGodModeActive: (active: boolean) => void;
   setTopicGuideOpen: (open: boolean) => void;
   setSpeakAsCharacter: (id: string | null) => void;
@@ -36,6 +38,7 @@ export const useUIStore = create<UIStore>()(
       topicGuideOpen: false,
       speakAsCharacterId: null,
       rightPanelTab: 'members',
+      chatReadingPositions: {},
 
       toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
       setSidebarOpen: (open) => set({ sidebarOpen: open }),
@@ -44,6 +47,12 @@ export const useUIStore = create<UIStore>()(
       setRightPanelGestureOffset: (offset) => set({ rightPanelGestureOffset: offset }),
       setRightPanelGestureDragging: (dragging) => set({ rightPanelGestureDragging: dragging }),
       setRightPanelTab: (tab) => set({ rightPanelTab: tab }),
+      setChatReadingPosition: (chatId, position) => set((state) => ({
+        chatReadingPositions: {
+          ...state.chatReadingPositions,
+          [chatId]: { ...position, updatedAt: Date.now() },
+        },
+      })),
       setGodModeActive: (active) => set({ godModeActive: active }),
       setTopicGuideOpen: (open) => set({ topicGuideOpen: open }),
       setSpeakAsCharacter: (id) => set({ speakAsCharacterId: id }),
@@ -56,6 +65,7 @@ export const useUIStore = create<UIStore>()(
         sidebarOpen: state.sidebarOpen,
         rightPanelOpen: state.rightPanelOpen,
         rightPanelTab: state.rightPanelTab,
+        chatReadingPositions: state.chatReadingPositions,
       }),
     }
   )
