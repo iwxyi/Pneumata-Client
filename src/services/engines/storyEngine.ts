@@ -4,7 +4,6 @@ import type { Message, NarrativeTurnMetadata } from '../../types/message';
 import {
   buildChapterRecap,
   buildChoicePolicyPrompt,
-  buildRequiredStoryChoiceFallbacks,
   buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
   extractStoryAssets,
@@ -13,7 +12,8 @@ import {
   resolveStoryBeatPlan,
   updateChoiceHistoryOutcome,
 } from '../narrativeRuntime';
-import { getOpenStoryChoiceState, normalizeStoryChoiceSuggestions } from '../storyChoices';
+import { filterStoryChoicesByReaderRole, getOpenStoryChoiceState, normalizeStoryChoiceSuggestions, resolveStoryReaderRole } from '../storyChoices';
+import { logDeveloperDiagnostic } from '../developerDiagnostics';
 
 const STORY_PHASES = [
   { key: 'scene', label: 'Scene', allowedActions: ['speak', 'send_message'] as string[] },
@@ -204,6 +204,40 @@ function getActionSchema(_conversation: GroupChat) {
   };
 }
 
+function buildStoryChapters(params: {
+  conversation: GroupChat;
+  message: Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'>;
+  summary: string;
+  openedChoice: boolean;
+  chapterTitle?: string | null;
+}) {
+  const existing = params.conversation.scenarioState?.storyChapters || [];
+  const messageId = (params.message as Partial<Message>).id || `${params.conversation.id}:story-message:${Date.now()}`;
+  const timestamp = Number((params.message as Partial<Message>).timestamp || Date.now());
+  const recapTitle = params.chapterTitle?.trim();
+  if (!existing.length) {
+    return [{
+      id: `${params.conversation.id}:chapter:1`,
+      index: 1,
+      title: recapTitle || '',
+      status: 'active' as const,
+      startMessageId: messageId,
+      startBeatId: `${params.conversation.id}:beat:${timestamp}`,
+      summary: undefined,
+      keyChoices: [],
+      openedAt: timestamp,
+    }];
+  }
+  return existing.map((chapter, index) => (
+    index === existing.length - 1 && params.openedChoice
+      ? {
+          ...chapter,
+          keyChoices: Array.from(new Set([...(chapter.keyChoices || []), ...(params.conversation.scenarioState?.choiceHistory || []).slice(-1).map((choice) => choice.label)])).filter(Boolean),
+        }
+      : chapter
+  ));
+}
+
 function onMessageCommitted(params: {
   conversation: GroupChat;
   characters: Parameters<SessionEngineDefinition['onMessageCommitted']>[0]['characters'];
@@ -215,19 +249,54 @@ function onMessageCommitted(params: {
     .join(' ');
   const summary = (params.message.content.trim() || metadataText || '剧情推进').slice(0, 72);
   const currentBeatPlan = resolveStoryBeatPlan(params.conversation);
-  const modelChoices = currentBeatPlan.choicePolicy === 'forbid'
-    ? []
-    : normalizeStoryChoiceSuggestions(params.message.metadata?.storyChoices);
-  const preliminaryStoryAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices: modelChoices, summary, characters: params.characters });
-  const choices = currentBeatPlan.choicePolicy === 'require' && modelChoices.length < 2
-    ? buildRequiredStoryChoiceFallbacks({
-      conversation: params.conversation,
-      storyAssets: preliminaryStoryAssets,
-      characters: params.characters,
-    })
-    : modelChoices;
-  const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices, summary, characters: params.characters });
-  const normalized = normalizeStoryBranches(params.conversation, choices);
+  const readerRole = params.conversation.scenarioState?.readerRole || resolveStoryReaderRole(params.conversation);
+  const shouldValidateChoiceSubject = Boolean(params.conversation.scenarioState?.readerRole);
+  const rawModelChoices = normalizeStoryChoiceSuggestions(params.message.metadata?.storyChoices);
+  const roleValidChoices = shouldValidateChoiceSubject ? filterStoryChoicesByReaderRole(rawModelChoices, readerRole) : rawModelChoices;
+  const modelChoices = currentBeatPlan.choicePolicy === 'forbid' ? [] : roleValidChoices;
+  const diagnostics = [...(params.conversation.scenarioState?.storyProtocolDiagnostics || [])];
+  const appendDiagnostic = (diagnostic: Omit<NonNullable<NonNullable<GroupChat['scenarioState']>['storyProtocolDiagnostics']>[number], 'createdAt' | 'beatKind' | 'choicePolicy' | 'choiceEpoch'>) => {
+    const item = {
+      ...diagnostic,
+      beatKind: currentBeatPlan.beatKind,
+      choicePolicy: currentBeatPlan.choicePolicy,
+      choiceEpoch: params.conversation.scenarioState?.choiceEpoch,
+      createdAt: Date.now(),
+    };
+    diagnostics.push(item);
+    logDeveloperDiagnostic('story-protocol:error', {
+      chatId: params.conversation.id,
+      readerRole,
+      diagnostic: item,
+      rawChoiceCount: rawModelChoices.length,
+      roleValidChoiceCount: roleValidChoices.length,
+    }, item.level);
+  };
+  if (currentBeatPlan.choicePolicy === 'forbid' && rawModelChoices.length >= 2) {
+    appendDiagnostic({
+      code: 'choice_forbidden',
+      level: 'error',
+      message: '模型在禁止抉择的叙事节拍输出了 choice_point。',
+    });
+  }
+  if (currentBeatPlan.choicePolicy !== 'forbid' && rawModelChoices.length >= 2 && roleValidChoices.length < 2) {
+    appendDiagnostic({
+      code: 'choice_subject_mismatch',
+      level: 'error',
+      message: readerRole === 'participant'
+        ? '用户作为群成员时，候选项必须以“我”作为行动主体。'
+        : '用户作为场外读者时，候选项必须使用具体角色名作为行动主体，不能使用“让 xxx”。',
+    });
+  }
+  if (currentBeatPlan.choicePolicy === 'require' && modelChoices.length < 2) {
+    appendDiagnostic({
+      code: 'choice_required_missing',
+      level: 'error',
+      message: '模型在必须形成关键抉择的节拍没有输出 2-4 个合格候选项。',
+    });
+  }
+  const storyAssets = extractStoryAssets({ conversation: params.conversation, message: params.message, choices: modelChoices, summary, characters: params.characters });
+  const normalized = normalizeStoryBranches(params.conversation, modelChoices);
   const nextEpoch = getCurrentChoiceEpoch({ ...params.conversation, scenarioState: { ...(params.conversation.scenarioState || {}), branches: normalized.branches } });
   const previousChoiceHistory = params.conversation.scenarioState?.choiceHistory || [];
   const nextChoiceHistory = updateChoiceHistoryOutcome(params.conversation, summary, storyAssets);
@@ -256,11 +325,28 @@ function onMessageCommitted(params: {
     openedChoice: normalized.openedChoice,
     nextSceneBeatCount,
   });
+  const storyChapters = buildStoryChapters({
+    conversation: params.conversation,
+    message: params.message,
+    summary,
+    openedChoice: normalized.openedChoice,
+    chapterTitle: chapterRecap?.title,
+  });
+  if (storyChapters.length && !storyChapters[storyChapters.length - 1]?.title) {
+    appendDiagnostic({
+      code: 'chapter_title_missing',
+      level: 'warn',
+      message: '章节索引已创建，但模型尚未提供协议化章节标题。',
+    });
+  }
   const nextScenarioState = {
     ...(params.conversation.scenarioState || {}),
     ...storyAssets,
     chapterRecap,
+    storyChapters,
     choiceHistory: nextChoiceHistory,
+    ...(params.conversation.scenarioState?.readerRole ? { readerRole } : {}),
+    storyProtocolDiagnostics: diagnostics.slice(-20),
     phase: normalized.hasOpenChoice ? 'choice' : keepResolvingChoice ? 'branch' : 'scene',
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,

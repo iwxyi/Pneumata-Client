@@ -70,8 +70,8 @@ describe('STORY_ENGINE', () => {
         senderId: 'narrator',
         metadata: {
           storyChoices: [
-            { label: '让主角推门进入', prompt: '主角推门进入旧宅' },
-            { label: '让同伴低声劝阻', prompt: '同伴低声劝阻主角' },
+            { label: '主角推门进入旧宅', prompt: '主角推门进入旧宅' },
+            { label: '同伴低声劝阻主角', prompt: '同伴低声劝阻主角' },
           ],
         },
       },
@@ -86,7 +86,7 @@ describe('STORY_ENGINE', () => {
     }));
   });
 
-  it('opens fallback choices when a required decision beat has no valid model choices', async () => {
+  it('records a protocol error when a required decision beat has no valid model choices', async () => {
     const chat = buildStoryChat();
     chat.memberIds = ['a', 'b'];
     chat.scenarioState = {
@@ -109,24 +109,57 @@ describe('STORY_ENGINE', () => {
       },
     });
     const scenarioState = result.chatPatch.scenarioState;
-    const fallbackBranches = scenarioState?.branches?.filter((branch) => branch.status === 'available' && branch.choiceEpoch === 2) || [];
     expect(scenarioState).toEqual(expect.objectContaining({
-      phase: 'choice',
-      choiceEpoch: 2,
-      sceneBeatCount: 0,
+      phase: 'scene',
+      choiceEpoch: 1,
+      sceneBeatCount: 4,
       storyBeatKind: 'decision',
       storyChoicePolicy: 'require',
     }));
-    expect(fallbackBranches.map((branch) => branch.label)).toEqual(expect.arrayContaining([
-      '让林医生当场追问护士隐瞒的细节',
+    expect(scenarioState?.branches).toEqual([]);
+    expect(scenarioState?.storyProtocolDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'choice_required_missing', level: 'error' }),
     ]));
-    expect(fallbackBranches.map((branch) => branch.label).join('\n')).toContain('让林医生检查');
-    expect(fallbackBranches.map((branch) => branch.label).join('\n')).toContain('墙边的新鲜血迹');
-    expect(fallbackBranches[0]).toEqual(expect.objectContaining({
-      intent: expect.any(String),
-      risk: expect.any(String),
-      reward: expect.any(String),
+  });
+
+  it('records a protocol error when explicit director choices use internal let wording', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      phase: 'scene',
+      sceneBeatCount: 3,
+      choiceEpoch: 1,
+      branches: [],
+      readerRole: 'director',
+      currentScene: { location: '旧医院走廊', visibleThreat: '护士开始隐瞒停电记录' },
+      openQuestions: ['停电记录是谁改过的？'],
+      clues: ['墙边的新鲜血迹'],
+      stakes: ['护士可能反咬一口'],
+    };
+    const result = await STORY_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [{ id: 'a', name: '林医生' }, { id: 'b', name: '护士' }] as never,
+      message: {
+        content: '冲突逼近选择点。',
+        type: 'ai',
+        senderId: 'narrator',
+        metadata: {
+          storyChoices: [
+            { label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', intent: '逼问', risk: '激怒护士', reward: '得到停电线索' },
+            { label: '让主角检查墙上的血迹', prompt: '主角检查血迹', intent: '探索', risk: '暴露位置', reward: '发现新证据' },
+          ],
+        },
+      },
+    });
+    expect(result.chatPatch.scenarioState).toEqual(expect.objectContaining({
+      phase: 'scene',
+      choiceEpoch: 1,
+      readerRole: 'director',
     }));
+    expect(result.chatPatch.scenarioState?.branches).toEqual([]);
+    expect(result.chatPatch.scenarioState?.storyProtocolDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'choice_subject_mismatch', level: 'error' }),
+      expect.objectContaining({ code: 'choice_required_missing', level: 'error' }),
+    ]));
   });
 
   it('suppresses model choices during establish beats', async () => {
@@ -720,7 +753,7 @@ describe('STORY_ENGINE', () => {
     })).toEqual({ runChat: false, runAction: false, interleaveAction: false });
   });
 
-  it('waits for fallback branch choices even when no message storyChoices exist', () => {
+  it('does not wait for branch-only choices when no message storyChoices exist', () => {
     const chat = buildStoryChat();
     chat.scenarioState = {
       phase: 'choice',
@@ -734,7 +767,7 @@ describe('STORY_ENGINE', () => {
       conversation: chat,
       characters: [],
       messages: [{ id: 'm1', chatId: 'story-1', type: 'ai', senderId: 'narrator', senderName: '旁白', content: '必须选择下一步。', timestamp: 1, isDeleted: false, emotion: 0 }],
-    })).toEqual({ runChat: false, runAction: false, interleaveAction: false });
+    })).toEqual({ runChat: true, runAction: false, interleaveAction: false });
   });
 
   it('keeps waiting for a story choice when later event messages follow the choice prompt', () => {

@@ -355,8 +355,17 @@ export default function MessageList({
   ), [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId]);
 
   const renderMessageItem = useCallback((item: ChatRenderItem) => {
-    if (item.renderKind === 'system') return <SystemMessageItem key={item.key} message={item.message} />;
-    if (item.renderKind === 'event') return <EventMessageItem key={item.key} message={item.message} members={characters} />;
+    const anchorProps = {
+      'data-message-id': item.message.id,
+      'data-message-client-key': item.message.clientKey || undefined,
+      'data-message-server-id': item.message.serverId || undefined,
+    };
+    if (item.renderKind === 'system') {
+      return <Box key={item.key} {...anchorProps}><SystemMessageItem message={item.message} /></Box>;
+    }
+    if (item.renderKind === 'event') {
+      return <Box key={item.key} {...anchorProps}><EventMessageItem message={item.message} members={characters} /></Box>;
+    }
     const showStoryChoices = item.renderKind === 'narrative' && item.message.id === storyChoiceMessageId && Boolean(onChooseStoryChoice);
     const blocks = item.renderKind === 'narrative'
       ? getVisibleNarrativeDisplayBlocks(item.message, developerMode)
@@ -364,13 +373,13 @@ export default function MessageList({
     if (!blocks.length) {
       if (showStoryChoices && onChooseStoryChoice) {
         return (
-          <Box key={item.key} sx={{ display: 'grid' }}>
+          <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
             <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} />
           </Box>
         );
       }
       if (item.renderKind === 'narrative') return null;
-      return renderBubble(item);
+      return <Box key={item.key} {...anchorProps}>{renderBubble(item)}</Box>;
     }
     const effectiveRevealMessageKeys = resolveEffectiveNarrativeRevealKeys({
       explicitKeys: narrativeRevealMessageKeys,
@@ -406,7 +415,7 @@ export default function MessageList({
       });
     });
     return (
-      <Box key={item.key} sx={{ display: 'grid' }}>
+      <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
         {renderedBlocks}
         {showStoryChoices && onChooseStoryChoice && (!recentNarrative || activeRevealIndex < 0) ? (
           <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} />

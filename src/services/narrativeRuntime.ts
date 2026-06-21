@@ -625,54 +625,6 @@ export function extractStoryAssets(params: {
   };
 }
 
-function getStoryActorNames(params: { conversation: GroupChat; storyAssets: StoryAssetPatch; characters: AICharacter[] }) {
-  const presentActorIds = params.storyAssets.currentScene?.presentActorIds || params.conversation.scenarioState?.currentScene?.presentActorIds || [];
-  const presentNames = presentActorIds
-    .map((actorId) => params.characters.find((character) => character.id === actorId)?.name)
-    .filter(Boolean) as string[];
-  const memberNames = params.conversation.memberIds
-    .map((memberId) => params.characters.find((character) => character.id === memberId)?.name)
-    .filter(Boolean) as string[];
-  return Array.from(new Set([...presentNames, ...memberNames, ...params.characters.map((character) => character.name).filter(Boolean)]));
-}
-
-export function buildRequiredStoryChoiceFallbacks(params: {
-  conversation: GroupChat;
-  storyAssets: StoryAssetPatch;
-  characters: AICharacter[];
-}): StoryChoiceSuggestion[] {
-  const actorNames = getStoryActorNames(params);
-  const actor = compactStoryAssetText(actorNames[0] || '主角', 16);
-  const counterpart = compactStoryAssetText(actorNames.find((name) => name !== actor) || '同伴', 16);
-  const location = compactStoryAssetText(params.storyAssets.currentScene?.location || params.conversation.scenarioState?.currentScene?.location || '当前场景', 20);
-  const clue = compactStoryAssetText(params.storyAssets.clues.slice(-1)[0] || params.conversation.scenarioState?.clues?.slice(-1)[0] || '异常痕迹', 24);
-  const openQuestion = compactStoryAssetText(params.storyAssets.openQuestions.slice(-1)[0] || params.conversation.scenarioState?.openQuestions?.slice(-1)[0] || '被隐瞒的真相', 28);
-  const threat = compactStoryAssetText(params.storyAssets.currentScene?.visibleThreat || params.storyAssets.stakes.slice(-1)[0] || params.conversation.scenarioState?.stakes?.slice(-1)[0] || '当前压力', 28);
-  return normalizeStoryChoiceSuggestions([
-    {
-      label: `让${actor}当场追问${counterpart}隐瞒的细节`,
-      prompt: `${actor}当场追问${counterpart}，逼近${openQuestion}`,
-      intent: '逼问',
-      risk: `${counterpart}可能立刻警觉或反咬一口`,
-      reward: `直接逼出${openQuestion}的第一处破绽`,
-    },
-    {
-      label: `让${actor}检查${location}里的${clue}`,
-      prompt: `${actor}检查${location}里的${clue}，让线索变成可见证据`,
-      intent: '搜证',
-      risk: `检查过程可能暴露${actor}已经察觉${threat}`,
-      reward: `把${clue}转化为下一步行动依据`,
-    },
-    {
-      label: `让${actor}先护住${counterpart}并离开${location}`,
-      prompt: `${actor}先护住${counterpart}离开${location}，暂避${threat}`,
-      intent: '保护',
-      risk: `暂时放弃现场主动权，可能错过${clue}`,
-      reward: `保住${counterpart}的信任并争取重新判断局势的时间`,
-    },
-  ]);
-}
-
 export function buildStoryAssetPrompt(conversation: GroupChat) {
   const state = conversation.scenarioState;
   if (!state) return [];

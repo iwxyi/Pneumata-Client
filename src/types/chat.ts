@@ -123,6 +123,41 @@ export interface StoryCurrentSceneState {
   updatedAt?: number;
 }
 
+export type StoryReaderRole = 'participant' | 'director';
+
+export interface StoryProtocolDiagnostic {
+  code:
+    | 'choice_forbidden'
+    | 'choice_required_missing'
+    | 'choice_subject_mismatch'
+    | 'choice_gate_mismatch'
+    | 'empty_story_events'
+    | 'chapter_title_missing'
+    | 'chapter_recap_missing';
+  message: string;
+  level: 'warn' | 'error';
+  beatKind?: StoryBeatKind;
+  choicePolicy?: StoryChoicePolicy;
+  choiceEpoch?: number;
+  sourceMessageId?: string;
+  createdAt: number;
+}
+
+export interface StoryChapterState {
+  id: string;
+  index: number;
+  title: string;
+  status: 'active' | 'completed';
+  startMessageId: string;
+  endMessageId?: string;
+  startBeatId: string;
+  endBeatId?: string;
+  summary?: string;
+  keyChoices?: string[];
+  openedAt: number;
+  closedAt?: number;
+}
+
 export interface ScenarioState {
   seats?: ScenarioSeat[];
   roleAssignments?: ScenarioRoleAssignment[];
@@ -144,6 +179,8 @@ export interface ScenarioState {
   storyBeatKind?: StoryBeatKind;
   storyChoicePolicy?: StoryChoicePolicy;
   storyBeatReason?: string;
+  readerRole?: StoryReaderRole;
+  storyProtocolDiagnostics?: StoryProtocolDiagnostic[];
   openQuestions?: string[];
   clues?: string[];
   stakes?: string[];
@@ -172,6 +209,7 @@ export interface ScenarioState {
   } | null;
   chapterMemory?: string;
   chapterRecap?: StoryChapterRecapState | null;
+  storyChapters?: StoryChapterState[];
   sceneBeatCount?: number;
   choiceEpoch?: number;
   selectedChoiceEpoch?: number;

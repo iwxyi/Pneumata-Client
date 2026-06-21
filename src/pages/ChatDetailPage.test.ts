@@ -244,7 +244,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
     })).toEqual([]);
   });
 
-  it('shows current branch fallback options when the choice source message has no storyChoices metadata', () => {
+  it('does not show branch-only options when the source message has no storyChoices metadata', () => {
     const sourceMessage = {
       id: 'fallback-choice-source',
       chatId: 'story-1',
@@ -273,14 +273,11 @@ describe('ChatDetailPage pause/resume behavior', () => {
       isStoryRoom: true,
       phase: 'choice',
       messages: [sourceMessage],
-    })).toBe(sourceMessage);
+    })).toBeNull();
     expect(buildVisibleStoryBranchOptions({
       isStoryRoom: true,
       chat: chat as Parameters<typeof buildVisibleStoryBranchOptions>[0]['chat'],
       sourceMessage,
-    })).toEqual([
-      expect.objectContaining({ label: '让林医生追问护士隐瞒的细节', value: 'ask' }),
-      expect.objectContaining({ label: '让林医生检查旧医院走廊里的血迹', value: 'search' }),
-    ]);
+    })).toEqual([]);
   });
 });

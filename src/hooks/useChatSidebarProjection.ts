@@ -127,6 +127,7 @@ export function useChatSidebarProjection(params: {
   const activeSidebarTab = projectedActiveTab
     || (showMemberTab && rightPanelTab === 'members' ? 'members'
       : showRuntimeTab && rightPanelTab === 'narrative' ? 'narrative'
+      : showRuntimeTab && rightPanelTab === 'chapters' ? 'chapters'
       : showRuntimeTab && rightPanelTab === 'world' ? 'world'
       : showActionTab && rightPanelTab === 'activities' ? 'activities'
         : showMemberTab ? 'members' : 'world');
@@ -148,6 +149,8 @@ export function useChatSidebarProjection(params: {
         ? (isZh ? '活动' : 'Activities')
         : activeSidebarTab === 'narrative'
           ? (isZh ? '叙事流' : 'Narrative')
+          : activeSidebarTab === 'chapters'
+            ? (isZh ? '章节' : 'Chapters')
           : runtimeTabTitle);
   const runtimePanelLoading = !projectionData && Boolean(chat);
 

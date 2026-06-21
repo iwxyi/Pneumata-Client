@@ -6,7 +6,8 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import { createStreamingLocalMessage } from '../services/chatCommitMessage';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { projectCurrentChatMessages } from '../services/currentChatMessages';
-import { getOpenStoryChoiceState } from '../services/storyChoices';
+import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
+import { getStoryChoiceGateState } from '../services/storyChoices';
 import type { UserDraftActivity } from '../services/userInputBuffer';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
@@ -87,6 +88,7 @@ export function useChatRunLoop(params: {
   const pendingCommitCountRef = useRef(0);
   const pendingTurnWorkCountRef = useRef(0);
   const runLoopRef = useRef<((loopId: string) => Promise<void>) | null>(null);
+  const lastPauseGateLogKeyRef = useRef<string | null>(null);
 
   paramsRef.current = params;
   const isCommitSettled = useCallback(() => pendingCommitCountRef.current === 0, []);
@@ -131,9 +133,30 @@ export function useChatRunLoop(params: {
             activeMessages: useMessageStore.getState().messages,
             cachedWindow: useMessageStore.getState().messageWindowsByChatId[current.chatId!],
           });
-          const storyChoice = getOpenStoryChoiceState(latestChat, latestMessages);
+          const storyChoiceGate = getStoryChoiceGateState(latestChat, latestMessages);
           const manualInputPending = current.isManualInputPending() && !current.streamingMessageRef.current && pendingCommitCountRef.current === 0;
-          return current.isPausedRef.current || Boolean(storyChoice) || manualInputPending;
+          const paused = current.isPausedRef.current || storyChoiceGate.waiting || manualInputPending;
+          if (paused) {
+            const logKey = [
+              current.chatId,
+              current.isPausedRef.current ? 'manual' : '',
+              storyChoiceGate.waiting ? `choice:${storyChoiceGate.choiceEpoch}:${storyChoiceGate.sourceMessageId}:${storyChoiceGate.mismatch}` : '',
+              manualInputPending ? 'manual-input' : '',
+            ].filter(Boolean).join('|');
+            if (logKey && lastPauseGateLogKeyRef.current !== logKey) {
+              lastPauseGateLogKeyRef.current = logKey;
+              logDeveloperDiagnostic('story-run:pause-gate', {
+                chatId: current.chatId,
+                loopId,
+                manualPaused: current.isPausedRef.current,
+                manualInputPending,
+                storyChoiceGate,
+                pendingCommitCount: pendingCommitCountRef.current,
+                pendingTurnWorkCount: pendingTurnWorkCountRef.current,
+              }, storyChoiceGate.mismatch === 'none' ? 'info' : 'warn');
+            }
+          }
+          return paused;
         },
         isActiveLoop: (currentLoopId) => current.activeChatIdRef.current === current.chatId && current.loopTokenRef.current === currentLoopId,
         onCommitSettled: isCommitSettled,
@@ -187,6 +210,16 @@ export function useChatRunLoop(params: {
           current.setCurrentSpeaker(null);
         },
         onEngineError: async (error) => {
+          logDeveloperDiagnostic('story-run:engine-error', {
+            error,
+            chatId: current.chatId,
+            loopId,
+            activeChatId: current.activeChatIdRef.current,
+            activeLoopToken: current.loopTokenRef.current,
+            paused: current.isPausedRef.current,
+            running: current.isRunningRef.current,
+            streamingMessage: current.streamingMessageRef.current,
+          }, 'error');
           if (typeof console !== 'undefined' && typeof console.error === 'function') {
             console.error('[chat-run-loop:engine-error]', {
               error,
@@ -211,6 +244,16 @@ export function useChatRunLoop(params: {
           await current.updateChat(current.chatId!, { isActive: false });
         },
         onLoopError: (error) => {
+          logDeveloperDiagnostic('story-run:loop-error', {
+            error,
+            chatId: current.chatId,
+            loopId,
+            activeChatId: current.activeChatIdRef.current,
+            activeLoopToken: current.loopTokenRef.current,
+            paused: current.isPausedRef.current,
+            running: current.isRunningRef.current,
+            streamingMessage: current.streamingMessageRef.current,
+          }, 'error');
           if (typeof console !== 'undefined' && typeof console.error === 'function') {
             console.error('[chat-run-loop:loop-error]', {
               error,
@@ -260,8 +303,8 @@ export function useChatRunLoop(params: {
       activeMessages: useMessageStore.getState().messages,
       cachedWindow: useMessageStore.getState().messageWindowsByChatId[conversationChat.id],
     });
-    const storyChoice = getOpenStoryChoiceState(conversationChat, latestMessages);
-    const isStoryChoiceBlocked = Boolean(storyChoice);
+    const storyChoiceGate = getStoryChoiceGateState(conversationChat, latestMessages);
+    const isStoryChoiceBlocked = storyChoiceGate.waiting;
     const hasActiveLoop = Boolean(activeRunLoopTokenRef.current)
       && current.loopTokenRef.current === activeRunLoopTokenRef.current;
     const blockReason = getConversationLoopStartBlockReason({
@@ -271,6 +314,17 @@ export function useChatRunLoop(params: {
       isStoryChoiceBlocked,
       hasActiveLoop,
     });
+    logDeveloperDiagnostic('story-run:start-gate', {
+      chatId: conversationChat.id,
+      phase: conversationChat.scenarioState?.phase || null,
+      isRunning: current.isRunningRef.current,
+      isPaused: current.isPausedRef.current,
+      hasActiveLoop,
+      activeRunLoopToken: activeRunLoopTokenRef.current,
+      loopToken: current.loopTokenRef.current,
+      blockReason,
+      storyChoiceGate,
+    }, blockReason ? 'warn' : 'info');
     if (blockReason) return blockReason;
     const run = runLoopRef.current;
     if (!run) return null;
@@ -282,6 +336,11 @@ export function useChatRunLoop(params: {
     current.isPausedRef.current = false;
     current.start(newLoopToken);
     current.updateChat(conversationChat.id, { isActive: true });
+    logDeveloperDiagnostic('story-run:started', {
+      chatId: conversationChat.id,
+      loopToken: newLoopToken,
+      phase: conversationChat.scenarioState?.phase || null,
+    }, 'info');
     window.setTimeout(() => void run(newLoopToken), 100);
     return null;
   }, []);

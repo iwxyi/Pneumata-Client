@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildStoryBranchOptions, getOpenStoryChoiceState, hasVisibleStoryChoices, normalizeStoryChoiceSuggestions } from './storyChoices';
+import { buildStoryBranchOptions, getOpenStoryChoiceState, getStoryChoiceGateState, hasVisibleStoryChoices, normalizeStoryChoiceSuggestions } from './storyChoices';
 
 describe('storyChoices', () => {
   it('filters abstract template choices', () => {
@@ -85,7 +85,7 @@ describe('storyChoices', () => {
     expect(options.map((option) => option.value)).toEqual(['choice-2-a', 'choice-2-b']);
   });
 
-  it('cleans executable prompts from branch fallback data', () => {
+  it('cleans executable prompts while binding visible choices to branches', () => {
     expect(buildStoryBranchOptions({
       storyChoices: [
         { label: '让林医生追问昨晚的停电记录', prompt: '追问停电记录；风险：激怒林医生；收益：得到人名' },
@@ -109,7 +109,7 @@ describe('storyChoices', () => {
     expect(buildStoryBranchOptions({ storyChoices: choices, sourceId: 'msg-3' })).toEqual([]);
   });
 
-  it('detects open story choices from current epoch branches when message metadata is absent', () => {
+  it('does not open story choices from branch-only state even when an anchor message exists', () => {
     const chat = {
       sessionKind: { scenarioId: 'story-reader' },
       scenarioState: {
@@ -122,15 +122,73 @@ describe('storyChoices', () => {
         ],
       },
     };
+    const messages = [
+      { id: 'm1', chatId: 'story-1', type: 'ai' as const, senderId: 'narrator', senderName: '旁白', content: '必须决定下一步。', timestamp: 1, isDeleted: false, emotion: 0 },
+    ];
 
-    expect(getOpenStoryChoiceState(chat as Parameters<typeof getOpenStoryChoiceState>[0], [])).toEqual({
-      source: 'branches',
-      messageId: null,
-      count: 2,
-    });
+    expect(getOpenStoryChoiceState(chat as Parameters<typeof getOpenStoryChoiceState>[0], messages)).toBeNull();
     expect(getOpenStoryChoiceState({
       ...chat,
       scenarioState: { ...chat.scenarioState, phase: 'scene' },
     } as Parameters<typeof getOpenStoryChoiceState>[0], [])).toBeNull();
+  });
+
+  it('summarizes branch-only choice state as a gate mismatch instead of visible choices', () => {
+    const chat = {
+      sessionKind: { scenarioId: 'story-reader' },
+      scenarioState: {
+        phase: 'choice',
+        choiceEpoch: 5,
+        branches: [
+          { branchId: 'a', label: '让林医生追问护士', status: 'available', choiceEpoch: 5 },
+          { branchId: 'b', label: '让林医生检查血迹', status: 'available', choiceEpoch: 5 },
+        ],
+      },
+    };
+    const messages = [
+      { id: 'm1', chatId: 'story-1', type: 'ai' as const, senderId: 'narrator', senderName: '旁白', content: '必须决定下一步。', timestamp: 1, isDeleted: false, emotion: 0 },
+    ];
+
+    expect(getStoryChoiceGateState(
+      chat as Parameters<typeof getStoryChoiceGateState>[0],
+      messages,
+    )).toEqual(expect.objectContaining({
+      waiting: false,
+      source: 'none',
+      sourceMessageId: null,
+      runtimeChoiceCount: 0,
+      visibleChoiceCount: 0,
+      activeBranchCount: 2,
+      phase: 'choice',
+      choiceEpoch: 5,
+      mismatch: 'none',
+    }));
+  });
+
+  it('treats branch-only choice state without an anchor message as recoverable stale state', () => {
+    const chat = {
+      sessionKind: { scenarioId: 'story-reader' },
+      scenarioState: {
+        phase: 'choice',
+        choiceEpoch: 7,
+        branches: [
+          { branchId: 'a', label: '残留选项 A', status: 'available', choiceEpoch: 7 },
+          { branchId: 'b', label: '残留选项 B', status: 'available', choiceEpoch: 7 },
+        ],
+      },
+    };
+
+    expect(getStoryChoiceGateState(
+      chat as Parameters<typeof getStoryChoiceGateState>[0],
+      [],
+    )).toEqual(expect.objectContaining({
+      waiting: false,
+      source: 'none',
+      sourceMessageId: null,
+      runtimeChoiceCount: 0,
+      visibleChoiceCount: 0,
+      activeBranchCount: 2,
+      mismatch: 'none',
+    }));
   });
 });

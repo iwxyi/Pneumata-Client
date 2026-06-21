@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Box, Stack, Typography } from '@mui/material';
 import type { AICharacter } from '../../types/character';
-import type { GroupChat } from '../../types/chat';
+import type { GroupChat, StoryChapterState } from '../../types/chat';
 import type { Message } from '../../types/message';
 import MemberList from '../controls/MemberList';
 import FloatingSegmentedTabs from '../common/FloatingSegmentedTabs';
@@ -13,7 +13,7 @@ const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
 const ChatNarrativePanel = lazy(() => import('./ChatNarrativePanel'));
 
-type ChatSidebarTab = 'members' | 'narrative' | 'world' | 'activities';
+type ChatSidebarTab = 'members' | 'narrative' | 'chapters' | 'world' | 'activities';
 
 interface ChatSidebarPanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -49,6 +49,7 @@ interface ChatSidebarPanelProps {
   onStartDirectChat?: (charId: string) => void;
   onRemoveMember?: (charId: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
+  onStoryChapterClick?: (chapter: StoryChapterState) => void;
   perspectiveMemberId?: string | null;
 }
 
@@ -107,6 +108,68 @@ function PanelFallback() {
   return null;
 }
 
+function StoryChapterPanel({ chat, onStoryChapterClick }: { chat: GroupChat; onStoryChapterClick?: (chapter: StoryChapterState) => void }) {
+  const chapters = chat.scenarioState?.storyChapters || [];
+  if (!chapters.length) {
+    return (
+      <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>
+        暂无章节索引
+      </Typography>
+    );
+  }
+  return (
+    <Stack spacing={1}>
+      {chapters.map((chapter) => {
+        const hasTitle = Boolean(chapter.title?.trim());
+        return (
+          <Box
+            key={chapter.id}
+            component="button"
+            type="button"
+            onClick={() => onStoryChapterClick?.(chapter)}
+            sx={(theme) => ({
+              width: '100%',
+              textAlign: 'left',
+              border: '1px solid',
+              borderColor: chapter.status === 'active' ? theme.palette.primary.main : theme.palette.divider,
+              borderRadius: 1,
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.68)' : 'rgba(255,255,255,0.06)',
+              color: 'text.primary',
+              p: 1,
+              cursor: onStoryChapterClick ? 'pointer' : 'default',
+              font: 'inherit',
+            })}
+          >
+            <Stack spacing={0.5}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                {`第 ${chapter.index} 章 · ${hasTitle ? chapter.title : '章节标题缺失'}`}
+              </Typography>
+              <Typography variant="caption" color={chapter.status === 'active' ? 'primary.main' : 'text.secondary'}>
+                {chapter.status === 'active' ? '进行中' : '已完成'}
+              </Typography>
+              {hasTitle ? null : (
+                <Typography variant="caption" color="error.main">
+                  模型未提供章节标题协议字段
+                </Typography>
+              )}
+              {chapter.summary ? (
+                <Typography variant="body2" color="text.secondary">
+                  {chapter.summary}
+                </Typography>
+              ) : null}
+              {chapter.keyChoices?.length ? (
+                <Typography variant="caption" color="text.secondary">
+                  {`关键选择：${chapter.keyChoices.slice(0, 3).join(' / ')}`}
+                </Typography>
+              ) : null}
+            </Stack>
+          </Box>
+        );
+      })}
+    </Stack>
+  );
+}
+
 export default function ChatSidebarPanel({
   chat,
   members,
@@ -130,11 +193,13 @@ export default function ChatSidebarPanel({
   onStartDirectChat,
   onRemoveMember,
   onUpdateSeats,
+  onStoryChapterClick,
   perspectiveMemberId,
 }: ChatSidebarPanelProps) {
   const panelTabs = [
     showMemberTab ? { value: 'members' as const, label: `${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}` } : null,
     showRuntimeTab ? { value: 'narrative' as const, label: '叙事线' } : null,
+    showRuntimeTab && chat.sessionKind?.scenarioId === 'story-reader' ? { value: 'chapters' as const, label: '章节' } : null,
     showRuntimeTab ? { value: 'world' as const, label: runtimePanelTitle || '运行态' } : null,
     showActivityTab ? { value: 'activities' as const, label: '活动' } : null,
   ].filter(Boolean) as Array<{ value: ChatSidebarTab; label: string }>;
@@ -182,6 +247,10 @@ export default function ChatSidebarPanel({
           <Suspense fallback={<PanelFallback />}>
             <ChatNarrativePanel chat={chat} members={members} messages={messages} hideTitle />
           </Suspense>
+        ) : null}
+
+        {activePanelTab === 'chapters' && showRuntimeTab ? (
+          <StoryChapterPanel chat={chat} onStoryChapterClick={onStoryChapterClick} />
         ) : null}
 
         {activePanelTab === 'world' && showRuntimeTab ? (

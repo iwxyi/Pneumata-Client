@@ -1,4 +1,4 @@
-import type { ScenarioBranchState } from '../types/chat';
+import type { ScenarioBranchState, StoryReaderRole } from '../types/chat';
 import type { StoryChoiceSuggestion } from '../types/message';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
@@ -143,6 +143,23 @@ export function normalizeStoryChoiceSuggestions(value: unknown): StoryChoiceSugg
   return choices;
 }
 
+export function resolveStoryReaderRole(chat: GroupChat | undefined): StoryReaderRole {
+  return chat?.memberIds?.includes('user') ? 'participant' : 'director';
+}
+
+export function isStoryChoiceSubjectValid(label: string, readerRole: StoryReaderRole) {
+  const normalized = label.replace(/\s+/g, '').trim();
+  if (!normalized) return false;
+  if (readerRole === 'participant') return normalized.startsWith('我');
+  if (normalized.startsWith('让')) return false;
+  if (normalized.startsWith('我')) return false;
+  return true;
+}
+
+export function filterStoryChoicesByReaderRole(choices: StoryChoiceSuggestion[], readerRole: StoryReaderRole) {
+  return choices.filter((choice) => isStoryChoiceSubjectValid(choice.label, readerRole));
+}
+
 export function hasVisibleStoryChoices(value: unknown) {
   return normalizeStoryChoiceSuggestions(value).length >= 2;
 }
@@ -155,17 +172,80 @@ export function getOpenStoryChoiceState(chat: GroupChat | undefined, messages: M
     const choices = normalizeStoryChoiceSuggestions(message.metadata?.storyChoices);
     if (choices.length >= 2) return { source: 'message' as const, messageId: message.id, count: choices.length };
   }
-  const currentEpoch = Number(chat.scenarioState?.choiceEpoch || 0);
-  const activeBranches = (chat.scenarioState?.branches || []).filter((branch) => (
+  return null;
+}
+
+export interface StoryChoiceGateState {
+  waiting: boolean;
+  source: 'message' | 'none';
+  sourceMessageId: string | null;
+  runtimeChoiceCount: number;
+  visibleChoiceCount: number;
+  activeBranchCount: number;
+  phase: string | null;
+  choiceEpoch: number | null;
+  readerRole: StoryReaderRole | null;
+  mismatch: 'none' | 'runtime_without_visible_options';
+}
+
+function findLatestStoryChoiceMessage(messages: Message[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    const choices = normalizeStoryChoiceSuggestions(message.metadata?.storyChoices);
+    if (choices.length >= 2) return { message, count: choices.length };
+  }
+  return null;
+}
+
+function getCurrentActiveStoryBranches(chat: GroupChat | undefined) {
+  const currentEpoch = Number(chat?.scenarioState?.choiceEpoch || 0);
+  return (chat?.scenarioState?.branches || []).filter((branch) => (
     branch.status !== 'locked'
     && branch.status !== 'completed'
     && branch.status !== 'chosen'
     && Number(branch.choiceEpoch || 0) === currentEpoch
   ));
-  if (activeBranches.length >= 2) {
-    return { source: 'branches' as const, messageId: null, count: activeBranches.length };
+}
+
+export function getStoryChoiceGateState(chat: GroupChat | undefined, messages: Message[]): StoryChoiceGateState {
+  const phase = typeof chat?.scenarioState?.phase === 'string' ? chat.scenarioState.phase : null;
+  const choiceEpoch = chat?.scenarioState?.choiceEpoch == null ? null : Number(chat.scenarioState.choiceEpoch || 0);
+  const readerRole = chat?.sessionKind?.scenarioId === 'story-reader' ? resolveStoryReaderRole(chat) : null;
+  if (chat?.sessionKind?.scenarioId !== 'story-reader' || phase !== 'choice') {
+    return {
+      waiting: false,
+      source: 'none',
+      sourceMessageId: null,
+      runtimeChoiceCount: 0,
+      visibleChoiceCount: 0,
+      activeBranchCount: 0,
+      phase,
+      choiceEpoch,
+      readerRole,
+      mismatch: 'none',
+    };
   }
-  return null;
+
+  const openChoice = getOpenStoryChoiceState(chat, messages);
+  const choiceMessage = findLatestStoryChoiceMessage(messages);
+  const activeBranches = getCurrentActiveStoryBranches(chat);
+  const sourceMessage = choiceMessage?.message || null;
+  const visibleChoiceCount = choiceMessage?.count || 0;
+  const runtimeChoiceCount = openChoice?.count || 0;
+  const waiting = Boolean(openChoice);
+
+  return {
+    waiting,
+    source: openChoice?.source || 'none',
+    sourceMessageId: openChoice?.messageId || sourceMessage?.id || null,
+    runtimeChoiceCount,
+    visibleChoiceCount,
+    activeBranchCount: activeBranches.length,
+    phase,
+    choiceEpoch,
+    readerRole,
+    mismatch: waiting && visibleChoiceCount < 2 ? 'runtime_without_visible_options' : 'none',
+  };
 }
 
 export function buildStoryBranchOptions(params: {

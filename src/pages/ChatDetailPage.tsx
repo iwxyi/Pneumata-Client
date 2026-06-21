@@ -17,7 +17,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
-import { type DriverMessageCommitResult, type GroupChat } from '../types/chat';
+import { type DriverMessageCommitResult, type GroupChat, type StoryChapterState } from '../types/chat';
 import MessageList from '../components/chat/MessageList';
 import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
 import SessionComposerHost from '../components/session/SessionComposerHost';
@@ -53,12 +53,14 @@ import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
-import { buildStoryBranchOptions, normalizeStoryChoiceSuggestions, sanitizeStoryChoicePrompt } from '../services/storyChoices';
+import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
+import { buildStoryBranchOptions, getStoryChoiceGateState, normalizeStoryChoiceSuggestions, sanitizeStoryChoicePrompt } from '../services/storyChoices';
 import { messagesShareIdentity } from '../services/messageIdentity';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
 const CHAT_MESSAGE_WINDOW_SIZE = 40;
+const CHAPTER_JUMP_MAX_OLDER_PAGES = 6;
 
 type ProfilePreviewState =
   | { kind: 'character'; anchorRect: DOMRect; anchorElement: HTMLElement; character: AICharacter }
@@ -66,6 +68,12 @@ type ProfilePreviewState =
 
 function PanelFallback() {
   return null;
+}
+
+function waitForNextFrame() {
+  return new Promise<void>((resolve) => {
+    window.requestAnimationFrame(() => resolve());
+  });
 }
 
 function LazyPanel({ children }: { children: React.ReactNode }) {
@@ -145,12 +153,7 @@ export function findVisibleStoryChoiceSourceMessage(params: {
   if (!params.isStoryRoom || params.phase !== 'choice') return null;
   for (let index = params.messages.length - 1; index >= 0; index -= 1) {
     const message = params.messages[index];
-    if (!normalizeStoryChoiceSuggestions(message.metadata?.storyChoices).length) continue;
-    return message;
-  }
-  for (let index = params.messages.length - 1; index >= 0; index -= 1) {
-    const message = params.messages[index];
-    if (message.isDeleted || message.type !== 'ai') continue;
+    if (normalizeStoryChoiceSuggestions(message.metadata?.storyChoices).length < 2) continue;
     return message;
   }
   return null;
@@ -164,24 +167,9 @@ export function buildVisibleStoryBranchOptions(params: {
   const sourceMessage = params.sourceMessage;
   if (!params.isStoryRoom || params.chat?.scenarioState?.phase !== 'choice' || !sourceMessage) return [];
   const storyChoices = normalizeStoryChoiceSuggestions(sourceMessage.metadata?.storyChoices);
-  const branchFallbackChoices = storyChoices.length >= 2
-    ? storyChoices
-    : (params.chat.scenarioState?.branches || [])
-      .filter((branch) => (
-        branch.status !== 'locked'
-        && branch.status !== 'completed'
-        && branch.status !== 'chosen'
-        && Number(branch.choiceEpoch || 0) === Number(params.chat?.scenarioState?.choiceEpoch || 0)
-      ))
-      .map((branch) => ({
-        label: branch.label,
-        prompt: branch.prompt || branch.description || branch.label,
-        intent: branch.intent || null,
-        risk: branch.risk || null,
-        reward: branch.reward || null,
-      }));
+  if (storyChoices.length < 2) return [];
   return buildStoryBranchOptions({
-    storyChoices: branchFallbackChoices,
+    storyChoices,
     branches: params.chat.scenarioState?.branches,
     choiceEpoch: params.chat.scenarioState?.choiceEpoch,
     sourceId: sourceMessage.id,
@@ -323,7 +311,7 @@ function buildLocalInterceptionSummary(event: LocalInterceptionEvent) {
   return `拦截了${event.speakerName || '角色'}的发言：${compactInterceptedDraft(event.draft)}（原因：${localizeLocalInterceptionReason(event.reason)}）`;
 }
 
-type SidebarTabValue = 'members' | 'narrative' | 'world' | 'activities';
+type SidebarTabValue = 'members' | 'narrative' | 'chapters' | 'world' | 'activities';
 const EMPTY_MESSAGES: never[] = [];
 
 export default function ChatDetailPage() {
@@ -1028,12 +1016,18 @@ export default function ChatDetailPage() {
     sourceMessageId: storyChoiceSourceMessage?.id,
   });
   const visibleStoryBranchOptions = isCurrentStoryChoiceSubmitting ? [] : storyBranchOptions;
+  const storyChoiceGate = useMemo(
+    () => getStoryChoiceGateState(chat, currentChatMessages),
+    [chat, currentChatMessages],
+  );
   const visibleActionPanelActions = useMemo(
     () => (projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions)
       .filter((action) => action.type !== 'choose_story_branch'),
     [projectedActionPanelActions, sessionActions],
   );
-  const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader' && visibleStoryBranchOptions.length > 0;
+  const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader'
+    && !isCurrentStoryChoiceSubmitting
+    && storyChoiceGate.waiting;
   const runLoopStatusContent = (chatError || runLoopError) ? (
     <Alert severity="error" variant="outlined" sx={{ mx: { xs: 1.25, sm: 2 }, mt: 1, borderRadius: 3 }}>
       {chatError || runLoopError}
@@ -1059,6 +1053,15 @@ export default function ChatDetailPage() {
     if (pendingStoryChoiceRef.current === choiceKey) return;
     pendingStoryChoiceRef.current = choiceKey;
     setPendingStoryChoiceKey(choiceKey);
+    logDeveloperDiagnostic('story-choice:select', {
+      chatId: id,
+      optionValue,
+      branchId,
+      choiceLabel,
+      choiceEpoch: chat.scenarioState?.choiceEpoch || null,
+      sourceMessageId: storyChoiceSourceMessage?.id || null,
+      gateBeforeAction: storyChoiceGate,
+    }, 'info');
     let actionSucceeded = false;
     try {
       const choiceMessage = await addMessageStable({
@@ -1085,6 +1088,14 @@ export default function ChatDetailPage() {
       void updateChat(id, { lastMessageAt: choiceMessage.timestamp, latestMessage: choiceMessage });
       const actionResult = await runSessionAction({ type: 'choose_story_branch', actorId: 'user' }, { branchId, prompt: storyDirection });
       actionSucceeded = true;
+      logDeveloperDiagnostic('story-choice:action-result', {
+        chatId: id,
+        branchId,
+        choiceEpoch: chat.scenarioState?.choiceEpoch || null,
+        chatPatchPhase: actionResult?.chatPatch?.scenarioState?.phase || null,
+        chatPatchChoiceEpoch: actionResult?.chatPatch?.scenarioState?.choiceEpoch || null,
+        hasChatPatch: Boolean(actionResult?.chatPatch),
+      }, actionResult?.chatPatch?.scenarioState?.phase === 'branch' ? 'info' : 'warn');
       const nextChat = actionResult?.chatPatch ? {
         ...chat,
         ...actionResult.chatPatch,
@@ -1098,14 +1109,23 @@ export default function ChatDetailPage() {
         },
       } : chat;
       await updateChat(id, actionResult?.chatPatch || {});
-      startConversationLoopIfNeeded(nextChat);
+      const startBlockReason = startConversationLoopIfNeeded(nextChat);
+      if (startBlockReason) {
+        logDeveloperDiagnostic('story-choice:start-blocked-after-select', {
+          chatId: id,
+          branchId,
+          startBlockReason,
+          nextPhase: nextChat.scenarioState?.phase || null,
+        }, 'warn');
+        setSnackbar({ open: true, message: startBlockReason === 'waiting_story_choice' ? '剧情选择已记录，但运行仍在等待选择，请查看开发者日志。' : '剧情选择已记录，但运行没有启动，请查看开发者日志。', severity: 'error' });
+      }
     } finally {
       if (!actionSucceeded && pendingStoryChoiceRef.current === choiceKey) {
         pendingStoryChoiceRef.current = null;
         setPendingStoryChoiceKey(null);
       }
     }
-  }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceSourceMessage?.id, updateChat]);
+  }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, setSnackbar, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceGate, storyChoiceSourceMessage?.id, updateChat]);
 
   const handleStoryCustomDirectionSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id) return;
@@ -1153,6 +1173,13 @@ export default function ChatDetailPage() {
           { branchId: '__custom_story_branch', prompt: storyDirection },
         );
         actionSucceeded = true;
+        logDeveloperDiagnostic('story-choice:custom-action-result', {
+          chatId: id,
+          choiceEpoch: chat.scenarioState?.choiceEpoch || null,
+          chatPatchPhase: actionResult?.chatPatch?.scenarioState?.phase || null,
+          chatPatchChoiceEpoch: actionResult?.chatPatch?.scenarioState?.choiceEpoch || null,
+          hasChatPatch: Boolean(actionResult?.chatPatch),
+        }, actionResult?.chatPatch?.scenarioState?.phase === 'branch' ? 'info' : 'warn');
         const nextChat = actionResult?.chatPatch ? {
           ...chat,
           ...actionResult.chatPatch,
@@ -1166,7 +1193,15 @@ export default function ChatDetailPage() {
           },
         } : chat;
         await updateChat(id, actionResult?.chatPatch || {});
-        startConversationLoopIfNeeded(nextChat);
+        const startBlockReason = startConversationLoopIfNeeded(nextChat);
+        if (startBlockReason) {
+          logDeveloperDiagnostic('story-choice:start-blocked-after-custom-direction', {
+            chatId: id,
+            startBlockReason,
+            nextPhase: nextChat.scenarioState?.phase || null,
+          }, 'warn');
+          setSnackbar({ open: true, message: startBlockReason === 'waiting_story_choice' ? '剧情选择已记录，但运行仍在等待选择，请查看开发者日志。' : '剧情选择已记录，但运行没有启动，请查看开发者日志。', severity: 'error' });
+        }
       } finally {
         if (!actionSucceeded && pendingStoryChoiceRef.current === choiceKey) {
           pendingStoryChoiceRef.current = null;
@@ -1249,10 +1284,65 @@ export default function ChatDetailPage() {
     navigate(fromTab ? `/chats?tab=${fromTab}` : '/chats');
   }, [fromTab, navigate]);
 
+  const handleStoryChapterClick = useCallback(async (chapter: StoryChapterState) => {
+    const messageId = chapter.startMessageId;
+    if (!id || !messageId) return;
+    const findTarget = () => {
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'));
+      return candidates.find((element) => (
+        element.dataset.messageId === messageId
+        || element.dataset.messageClientKey === messageId
+        || element.dataset.messageServerId === messageId
+      )) || null;
+    };
+    let target = findTarget();
+    let pageCount = 0;
+    while (!target && pageCount < CHAPTER_JUMP_MAX_OLDER_PAGES) {
+      const windowMessages = useMessageStore.getState().messageWindowsByChatId[id]?.messages || [];
+      const activeMessages = useMessageStore.getState().messages.filter((message) => message.chatId === id);
+      const visibleMessages = activeMessages.length ? activeMessages : windowMessages;
+      const oldestVisible = visibleMessages[0];
+      if (!oldestVisible || Number(oldestVisible.timestamp || 0) <= Number(chapter.openedAt || 0) || !useMessageStore.getState().hasMore) break;
+      await loadMessages(id, { append: true, before: oldestVisible.timestamp, limit: CHAT_MESSAGE_WINDOW_SIZE });
+      await waitForNextFrame();
+      target = findTarget();
+      pageCount += 1;
+    }
+    if (!target) {
+      setSnackbar({ open: true, message: '没有定位到章节起点；当前消息窗口或云端分页里缺少对应消息。', severity: 'error' });
+      logDeveloperDiagnostic('story-chapter:jump-miss', {
+        chatId: id,
+        chapterId: chapter.id,
+        startMessageId: chapter.startMessageId,
+        openedAt: chapter.openedAt,
+        loadedPages: pageCount,
+      }, 'warn');
+      return;
+    }
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const previousOutline = target.style.outline;
+    const previousOutlineOffset = target.style.outlineOffset;
+    target.style.outline = '2px solid rgba(59,130,246,0.88)';
+    target.style.outlineOffset = '3px';
+    window.setTimeout(() => {
+      target.style.outline = previousOutline;
+      target.style.outlineOffset = previousOutlineOffset;
+    }, 1300);
+  }, [id, loadMessages, setSnackbar]);
+
   const canAutoRunConversation = chat?.type !== 'direct' && !isRemoteDeletedChat;
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
+    logDeveloperDiagnostic('story-run:button', {
+      chatId: id,
+      phase: chat.scenarioState?.phase || null,
+      isRunning,
+      isPaused,
+      isStoryWaitingForChoice,
+      visibleChoiceCount: visibleStoryBranchOptions.length,
+      storyChoiceGate,
+    }, 'info');
     const blockReason = getConversationLoopStartBlockReason({
       conversationType: chat.type,
       isRunning,
@@ -1265,18 +1355,33 @@ export default function ChatDetailPage() {
       isPausedRef.current = false;
       stop();
       void updateChat(id, { isActive: false });
-      setSnackbar({ open: true, message: '请先选择一个剧情走向', severity: 'error' });
+      setSnackbar({
+        open: true,
+        message: storyChoiceGate.mismatch === 'runtime_without_visible_options'
+          ? '剧情等待选择，但当前没有可见选项，请查看开发者日志。'
+          : '请先选择一个剧情走向',
+        severity: 'error',
+      });
       return;
     }
     if (!isRunning || isPaused) {
       resume();
-      startConversationLoopIfNeeded(chat);
+      const startBlockReason = startConversationLoopIfNeeded(chat);
+      if (startBlockReason) {
+        setSnackbar({
+          open: true,
+          message: startBlockReason === 'waiting_story_choice'
+            ? '请先选择一个剧情走向'
+            : '当前会话暂时不能开始运行，请查看开发者日志。',
+          severity: 'error',
+        });
+      }
     } else {
       isPausedRef.current = true;
       pause();
       updateChat(id, { isActive: false });
     }
-  }, [canAutoRunConversation, chat, id, isPaused, isRunning, isStoryWaitingForChoice, pause, resume, startConversationLoopIfNeeded, stop, updateChat]);
+  }, [canAutoRunConversation, chat, id, isPaused, isRunning, isStoryWaitingForChoice, pause, resume, setSnackbar, startConversationLoopIfNeeded, stop, storyChoiceGate, updateChat, visibleStoryBranchOptions.length]);
 
   const headerPrimaryActionButton = canAutoRunConversation ? (
     <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>
@@ -1618,6 +1723,7 @@ export default function ChatDetailPage() {
                     await appendMembershipNotice(`${names.join('、')} 离开群聊`);
                   }
                 } : undefined}
+                onStoryChapterClick={handleStoryChapterClick}
               />}
             </LazyPanel>
           </Box>

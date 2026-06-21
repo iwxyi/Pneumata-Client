@@ -9,6 +9,7 @@ import { canActorRunSessionAction, resolveMemberActorRef } from './memberActionP
 import { getUsablePreferredAIProfile } from '../types/settings';
 import { useChatStore } from '../stores/useChatStore';
 import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
+import { logDeveloperDiagnostic } from './developerDiagnostics';
 
 export interface ChatSurfaceActionContext {
   chat: GroupChat | undefined;
@@ -339,6 +340,16 @@ export async function runSessionActionImpl(
 
   const executionResult = runSessionActionExecutor(chat, { ...action, payload });
   if (executionResult) {
+    logDeveloperDiagnostic('session-action:executed', {
+      chatId: chat.id,
+      actionType: action.type,
+      actorId: action.actorId || null,
+      payload,
+      chatPatchKeys: Object.keys(executionResult.chatPatch || {}),
+      scenarioPhase: executionResult.chatPatch?.scenarioState?.phase || null,
+      scenarioChoiceEpoch: executionResult.chatPatch?.scenarioState?.choiceEpoch || null,
+      runtimeEventCount: executionResult.runtimeEvents?.length || 0,
+    }, action.type === 'choose_story_branch' && executionResult.chatPatch?.scenarioState?.phase !== 'branch' ? 'warn' : 'info');
     await context.updateChat(chat.id, executionResult.chatPatch || {});
     for (const runtimeEvent of executionResult.runtimeEvents || []) {
       await context.appendEventMessage(chat.id, runtimeEvent);
@@ -350,6 +361,13 @@ export async function runSessionActionImpl(
   const { buildDefaultActionIntent, buildSessionIntentSummary } = await import('../types/sessionEngine');
   const intent = buildDefaultActionIntent(action.type, payload, action.actorId);
   const summary = `${action.type}：${buildSessionIntentSummary(intent)}`;
+  logDeveloperDiagnostic('session-action:fallback-intent', {
+    chatId: chat.id,
+    actionType: action.type,
+    actorId: action.actorId || null,
+    payload,
+    summary,
+  }, 'warn');
   await context.updateChat(chat.id, {
     worldState: {
       ...chat.worldState,
