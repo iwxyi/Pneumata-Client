@@ -12,7 +12,7 @@ interface UIStore {
   topicGuideOpen: boolean;
   speakAsCharacterId: string | null;
   rightPanelTab: 'members' | 'narrative' | 'chapters' | 'world' | 'actions';
-  chatReadingPositions: Record<string, { messageId: string; offsetTop: number; pinned: boolean; updatedAt: number }>;
+  chatReadingPositions: Record<string, { messageId: string; offsetTop: number; pinned: boolean; updatedAt: number; sourceTimestamp?: number }>;
 
   toggleSidebar: () => void;
   setSidebarOpen: (open: boolean) => void;
@@ -21,7 +21,7 @@ interface UIStore {
   setRightPanelGestureOffset: (offset: number | null) => void;
   setRightPanelGestureDragging: (dragging: boolean) => void;
   setRightPanelTab: (tab: 'members' | 'narrative' | 'chapters' | 'world' | 'actions') => void;
-  setChatReadingPosition: (chatId: string, position: { messageId: string; offsetTop: number; pinned: boolean }) => void;
+  setChatReadingPosition: (chatId: string, position: { messageId: string; offsetTop: number; pinned: boolean; sourceTimestamp?: number }) => void;
   setGodModeActive: (active: boolean) => void;
   setTopicGuideOpen: (open: boolean) => void;
   setSpeakAsCharacter: (id: string | null) => void;

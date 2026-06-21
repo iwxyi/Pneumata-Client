@@ -404,10 +404,12 @@ class ApiClient {
     return this.request<{ group: number; direct: number; aiDirect: number }>('GET', '/chats/recycle-bin/stats');
   }
 
-  async getMessages(chatId: string, options?: { limit?: number; before?: number }) {
+  async getMessages(chatId: string, options?: { limit?: number; before?: number; after?: number; aroundTimestamp?: number }) {
     const params = new URLSearchParams();
-    if (options?.limit) params.set('limit', String(options.limit));
-    if (options?.before) params.set('before', String(options.before));
+    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.before !== undefined) params.set('before', String(options.before));
+    if (options?.after !== undefined) params.set('after', String(options.after));
+    if (options?.aroundTimestamp !== undefined) params.set('aroundTimestamp', String(options.aroundTimestamp));
     const query = params.toString() ? `?${params.toString()}` : '';
     return this.request<Array<{
       id: string; chatId: string; type: string; senderId: string;

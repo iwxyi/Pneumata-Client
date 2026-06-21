@@ -173,6 +173,7 @@ export function migrateUiStoreState<T extends Record<string, unknown>>(persisted
       offsetTop: position.offsetTop as number,
       pinned: Boolean(position.pinned),
       updatedAt: typeof position.updatedAt === 'number' ? position.updatedAt : 0,
+      ...(typeof position.sourceTimestamp === 'number' ? { sourceTimestamp: position.sourceTimestamp } : {}),
     }]));
   return {
     ...persisted,

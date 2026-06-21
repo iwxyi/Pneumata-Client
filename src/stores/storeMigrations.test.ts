@@ -58,14 +58,14 @@ describe('storeMigrations', () => {
     const migrated = migrateUiStoreState({
       rightPanelTab: 'chapters',
       chatReadingPositions: {
-        'story-1': { messageId: 'message-2', offsetTop: 42, pinned: false, updatedAt: 123 },
+        'story-1': { messageId: 'message-2', offsetTop: 42, pinned: false, updatedAt: 123, sourceTimestamp: 456 },
         broken: { messageId: 123, offsetTop: 'bad' },
       },
     });
 
     expect(migrated?.rightPanelTab).toBe('chapters');
     expect(migrated?.chatReadingPositions).toEqual({
-      'story-1': { messageId: 'message-2', offsetTop: 42, pinned: false, updatedAt: 123 },
+      'story-1': { messageId: 'message-2', offsetTop: 42, pinned: false, updatedAt: 123, sourceTimestamp: 456 },
     });
   });
 });

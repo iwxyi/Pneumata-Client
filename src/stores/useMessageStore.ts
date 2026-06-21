@@ -98,6 +98,7 @@ function mergeLocalWindow(cache: Record<string, CachedMessageWindow>, chatId: st
       lastSyncedAt: Date.now(),
       updatedAt: messages.at(-1)?.timestamp || Date.now(),
       remoteExhausted: currentWindow?.remoteExhausted,
+      remoteNewerExhausted: currentWindow?.remoteNewerExhausted,
       activeLimit: currentWindow?.activeLimit,
     },
   }, pendingOperations);
@@ -149,10 +150,20 @@ function getActiveWindowLimit(window: CachedMessageWindow | undefined, requested
 
 function canLoadMoreFromWindow(window: CachedMessageWindow | undefined, activeMessages: Message[], limit: number) {
   const cachedMessages = window?.messages || [];
-  if (cachedMessages.length > activeMessages.length) return true;
+  const earliestActive = activeMessages.find((message) => !message.isDeleted)?.timestamp;
+  if (earliestActive !== undefined && cachedMessages.some((message) => !message.isDeleted && message.timestamp < earliestActive)) return true;
   if (shouldSkipCloudSync()) return cachedMessages.length >= limit;
   if (cachedMessages.length < limit) return true;
   return !window?.remoteExhausted;
+}
+
+function canLoadNewerFromWindow(window: CachedMessageWindow | undefined, activeMessages: Message[], limit: number) {
+  const cachedMessages = window?.messages || [];
+  const latestActive = [...activeMessages].reverse().find((message) => !message.isDeleted)?.timestamp;
+  if (latestActive !== undefined && cachedMessages.some((message) => !message.isDeleted && message.timestamp > latestActive)) return true;
+  if (shouldSkipCloudSync()) return false;
+  if (!activeMessages.length) return false;
+  return !window?.remoteNewerExhausted;
 }
 
 function localHydratedWindow(state: MessageStore, chatId: string) {
@@ -164,6 +175,7 @@ function localHydratedWindow(state: MessageStore, chatId: string) {
     activeChatId: chatId,
     messages: activeMessages,
     hasMore: canLoadMoreFromWindow(cachedWindow, activeMessages, limit),
+    hasMoreNewer: canLoadNewerFromWindow(cachedWindow, activeMessages, limit),
   };
 }
 
@@ -178,10 +190,36 @@ function localUpsertMessage(state: MessageStore, message: Message) {
   };
 }
 
-function localLoadMessages(state: MessageStore, chatId: string, options?: { append?: boolean; before?: number; limit?: number }) {
+function localLoadMessages(state: MessageStore, chatId: string, options?: MessageLoadOptions) {
   const currentWindow = state.messageWindowsByChatId[chatId];
   const current = currentWindow?.messages || [];
   const limit = getActiveWindowLimit(currentWindow, options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT);
+  if (options?.aroundTimestamp !== undefined) {
+    const target = Number(options.aroundTimestamp);
+    const beforeLimit = Math.max(1, Math.ceil(limit / 2));
+    const afterLimit = Math.max(0, limit - beforeLimit);
+    const olderMessages = current.filter((message) => message.timestamp <= target).slice(-beforeLimit);
+    const newerMessages = current.filter((message) => message.timestamp > target).slice(0, afterLimit);
+    const nextMessages = mergeMessages(olderMessages, newerMessages);
+    const earliestTimestamp = nextMessages.find((message) => message.chatId === chatId && !message.isDeleted)?.timestamp ?? Number.NEGATIVE_INFINITY;
+    const hasMoreLocal = current.some((message) => !message.isDeleted && message.timestamp < earliestTimestamp);
+    return {
+      messages: nextMessages,
+      messageWindowsByChatId: trimCache({
+        ...state.messageWindowsByChatId,
+        [chatId]: {
+          ...(currentWindow || { messages: current, lastSyncedAt: 0, updatedAt: current.at(-1)?.timestamp || Date.now() }),
+          activeLimit: Math.max(currentWindow?.activeLimit || 0, countUniqueMessages(nextMessages), limit),
+        },
+      }, state.pendingOperations),
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+      hasMore: hasMoreLocal,
+      hasMoreNewer: current.some((message) => !message.isDeleted && message.timestamp > (nextMessages.at(-1)?.timestamp ?? Number.POSITIVE_INFINITY)),
+    };
+  }
   if (options?.append && options.before !== undefined) {
     const olderMessages = current.filter((message) => message.timestamp < Number(options.before)).slice(-limit);
     const activeCurrent = state.activeChatId === chatId ? state.messages : activeMessageWindow(current, limit);
@@ -200,7 +238,31 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: { appe
       activeChatId: chatId,
       isLoading: false,
       isLoadingOlder: false,
+      isLoadingNewer: false,
       hasMore: hasMoreLocal,
+      hasMoreNewer: canLoadNewerFromWindow(currentWindow, nextMessages, limit),
+    };
+  }
+  if (options?.append && options.after !== undefined) {
+    const newerMessages = current.filter((message) => message.timestamp > Number(options.after)).slice(0, limit);
+    const activeCurrent = state.activeChatId === chatId ? state.messages : activeMessageWindow(current, limit);
+    const nextMessages = trimActiveMessages(mergeMessages(activeCurrent, newerMessages));
+    const latestTimestamp = nextMessages.at(-1)?.timestamp ?? Number.POSITIVE_INFINITY;
+    return {
+      messages: nextMessages,
+      messageWindowsByChatId: trimCache({
+        ...state.messageWindowsByChatId,
+        [chatId]: {
+          ...(currentWindow || { messages: current, lastSyncedAt: 0, updatedAt: current.at(-1)?.timestamp || Date.now() }),
+          activeLimit: Math.max(currentWindow?.activeLimit || 0, countUniqueMessages(nextMessages), limit),
+        },
+      }, state.pendingOperations),
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+      hasMore: canLoadMoreFromWindow(currentWindow, nextMessages, limit),
+      hasMoreNewer: current.some((message) => !message.isDeleted && message.timestamp > latestTimestamp),
     };
   }
   const activeMessages = activeMessageWindow(current, limit);
@@ -209,7 +271,9 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: { appe
     activeChatId: chatId,
     isLoading: false,
     isLoadingOlder: false,
+    isLoadingNewer: false,
     hasMore: canLoadMoreFromWindow(currentWindow, activeMessages, limit),
+    hasMoreNewer: canLoadNewerFromWindow(currentWindow, activeMessages, limit),
   };
 }
 
@@ -306,7 +370,7 @@ function applyLocalMessageDeleteLastN(state: MessageStore, chatId: string, n: nu
   return localDeleteWindowMessages(state, chatId, n);
 }
 
-function buildLocalMessageFetch(state: MessageStore, chatId: string, options?: { append?: boolean; before?: number; limit?: number }) {
+function buildLocalMessageFetch(state: MessageStore, chatId: string, options?: MessageLoadOptions) {
   return localLoadMessages(state, chatId, options);
 }
 
@@ -326,7 +390,7 @@ function localMessageDeleteBatchResult(state: MessageStore, chatId: string, n: n
   return applyLocalMessageDeleteLastN(state, chatId, n);
 }
 
-function localFetchedMessages(state: MessageStore, chatId: string, options?: { append?: boolean; before?: number; limit?: number }) {
+function localFetchedMessages(state: MessageStore, chatId: string, options?: MessageLoadOptions) {
   return buildLocalMessageFetch(state, chatId, options);
 }
 
@@ -533,7 +597,9 @@ function localMessageStateForChat(state: MessageStore, chatId: string) {
     activeChatId: chatId,
     isLoading: false,
     isLoadingOlder: false,
+    isLoadingNewer: false,
     hasMore: false,
+    hasMoreNewer: false,
   };
 }
 
@@ -4282,6 +4348,7 @@ interface CachedMessageWindow {
   lastSyncedAt: number;
   updatedAt: number;
   remoteExhausted?: boolean;
+  remoteNewerExhausted?: boolean;
   activeLimit?: number;
 }
 
@@ -4298,6 +4365,22 @@ interface PendingMessageOperation {
   lastError?: string;
   retryAt?: number;
   lockedAt?: number;
+}
+
+type MessageLoadOptions = { append?: boolean; before?: number; after?: number; aroundTimestamp?: number; limit?: number };
+
+function buildMessageFetchOptions(options: {
+  limit: number;
+  before?: number;
+  after?: number;
+  aroundTimestamp?: number;
+}) {
+  return {
+    limit: options.limit,
+    ...(options.before !== undefined ? { before: options.before } : {}),
+    ...(options.after !== undefined ? { after: options.after } : {}),
+    ...(options.aroundTimestamp !== undefined ? { aroundTimestamp: options.aroundTimestamp } : {}),
+  };
 }
 
 function pendingMessageOperationPriority(operation: PendingMessageOperation) {
@@ -4345,7 +4428,9 @@ export function resetMessageStoreForAccountBoundary() {
     activeChatId: null,
     isLoading: false,
     isLoadingOlder: false,
+    isLoadingNewer: false,
     hasMore: true,
+    hasMoreNewer: false,
   });
 }
 
@@ -4721,14 +4806,16 @@ interface MessageStore {
   activeChatId: string | null;
   isLoading: boolean;
   isLoadingOlder: boolean;
+  isLoadingNewer: boolean;
   hasMore: boolean;
+  hasMoreNewer: boolean;
 
   hydrateMessagesFromCache: (chatId: string) => Promise<void>;
-  openChatWindow: (chatId: string, options?: { limit?: number; revalidate?: boolean }) => Promise<void>;
+  openChatWindow: (chatId: string, options?: { limit?: number; revalidate?: boolean; aroundTimestamp?: number }) => Promise<void>;
   closeChatWindow: (chatId: string, options?: { clearActiveOnly?: boolean }) => void;
   prefetchMessages: (chatId: string, options?: { limit?: number }) => Promise<void>;
   hasMessageWindow: (chatId: string) => boolean;
-  loadMessages: (chatId: string, options?: { append?: boolean; before?: number; limit?: number }) => Promise<void>;
+  loadMessages: (chatId: string, options?: MessageLoadOptions) => Promise<void>;
   addMessage: (msg: Omit<Message, 'id' | 'timestamp' | 'isDeleted'> & { timestamp?: number }) => Promise<Message>;
   upsertMessage: (message: Message) => void;
   upsertMessages: (messages: Message[]) => void;
@@ -4835,6 +4922,7 @@ export const useMessageStore = create<MessageStore>()(
                   lastSyncedAt: Date.now(),
                   updatedAt: trimmed.at(-1)?.timestamp || currentWindow.updatedAt || Date.now(),
                   remoteExhausted: fetchedFromChanges ? currentWindow.remoteExhausted : fetched.length < DEFAULT_MESSAGE_WINDOW_LIMIT,
+                  remoteNewerExhausted: currentWindow.remoteNewerExhausted ?? true,
                   activeLimit: currentWindow.activeLimit,
                 },
               }, state.pendingOperations);
@@ -4870,7 +4958,9 @@ export const useMessageStore = create<MessageStore>()(
       activeChatId: null,
       isLoading: false,
       isLoadingOlder: false,
+      isLoadingNewer: false,
       hasMore: true,
+      hasMoreNewer: false,
 
       hydrateMessagesFromCache: (chatId) => {
         const applyCachedWindow = () => {
@@ -4883,10 +4973,14 @@ export const useMessageStore = create<MessageStore>()(
         return ensureMessageStoreHydrated().then(applyCachedWindow);
       },
 
-      openChatWindow: async (chatId: string, options?: { limit?: number; revalidate?: boolean }) => {
+      openChatWindow: async (chatId: string, options?: { limit?: number; revalidate?: boolean; aroundTimestamp?: number }) => {
         await ensureMessageStoreHydrated();
         if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 100);
         await get().hydrateMessagesFromCache(chatId);
+        if (options?.aroundTimestamp !== undefined) {
+          await get().loadMessages(chatId, { limit: options.limit, aroundTimestamp: options.aroundTimestamp });
+          return;
+        }
         const currentWindow = get().messageWindowsByChatId[chatId];
         const limit = options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT;
         const shouldRevalidate = shouldRevalidateMessageWindow(currentWindow?.lastSyncedAt, options?.revalidate ?? true);
@@ -4902,6 +4996,7 @@ export const useMessageStore = create<MessageStore>()(
             activeChatId: state.activeChatId === chatId ? null : state.activeChatId,
             messages: state.activeChatId === chatId ? [] : state.messages,
             hasMore: state.activeChatId === chatId ? false : state.hasMore,
+            hasMoreNewer: state.activeChatId === chatId ? false : state.hasMoreNewer,
           }));
           return;
         }
@@ -4918,7 +5013,8 @@ export const useMessageStore = create<MessageStore>()(
 
       loadMessages: async (chatId, options) => {
         const isAppend = Boolean(options?.append);
-        set({ isLoading: !isAppend, isLoadingOlder: isAppend, activeChatId: chatId });
+        const isAppendNewer = isAppend && options?.after !== undefined;
+        set({ isLoading: !isAppend, isLoadingOlder: isAppend && !isAppendNewer, isLoadingNewer: isAppendNewer, activeChatId: chatId });
         if (shouldSkipCloudSync()) {
           set((state) => localFetchedMessages(state, chatId, options));
           return;
@@ -4927,17 +5023,18 @@ export const useMessageStore = create<MessageStore>()(
           await uploadGuestMessagesToCloud();
           const currentWindowBeforeFetch = get().messageWindowsByChatId[chatId];
           const limit = getActiveWindowLimit(currentWindowBeforeFetch, options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT);
-          const canProbeWindow = !isAppend && !options?.before && Boolean(currentWindowBeforeFetch?.messages?.length);
+          const isAroundWindow = options?.aroundTimestamp !== undefined;
+          const canProbeWindow = !isAppend && !options?.before && !options?.after && !isAroundWindow && Boolean(currentWindowBeforeFetch?.messages?.length);
           if (canProbeWindow && messageSyncScopes.isFresh(messageWindowScope(chatId))) {
             const activeMessages = activeMessageWindow(currentWindowBeforeFetch?.messages || [], limit);
             set((state) => ({
               activeChatId: chatId,
-              messages: state.activeChatId === chatId && state.messages.some((message) => message.chatId === chatId)
-                ? state.messages
-                : activeMessages,
+              messages: activeMessages,
               isLoading: false,
               isLoadingOlder: false,
+              isLoadingNewer: false,
               hasMore: canLoadMoreFromWindow(currentWindowBeforeFetch, activeMessages, limit),
+              hasMoreNewer: canLoadNewerFromWindow(currentWindowBeforeFetch, activeMessages, limit),
             }));
             return;
           }
@@ -4952,18 +5049,23 @@ export const useMessageStore = create<MessageStore>()(
             });
             set((state) => ({
               activeChatId: chatId,
-              messages: state.activeChatId === chatId && state.messages.some((message) => message.chatId === chatId)
-                ? state.messages
-                : activeMessages,
+              messages: activeMessages,
               isLoading: false,
               isLoadingOlder: false,
+              isLoadingNewer: false,
               hasMore: canLoadMoreFromWindow(currentWindowBeforeFetch, activeMessages, limit),
+              hasMoreNewer: canLoadNewerFromWindow(currentWindowBeforeFetch, activeMessages, limit),
             }));
             return;
           }
           const fetchedFromChanges = messagesFromWindowChanges(changeProbe?.changes, chatId);
           const fetched = fetchedFromChanges
-            || await api.getMessages(chatId, { limit, before: options?.before }) as unknown as Message[];
+            || await api.getMessages(chatId, buildMessageFetchOptions({
+              limit,
+              before: options?.before,
+              after: options?.after,
+              aroundTimestamp: options?.aroundTimestamp,
+            })) as unknown as Message[];
           set((state) => {
             const currentWindow = state.messageWindowsByChatId[chatId];
             const current = currentWindow?.messages || [];
@@ -4972,20 +5074,33 @@ export const useMessageStore = create<MessageStore>()(
             const merged = mergeMessages(current, fetched);
             const trimmed = trimMessages(merged);
             const mergedActiveMessages = mergeMessages(activeCurrent, fetched);
-            const nextActiveMessages = isAppend
+            const nextActiveMessages = isAroundWindow
+              ? fetched
+              : isAppend
               ? trimActiveMessages(mergedActiveMessages)
               : activeMessageWindow(mergedActiveMessages, limit);
             const currentVisibleCount = countUniqueMessages(activeCurrent);
             const nextVisibleCount = countUniqueMessages(nextActiveMessages);
-            const addedOlderMessages = nextVisibleCount > currentVisibleCount;
+            const addedMessages = nextVisibleCount > currentVisibleCount;
+            const isAppendOlder = isAppend && options?.before !== undefined;
             const remoteExhausted = fetchedFromChanges
               ? Boolean(currentWindow?.remoteExhausted)
-              : isAppend
-                ? fetched.length < limit || !addedOlderMessages
+                : isAroundWindow
+                  ? fetched.filter((message) => message.timestamp <= Number(options.aroundTimestamp)).length < Math.ceil(limit / 2)
+                  : isAppend
+                ? isAppendOlder ? (fetched.length < limit || !addedMessages) : Boolean(currentWindow?.remoteExhausted)
                 : fetched.length < limit;
+            const remoteNewerExhausted = fetchedFromChanges
+              ? currentWindow?.remoteNewerExhausted ?? true
+              : isAroundWindow
+                ? fetched.filter((message) => message.timestamp > Number(options.aroundTimestamp)).length < Math.max(0, limit - Math.ceil(limit / 2))
+                : isAppendNewer
+                  ? fetched.length < limit || !addedMessages
+                  : true;
             const nextHasMore = isAppend
               ? !remoteExhausted
               : canLoadMoreFromWindow({ ...(currentWindow || { messages: [] as Message[], lastSyncedAt: 0, updatedAt: 0 }), messages: trimmed, remoteExhausted }, nextActiveMessages, limit);
+            const nextHasMoreNewer = canLoadNewerFromWindow({ ...(currentWindow || { messages: [] as Message[], lastSyncedAt: 0, updatedAt: 0 }), messages: trimmed, remoteNewerExhausted }, nextActiveMessages, limit);
             const nextCache = trimCache({
               ...state.messageWindowsByChatId,
               [chatId]: {
@@ -4993,12 +5108,13 @@ export const useMessageStore = create<MessageStore>()(
                 lastSyncedAt: Date.now(),
                 updatedAt: trimmed.at(-1)?.timestamp || currentWindow?.updatedAt || Date.now(),
                 remoteExhausted,
+                remoteNewerExhausted,
                 activeLimit: isAppend
                   ? Math.max(currentWindow?.activeLimit || 0, nextVisibleCount, limit)
                   : Math.max(currentWindow?.activeLimit || 0, limit),
               },
             }, state.pendingOperations);
-            if (!isAppend && !options?.before) {
+            if (!isAppend && !options?.before && !options?.after && !isAroundWindow) {
               messageSyncScopes.markChecked(messageWindowScope(chatId), {
                 cursor: changeProbe?.cursor,
                   revision: changeProbe?.revision,
@@ -5012,11 +5128,13 @@ export const useMessageStore = create<MessageStore>()(
               messageWindowsByChatId: nextCache,
               isLoading: false,
               isLoadingOlder: false,
+              isLoadingNewer: false,
               hasMore: nextHasMore,
+              hasMoreNewer: nextHasMoreNewer,
             };
           });
         } catch (error) {
-          if (!isAppend && !options?.before) messageSyncScopes.markError(messageWindowScope(chatId), error);
+          if (!isAppend && !options?.before && !options?.after && options?.aroundTimestamp === undefined) messageSyncScopes.markError(messageWindowScope(chatId), error);
           reportRecoverableError({
             location: 'cloud-sync:messages-load',
             error,
@@ -5027,6 +5145,7 @@ export const useMessageStore = create<MessageStore>()(
             ...(isAppend ? {} : localFetchedMessages(state, chatId)),
             isLoading: false,
             isLoadingOlder: false,
+            isLoadingNewer: false,
           }));
         }
       },
@@ -5068,6 +5187,7 @@ export const useMessageStore = create<MessageStore>()(
                 lastSyncedAt: Date.now(),
                 updatedAt: message.timestamp,
                 remoteExhausted: currentWindow?.remoteExhausted,
+                remoteNewerExhausted: currentWindow?.remoteNewerExhausted,
                 activeLimit: currentWindow?.activeLimit,
               },
             }, state.pendingOperations),
@@ -5095,6 +5215,7 @@ export const useMessageStore = create<MessageStore>()(
                 lastSyncedAt: Date.now(),
                 updatedAt: Math.max(...chatMessages.map((message) => message.timestamp), currentWindow?.updatedAt || 0, Date.now()),
                 remoteExhausted: currentWindow?.remoteExhausted,
+                remoteNewerExhausted: currentWindow?.remoteNewerExhausted,
                 activeLimit: currentWindow?.activeLimit,
               },
             };
@@ -5143,6 +5264,7 @@ export const useMessageStore = create<MessageStore>()(
             messages: state.activeChatId === chatId ? [] : state.messages,
             messageWindowsByChatId: trimCache(nextWindows, state.pendingOperations),
             hasMore: state.activeChatId === chatId ? false : state.hasMore,
+            hasMoreNewer: state.activeChatId === chatId ? false : state.hasMoreNewer,
           };
         });
       },
@@ -5195,6 +5317,7 @@ export const useMessageStore = create<MessageStore>()(
                 lastSyncedAt: Date.now(),
                 updatedAt: nextChatMessages.at(-1)?.timestamp || currentWindow?.updatedAt || Date.now(),
                 remoteExhausted: currentWindow?.remoteExhausted,
+                remoteNewerExhausted: currentWindow?.remoteNewerExhausted,
                 activeLimit: currentWindow?.activeLimit,
               },
             }, state.pendingOperations),
@@ -5202,7 +5325,7 @@ export const useMessageStore = create<MessageStore>()(
         });
       },
 
-      clearMessages: () => set({ messages: [], activeChatId: null, hasMore: true }),
+      clearMessages: () => set({ messages: [], activeChatId: null, hasMore: true, hasMoreNewer: false, isLoadingNewer: false }),
 
       getRecentMessages: (n) => {
         return get().messages.filter((m) => !m.isDeleted).slice(-n);

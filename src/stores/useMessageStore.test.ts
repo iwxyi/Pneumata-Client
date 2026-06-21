@@ -642,4 +642,59 @@ describe('useMessageStore', () => {
     expect(useChatStore.getState().pendingOperations[0]?.kind).toBe('create');
   });
 
+  it('opens a cloud message window around a historical timestamp', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const fetchedMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 481, chatId));
+    getMessagesMock.mockResolvedValueOnce(fetchedMessages);
+
+    await useMessageStore.getState().openChatWindow(chatId, { limit: 40, aroundTimestamp: 500 });
+
+    const state = useMessageStore.getState();
+    expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, aroundTimestamp: 500 });
+    expect(state.messages[0]?.id).toBe('message-481');
+    expect(state.messages.at(-1)?.id).toBe('message-520');
+    expect(state.hasMore).toBe(true);
+    expect(state.hasMoreNewer).toBe(true);
+  });
+
+  it('loads newer cloud messages below a historical active window', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const activeMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 481, chatId));
+    const newerMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 521, chatId));
+    getMessagesMock.mockResolvedValueOnce(newerMessages);
+
+    useMessageStore.setState({
+      messages: activeMessages,
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: activeMessages,
+          lastSyncedAt: Date.now(),
+          updatedAt: activeMessages.at(-1)?.timestamp ?? 0,
+          remoteExhausted: false,
+          remoteNewerExhausted: false,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+      hasMore: true,
+      hasMoreNewer: true,
+    });
+
+    await useMessageStore.getState().loadMessages(chatId, { append: true, after: 520, limit: 40 });
+
+    const state = useMessageStore.getState();
+    expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, after: 520 });
+    expect(state.messages[0]?.id).toBe('message-481');
+    expect(state.messages.at(-1)?.id).toBe('message-560');
+    expect(state.hasMoreNewer).toBe(true);
+    expect(state.isLoadingNewer).toBe(false);
+  });
+
 });

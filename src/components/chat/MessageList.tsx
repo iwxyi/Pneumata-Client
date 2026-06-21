@@ -1,4 +1,5 @@
-import { Box, CircularProgress, Stack, Typography, keyframes } from '@mui/material';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import { Box, CircularProgress, Fab, Stack, Typography, keyframes } from '@mui/material';
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Message, MessageAttachment, NarrativeBlock, NarrativeTurnMetadata } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -13,7 +14,9 @@ import ImageLightbox from '../common/ImageLightbox';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
 const TOP_PREFETCH_THRESHOLD = 520;
+const BOTTOM_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
+const JUMP_TO_BOTTOM_THRESHOLD = 420;
 const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
 const FOLLOW_SCROLL_DURATION_MS = 180;
 const storyNodeFadeIn = keyframes`
@@ -27,6 +30,7 @@ interface ScrollAnchorSnapshot {
 }
 export interface MessageListScrollPosition extends ScrollAnchorSnapshot {
   pinned: boolean;
+  sourceTimestamp?: number;
 }
 
 interface MessageListProps {
@@ -39,8 +43,12 @@ interface MessageListProps {
   onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
   onCharacterAvatarClick?: (character: AICharacter, anchorEl: HTMLElement) => void;
   onReachTop?: () => void | Promise<void>;
+  onReachBottom?: () => void | Promise<void>;
+  onJumpToConversationBottom?: () => void | Promise<void>;
   isLoadingOlder?: boolean;
+  isLoadingNewer?: boolean;
   hasMore?: boolean;
+  hasMoreNewer?: boolean;
   topHint?: string;
   loadingText?: string;
   topInset?: ResponsiveInset;
@@ -174,6 +182,12 @@ function getElementScrollAnchorId(element: HTMLElement) {
   return element.dataset.scrollAnchor || element.dataset.messageId || '';
 }
 
+function getElementScrollTimestamp(element: HTMLElement) {
+  const raw = element.dataset.scrollTimestamp || element.closest<HTMLElement>('[data-scroll-timestamp]')?.dataset.scrollTimestamp;
+  const value = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(value) ? value : undefined;
+}
+
 function buildNarrativeBlockMessage(parent: Message, block: NarrativeBlock, turn: NarrativeTurnMetadata | undefined, index: number, character?: AICharacter | null): Message {
   const blockKey = `${parent.id}:narrative-block:${block.id || index}`;
   if (block.displayMode === 'bubble') {
@@ -246,8 +260,12 @@ export default function MessageList({
   onRetryMedia,
   onCharacterAvatarClick,
   onReachTop,
+  onReachBottom,
+  onJumpToConversationBottom,
   isLoadingOlder = false,
+  isLoadingNewer = false,
   hasMore = false,
+  hasMoreNewer = false,
   topHint,
   loadingText,
   topInset,
@@ -271,7 +289,9 @@ export default function MessageList({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [viewerKey, setViewerKey] = useState<string | null>(null);
+  const [showJumpToBottom, setShowJumpToBottom] = useState(false);
   const topLoadTriggeredRef = useRef(false);
+  const bottomLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const lastReportedBottomPinnedRef = useRef<boolean | null>(null);
   const hasJumpedToBottomRef = useRef(false);
@@ -318,6 +338,12 @@ export default function MessageList({
     void onReachTop();
   }, [hasMore, isLoadingOlder, onReachTop]);
 
+  const triggerReachBottom = useCallback(() => {
+    if (!onReachBottom || isLoadingNewer || !hasMoreNewer || bottomLoadTriggeredRef.current) return;
+    bottomLoadTriggeredRef.current = true;
+    void onReachBottom();
+  }, [hasMoreNewer, isLoadingNewer, onReachBottom]);
+
   const renderBubble = useCallback((item: ChatRenderItem, options?: { key?: string; message?: Message; character?: AICharacter }) => (
     <MessageBubble
       key={options?.key || item.key}
@@ -342,6 +368,7 @@ export default function MessageList({
       'data-message-id': item.message.id,
       'data-message-client-key': item.message.clientKey || undefined,
       'data-message-server-id': item.message.serverId || undefined,
+      'data-scroll-timestamp': String(item.message.timestamp),
     };
     if (item.renderKind === 'system') {
       return <Box key={item.key} {...anchorProps}><SystemMessageItem message={item.message} /></Box>;
@@ -360,7 +387,7 @@ export default function MessageList({
       if (showStoryChoices) {
         return (
           <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
-            <Box data-scroll-anchor={`${item.message.id}:story-choice`}>
+            <Box data-scroll-anchor={`${item.message.id}:story-choice`} data-scroll-timestamp={item.message.timestamp}>
               <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
             </Box>
           </Box>
@@ -376,7 +403,7 @@ export default function MessageList({
       const blockMessage = buildNarrativeBlockMessage(item.message, block, item.message.metadata?.narrativeTurn, index, character);
       const blockKey = `${item.key}:block:${block.id || index}`;
       return (
-        <Box key={blockKey} data-scroll-anchor={buildNarrativeBlockScrollAnchor(item.message, block, index)}>
+        <Box key={blockKey} data-scroll-anchor={buildNarrativeBlockScrollAnchor(item.message, block, index)} data-scroll-timestamp={item.message.timestamp}>
           {renderBubble(item, {
             key: `${blockKey}:bubble`,
             message: blockMessage,
@@ -399,7 +426,7 @@ export default function MessageList({
       >
         {renderedBlocks}
         {showStoryChoices ? (
-          <Box data-scroll-anchor={`${item.message.id}:story-choice`}>
+          <Box data-scroll-anchor={`${item.message.id}:story-choice`} data-scroll-timestamp={item.message.timestamp}>
             <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
           </Box>
         ) : null}
@@ -438,6 +465,7 @@ export default function MessageList({
     return {
       messageId,
       offsetTop: anchorNode.getBoundingClientRect().top - containerRect.top,
+      sourceTimestamp: getElementScrollTimestamp(anchorNode),
     };
   }, []);
 
@@ -485,14 +513,16 @@ export default function MessageList({
   const updatePinnedState = useCallback(() => {
     const container = containerRef.current;
     if (!container) return false;
-    const pinned = getDistanceFromBottom(container) <= BOTTOM_STICKY_THRESHOLD;
+    const distance = getDistanceFromBottom(container);
+    const pinned = distance <= BOTTOM_STICKY_THRESHOLD && !hasMoreNewer;
+    setShowJumpToBottom(distance > JUMP_TO_BOTTOM_THRESHOLD);
     shouldStickToBottomRef.current = pinned;
     if (lastReportedBottomPinnedRef.current !== pinned) {
       lastReportedBottomPinnedRef.current = pinned;
       onBottomPinnedChange?.(pinned);
     }
     return pinned;
-  }, [getDistanceFromBottom, onBottomPinnedChange]);
+  }, [getDistanceFromBottom, hasMoreNewer, onBottomPinnedChange]);
 
   const stopFollowScrollAnimation = useCallback(() => {
     if (followScrollAnimationRef.current == null) return;
@@ -509,10 +539,16 @@ export default function MessageList({
     const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const effectiveBehavior = prefersReducedMotion || distance > SMOOTH_SCROLL_DISTANCE_LIMIT ? 'auto' : behavior;
     container.scrollTo({ top, behavior: effectiveBehavior });
+    shouldStickToBottomRef.current = !hasMoreNewer;
+    setShowJumpToBottom(false);
+    if (!hasMoreNewer && lastReportedBottomPinnedRef.current !== true) {
+      lastReportedBottomPinnedRef.current = true;
+      onBottomPinnedChange?.(true);
+    }
     if (effectiveBehavior === 'auto') {
       lastScrollTopRef.current = top;
     }
-  }, [stopFollowScrollAnimation]);
+  }, [hasMoreNewer, onBottomPinnedChange, stopFollowScrollAnimation]);
 
   const followScrollToBottom = useCallback(() => {
     const container = containerRef.current;
@@ -661,6 +697,12 @@ export default function MessageList({
   }, [isLoadingOlder]);
 
   useEffect(() => {
+    if (!isLoadingNewer) {
+      bottomLoadTriggeredRef.current = false;
+    }
+  }, [isLoadingNewer]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container || !onReachTop || isLoadingOlder || !hasMore || autoFillTriggeredRef.current) return;
     if (container.scrollHeight > container.clientHeight + 1) return;
@@ -671,9 +713,17 @@ export default function MessageList({
     void onReachTop();
   }, [captureScrollAnchor, hasMore, isLoadingOlder, onReachTop, renderItems.length]);
 
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !hasMoreNewer || isLoadingNewer) return;
+    if (container.scrollHeight > container.clientHeight + 1) return;
+    triggerReachBottom();
+  }, [hasMoreNewer, isLoadingNewer, renderItems.length, triggerReachBottom]);
+
   return (
     <Box
       ref={containerRef}
+      data-chat-message-list
       onScroll={() => {
         const container = containerRef.current;
         if (!container) return;
@@ -683,6 +733,7 @@ export default function MessageList({
         lastScrollTopRef.current = container.scrollTop;
         if (isScrollingUp) {
           shouldStickToBottomRef.current = false;
+          setShowJumpToBottom(getDistanceFromBottom(container) > JUMP_TO_BOTTOM_THRESHOLD);
           if (lastReportedBottomPinnedRef.current !== false) {
             lastReportedBottomPinnedRef.current = false;
             onBottomPinnedChange?.(false);
@@ -691,6 +742,13 @@ export default function MessageList({
           updatePinnedState();
         }
         rememberScrollAnchor();
+
+        const distanceFromBottom = getDistanceFromBottom(container);
+        if (distanceFromBottom < BOTTOM_PREFETCH_THRESHOLD) {
+          triggerReachBottom();
+        } else {
+          bottomLoadTriggeredRef.current = false;
+        }
 
         if (container.scrollTop > TOP_PREFETCH_THRESHOLD) {
           topLoadTriggeredRef.current = false;
@@ -704,6 +762,7 @@ export default function MessageList({
         void onReachTop();
       }}
       sx={{
+        position: 'relative',
         flex: 1,
         height: '100%',
         minHeight: 0,
@@ -738,8 +797,36 @@ export default function MessageList({
 
       <Box ref={contentRef}>
         {renderItems.map(renderMessageItem)}
+        {isLoadingNewer ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', px: 2, py: 1, minHeight: 34 }}>
+            <CircularProgress size={16} thickness={4} sx={{ color: 'text.secondary' }} />
+          </Box>
+        ) : null}
         {tailContent}
       </Box>
+      {showJumpToBottom || hasMoreNewer ? (
+        <Fab
+          size="small"
+          color="primary"
+          aria-label="滚动到底部"
+          onClick={() => {
+            if (onJumpToConversationBottom) {
+              void onJumpToConversationBottom();
+              return;
+            }
+            scrollToBottom('smooth');
+          }}
+          sx={{
+            position: 'sticky',
+            left: 'calc(100% - 56px)',
+            bottom: bottomInset || 16,
+            zIndex: 3,
+            boxShadow: 4,
+          }}
+        >
+          <KeyboardArrowDownIcon />
+        </Fab>
+      ) : null}
       <ImageLightbox
         open={viewerOpen}
         images={chatImageTimeline}

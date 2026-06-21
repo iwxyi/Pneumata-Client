@@ -62,7 +62,6 @@ import { messagesShareIdentity } from '../services/messageIdentity';
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
 const CHAT_MESSAGE_WINDOW_SIZE = 40;
-const CHAPTER_JUMP_MAX_OLDER_PAGES = 6;
 const STORY_CHOICE_COLLAPSE_MS = 420;
 const STORY_READING_POSITION_SAVE_MS = 700;
 
@@ -445,7 +444,7 @@ export default function ChatDetailPage() {
 
   const { chats, updateChat, applyChatRuntimeDelta, loadChat, restoreLocalChats, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
   const { characters, updateCharacter, updateCharacters, loadCharacter, markCharactersWarm } = useCharacterStore();
-  const { messages, messageWindowsByChatId, hydrateMessagesFromCache, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, isLoadingOlder } = useMessageStore();
+  const { messages, messageWindowsByChatId, hydrateMessagesFromCache, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, hasMoreNewer, isLoadingOlder, isLoadingNewer } = useMessageStore();
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
   const aiProfiles = useSettingsStore((s) => s.aiProfiles);
@@ -684,6 +683,7 @@ export default function ChatDetailPage() {
       messageId: position.messageId,
       offsetTop: position.offsetTop,
       pinned: position.pinned,
+      sourceTimestamp: position.sourceTimestamp,
     };
   }, [id, isStoryRoom, savedStoryReadingPositionForChat]);
   const effectiveTextInputCapabilities = useMemo(
@@ -1013,7 +1013,10 @@ export default function ChatDetailPage() {
 
   useEffect(() => {
     if (id) {
-      void openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true });
+      const aroundTimestamp = chat?.sessionKind?.scenarioId === 'story-reader' && savedStoryReadingPositionForChat && !savedStoryReadingPositionForChat.pinned
+        ? savedStoryReadingPositionForChat.sourceTimestamp
+        : undefined;
+      void openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true, aroundTimestamp });
       return () => {
         activeChatIdRef.current = null;
         loopTokenRef.current = null;
@@ -1023,7 +1026,7 @@ export default function ChatDetailPage() {
         stop();
       };
     }
-  }, [closeChatWindow, discardStreamingMessage, id, openChatWindow, resetRunLoopUiState, stop]);
+  }, [chat?.sessionKind?.scenarioId, closeChatWindow, discardStreamingMessage, id, openChatWindow, resetRunLoopUiState, stop]);
 
   const handleMemberSpeakSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id) return;
@@ -1494,9 +1497,33 @@ export default function ChatDetailPage() {
     }
   }, [currentChatMessages, hasMore, id, loadMessages]);
 
+  const handleLoadNewerMessages = useCallback(async () => {
+    if (!id || loadingMoreRef.current || !hasMoreNewer || currentChatMessages.length === 0) return;
+    const latestTimestamp = currentChatMessages.at(-1)?.timestamp;
+    if (latestTimestamp === undefined) return;
+    loadingMoreRef.current = true;
+    try {
+      await loadMessages(id, { append: true, after: latestTimestamp, limit: CHAT_MESSAGE_WINDOW_SIZE });
+    } finally {
+      loadingMoreRef.current = false;
+    }
+  }, [currentChatMessages, hasMoreNewer, id, loadMessages]);
+
   const handleNearTop = useCallback(() => {
     void handleLoadOlderMessages();
   }, [handleLoadOlderMessages]);
+
+  const handleNearBottom = useCallback(() => {
+    void handleLoadNewerMessages();
+  }, [handleLoadNewerMessages]);
+
+  const handleJumpToConversationBottom = useCallback(async () => {
+    if (!id) return;
+    await openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true });
+    await waitForNextFrame();
+    const scrollContainer = document.querySelector<HTMLElement>('[data-chat-message-list]');
+    scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
+  }, [id, openChatWindow]);
 
   const fromTab = useMemo(() => new URLSearchParams(window.location.search).get('fromTab'), []);
 
@@ -1507,6 +1534,10 @@ export default function ChatDetailPage() {
   const handleStoryChapterClick = useCallback(async (chapter: StoryChapterState) => {
     const messageId = chapter.startMessageId;
     if (!id || !messageId) return;
+    if (chapter.openedAt) {
+      await loadMessages(id, { aroundTimestamp: chapter.openedAt, limit: CHAT_MESSAGE_WINDOW_SIZE });
+      await waitForNextFrame();
+    }
     const findTarget = () => {
       const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'));
       return candidates.find((element) => (
@@ -1516,18 +1547,6 @@ export default function ChatDetailPage() {
       )) || null;
     };
     let target = findTarget();
-    let pageCount = 0;
-    while (!target && pageCount < CHAPTER_JUMP_MAX_OLDER_PAGES) {
-      const windowMessages = useMessageStore.getState().messageWindowsByChatId[id]?.messages || [];
-      const activeMessages = useMessageStore.getState().messages.filter((message) => message.chatId === id);
-      const visibleMessages = activeMessages.length ? activeMessages : windowMessages;
-      const oldestVisible = visibleMessages[0];
-      if (!oldestVisible || Number(oldestVisible.timestamp || 0) <= Number(chapter.openedAt || 0) || !useMessageStore.getState().hasMore) break;
-      await loadMessages(id, { append: true, before: oldestVisible.timestamp, limit: CHAT_MESSAGE_WINDOW_SIZE });
-      await waitForNextFrame();
-      target = findTarget();
-      pageCount += 1;
-    }
     if (!target) {
       setSnackbar({ open: true, message: '没有定位到章节起点；当前消息窗口或云端分页里缺少对应消息。', severity: 'error' });
       logDeveloperDiagnostic('story-chapter:jump-miss', {
@@ -1535,7 +1554,6 @@ export default function ChatDetailPage() {
         chapterId: chapter.id,
         startMessageId: chapter.startMessageId,
         openedAt: chapter.openedAt,
-        loadedPages: pageCount,
       }, 'warn');
       return;
     }
@@ -1569,6 +1587,7 @@ export default function ChatDetailPage() {
       messageId: position.messageId,
       offsetTop: roundedOffsetTop,
       pinned: position.pinned,
+      sourceTimestamp: position.sourceTimestamp,
     });
   }, [id, isStoryRoom, setChatReadingPosition]);
 
@@ -1687,7 +1706,12 @@ export default function ChatDetailPage() {
             selfMemberId={effectiveAiDirectPerspectiveMemberId}
             currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
             isLoadingOlder={isLoadingOlder}
+            isLoadingNewer={isLoadingNewer}
             hasMore={hasMore}
+            hasMoreNewer={hasMoreNewer}
+            onReachTop={handleNearTop}
+            onReachBottom={handleNearBottom}
+            onJumpToConversationBottom={handleJumpToConversationBottom}
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
             topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
@@ -1825,8 +1849,12 @@ export default function ChatDetailPage() {
             onCharacterAvatarClick={openCharacterPreview}
             selfMemberId={effectiveAiDirectPerspectiveMemberId}
             onReachTop={handleNearTop}
+            onReachBottom={handleNearBottom}
+            onJumpToConversationBottom={handleJumpToConversationBottom}
             isLoadingOlder={isLoadingOlder}
+            isLoadingNewer={isLoadingNewer}
             hasMore={hasMore}
+            hasMoreNewer={hasMoreNewer}
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
             topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
