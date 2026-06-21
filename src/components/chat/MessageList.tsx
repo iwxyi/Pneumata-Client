@@ -73,10 +73,11 @@ function ChoiceMeta({ label, value }: { label: string; value: string }) {
 }
 
 function StoryChoicePanel({ options, onChoose, showDeveloperDetails = false }: { options: NarrativeStoryChoiceOption[]; onChoose: (value: string) => void; showDeveloperDetails?: boolean }) {
+  const maxContentWidth = useSettingsStore((state) => state.chatAppearance.maxContentWidth);
   if (!options.length) return null;
   return (
     <Box data-message-id="story-choice-panel" data-message-type="story-choice" sx={{ px: { xs: 2, sm: 3 }, py: 0.75, width: '100%' }}>
-      <Stack spacing={0.75} sx={{ width: '100%', maxWidth: 760, mx: 'auto', px: { xs: 0.5, sm: 1 } }}>
+      <Stack spacing={0.75} sx={{ width: '100%', maxWidth: maxContentWidth, mx: 'auto', px: { xs: 0.5, sm: 1 } }}>
         <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, fontWeight: 700 }}>
           选择接下来的剧情走向
         </Typography>

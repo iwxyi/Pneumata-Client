@@ -3,6 +3,7 @@ import { normalizeCharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { toRelationshipLedgerRecentEvent } from '../types/runtimeEvent';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
+import { DEFAULT_CHAT_APPEARANCE_SETTINGS } from '../types/settings';
 
 type VersionedPersistedState<T> = T | undefined;
 
@@ -118,6 +119,7 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
   if (!persisted) return persisted;
   const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showCalendarEvents?: boolean; showLocalInterceptionHints?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showCompanionshipDebug?: boolean; showMomentDebug?: boolean; showWithdrawnMessageContent?: boolean; dramaBoost?: boolean } | undefined) || {};
   const artifactAppearance = (persisted.artifactAppearance as { paperVariant?: string } | undefined) || {};
+  const chatAppearance = (persisted.chatAppearance as { maxContentWidth?: number; storyReader?: { fontFamily?: string; fontSize?: number; lineHeight?: number } } | undefined) || {};
   return {
     ...persisted,
     developerUI: {
@@ -141,6 +143,14 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
       paperVariant: PAPER_SURFACE_VARIANTS.includes(artifactAppearance.paperVariant as never)
         ? artifactAppearance.paperVariant
         : DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant,
+    },
+    chatAppearance: {
+      ...DEFAULT_CHAT_APPEARANCE_SETTINGS,
+      ...chatAppearance,
+      storyReader: {
+        ...DEFAULT_CHAT_APPEARANCE_SETTINGS.storyReader,
+        ...(chatAppearance.storyReader || {}),
+      },
     },
     userBubbleStyleId: typeof persisted.userBubbleStyleId === 'string' ? persisted.userBubbleStyleId : null,
     userBubbleStyle: persisted.userBubbleStyle && typeof persisted.userBubbleStyle === 'object' ? persisted.userBubbleStyle : null,

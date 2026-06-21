@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings, AIGenerationSettings, CompanionshipSettings, UsageStats } from '../types/settings';
+import type { AppSettingsWithMemory, ThemeMode, Language, APIConfig, AIModelProfile, ChatDraftDefaults, DeveloperUIPrefs, AvatarGenerationSettings, AIGenerationSettings, CompanionshipSettings, UsageStats, ChatAppearanceSettings } from '../types/settings';
 import type { ArtifactAppearanceSettings } from '../types/artifactAppearance';
 
 type AppSettings = AppSettingsWithMemory;
 import type { BubbleStyleDefinition } from '../types/bubbleStyle';
-import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_AI_GENERATION_SETTINGS, DEFAULT_COMPANIONSHIP_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, DEFAULT_USAGE_STATS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
+import { DEFAULT_SETTINGS, DEFAULT_AI_PROFILE, DEFAULT_AVATAR_GENERATION_SETTINGS, DEFAULT_AI_GENERATION_SETTINGS, DEFAULT_COMPANIONSHIP_SETTINGS, DEFAULT_CHAT_DRAFT_DEFAULTS, DEFAULT_DEVELOPER_UI_PREFS, DEFAULT_USAGE_STATS, DEFAULT_CHAT_APPEARANCE_SETTINGS, getPreferredAIProfile, normalizeAIProfiles } from '../types/settings';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
 import { api, type SyncChangeScope } from '../services/api';
 import { buildApiErrorUserMessage } from '../services/apiErrorMessage';
@@ -25,11 +25,12 @@ interface SettingsStore extends AppSettings {
   lastSyncedAt: number;
   syncStatus: 'idle' | 'saving' | 'saved' | 'error';
   syncError: string | null;
-  memoryUI?: { showDeveloperMemory?: boolean };
+  memoryUI: { showDeveloperMemory?: boolean };
   setDeveloperMode: (enabled: boolean) => void;
   setAvatarGeneration: (prefs: Partial<AvatarGenerationSettings>) => void;
   setAIGeneration: (prefs: Partial<AIGenerationSettings>) => void;
   setCompanionship: (prefs: Partial<CompanionshipSettings>) => void;
+  setChatAppearance: (prefs: Partial<ChatAppearanceSettings>) => void;
   setAutoGenerateCharacterAvatar: (enabled: boolean) => void;
   setDeveloperUI: (prefs: Partial<DeveloperUIPrefs>) => void;
   setMemoryDeveloperView: (enabled: boolean) => void;
@@ -195,6 +196,7 @@ export function buildSettingsPayload(state: AppSettings) {
     developerUI: state.developerUI,
     memoryUI: state.memoryUI,
     artifactAppearance: state.artifactAppearance,
+    chatAppearance: state.chatAppearance,
     usageStats: state.usageStats,
   };
 }
@@ -257,6 +259,17 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       paperVariant: PAPER_SURFACE_VARIANTS.includes(state.artifactAppearance?.paperVariant || 'lined')
         ? state.artifactAppearance?.paperVariant || DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant
         : DEFAULT_ARTIFACT_APPEARANCE_SETTINGS.paperVariant,
+    },
+    chatAppearance: {
+      ...DEFAULT_CHAT_APPEARANCE_SETTINGS,
+      ...(state.chatAppearance || {}),
+      maxContentWidth: Math.max(560, Math.min(1080, Math.round(Number(state.chatAppearance?.maxContentWidth || DEFAULT_CHAT_APPEARANCE_SETTINGS.maxContentWidth)))),
+      storyReader: {
+        ...DEFAULT_CHAT_APPEARANCE_SETTINGS.storyReader,
+        ...(state.chatAppearance?.storyReader || {}),
+        fontSize: Math.max(14, Math.min(22, Number(state.chatAppearance?.storyReader?.fontSize || DEFAULT_CHAT_APPEARANCE_SETTINGS.storyReader.fontSize))),
+        lineHeight: Math.max(1.55, Math.min(2.45, Number(state.chatAppearance?.storyReader?.lineHeight || DEFAULT_CHAT_APPEARANCE_SETTINGS.storyReader.lineHeight))),
+      },
     },
     usageStats: {
       ...DEFAULT_USAGE_STATS,
@@ -360,6 +373,7 @@ export const useSettingsStore = create<SettingsStore>()(
               userBubbleStyleId: typeof settings.userBubbleStyleId === 'string' ? settings.userBubbleStyleId : null,
               userBubbleStyle: (settings.userBubbleStyle as BubbleStyleDefinition | null | undefined) || null,
               artifactAppearance: (settings as { artifactAppearance?: ArtifactAppearanceSettings }).artifactAppearance,
+              chatAppearance: (settings as { chatAppearance?: ChatAppearanceSettings }).chatAppearance,
               usageStats: (settings as { usageStats?: UsageStats }).usageStats,
             }),
             _loaded: true,
@@ -509,6 +523,25 @@ export const useSettingsStore = create<SettingsStore>()(
             lastSyncedAt: Date.now(),
           };
           setCompanionshipRuntimeConfig(nextCompanionship);
+          syncToServer(buildSettingsPayload(next), set);
+          return next;
+        });
+      },
+
+      setChatAppearance: (prefs) => {
+        set((state) => {
+          const next = {
+            ...state,
+            chatAppearance: {
+              ...state.chatAppearance,
+              ...prefs,
+              storyReader: {
+                ...state.chatAppearance.storyReader,
+                ...(prefs.storyReader || {}),
+              },
+            },
+            lastSyncedAt: Date.now(),
+          };
           syncToServer(buildSettingsPayload(next), set);
           return next;
         });
@@ -704,7 +737,7 @@ export const useSettingsStore = create<SettingsStore>()(
     {
       name: scopedStorageKey('settings'),
       version: CLIENT_STORE_SCHEMA_VERSION,
-      migrate: (persistedState) => migrateSettingsStoreState(persistedState as Partial<SettingsStore>) as typeof DEFAULT_SETTINGS,
+      migrate: (persistedState) => migrateSettingsStoreState(persistedState as Partial<SettingsStore>) as SettingsStore,
       partialize: (state) => ({
         api: state.api,
         aiProfiles: state.aiProfiles,
@@ -725,6 +758,7 @@ export const useSettingsStore = create<SettingsStore>()(
         userBubbleStyleId: state.userBubbleStyleId,
         userBubbleStyle: state.userBubbleStyle,
         artifactAppearance: state.artifactAppearance,
+        chatAppearance: state.chatAppearance,
         usageStats: state.usageStats,
       }),
       merge: (persistedState, currentState) => ({

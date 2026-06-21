@@ -756,6 +756,15 @@ export interface UsageStats {
   updatedAt: number;
 }
 
+export interface ChatAppearanceSettings {
+  maxContentWidth: number;
+  storyReader: {
+    fontFamily: 'default' | 'serif' | 'sans';
+    fontSize: number;
+    lineHeight: number;
+  };
+}
+
 export interface AppSettings {
   api: APIConfig;
   aiProfiles: AIModelProfile[];
@@ -775,6 +784,7 @@ export interface AppSettings {
   userBubbleStyleId: string | null;
   userBubbleStyle: BubbleStyleDefinition | null;
   artifactAppearance: ArtifactAppearanceSettings;
+  chatAppearance: ChatAppearanceSettings;
   usageStats: UsageStats;
 }
 
@@ -846,7 +856,16 @@ export const DEFAULT_USAGE_STATS: UsageStats = {
   updatedAt: 0,
 };
 
-export type AppSettingsWithMemory = AppSettings & { memoryUI?: { showDeveloperMemory?: boolean } };
+export const DEFAULT_CHAT_APPEARANCE_SETTINGS: ChatAppearanceSettings = {
+  maxContentWidth: 760,
+  storyReader: {
+    fontFamily: 'default',
+    fontSize: 16,
+    lineHeight: 2.05,
+  },
+};
+
+export type AppSettingsWithMemory = AppSettings & { memoryUI: { showDeveloperMemory?: boolean } };
 
 export const DEFAULT_API_CONFIG: APIConfig = {
   provider: 'openai',
@@ -936,6 +955,7 @@ export const DEFAULT_SETTINGS: AppSettingsWithMemory = {
   userBubbleStyleId: null,
   userBubbleStyle: null,
   artifactAppearance: DEFAULT_ARTIFACT_APPEARANCE_SETTINGS,
+  chatAppearance: DEFAULT_CHAT_APPEARANCE_SETTINGS,
   usageStats: DEFAULT_USAGE_STATS,
   memoryUI: { showDeveloperMemory: false },
 };

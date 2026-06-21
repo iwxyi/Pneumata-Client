@@ -40,13 +40,6 @@ export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): 
     }
   }
 
-  if (params.chat.sessionKind?.scenarioId === 'story-reader' && params.chat.scenarioState?.storyDirection) {
-    cards.push({
-      key: 'story-direction',
-      title: isZh ? '剧情方向' : 'Story direction',
-      description: clean(String(params.chat.scenarioState.storyDirection)),
-    });
-  }
   if (params.chat.sessionKind?.scenarioId === 'werewolf-classic' && params.chat.scenarioState?.werewolfRoleConfig) {
     cards.push({
       key: 'werewolf-role-config',

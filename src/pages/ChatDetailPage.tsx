@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert } from '@mui/material';
+import { Box, IconButton, Button, Typography, Switch, Stack, TextField, Chip, Alert, Dialog, DialogTitle, DialogContent, DialogActions, Slider, FormControl, InputLabel, Select, MenuItem, Divider } from '@mui/material';
 import PageSection from '../components/common/PageSection';
 import AppSnackbar from '../components/common/AppSnackbar';
 import LoadingState from '../components/common/LoadingState';
@@ -8,6 +8,7 @@ import InfoIcon from '@mui/icons-material/Info';
 import PlayIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import SettingsIcon from '@mui/icons-material/Settings';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
@@ -78,6 +79,79 @@ function waitForNextFrame() {
 
 function LazyPanel({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PanelFallback />}>{children}</Suspense>;
+}
+
+function ChatPageSettingsDialog({ open, onClose, isStoryRoom }: { open: boolean; onClose: () => void; isStoryRoom: boolean }) {
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
+  const setChatAppearance = useSettingsStore((state) => state.setChatAppearance);
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="xs" fullWidth>
+      <DialogTitle>聊天页设置</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2.25} sx={{ pt: 0.5 }}>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>页面最大宽度</Typography>
+            <Slider
+              value={chatAppearance.maxContentWidth}
+              min={560}
+              max={1080}
+              step={20}
+              valueLabelDisplay="auto"
+              onChange={(_, value) => setChatAppearance({ maxContentWidth: Array.isArray(value) ? value[0] : value })}
+            />
+            <Typography variant="caption" color="text.secondary">
+              控制聊天气泡、旁白和选项卡片的最大内容宽度。
+            </Typography>
+          </Box>
+
+          {isStoryRoom ? (
+            <>
+              <Divider />
+              <Typography variant="body2" sx={{ fontWeight: 800 }}>故事房正文</Typography>
+              <FormControl size="small" fullWidth>
+                <InputLabel id="story-reader-font-family-label">正文字体</InputLabel>
+                <Select
+                  labelId="story-reader-font-family-label"
+                  label="正文字体"
+                  value={chatAppearance.storyReader.fontFamily}
+                  onChange={(event) => setChatAppearance({ storyReader: { ...chatAppearance.storyReader, fontFamily: event.target.value as typeof chatAppearance.storyReader.fontFamily } })}
+                >
+                  <MenuItem value="default">跟随系统</MenuItem>
+                  <MenuItem value="serif">故事衬线</MenuItem>
+                  <MenuItem value="sans">清爽无衬线</MenuItem>
+                </Select>
+              </FormControl>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>文字大小</Typography>
+                <Slider
+                  value={chatAppearance.storyReader.fontSize}
+                  min={14}
+                  max={22}
+                  step={1}
+                  valueLabelDisplay="auto"
+                  onChange={(_, value) => setChatAppearance({ storyReader: { ...chatAppearance.storyReader, fontSize: Array.isArray(value) ? value[0] : value } })}
+                />
+              </Box>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>行间距</Typography>
+                <Slider
+                  value={chatAppearance.storyReader.lineHeight}
+                  min={1.55}
+                  max={2.45}
+                  step={0.05}
+                  valueLabelDisplay="auto"
+                  onChange={(_, value) => setChatAppearance({ storyReader: { ...chatAppearance.storyReader, lineHeight: Array.isArray(value) ? value[0] : value } })}
+                />
+              </Box>
+            </>
+          ) : null}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>关闭</Button>
+      </DialogActions>
+    </Dialog>
+  );
 }
 
 export function buildStoryChoicePendingKey(params: {
@@ -348,6 +422,7 @@ export default function ChatDetailPage() {
   const [guideTargetMemberId, setGuideTargetMemberId] = useState<string | null>(null);
   const [pendingStoryChoiceKey, setPendingStoryChoiceKey] = useState<string | null>(null);
   const [narrativeRevealMessageKeys, setNarrativeRevealMessageKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [chatPageSettingsOpen, setChatPageSettingsOpen] = useState(false);
 
   const loopTokenRef = useRef<string | null>(null);
   const isRunningRef = useRef(false);
@@ -1618,7 +1693,15 @@ export default function ChatDetailPage() {
         </Box>}
       </Box>
 
-      {isRemoteDeletedChat ? null : <RightPanel title={sidebarTitle} hideMobileTitle>
+      {isRemoteDeletedChat ? null : <RightPanel
+        title={sidebarTitle}
+        hideMobileTitle
+        titleActions={(
+          <IconButton size="small" aria-label="聊天页设置" onClick={() => setChatPageSettingsOpen(true)}>
+            <SettingsIcon fontSize="small" />
+          </IconButton>
+        )}
+      >
         <PageSection spacing={2} fill animate={false}>
           <SessionInfoCards cards={globalSessionInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
@@ -1729,6 +1812,7 @@ export default function ChatDetailPage() {
           </Box>
         </PageSection>
       </RightPanel>}
+      <ChatPageSettingsDialog open={chatPageSettingsOpen} onClose={() => setChatPageSettingsOpen(false)} isStoryRoom={isStoryRoom} />
 
       <MessageAnalysisDialog
         open={analysisDialogOpen}

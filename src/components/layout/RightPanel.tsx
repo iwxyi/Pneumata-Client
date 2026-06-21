@@ -10,6 +10,7 @@ interface RightPanelProps {
   children: React.ReactNode;
   title?: string;
   hideMobileTitle?: boolean;
+  titleActions?: React.ReactNode;
 }
 
 const DEFAULT_PANEL_WIDTH = 360;
@@ -38,7 +39,7 @@ function getMobileSheetTravelDistance() {
   return Math.max(320, window.innerHeight * 0.8);
 }
 
-export default function RightPanel({ children, title, hideMobileTitle = false }: RightPanelProps) {
+export default function RightPanel({ children, title, hideMobileTitle = false, titleActions }: RightPanelProps) {
   const { isMobile, isDesktop } = useResponsive();
   const { rightPanelOpen, rightPanelGestureOffset, rightPanelGestureDragging, setRightPanelOpen, setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore();
   const [panelWidth, setPanelWidth] = useState(getInitialPanelWidth);
@@ -273,9 +274,12 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
               <Typography variant="subtitle1" sx={{ fontWeight: 800, letterSpacing: 0 }}>
                 {title}
               </Typography>
-              <IconButton size="small" onClick={() => setRightPanelOpen(false)}>
-                <CloseIcon fontSize="small" />
-              </IconButton>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                {titleActions}
+                <IconButton size="small" onClick={() => setRightPanelOpen(false)}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Box>
             </Box>
             <Divider />
           </>
@@ -411,9 +415,12 @@ export default function RightPanel({ children, title, hideMobileTitle = false }:
               <Typography variant="subtitle1" sx={{ fontWeight: 700, letterSpacing: '-0.01em' }}>
                 {title}
               </Typography>
-              <IconButton size="small" onClick={() => setRightPanelOpen(false)}>
-                <CloseIcon fontSize="small" />
-              </IconButton>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                {titleActions}
+                <IconButton size="small" onClick={() => setRightPanelOpen(false)}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Box>
             </Box>
             <Divider sx={{ mb: 2 }} />
           </>

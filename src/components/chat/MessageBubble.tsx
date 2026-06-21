@@ -64,6 +64,7 @@ export default function MessageBubble({ message, character, characters = [], onD
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
   const compactBubbleMode = useSettingsStore((state) => state.compactBubbleMode);
   const compactPrivateBubbleMode = useSettingsStore((state) => state.compactPrivateBubbleMode);
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -223,10 +224,26 @@ export default function MessageBubble({ message, character, characters = [], onD
   const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeDisplayBlocks(message) : [];
   if (narrativeParagraphBlocks.length || (pending && useNarrativeParagraph)) {
     const narrativeCharacters = characters.length ? characters : effectiveCharacter ? [effectiveCharacter] : [];
+    const storyReaderFontFamily = chatAppearance.storyReader.fontFamily === 'serif'
+      ? 'Georgia, "Times New Roman", "Noto Serif SC", "Songti SC", serif'
+      : chatAppearance.storyReader.fontFamily === 'sans'
+        ? 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
+        : undefined;
     return (
       <>
         <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
-          <Box {...bubbleHandlers} sx={{ width: '100%', maxWidth: 760, px: { xs: 0.5, sm: 1 }, py: 0.5 }}>
+          <Box
+            {...bubbleHandlers}
+            sx={{
+              width: '100%',
+              maxWidth: chatAppearance.maxContentWidth,
+              px: { xs: 0.5, sm: 1 },
+              py: 0.5,
+              fontFamily: storyReaderFontFamily,
+              fontSize: chatAppearance.storyReader.fontSize,
+              lineHeight: chatAppearance.storyReader.lineHeight,
+            }}
+          >
             {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} reveal={revealText} showDeveloperDetails={developerMode} activeBlockId={revealText ? narrativeParagraphBlocks[0]?.id || null : null} onRevealComplete={() => onRevealComplete?.()} /> : <PendingTypingDots />}
           </Box>
         </Box>
@@ -251,7 +268,7 @@ export default function MessageBubble({ message, character, characters = [], onD
           </Box>
         ) : null}
 
-        <Box sx={{ maxWidth: 'min(78%, 720px)', minWidth: 0, display: 'grid', gap: 0.35, justifyItems: isUser ? 'end' : 'start' }}>
+        <Box sx={{ maxWidth: `min(100%, ${chatAppearance.maxContentWidth}px)`, minWidth: 0, display: 'grid', gap: 0.35, justifyItems: isUser ? 'end' : 'start' }}>
           <Tooltip title={formatTimestamp(message.timestamp)} placement="top" arrow>
             <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', textAlign: isUser ? 'right' : 'left' }}>
               {message.senderName}
