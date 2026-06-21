@@ -30,8 +30,6 @@ interface MessageBubbleProps {
   currentUser?: { nickname?: string; avatar?: string };
   selfMemberId?: string | null;
   privateConversation?: boolean;
-  revealText?: boolean;
-  onRevealComplete?: () => void;
 }
 
 interface MenuPosition {
@@ -58,7 +56,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, characters = [], onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, revealText = false, onRevealComplete }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, characters = [], onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -253,7 +251,7 @@ export default function MessageBubble({ message, character, characters = [], onD
               },
             }}
           >
-            {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} reveal={revealText} showDeveloperDetails={developerMode} activeBlockId={revealText ? narrativeParagraphBlocks[0]?.id || null : null} onRevealComplete={() => onRevealComplete?.()} /> : <PendingTypingDots />}
+            {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} showDeveloperDetails={developerMode} /> : <PendingTypingDots />}
           </Box>
         </Box>
         <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
@@ -304,7 +302,7 @@ export default function MessageBubble({ message, character, characters = [], onD
                   </Box>
                 </Tooltip>
               ) : withdrawalNoticeNode
-            ) : <MessageContent message={message} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} revealText={revealText} onRevealComplete={onRevealComplete} />}
+            ) : <MessageContent message={message} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} />}
           </Box>
         </Box>
 

@@ -181,59 +181,6 @@ function buildNarrativeBlockMessage(parent: Message, block: NarrativeBlock, turn
   };
 }
 
-export function selectNewNarrativeRevealKeys(params: {
-  previousKeys: Set<string>;
-  previousMaxTimestamp?: number;
-  items: ChatRenderItem[];
-}) {
-  if (params.previousKeys.size === 0) return [];
-  const lastPreviousIndex = params.items.reduce((latest, item, index) => (
-    params.previousKeys.has(item.key) ? index : latest
-  ), -1);
-  if (lastPreviousIndex < 0) return [];
-  const previousMaxTimestamp = Math.max(params.previousMaxTimestamp || 0, params.items.reduce((latest, item) => (
-    params.previousKeys.has(item.key) ? Math.max(latest, Number(item.message.timestamp || 0)) : latest
-  ), 0));
-  const appendedItems = params.items.slice(lastPreviousIndex + 1);
-  const appendedNarrativeKeys = appendedItems
-    .filter((item) => (
-      !params.previousKeys.has(item.key)
-      && item.renderKind === 'narrative'
-      && item.message.type === 'ai'
-      && Number(item.message.timestamp || 0) > previousMaxTimestamp
-      && getNarrativeDisplayBlocks(item.message).some((block) => block.displayMode !== 'hidden' && block.text.trim())
-    ))
-    .map((item) => item.key);
-  if (appendedNarrativeKeys.length !== 1) return [];
-  return appendedNarrativeKeys;
-}
-
-export function resolveNarrativeRevealTracking(params: {
-  initialized: boolean;
-  previousKeys: Set<string>;
-  previousMaxTimestamp?: number;
-  items: ChatRenderItem[];
-}) {
-  const nextKeys = new Set(params.items.map((item) => item.key));
-  const nextMaxTimestamp = params.items.reduce((latest, item) => Math.max(latest, Number(item.message.timestamp || 0)), params.previousMaxTimestamp || 0);
-  if (!params.initialized) {
-    if (params.items.length === 0) {
-      return { initialized: false, nextSeenKeys: params.previousKeys, nextMaxTimestamp, newRevealKeys: [] as string[] };
-    }
-    return { initialized: true, nextSeenKeys: nextKeys, nextMaxTimestamp, newRevealKeys: [] as string[] };
-  }
-  return {
-    initialized: true,
-    nextSeenKeys: nextKeys,
-    nextMaxTimestamp,
-    newRevealKeys: selectNewNarrativeRevealKeys({
-      previousKeys: params.previousKeys,
-      previousMaxTimestamp: params.previousMaxTimestamp,
-      items: params.items,
-    }),
-  };
-}
-
 export function isNarrativeRevealAllowed(params: {
   item: ChatRenderItem;
   revealMessageKeys?: ReadonlySet<string>;
@@ -246,13 +193,6 @@ export function isNarrativeRevealAllowed(params: {
     params.item.message.clientKey,
     params.item.message.serverId,
   ].some((key) => Boolean(key && keys.has(key)));
-}
-
-export function resolveEffectiveNarrativeRevealKeys(params: {
-  explicitKeys?: ReadonlySet<string>;
-  fallbackKeys: ReadonlySet<string>;
-}) {
-  return params.explicitKeys?.size ? params.explicitKeys : params.fallbackKeys;
 }
 
 export function getVisibleNarrativeDisplayBlocks(message: Message, showDeveloperDetails: boolean) {
@@ -290,11 +230,7 @@ export default function MessageList({
   const storyRevealMode = useSettingsStore((state) => state.chatAppearance.storyReader.revealMode);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
-  const [revealEligibleKeys, setRevealEligibleKeys] = useState<Set<string>>(() => new Set());
   const [viewerKey, setViewerKey] = useState<string | null>(null);
-  const revealKeyTrackingInitializedRef = useRef(false);
-  const seenRenderKeysRef = useRef<Set<string>>(new Set());
-  const seenMaxTimestampRef = useRef(0);
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const hasJumpedToBottomRef = useRef(false);
@@ -339,7 +275,7 @@ export default function MessageList({
     void onReachTop();
   }, [hasMore, isLoadingOlder, onReachTop]);
 
-  const renderBubble = useCallback((item: ChatRenderItem, options?: { key?: string; message?: Message; character?: AICharacter; revealText?: boolean; onRevealComplete?: () => void }) => (
+  const renderBubble = useCallback((item: ChatRenderItem, options?: { key?: string; message?: Message; character?: AICharacter }) => (
     <MessageBubble
       key={options?.key || item.key}
       message={options?.message || item.message}
@@ -355,8 +291,6 @@ export default function MessageList({
       pending={item.pending}
       selfMemberId={selfMemberId}
       privateConversation={privateConversation}
-      revealText={options?.revealText}
-      onRevealComplete={options?.onRevealComplete}
     />
   ), [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId]);
 
@@ -387,11 +321,7 @@ export default function MessageList({
       if (item.renderKind === 'narrative') return null;
       return <Box key={item.key} {...anchorProps}>{renderBubble(item)}</Box>;
     }
-    const effectiveRevealMessageKeys = resolveEffectiveNarrativeRevealKeys({
-      explicitKeys: narrativeRevealMessageKeys,
-      fallbackKeys: revealEligibleKeys,
-    });
-    const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: effectiveRevealMessageKeys });
+    const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: narrativeRevealMessageKeys });
     const shouldFadeNode = recentNarrative && storyRevealMode === 'fade';
     const renderedBlocks = blocks.map((block, index) => {
       const character = block.displayMode === 'bubble' ? resolveNarrativeBlockCharacter(block, characters) : undefined;
@@ -421,7 +351,7 @@ export default function MessageList({
         ) : null}
       </Box>
     );
-  }, [characters, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, revealEligibleKeys, storyChoiceMessageId, storyChoiceOptions, storyRevealMode]);
+  }, [characters, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, storyChoiceMessageId, storyChoiceOptions, storyRevealMode]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -470,46 +400,15 @@ export default function MessageList({
     return snapshot;
   }, [captureScrollAnchor, isLoadingOlder]);
 
-  useLayoutEffect(() => {
-    const tracking = resolveNarrativeRevealTracking({
-      initialized: revealKeyTrackingInitializedRef.current,
-      previousKeys: seenRenderKeysRef.current,
-      previousMaxTimestamp: seenMaxTimestampRef.current,
-      items: renderItems,
-    });
-    revealKeyTrackingInitializedRef.current = tracking.initialized;
-    seenRenderKeysRef.current = tracking.nextSeenKeys;
-    seenMaxTimestampRef.current = tracking.nextMaxTimestamp;
-    setRevealEligibleKeys((current) => {
-      let changed = false;
-      const next = new Set<string>();
-      current.forEach((key) => {
-        if (tracking.nextSeenKeys.has(key)) next.add(key);
-        else changed = true;
-      });
-      tracking.newRevealKeys.forEach((key) => {
-        if (!next.has(key)) {
-          next.add(key);
-          changed = true;
-        }
-      });
-      return changed ? next : current;
-    });
-  }, [renderItems]);
-
   useEffect(() => {
     if (storyRevealMode !== 'instant' || !onNarrativeRevealComplete) return;
-    const effectiveRevealMessageKeys = resolveEffectiveNarrativeRevealKeys({
-      explicitKeys: narrativeRevealMessageKeys,
-      fallbackKeys: revealEligibleKeys,
-    });
-    if (!effectiveRevealMessageKeys.size) return;
+    if (!narrativeRevealMessageKeys?.size) return;
     renderItems.forEach((item) => {
-      if (item.renderKind === 'narrative' && isNarrativeRevealAllowed({ item, revealMessageKeys: effectiveRevealMessageKeys })) {
+      if (item.renderKind === 'narrative' && isNarrativeRevealAllowed({ item, revealMessageKeys: narrativeRevealMessageKeys })) {
         onNarrativeRevealComplete(item.message);
       }
     });
-  }, [narrativeRevealMessageKeys, onNarrativeRevealComplete, renderItems, revealEligibleKeys, storyRevealMode]);
+  }, [narrativeRevealMessageKeys, onNarrativeRevealComplete, renderItems, storyRevealMode]);
 
   const updatePinnedState = useCallback(() => {
     const container = containerRef.current;
