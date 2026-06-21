@@ -49,6 +49,7 @@ interface MessageListProps {
   storyChoiceOptions?: NarrativeStoryChoiceOption[];
   storyChoiceSubmittingValue?: string | null;
   onChooseStoryChoice?: (value: string) => void;
+  onBottomPinnedChange?: (pinned: boolean) => void;
   narrativeRevealMessageKeys?: ReadonlySet<string>;
   onNarrativeRevealComplete?: (message: Message) => void;
 }
@@ -245,6 +246,7 @@ export default function MessageList({
   storyChoiceOptions = [],
   storyChoiceSubmittingValue = null,
   onChooseStoryChoice,
+  onBottomPinnedChange,
   narrativeRevealMessageKeys,
   onNarrativeRevealComplete,
 }: MessageListProps) {
@@ -256,6 +258,7 @@ export default function MessageList({
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const topLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
+  const lastReportedBottomPinnedRef = useRef<boolean | null>(null);
   const hasJumpedToBottomRef = useRef(false);
   const prependRestoreRef = useRef<ScrollAnchorSnapshot | null>(null);
   const latestScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
@@ -442,8 +445,12 @@ export default function MessageList({
     if (!container) return false;
     const pinned = getDistanceFromBottom(container) <= BOTTOM_STICKY_THRESHOLD;
     shouldStickToBottomRef.current = pinned;
+    if (lastReportedBottomPinnedRef.current !== pinned) {
+      lastReportedBottomPinnedRef.current = pinned;
+      onBottomPinnedChange?.(pinned);
+    }
     return pinned;
-  }, [getDistanceFromBottom]);
+  }, [getDistanceFromBottom, onBottomPinnedChange]);
 
   const stopFollowScrollAnimation = useCallback(() => {
     if (followScrollAnimationRef.current == null) return;
@@ -527,7 +534,11 @@ export default function MessageList({
     scrollToBottom('auto');
     hasJumpedToBottomRef.current = true;
     shouldStickToBottomRef.current = true;
-  }, [renderItems.length, scrollToBottom]);
+    if (lastReportedBottomPinnedRef.current !== true) {
+      lastReportedBottomPinnedRef.current = true;
+      onBottomPinnedChange?.(true);
+    }
+  }, [onBottomPinnedChange, renderItems.length, scrollToBottom]);
 
   useLayoutEffect(() => {
     const snapshot = prependRestoreRef.current;
@@ -607,6 +618,10 @@ export default function MessageList({
         lastScrollTopRef.current = container.scrollTop;
         if (isScrollingUp) {
           shouldStickToBottomRef.current = false;
+          if (lastReportedBottomPinnedRef.current !== false) {
+            lastReportedBottomPinnedRef.current = false;
+            onBottomPinnedChange?.(false);
+          }
         } else {
           updatePinnedState();
         }

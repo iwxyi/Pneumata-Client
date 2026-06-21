@@ -211,10 +211,12 @@ export function getStoryTailStatus(params: {
   hasRunLoopStatus: boolean;
   isStoryChoiceSubmitting: boolean;
   isGeneratingStoryNode?: boolean;
+  isWaitingForReaderTail?: boolean;
 }) {
   if (params.hasRunLoopStatus) return 'status' as const;
   if (params.isStoryChoiceSubmitting) return 'submitting_choice' as const;
   if (params.isGeneratingStoryNode) return 'generating_node' as const;
+  if (params.isWaitingForReaderTail) return 'waiting_reader_tail' as const;
   return null;
 }
 
@@ -455,6 +457,7 @@ export default function ChatDetailPage() {
   const [guideTargetMemberId, setGuideTargetMemberId] = useState<string | null>(null);
   const [pendingStoryChoiceKey, setPendingStoryChoiceKey] = useState<string | null>(null);
   const [pendingStoryChoiceVisual, setPendingStoryChoiceVisual] = useState<PendingStoryChoiceVisual | null>(null);
+  const [isStoryReaderAtTail, setIsStoryReaderAtTail] = useState(true);
   const [narrativeRevealMessageKeys, setNarrativeRevealMessageKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [chatPageSettingsOpen, setChatPageSettingsOpen] = useState(false);
 
@@ -464,6 +467,7 @@ export default function ChatDetailPage() {
   const loadingMoreRef = useRef(false);
   const pendingStoryChoiceRef = useRef<string | null>(null);
   const pendingStoryChoiceVisualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isStoryReaderAtTailRef = useRef(true);
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
@@ -591,6 +595,8 @@ export default function ChatDetailPage() {
     setGuideTargetMemberId(null);
     setNarrativeRevealMessageKeys(new Set());
     setPendingStoryChoiceVisual(null);
+    setIsStoryReaderAtTail(true);
+    isStoryReaderAtTailRef.current = true;
     if (pendingStoryChoiceVisualTimerRef.current) {
       clearTimeout(pendingStoryChoiceVisualTimerRef.current);
       pendingStoryChoiceVisualTimerRef.current = null;
@@ -775,6 +781,10 @@ export default function ChatDetailPage() {
   }, [isPaused, isRunning]);
 
   useEffect(() => {
+    isStoryReaderAtTailRef.current = isStoryReaderAtTail;
+  }, [isStoryReaderAtTail]);
+
+  useEffect(() => {
     if (!isRemoteDeletedChat) return;
     pause();
     stop();
@@ -918,6 +928,7 @@ export default function ChatDetailPage() {
     discardStreamingMessage,
     clearStreamingMessageRef,
     isManualInputPending: () => isManualInputPendingRef.current(),
+    isStoryReaderAtTail: () => isStoryReaderAtTailRef.current,
     setCurrentSpeaker,
     resetAllCooldowns,
     start,
@@ -1355,7 +1366,8 @@ export default function ChatDetailPage() {
   const storyTailStatus = getStoryTailStatus({
     hasRunLoopStatus: Boolean(runLoopStatusContent),
     isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
-    isGeneratingStoryNode: Boolean(isStoryRoom && !isStoryWaitingForChoice && !isCurrentStoryChoiceSubmitting && isRunning && !isPaused && (thinkingId || hasPendingTurnWork)),
+    isGeneratingStoryNode: Boolean(isStoryRoom && !isStoryWaitingForChoice && !isCurrentStoryChoiceSubmitting && isRunning && !isPaused && (thinkingId || hasPendingTurnWork())),
+    isWaitingForReaderTail: Boolean(isStoryRoom && !isStoryWaitingForChoice && !isCurrentStoryChoiceSubmitting && isRunning && !isPaused && !thinkingId && !hasPendingTurnWork() && !isStoryReaderAtTail),
   });
   const storyBranchSuggestionContent = storyTailStatus ? (
     <>
@@ -1399,6 +1411,23 @@ export default function ChatDetailPage() {
               正在生成下一节
             </Typography>
           </Box>
+        </Box>
+      ) : null}
+      {storyTailStatus === 'waiting_reader_tail' ? (
+        <Box data-message-id="story-waiting-reader-tail" data-message-type="story-loading" sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
+          <Chip
+            size="small"
+            label="阅读到底后自动生成下一节"
+            variant="outlined"
+            sx={(theme) => ({
+              borderRadius: 2,
+              px: 0.8,
+              py: 1.75,
+              fontWeight: 700,
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(15,23,42,0.72)',
+              boxShadow: '0 8px 22px rgba(15,23,42,0.10)',
+            })}
+          />
         </Box>
       ) : null}
     </>
@@ -1498,6 +1527,11 @@ export default function ChatDetailPage() {
   }, [id, loadMessages, setSnackbar]);
 
   const canAutoRunConversation = chat?.type !== 'direct' && !isRemoteDeletedChat;
+
+  const handleMessageListBottomPinnedChange = useCallback((pinned: boolean) => {
+    isStoryReaderAtTailRef.current = pinned;
+    setIsStoryReaderAtTail(pinned);
+  }, []);
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
@@ -1732,6 +1766,7 @@ export default function ChatDetailPage() {
             storyChoiceOptions={displayedStoryChoiceOptions}
             storyChoiceSubmittingValue={displayedStoryChoiceSubmittingValue}
             onChooseStoryChoice={isStoryWaitingForChoice ? handleChooseStoryBranch : undefined}
+            onBottomPinnedChange={isStoryRoom ? handleMessageListBottomPinnedChange : undefined}
             narrativeRevealMessageKeys={narrativeRevealMessageKeys}
             onNarrativeRevealComplete={clearNarrativeRevealMessage}
           />

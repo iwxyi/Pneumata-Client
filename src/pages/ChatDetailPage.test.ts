@@ -88,15 +88,31 @@ describe('ChatDetailPage pause/resume behavior', () => {
     })).toBe(false);
   });
 
-  it('prioritizes story tail status for errors and choice submission only', () => {
+  it('prioritizes story tail status for errors, choice submission, generation, and reader position', () => {
     expect(getStoryTailStatus({
       hasRunLoopStatus: true,
       isStoryChoiceSubmitting: true,
+      isGeneratingStoryNode: true,
+      isWaitingForReaderTail: true,
     })).toBe('status');
     expect(getStoryTailStatus({
       hasRunLoopStatus: false,
       isStoryChoiceSubmitting: true,
+      isGeneratingStoryNode: true,
+      isWaitingForReaderTail: true,
     })).toBe('submitting_choice');
+    expect(getStoryTailStatus({
+      hasRunLoopStatus: false,
+      isStoryChoiceSubmitting: false,
+      isGeneratingStoryNode: true,
+      isWaitingForReaderTail: true,
+    })).toBe('generating_node');
+    expect(getStoryTailStatus({
+      hasRunLoopStatus: false,
+      isStoryChoiceSubmitting: false,
+      isGeneratingStoryNode: false,
+      isWaitingForReaderTail: true,
+    })).toBe('waiting_reader_tail');
     expect(getStoryTailStatus({
       hasRunLoopStatus: false,
       isStoryChoiceSubmitting: false,

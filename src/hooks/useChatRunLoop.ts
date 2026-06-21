@@ -64,6 +64,7 @@ export function useChatRunLoop(params: {
   discardStreamingMessage: () => void;
   clearStreamingMessageRef: () => void;
   isManualInputPending: () => boolean;
+  isStoryReaderAtTail?: () => boolean;
   setCurrentSpeaker: (characterId: string | null) => void;
   resetAllCooldowns: () => void;
   start: (loopToken: string) => void;
@@ -135,13 +136,20 @@ export function useChatRunLoop(params: {
           });
           const storyChoiceGate = getStoryChoiceGateState(latestChat, latestMessages);
           const manualInputPending = current.isManualInputPending() && !current.streamingMessageRef.current && pendingCommitCountRef.current === 0;
-          const paused = current.isPausedRef.current || storyChoiceGate.waiting || manualInputPending;
+          const storyReadPositionPaused = latestChat?.sessionKind?.scenarioId === 'story-reader'
+            && !storyChoiceGate.waiting
+            && Boolean(current.isStoryReaderAtTail && !current.isStoryReaderAtTail())
+            && !current.streamingMessageRef.current
+            && pendingCommitCountRef.current === 0
+            && pendingTurnWorkCountRef.current === 0;
+          const paused = current.isPausedRef.current || storyChoiceGate.waiting || manualInputPending || storyReadPositionPaused;
           if (paused) {
             const logKey = [
               current.chatId,
               current.isPausedRef.current ? 'manual' : '',
               storyChoiceGate.waiting ? `choice:${storyChoiceGate.choiceEpoch}:${storyChoiceGate.sourceMessageId}:${storyChoiceGate.mismatch}` : '',
               manualInputPending ? 'manual-input' : '',
+              storyReadPositionPaused ? 'story-read-position' : '',
             ].filter(Boolean).join('|');
             if (logKey && lastPauseGateLogKeyRef.current !== logKey) {
               lastPauseGateLogKeyRef.current = logKey;
@@ -150,6 +158,7 @@ export function useChatRunLoop(params: {
                 loopId,
                 manualPaused: current.isPausedRef.current,
                 manualInputPending,
+                storyReadPositionPaused,
                 storyChoiceGate,
                 pendingCommitCount: pendingCommitCountRef.current,
                 pendingTurnWorkCount: pendingTurnWorkCountRef.current,
