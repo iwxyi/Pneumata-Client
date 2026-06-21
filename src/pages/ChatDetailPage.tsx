@@ -20,6 +20,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { type DriverMessageCommitResult, type GroupChat, type StoryChapterState } from '../types/chat';
 import MessageList from '../components/chat/MessageList';
+import type { NarrativeStoryChoiceOption } from '../components/chat/messageBubblePresentation';
 import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
 import SessionComposerHost from '../components/session/SessionComposerHost';
 import RightPanel from '../components/layout/RightPanel';
@@ -62,10 +63,17 @@ const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
 const CHAT_MESSAGE_WINDOW_SIZE = 40;
 const CHAPTER_JUMP_MAX_OLDER_PAGES = 6;
+const STORY_CHOICE_COLLAPSE_MS = 420;
 
 type ProfilePreviewState =
   | { kind: 'character'; anchorRect: DOMRect; anchorElement: HTMLElement; character: AICharacter }
   | { kind: 'chat'; anchorRect: DOMRect; anchorElement: HTMLElement };
+type PendingStoryChoiceVisual = {
+  key: string;
+  sourceMessageId: string;
+  selectedValue: string;
+  options: NarrativeStoryChoiceOption[];
+};
 
 function PanelFallback() {
   return null;
@@ -446,6 +454,7 @@ export default function ChatDetailPage() {
   const [aiDirectPerspectiveMemberId, setAiDirectPerspectiveMemberId] = useState<string | null>(null);
   const [guideTargetMemberId, setGuideTargetMemberId] = useState<string | null>(null);
   const [pendingStoryChoiceKey, setPendingStoryChoiceKey] = useState<string | null>(null);
+  const [pendingStoryChoiceVisual, setPendingStoryChoiceVisual] = useState<PendingStoryChoiceVisual | null>(null);
   const [narrativeRevealMessageKeys, setNarrativeRevealMessageKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [chatPageSettingsOpen, setChatPageSettingsOpen] = useState(false);
 
@@ -454,6 +463,7 @@ export default function ChatDetailPage() {
   const isPausedRef = useRef(false);
   const loadingMoreRef = useRef(false);
   const pendingStoryChoiceRef = useRef<string | null>(null);
+  const pendingStoryChoiceVisualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
@@ -580,7 +590,15 @@ export default function ChatDetailPage() {
   useEffect(() => {
     setGuideTargetMemberId(null);
     setNarrativeRevealMessageKeys(new Set());
+    setPendingStoryChoiceVisual(null);
+    if (pendingStoryChoiceVisualTimerRef.current) {
+      clearTimeout(pendingStoryChoiceVisualTimerRef.current);
+      pendingStoryChoiceVisualTimerRef.current = null;
+    }
   }, [id]);
+  useEffect(() => () => {
+    if (pendingStoryChoiceVisualTimerRef.current) clearTimeout(pendingStoryChoiceVisualTimerRef.current);
+  }, []);
   const aiDirectPerspectiveChar = useMemo(
     () => {
       if (chat?.type !== 'ai_direct') return null;
@@ -1128,6 +1146,16 @@ export default function ChatDetailPage() {
   const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader'
     && !isCurrentStoryChoiceSubmitting
     && storyChoiceGate.waiting;
+  const displayedStoryChoiceVisual = pendingStoryChoiceVisual;
+  const displayedStoryChoiceMessageId = isStoryWaitingForChoice
+    ? storyChoiceSourceMessage?.id
+    : displayedStoryChoiceVisual?.sourceMessageId || null;
+  const displayedStoryChoiceOptions = isStoryWaitingForChoice
+    ? visibleStoryBranchOptions
+    : displayedStoryChoiceVisual?.options || [];
+  const displayedStoryChoiceSubmittingValue = isStoryWaitingForChoice
+    ? null
+    : displayedStoryChoiceVisual?.selectedValue || null;
   const runLoopStatusContent = (chatError || runLoopError) ? (
     <Alert severity="error" variant="outlined" sx={{ mx: { xs: 1.25, sm: 2 }, mt: 1, borderRadius: 3 }}>
       {chatError || runLoopError}
@@ -1153,6 +1181,19 @@ export default function ChatDetailPage() {
     if (pendingStoryChoiceRef.current === choiceKey) return;
     pendingStoryChoiceRef.current = choiceKey;
     setPendingStoryChoiceKey(choiceKey);
+    if (pendingStoryChoiceVisualTimerRef.current) clearTimeout(pendingStoryChoiceVisualTimerRef.current);
+    if (storyChoiceSourceMessage?.id) {
+      setPendingStoryChoiceVisual({
+        key: choiceKey,
+        sourceMessageId: storyChoiceSourceMessage.id,
+        selectedValue: optionValue,
+        options: storyBranchOptions,
+      });
+      pendingStoryChoiceVisualTimerRef.current = setTimeout(() => {
+        pendingStoryChoiceVisualTimerRef.current = null;
+        setPendingStoryChoiceVisual((current) => (current?.key === choiceKey ? null : current));
+      }, STORY_CHOICE_COLLAPSE_MS);
+    }
     logDeveloperDiagnostic('story-choice:select', {
       chatId: id,
       optionValue,
@@ -1223,6 +1264,7 @@ export default function ChatDetailPage() {
       if (!actionSucceeded && pendingStoryChoiceRef.current === choiceKey) {
         pendingStoryChoiceRef.current = null;
         setPendingStoryChoiceKey(null);
+        setPendingStoryChoiceVisual((current) => (current?.key === choiceKey ? null : current));
       }
     }
   }, [addMessageStable, chat, currentUser?.nickname, getNextMessageTimestamp, id, runSessionAction, setSnackbar, startConversationLoopIfNeeded, storyBranchOptions, storyChoiceGate, storyChoiceSourceMessage?.id, updateChat]);
@@ -1686,8 +1728,9 @@ export default function ChatDetailPage() {
             bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
             privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
             tailContent={storyBranchSuggestionContent}
-            storyChoiceMessageId={isStoryWaitingForChoice ? storyChoiceSourceMessage?.id : null}
-            storyChoiceOptions={visibleStoryBranchOptions}
+            storyChoiceMessageId={displayedStoryChoiceMessageId}
+            storyChoiceOptions={displayedStoryChoiceOptions}
+            storyChoiceSubmittingValue={displayedStoryChoiceSubmittingValue}
             onChooseStoryChoice={isStoryWaitingForChoice ? handleChooseStoryBranch : undefined}
             narrativeRevealMessageKeys={narrativeRevealMessageKeys}
             onNarrativeRevealComplete={clearNarrativeRevealMessage}

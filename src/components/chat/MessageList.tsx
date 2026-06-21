@@ -47,6 +47,7 @@ interface MessageListProps {
   tailContent?: ReactNode;
   storyChoiceMessageId?: string | null;
   storyChoiceOptions?: NarrativeStoryChoiceOption[];
+  storyChoiceSubmittingValue?: string | null;
   onChooseStoryChoice?: (value: string) => void;
   narrativeRevealMessageKeys?: ReadonlySet<string>;
   onNarrativeRevealComplete?: (message: Message) => void;
@@ -76,42 +77,63 @@ function ChoiceMeta({ label, value }: { label: string; value: string }) {
   );
 }
 
-function StoryChoicePanel({ options, onChoose, showDeveloperDetails = false }: { options: NarrativeStoryChoiceOption[]; onChoose: (value: string) => void; showDeveloperDetails?: boolean }) {
+function StoryChoicePanel({ options, onChoose, showDeveloperDetails = false, submittingValue = null }: { options: NarrativeStoryChoiceOption[]; onChoose?: (value: string) => void; showDeveloperDetails?: boolean; submittingValue?: string | null }) {
   const chatAppearance = useSettingsStore((state) => state.chatAppearance);
   const maxContentWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
   if (!options.length) return null;
+  const isSubmitting = Boolean(submittingValue);
   return (
     <Box data-message-id="story-choice-panel" data-message-type="story-choice" sx={{ px: { xs: 2, sm: 3 }, py: 0.75, width: '100%' }}>
-      <Stack spacing={0.75} sx={{ width: '100%', maxWidth: maxContentWidth, mx: 'auto', px: { xs: 0.5, sm: 1 } }}>
-        <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, fontWeight: 700 }}>
-          选择接下来的剧情走向
+      <Stack spacing={0.75} sx={{ width: '100%', maxWidth: maxContentWidth, mx: 'auto', px: { xs: 0.5, sm: 1 }, transition: 'gap 220ms ease' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ px: 0.5, fontWeight: 700, transition: 'opacity 180ms ease, max-height 220ms ease, margin 220ms ease', opacity: isSubmitting ? 0 : 1, maxHeight: isSubmitting ? 0 : 24, overflow: 'hidden' }}>
+          {isSubmitting ? '已选择剧情走向' : '选择接下来的剧情走向'}
         </Typography>
         {options.map((option) => (
           <Box
             key={option.value}
             component="button"
             type="button"
-            onClick={() => onChoose(option.value)}
+            disabled={isSubmitting}
+            onClick={() => {
+              if (!isSubmitting) onChoose?.(option.value);
+            }}
             sx={(theme) => ({
+              '--choice-option-max-height': submittingValue && option.value !== submittingValue ? '0px' : '260px',
+              '--choice-option-opacity': submittingValue && option.value !== submittingValue ? 0 : 1,
+              '--choice-option-scale': submittingValue && option.value !== submittingValue ? 0.985 : 1,
               width: '100%',
               border: `1px solid ${theme.palette.mode === 'light' ? 'rgba(148,163,184,0.32)' : 'rgba(226,232,240,0.16)'}`,
               borderRadius: 2,
               px: { xs: 1.5, sm: 1.75 },
-              py: { xs: 1, sm: 1.1 },
-              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.82)',
+              py: submittingValue && option.value !== submittingValue ? 0 : { xs: 1, sm: 1.1 },
+              mt: submittingValue && option.value !== submittingValue ? '0 !important' : undefined,
+              maxHeight: 'var(--choice-option-max-height)',
+              opacity: 'var(--choice-option-opacity)',
+              transform: 'scale(var(--choice-option-scale))',
+              overflow: 'hidden',
+              bgcolor: submittingValue === option.value
+                ? theme.palette.mode === 'light' ? 'rgba(238,242,255,0.92)' : 'rgba(49,46,129,0.42)'
+                : theme.palette.mode === 'light' ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.82)',
               color: 'text.primary',
               textAlign: 'left',
               font: 'inherit',
-              cursor: 'pointer',
+              cursor: isSubmitting ? 'default' : 'pointer',
               boxShadow: theme.palette.mode === 'light' ? '0 10px 28px rgba(15,23,42,0.10)' : '0 14px 34px rgba(0,0,0,0.28)',
-              transition: 'transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background-color 140ms ease',
+              transition: 'max-height 260ms ease, opacity 180ms ease, transform 220ms ease, box-shadow 160ms ease, border-color 160ms ease, background-color 160ms ease, padding 220ms ease, margin 220ms ease',
               '&:hover': {
-                transform: 'translateY(-1px)',
-                borderColor: theme.palette.mode === 'light' ? 'rgba(99,102,241,0.38)' : 'rgba(129,140,248,0.44)',
-                bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(30,41,59,0.9)',
+                transform: isSubmitting ? 'scale(var(--choice-option-scale))' : 'translateY(-1px)',
+                borderColor: submittingValue === option.value
+                  ? theme.palette.mode === 'light' ? 'rgba(99,102,241,0.42)' : 'rgba(129,140,248,0.5)'
+                  : theme.palette.mode === 'light' ? 'rgba(99,102,241,0.38)' : 'rgba(129,140,248,0.44)',
+                bgcolor: isSubmitting
+                  ? undefined
+                  : theme.palette.mode === 'light' ? 'rgba(255,255,255,0.98)' : 'rgba(30,41,59,0.9)',
               },
               '&:active': { transform: 'translateY(0) scale(0.992)' },
               '&:focus-visible': { outline: `2px solid ${theme.palette.primary.main}`, outlineOffset: 2 },
+              '&:disabled': {
+                color: 'text.primary',
+              },
             })}
           >
             <Typography variant="body2" sx={{ fontSize: { xs: 14, sm: 14.5 }, fontWeight: 400, lineHeight: 1.7 }}>{option.label}</Typography>
@@ -221,6 +243,7 @@ export default function MessageList({
   tailContent,
   storyChoiceMessageId = null,
   storyChoiceOptions = [],
+  storyChoiceSubmittingValue = null,
   onChooseStoryChoice,
   narrativeRevealMessageKeys,
   onNarrativeRevealComplete,
@@ -239,12 +262,13 @@ export default function MessageList({
   const autoFillTriggeredRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const followScrollAnimationRef = useRef<number | null>(null);
+  const previousStoryChoiceSubmittingValueRef = useRef<string | null>(storyChoiceSubmittingValue);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
     lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
     hasTailContent: Boolean(tailContent),
-    storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
+    storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceSubmittingValue || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
   });
 
   const chatImageTimeline = useMemo(() => messages
@@ -306,15 +330,18 @@ export default function MessageList({
     if (item.renderKind === 'event') {
       return <Box key={item.key} {...anchorProps}><EventMessageItem message={item.message} members={characters} /></Box>;
     }
-    const showStoryChoices = item.renderKind === 'narrative' && item.message.id === storyChoiceMessageId && Boolean(onChooseStoryChoice);
+    const showStoryChoices = item.renderKind === 'narrative'
+      && item.message.id === storyChoiceMessageId
+      && storyChoiceOptions.length > 0
+      && (Boolean(onChooseStoryChoice) || Boolean(storyChoiceSubmittingValue));
     const blocks = item.renderKind === 'narrative'
       ? getVisibleNarrativeDisplayBlocks(item.message, developerMode)
       : [];
     if (!blocks.length) {
-      if (showStoryChoices && onChooseStoryChoice) {
+      if (showStoryChoices) {
         return (
           <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
-            <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} />
+            <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
           </Box>
         );
       }
@@ -346,12 +373,12 @@ export default function MessageList({
         }}
       >
         {renderedBlocks}
-        {showStoryChoices && onChooseStoryChoice ? (
-          <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} />
+        {showStoryChoices ? (
+          <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
         ) : null}
       </Box>
     );
-  }, [characters, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, storyChoiceMessageId, storyChoiceOptions, storyRevealMode]);
+  }, [characters, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, storyRevealMode]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -521,7 +548,7 @@ export default function MessageList({
       lastItemKey: renderItems.at(-1)?.key ?? null,
       lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
       hasTailContent: Boolean(tailContent),
-      storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
+      storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceSubmittingValue || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
     };
     const previousMetrics = previousRenderMetricsRef.current;
     previousRenderMetricsRef.current = currentMetrics;
@@ -539,7 +566,16 @@ export default function MessageList({
     }
 
     followScrollToBottom();
-  }, [followScrollToBottom, renderItems, storyChoiceMessageId, storyChoiceOptions, tailContent]);
+  }, [followScrollToBottom, renderItems, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
+
+  useLayoutEffect(() => {
+    const previousValue = previousStoryChoiceSubmittingValueRef.current;
+    previousStoryChoiceSubmittingValueRef.current = storyChoiceSubmittingValue;
+    if (!storyChoiceSubmittingValue || previousValue === storyChoiceSubmittingValue) return;
+    if (!hasJumpedToBottomRef.current) return;
+    shouldStickToBottomRef.current = true;
+    followScrollToBottom();
+  }, [followScrollToBottom, storyChoiceSubmittingValue]);
 
   useEffect(() => {
     if (!isLoadingOlder) {
