@@ -225,15 +225,23 @@ export function shouldAutoStartStoryRoom(params: {
   hasChatId: boolean;
   canAutoRunConversation: boolean;
   isStoryRoom: boolean;
+  isStoryReaderAtTail: boolean;
   isRunning: boolean;
   isPaused: boolean;
   isStoryWaitingForChoice: boolean;
   isStoryChoiceSubmitting: boolean;
   hasRunLoopError: boolean;
 }) {
-  // Story rooms must enter and refresh in a paused state. The runtime resumes only after an explicit reader action.
-  void params;
-  return false;
+  return params.hasChat
+    && params.hasChatId
+    && params.canAutoRunConversation
+    && params.isStoryRoom
+    && params.isStoryReaderAtTail
+    && !params.isRunning
+    && !params.isPaused
+    && !params.isStoryWaitingForChoice
+    && !params.isStoryChoiceSubmitting
+    && !params.hasRunLoopError;
 }
 
 function getNarrativeRevealIdentityKeys(message: Message) {
@@ -1533,6 +1541,38 @@ export default function ChatDetailPage() {
     setIsStoryReaderAtTail(pinned);
   }, []);
 
+  useEffect(() => {
+    if (!shouldAutoStartStoryRoom({
+      hasChat: Boolean(chat),
+      hasChatId: Boolean(id),
+      canAutoRunConversation: Boolean(canAutoRunConversation),
+      isStoryRoom,
+      isStoryReaderAtTail,
+      isRunning,
+      isPaused,
+      isStoryWaitingForChoice,
+      isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
+      hasRunLoopError: Boolean(chatError || runLoopError),
+    })) return;
+    if (!chat || !id) return;
+    logDeveloperDiagnostic('story-run:auto-tail-start', {
+      chatId: id,
+      phase: chat.scenarioState?.phase || null,
+      isStoryReaderAtTail,
+      storyChoiceGate,
+    }, 'info');
+    resume();
+    const startBlockReason = startConversationLoopIfNeeded(chat);
+    if (startBlockReason) {
+      logDeveloperDiagnostic('story-run:auto-tail-blocked', {
+        chatId: id,
+        blockReason: startBlockReason,
+        phase: chat.scenarioState?.phase || null,
+        storyChoiceGate,
+      }, startBlockReason === 'waiting_story_choice' ? 'info' : 'warn');
+    }
+  }, [canAutoRunConversation, chat, chatError, id, isCurrentStoryChoiceSubmitting, isPaused, isRunning, isStoryReaderAtTail, isStoryRoom, isStoryWaitingForChoice, resume, runLoopError, startConversationLoopIfNeeded, storyChoiceGate]);
+
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
     logDeveloperDiagnostic('story-run:button', {
@@ -1584,7 +1624,7 @@ export default function ChatDetailPage() {
     }
   }, [canAutoRunConversation, chat, id, isPaused, isRunning, isStoryWaitingForChoice, pause, resume, setSnackbar, startConversationLoopIfNeeded, stop, storyChoiceGate, updateChat, visibleStoryBranchOptions.length]);
 
-  const headerPrimaryActionButton = canAutoRunConversation ? (
+  const headerPrimaryActionButton = canAutoRunConversation && !isStoryRoom ? (
     <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>
       {isRunning && !isPaused ? <PauseIcon /> : <PlayIcon />}
     </IconButton>
