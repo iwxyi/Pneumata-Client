@@ -1684,14 +1684,6 @@ export default function ChatDetailPage() {
     setHideMobileBottomNav(true);
     return () => setHideMobileBottomNav(false);
   }, [setHideMobileBottomNav]);
-  const messageViewportTop = isSplitDetailPane
-    ? { xs: '76px', sm: '76px' }
-    : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' };
-  const messageViewportBottom = isRemoteDeletedChat
-    ? { xs: 0, sm: 0 }
-    : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' };
-  const messageContentTopInset = { xs: '12px', sm: '12px' };
-  const messageContentBottomInset = { xs: '16px', sm: '16px' };
 
   if (!chat && currentChatMessages.length > 0) {
     return (
@@ -1706,7 +1698,7 @@ export default function ChatDetailPage() {
             </IconButton>
           )}
         />
-        <Box sx={{ position: 'absolute', top: messageViewportTop, right: 0, bottom: 0, left: 0, overflow: 'hidden', zIndex: 1 }}>
+        <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
           <MessageList
             key={id}
             messages={currentChatMessages}
@@ -1722,7 +1714,7 @@ export default function ChatDetailPage() {
             onJumpToConversationBottom={handleJumpToConversationBottom}
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
-            topInset={messageContentTopInset}
+            topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
             bottomInset={{ xs: '24px', sm: '24px' }}
           />
         </Box>
@@ -1844,7 +1836,7 @@ export default function ChatDetailPage() {
             <Typography variant="caption">当前仅保留本地只读历史；已停止自动生成和新消息提交。</Typography>
           </Box>
         ) : null}
-        <Box sx={{ position: 'absolute', top: messageViewportTop, right: 0, bottom: messageViewportBottom, left: 0, overflow: 'hidden', zIndex: 1 }}>
+        <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
           <MessageList
             key={id}
             messages={currentChatMessages}
@@ -1865,8 +1857,8 @@ export default function ChatDetailPage() {
             hasMoreNewer={hasMoreNewer}
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
-            topInset={messageContentTopInset}
-            bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : messageContentBottomInset}
+            topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
+            bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
             privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
             tailContent={storyBranchSuggestionContent}
             storyChoiceMessageId={displayedStoryChoiceMessageId}

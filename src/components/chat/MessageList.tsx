@@ -779,6 +779,11 @@ export default function MessageList({
         scrollPaddingTop: topInset || 16,
         scrollPaddingBottom: bottomInset || 16,
         overflowAnchor: 'none',
+        scrollbarGutter: 'stable',
+        '&::-webkit-scrollbar-track': {
+          mt: topInset || 0,
+          mb: bottomInset || 0,
+        },
       }}
     >
       {messages.length > 0 ? (
