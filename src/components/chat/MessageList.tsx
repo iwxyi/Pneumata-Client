@@ -17,6 +17,7 @@ const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
 const JUMP_TO_BOTTOM_THRESHOLD = 420;
+const BOTTOM_RESTORE_ANCHOR_THRESHOLD = 700;
 const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
 const FOLLOW_SCROLL_DURATION_MS = 180;
 const storyNodeFadeIn = keyframes`
@@ -448,6 +449,7 @@ export default function MessageList({
     const container = containerRef.current;
     if (!container) return null;
     const containerRect = container.getBoundingClientRect();
+    const distanceFromBottom = getDistanceFromBottom(container);
     const scrollAnchorNodes = Array.from(container.querySelectorAll<HTMLElement>('[data-scroll-anchor]'));
     const messageAnchorNodes = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
     const nodes = scrollAnchorNodes.length ? scrollAnchorNodes : messageAnchorNodes;
@@ -456,7 +458,9 @@ export default function MessageList({
       return rect.bottom > containerRect.top + 1 && rect.top < containerRect.bottom - 1;
     });
     const candidates = visibleNodes.length ? visibleNodes : nodes;
-    const targetLine = containerRect.top + containerRect.height * 0.42;
+    const targetLine = distanceFromBottom <= BOTTOM_RESTORE_ANCHOR_THRESHOLD
+      ? containerRect.bottom - Math.min(120, containerRect.height * 0.25)
+      : containerRect.top + containerRect.height * 0.42;
     const anchorNode = candidates
       .map((node) => ({ node, distance: Math.abs(node.getBoundingClientRect().top - targetLine) }))
       .sort((left, right) => left.distance - right.distance)[0]?.node;
@@ -467,7 +471,7 @@ export default function MessageList({
       offsetTop: anchorNode.getBoundingClientRect().top - containerRect.top,
       sourceTimestamp: getElementScrollTimestamp(anchorNode),
     };
-  }, []);
+  }, [getDistanceFromBottom]);
 
   const restoreScrollAnchor = useCallback((snapshot: ScrollAnchorSnapshot) => {
     const container = containerRef.current;
@@ -804,7 +808,7 @@ export default function MessageList({
         ) : null}
         {tailContent}
       </Box>
-      {showJumpToBottom || hasMoreNewer ? (
+      {showJumpToBottom ? (
         <Fab
           size="small"
           color="primary"
