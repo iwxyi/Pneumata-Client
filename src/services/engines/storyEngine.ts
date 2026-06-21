@@ -305,7 +305,7 @@ function onMessageCommitted(params: {
       createdAt: Date.now(),
     };
     diagnostics.push(item);
-    logDeveloperDiagnostic('story-protocol:error', {
+    logDeveloperDiagnostic(`story-protocol:${item.code}`, {
       chatId: params.conversation.id,
       readerRole,
       diagnostic: item,

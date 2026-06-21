@@ -127,7 +127,7 @@ function NarrativeSystemPanel({ block, characters, reveal = false, onRevealCompl
           {formatNarrativeLineText(title, characters)}
         </Typography>
         {bodyLines.map((line, index) => (
-          <Typography key={line} variant="body2" sx={{ lineHeight: 1.75, wordBreak: 'break-word', mt: 0.35 }}>
+          <Typography key={line} component="div" variant="body2" sx={{ lineHeight: 1.75, wordBreak: 'break-word', mt: 0.35 }}>
             <RevealedMarkdownText text={formatNarrativeLineText(line, characters)} reveal={reveal} onComplete={index === bodyLines.length - 1 ? onRevealComplete : undefined} />
           </Typography>
         ))}
