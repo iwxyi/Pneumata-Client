@@ -10,6 +10,7 @@ import { buildCompanionshipStatusSignature } from '../services/companionshipProj
 type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
 type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
 type ChatWithProjectedRuntime = GroupChat & { primaryRecentEvent?: string };
+type StorySidebarTab = 'narrative' | 'chapters' | 'clues' | 'roles' | 'developer';
 
 export function enrichParticipantActionOptions(actions: SessionActionDefinition[], members: AICharacter[]): SessionActionDefinition[] {
   if (!actions.length || !members.length) return actions;
@@ -49,6 +50,14 @@ function mergeProjectedRuntimeChat(chat: GroupChat, projected?: ChatWithProjecte
     relationshipLedger: projected.relationshipLedger?.length ? projected.relationshipLedger : chat.relationshipLedger,
     primaryRecentEvent: projected.primaryRecentEvent || primaryRecentEvent,
   };
+}
+
+export function resolveStorySidebarTab(rightPanelTab: string): StorySidebarTab {
+  if (rightPanelTab === 'chapters') return 'chapters';
+  if (rightPanelTab === 'clues') return 'clues';
+  if (rightPanelTab === 'roles') return 'roles';
+  if (rightPanelTab === 'developer') return 'developer';
+  return 'narrative';
 }
 
 export function useChatSidebarProjection(params: {
@@ -125,17 +134,7 @@ export function useChatSidebarProjection(params: {
   const projectedActiveTab = projectedDetailState?.activeSidebarTab === 'actions'
     ? 'activities'
     : projectedDetailState?.activeSidebarTab;
-  const storySidebarTab = isStoryRoom
-    ? rightPanelTab === 'chapters'
-      ? 'chapters'
-      : rightPanelTab === 'clues'
-        ? 'clues'
-        : rightPanelTab === 'members' || rightPanelTab === 'roles'
-          ? 'roles'
-          : rightPanelTab === 'world' || rightPanelTab === 'developer'
-            ? 'developer'
-            : 'narrative'
-    : null;
+  const storySidebarTab = isStoryRoom ? resolveStorySidebarTab(rightPanelTab) : null;
   const activeSidebarTab = storySidebarTab || projectedActiveTab
     || (showMemberTab && rightPanelTab === 'members' ? 'members'
       : showRuntimeTab && rightPanelTab === 'narrative' ? 'narrative'
