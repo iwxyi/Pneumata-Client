@@ -112,7 +112,7 @@ function buildPublicSafeRelationshipSemanticSummary(entry: RelationshipLedgerEnt
     .slice(0, 3);
   const parts = [stage, labels.length ? labels.join('、') : ''].filter(Boolean);
   if (parts.length) return parts.join('：');
-  return semantic.intensity >= 45 ? 'familiar but private continuity exists' : 'private continuity exists';
+  return semantic.intensity >= 45 ? 'familiar but private relationship continuity exists' : 'private relationship continuity exists';
 }
 
 function getPromptMemoryKindLabel(kind: MemoryItem['kind']) {
@@ -492,7 +492,7 @@ function buildRelationshipSemanticPrompt(chat: GroupChat, character: AICharacter
   if (!relevant.length) return '';
   return `\n## Relationship Semantics\n${relevant.map((entry) => {
     const targetName = characters.get(entry.targetId)?.name || cleanPromptText(entry.targetId, members, 80) || 'member';
-    const summary = chat.type !== 'direct' && entry.targetId === USER_ACTOR_ID
+    const summary = chat.type !== 'direct'
       ? buildPublicSafeRelationshipSemanticSummary(entry, members)
       : cleanPromptText(entry.derived?.semantic?.summary, members, 220);
     return `- Toward ${targetName}: ${summary}`;

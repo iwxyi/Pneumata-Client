@@ -527,6 +527,44 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).not.toContain('公开点名');
   });
 
+  it('redacts private facts from public relationship semantics for non-user targets', () => {
+    const speaker = buildCharacter();
+    const target = buildCharacter({ id: 'char-b', name: '阿远' });
+    const chat = {
+      ...buildChat(),
+      memberIds: ['char-a', 'char-b'],
+      relationshipLedger: [{
+        pairKey: 'char-a->char-b',
+        actorId: 'char-a',
+        targetId: 'char-b',
+        current: { warmth: 50, competence: 0, trust: 46, threat: 8 },
+        derived: {
+          semantic: {
+            stage: '互相信任',
+            labels: ['默契', '秘密暗号'],
+            summary: '互相信任：共同秘密是雨夜便利店暗号，不能公开说',
+            intensity: 62,
+          },
+        },
+        trend: 'flat' as const,
+        recentEvents: [],
+        lastUpdatedAt: 30,
+      }],
+    };
+
+    const prompt = buildSystemPromptWithContext(speaker, chat, 0, [
+      buildMessage({ senderId: 'char-b', senderName: '阿远', content: '先别把话说太满。' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(prompt).toContain('## Relationship Semantics');
+    expect(prompt).toContain('Toward 阿远: 互相信任：默契');
+    expect(prompt).not.toContain('雨夜便利店');
+    expect(prompt).not.toContain('不能公开说');
+  });
+
   it('keeps shared secrets masked in public group prompts', () => {
     const speaker = buildCharacter({
       relationships: [{
