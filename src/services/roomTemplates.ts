@@ -103,6 +103,12 @@ export interface RoomTemplateDefinition {
   configGroups?: RoomTemplateConfigGroup[];
 }
 
+export interface RoomTemplatePreview {
+  hook: string;
+  direction: string;
+  trackedAssets: string[];
+}
+
 function createTemplateSessionKind(type: GroupChat['type'], mode: GroupChat['mode'], patch: Partial<SessionKind>): SessionKind {
   return {
     ...createDefaultSessionKind(type, mode),
@@ -915,6 +921,21 @@ export function getRoomTemplateDefaultsBySessionKind(sessionKind: Pick<SessionKi
 
 export function getRoomTemplateKeyBySessionKind(sessionKind: Pick<SessionKind, 'scenarioId' | 'family'>) {
   return findRoomTemplateBySessionKind(sessionKind)?.key || null;
+}
+
+function compactPreviewText(value: string | undefined, maxLength: number) {
+  const text = (value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+export function buildRoomTemplatePreview(template: RoomTemplateDefinition): RoomTemplatePreview | null {
+  if (template.sessionKind.scenarioId !== 'story-reader') return null;
+  const hook = compactPreviewText(template.defaults?.storyBackground, 86);
+  const direction = compactPreviewText(template.defaults?.storyDirection, 86);
+  const trackedAssets = (template.sellingPoints || []).slice(0, 3);
+  if (!hook || !direction || trackedAssets.length < 3) return null;
+  return { hook, direction, trackedAssets };
 }
 
 export function hasTemplateDefault<K extends keyof RoomTemplateDefaults>(

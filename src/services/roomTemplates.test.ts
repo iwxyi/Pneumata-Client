@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildGroupChatDraft } from './chatDraftBuilder';
 import { STORY_ENGINE } from './engines/storyEngine';
-import { getRoomTemplate } from './roomTemplates';
+import { buildRoomTemplatePreview, getRoomTemplate } from './roomTemplates';
 import type { RoomTemplateKey } from './roomTemplates';
 
 const storyTemplateKeys: RoomTemplateKey[] = ['story_reader', 'campus_story', 'romance_story', 'palace_intrigue_story'];
@@ -61,6 +61,25 @@ describe('roomTemplates story seeds', () => {
       expect(template.defaults?.storyBackground?.trim().length).toBeGreaterThan(20);
       expect(template.defaults?.storyDirection?.trim().length).toBeGreaterThan(20);
       expect(template.defaults?.storyOutline?.trim().length).toBeGreaterThan(20);
+    }
+  });
+
+  it('builds a compact first-impression preview for every story template', () => {
+    for (const key of storyTemplateKeys) {
+      const template = getRoomTemplate(key);
+      const preview = buildRoomTemplatePreview(template);
+
+      expect(preview).toEqual(expect.objectContaining({
+        hook: expect.any(String),
+        direction: expect.any(String),
+        trackedAssets: expect.any(Array),
+      }));
+      expect(preview?.hook.length).toBeGreaterThan(20);
+      expect(preview?.hook.length).toBeLessThanOrEqual(86);
+      expect(preview?.direction.length).toBeGreaterThan(20);
+      expect(preview?.direction.length).toBeLessThanOrEqual(86);
+      expect(preview?.trackedAssets).toHaveLength(3);
+      expect(`${preview?.hook}\n${preview?.direction}\n${preview?.trackedAssets.join(' / ')}`).toMatch(/选择|线索|章节|关系|信任|试探|代价|回看|站队|旧账|名单|照片|语音|毒剑/);
     }
   });
 
