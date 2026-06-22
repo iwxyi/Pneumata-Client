@@ -531,6 +531,94 @@ describe('chatEngine streaming preview', () => {
     ]);
   });
 
+  it('retries story-reader generations that restart the scene instead of continuing the latest beat', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '',
+        storyEvents: [
+          { type: 'narration', text: '前情：沈清婉发现枕下长剑，月奴站在门边等待她的命令。' },
+          { type: 'narration', text: '她重新抬起眼，望向那扇半掩的门。' },
+        ],
+        storyChoices: null,
+        extraMessages: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        content: '',
+        storyEvents: [
+          { type: 'narration', text: '影子退开后，门槛外反而传来一声极轻的衣料摩擦。沈清婉把剑柄压回袖中。' },
+          { type: 'speech', characterId: 'nurse', speakerName: '月奴', text: '小姐，外头的人还没走远。' },
+        ],
+        storyChoices: null,
+        extraMessages: null,
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const nurse = buildCharacter('nurse', '月奴');
+    const previousBeat: Message = {
+      id: 'prev-story',
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '',
+      emotion: 0,
+      timestamp: 2,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-prev',
+          turnKind: 'narrative_beat',
+          sceneId: 'main',
+          phase: 'scene',
+          povActorId: 'narrator',
+          blocks: [
+            {
+              id: 'p1',
+              actorId: 'narrator',
+              actorKind: 'narrator',
+              kind: 'prose',
+              displayMode: 'paragraph',
+              text: '烛火又跳了一下，门外那道影子终于从窗纸上退开。',
+            },
+            {
+              id: 's1',
+              actorId: 'nurse',
+              actorKind: 'character',
+              kind: 'dialogue',
+              displayMode: 'bubble',
+              characterId: 'nurse',
+              text: '小姐，奴婢不是不肯说，是不能在这里说。',
+            },
+          ],
+        },
+      },
+    };
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        memberIds: ['nurse'],
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [nurse],
+      messages: [buildUserMessage('继续故事', 1), previousBeat],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('故事房下一节没有按小说连续阅读接续');
+    expect(message.content).toContain('影子退开后');
+    expect(message.content).not.toContain('前情');
+  });
+
   it('blocks semantic near-duplicates even when wording shifts', () => {
     const result = evaluateDuplicateGuard({
       content: '先单开一个分支，提交前只暂存你自己的文件。',

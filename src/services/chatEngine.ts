@@ -41,7 +41,7 @@ import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanne
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
-import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryEventsVisibleText, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
+import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryContinuationState, buildStoryEventsVisibleText, evaluateStoryContinuationQuality, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
@@ -603,6 +603,7 @@ function validateStoryReaderGeneration(params: {
   narrativeBlocks?: NarrativeBlock[] | null;
   finalResponse?: string;
   rawContent?: string;
+  continuationState?: ReturnType<typeof buildStoryContinuationState>;
 }) {
   const storyEvents = params.storyEvents || [];
   const visibleEvents = storyEvents.filter((event) => event.type === 'narration' || event.type === 'speech');
@@ -655,6 +656,19 @@ function validateStoryReaderGeneration(params: {
     return {
       code: 'story_events_too_long',
       message: `单轮故事正文 ${visibleText.length} 字，超过 ${MAX_STORY_VISIBLE_CHARS_PER_TURN} 字，疑似包含前文复述或多个候选后续。`,
+    };
+  }
+  const continuationQuality = evaluateStoryContinuationQuality(storyEvents, params.continuationState);
+  if (!continuationQuality.ok) {
+    return {
+      code: 'story_continuity_invalid',
+      message: continuationQuality.message || '故事房下一节没有按小说连续阅读接续。',
+      details: {
+        labels: continuationQuality.labels,
+        gaps: continuationQuality.gaps,
+        lastVisibleBeat: params.continuationState?.lastVisibleBeat || '',
+        lastSpokenLine: params.continuationState?.lastSpokenLine || '',
+      },
     };
   }
   return null;
@@ -2197,6 +2211,9 @@ async function generateNonDuplicateResponse(params: {
 }): Promise<GenerationWithGuidanceTrace> {
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   let prompt = isStoryReader ? buildStoryProtocolPrompt(params.systemPrompt) : params.systemPrompt;
+  const storyContinuationState = isStoryReader
+    ? buildStoryContinuationState({ conversation: params.chat, messages: params.activeMessages })
+    : null;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
   let lastFinalResponse = '';
   let lastFullResponse = '';
@@ -2227,6 +2244,7 @@ async function generateNonDuplicateResponse(params: {
       narrativeBlocks: generated.narrativeBlocks,
       finalResponse: generated.finalResponse,
       rawContent: generated.rawContent,
+      continuationState: storyContinuationState,
     }) : null;
     if (storyProtocolIssue) {
       const draft = generated.rawContent || generated.fullResponse;
@@ -2243,6 +2261,7 @@ async function generateNonDuplicateResponse(params: {
             storyEvents: generated.storyEvents?.length || 0,
             narrativeBlocks: generated.narrativeBlocks.length,
             hasParsedEnvelope: Boolean(generated.parsedEnvelope),
+            ...('details' in storyProtocolIssue ? storyProtocolIssue.details : {}),
           },
         });
         prompt = buildStoryProtocolQualityRetryPrompt(params.systemPrompt, draft, storyProtocolIssue.message);
@@ -2260,6 +2279,7 @@ async function generateNonDuplicateResponse(params: {
           storyEvents: generated.storyEvents?.length || 0,
           narrativeBlocks: generated.narrativeBlocks.length,
           hasParsedEnvelope: Boolean(generated.parsedEnvelope),
+          ...('details' in storyProtocolIssue ? storyProtocolIssue.details : {}),
         },
       });
       throw new EmptyGeneratedResponseError(params.speaker.name, { reason: 'story_protocol_invalid', message: storyProtocolIssue.message });

@@ -3,6 +3,7 @@ import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE, normalizeC
 import type { AICharacter } from '../types/character';
 import {
   buildChapterRecap,
+  evaluateStoryContinuationQuality,
   evaluateStoryEventQuality,
   buildNarrativeTurnFromStoryEvents,
   buildSelectedChoiceConsequencePrompt,
@@ -457,6 +458,43 @@ describe('narrativeRuntime', () => {
     expect(prompt).toContain('Latest spoken line still in the air');
     expect(prompt).toContain('location=侯府新房');
     expect(prompt).toContain('Do not restate the previous transcript');
+  });
+
+  it('flags story continuations that restart with recap framing', () => {
+    const state = {
+      lastVisibleBeat: '烛火又跳了一下，门外那道影子终于从窗纸上退开。',
+      lastSpokenLine: '小姐，奴婢不是不肯说，是不能在这里说。',
+      entryInstruction: '',
+      rhythmNotes: [],
+    };
+
+    const quality = evaluateStoryContinuationQuality([
+      { type: 'narration', text: '前情：沈清婉发现枕下长剑，月奴站在门边等待她的命令。' },
+      { type: 'narration', text: '她重新抬起眼，望向那扇半掩的门。' },
+    ], state);
+
+    expect(quality.ok).toBe(false);
+    expect(quality.gaps).toContain('starts_with_recap_or_reset');
+  });
+
+  it('flags continuations that copy the last visible beat instead of advancing it', () => {
+    const state = {
+      lastVisibleBeat: '烛火又跳了一下，门外那道影子终于从窗纸上退开。',
+      lastSpokenLine: '小姐，奴婢不是不肯说，是不能在这里说。',
+      entryInstruction: '',
+      rhythmNotes: [],
+    };
+
+    const repeated = evaluateStoryContinuationQuality([
+      { type: 'narration', text: '烛火又跳了一下，门外那道影子终于从窗纸上退开。沈清婉这才把手从剑柄上移开。' },
+    ], state);
+    const advanced = evaluateStoryContinuationQuality([
+      { type: 'narration', text: '影子退开后，门槛外反而传来一声极轻的衣料摩擦。沈清婉把剑柄压回袖中。' },
+    ], state);
+
+    expect(repeated.ok).toBe(false);
+    expect(repeated.gaps).toContain('repeats_last_visible_beat');
+    expect(advanced.ok).toBe(true);
   });
 
   it('plans story beats and normalizes choices as reusable narrative runtime state', () => {

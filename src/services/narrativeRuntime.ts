@@ -22,6 +22,13 @@ export interface StoryContinuationState {
   rhythmNotes: string[];
 }
 
+export interface StoryContinuationQuality {
+  ok: boolean;
+  labels: string[];
+  gaps: string[];
+  message?: string;
+}
+
 export interface StoryAssetPatch {
   currentScene?: StoryCurrentSceneState | null;
   openQuestions: string[];
@@ -411,6 +418,61 @@ export function evaluateStoryEventQuality(events: StoryEvent[]) {
     + (choices.length >= 2 && choices.every((choice) => choice.risk && choice.reward) ? 8 : 0)
   )));
   return { score, labels, gaps };
+}
+
+function normalizeContinuityText(value: string) {
+  return normalizeRepeatText(value);
+}
+
+function getStoryContinuityVisibleEvents(events: StoryEvent[]) {
+  return normalizeStoryEvents(events)
+    .filter((event) => event.type === 'narration' || event.type === 'speech')
+    .map((event) => compactText(event.text || '', 800))
+    .filter(Boolean);
+}
+
+function startsWithStoryRecap(text: string) {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  return [
+    /^(前情|回顾|上回|上一节|此前|先前|前文|上一段|之前)(?:：|:|，|,|\s)/,
+    /^(故事|剧情|这一章|本章)(?:从|开始于|发生在|讲到|来到|回到)/,
+    /^(让我们|镜头|画面)(?:回到|来到|转向|重新)/,
+    /^(大红喜帐|铜镜里|全京城都羡慕|直到成婚当晚)/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function repeatsLastVisibleBeat(visibleTexts: string[], state: StoryContinuationState) {
+  const lastBeat = normalizeContinuityText(state.lastVisibleBeat);
+  if (lastBeat.length < 18) return false;
+  const joined = normalizeContinuityText(visibleTexts.join(''));
+  if (!joined) return false;
+  if (joined.includes(lastBeat)) return true;
+  const first = normalizeContinuityText(visibleTexts[0] || '');
+  return first.length >= 24 && textSimilarity(first, lastBeat) >= 0.9;
+}
+
+export function evaluateStoryContinuationQuality(events: StoryEvent[], state?: StoryContinuationState | null): StoryContinuationQuality {
+  if (!state?.lastVisibleBeat && !state?.lastSpokenLine) {
+    return { ok: true, labels: ['continuity_not_required'], gaps: [] };
+  }
+  const visibleTexts = getStoryContinuityVisibleEvents(events);
+  if (!visibleTexts.length) {
+    return { ok: false, labels: [], gaps: ['missing_visible_story_for_continuity'], message: '故事房连续性检查缺少可见正文。' };
+  }
+  const firstText = visibleTexts[0] || '';
+  const labels: string[] = [];
+  const gaps: string[] = [];
+  if (!startsWithStoryRecap(firstText)) labels.push('starts_in_scene');
+  if (state.lastVisibleBeat && !repeatsLastVisibleBeat(visibleTexts, state)) labels.push('does_not_repeat_last_beat');
+  if (startsWithStoryRecap(firstText)) gaps.push('starts_with_recap_or_reset');
+  if (repeatsLastVisibleBeat(visibleTexts, state)) gaps.push('repeats_last_visible_beat');
+  const ok = gaps.length === 0;
+  return {
+    ok,
+    labels,
+    gaps,
+    message: ok ? undefined : `故事房下一节没有按小说连续阅读接续：${gaps.join(', ')}。`,
+  };
 }
 
 function storyEventToBlocks(event: StoryEvent, index: number, characters: AICharacter[]): NarrativeBlock[] {
