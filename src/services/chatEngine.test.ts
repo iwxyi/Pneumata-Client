@@ -9,6 +9,7 @@ import { evaluateDuplicateGuard } from './duplicateGuard';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 import type { SpeakIntent } from './intentEngine';
 import type { DirectorIntent } from './directorIntent';
+import { useSettingsStore } from '../stores/useSettingsStore';
 
 const generateResponseMock = vi.hoisted(() => vi.fn());
 
@@ -23,6 +24,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  useSettingsStore.setState({ developerMode: false });
+  delete (globalThis as { __AICHATGROUP_DEBUG_SCHEDULER__?: boolean }).__AICHATGROUP_DEBUG_SCHEDULER__;
 });
 
 const speaker = { name: '喜羊羊' } as AICharacter;
@@ -828,7 +831,7 @@ describe('chatEngine streaming preview', () => {
     ]);
   });
 
-  it('matches story dialogue actors by name and logs unknown actors through storyEvents', async () => {
+  it('matches story dialogue actors by name without leaking unknown actor diagnostics in normal mode', async () => {
     generateResponseMock.mockReset();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     generateResponseMock.mockResolvedValue(JSON.stringify({
@@ -865,7 +868,46 @@ describe('chatEngine streaming preview', () => {
       expect.objectContaining({ actorId: 'mei', actorName: '阿梅', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '别碰那盏灯。' }),
       expect.objectContaining({ actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '我也拿着她手里的当归。' }),
     ]);
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('logs unknown story dialogue actors only in developer mode', async () => {
+    generateResponseMock.mockReset();
+    useSettingsStore.setState({ developerMode: true });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      narrativeText: null,
+      storyEvents: [
+        { type: 'speech', actorId: 'ghost', actorName: '幽灵角色', text: '我也拿着她手里的当归。' },
+      ],
+      narrativeBlocks: null,
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
     expect(warnSpy).toHaveBeenCalledWith('[story-reader] Unknown narrative dialogue actor; downgraded to narrator prose.', expect.objectContaining({ actorId: 'ghost', actorName: '幽灵角色' }));
+    debugSpy.mockRestore();
     warnSpy.mockRestore();
   });
 

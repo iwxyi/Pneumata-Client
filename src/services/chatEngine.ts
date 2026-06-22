@@ -121,7 +121,8 @@ class EmptyGeneratedResponseError extends Error {
 }
 
 function isSchedulerDebugEnabled() {
-  return Boolean((globalThis as { __AICHATGROUP_DEBUG_SCHEDULER__?: boolean }).__AICHATGROUP_DEBUG_SCHEDULER__);
+  return isDeveloperModeEnabled()
+    && Boolean((globalThis as { __AICHATGROUP_DEBUG_SCHEDULER__?: boolean }).__AICHATGROUP_DEBUG_SCHEDULER__);
 }
 
 function buildSessionSystemPrompt(args: {
@@ -337,21 +338,25 @@ function resolveStoryBlockCharacter(params: {
   const matches = params.characters.filter((character) => candidates.includes(normalizeStoryActorName(character.name)));
   if (matches.length === 1) return matches[0];
   if (matches.length > 1) {
-    console.warn('[story-reader] Ambiguous narrative dialogue actor name; downgraded to narrator prose.', {
-      blockIndex: params.blockIndex,
-      actorId: params.actorId,
-      actorName: params.actorName,
-      text: params.text,
-      matchedCharacters: matches.map((character) => ({ id: character.id, name: character.name })),
-    });
+    if (isDeveloperModeEnabled() && typeof console !== 'undefined' && typeof console.warn === 'function') {
+      console.warn('[story-reader] Ambiguous narrative dialogue actor name; downgraded to narrator prose.', {
+        blockIndex: params.blockIndex,
+        actorId: params.actorId,
+        actorName: params.actorName,
+        text: params.text,
+        matchedCharacters: matches.map((character) => ({ id: character.id, name: character.name })),
+      });
+    }
   } else if (params.actorId || params.actorName || params.inlineActorName) {
-    console.warn('[story-reader] Unknown narrative dialogue actor; downgraded to narrator prose.', {
-      blockIndex: params.blockIndex,
-      actorId: params.actorId,
-      actorName: params.actorName || params.inlineActorName,
-      text: params.text,
-      knownCharacters: params.characters.map((character) => ({ id: character.id, name: character.name })),
-    });
+    if (isDeveloperModeEnabled() && typeof console !== 'undefined' && typeof console.warn === 'function') {
+      console.warn('[story-reader] Unknown narrative dialogue actor; downgraded to narrator prose.', {
+        blockIndex: params.blockIndex,
+        actorId: params.actorId,
+        actorName: params.actorName || params.inlineActorName,
+        text: params.text,
+        knownCharacters: params.characters.map((character) => ({ id: character.id, name: character.name })),
+      });
+    }
   }
   return null;
 }

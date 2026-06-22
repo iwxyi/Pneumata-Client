@@ -101,6 +101,7 @@ const seedStoryRoomExpression = String.raw`
     { useAuthStore },
     { useSettingsStore },
     { useUIStore },
+    { useSchedulerStore },
     { flushBufferedPersistenceWrites },
     { normalizeConversation },
     characterTypes,
@@ -112,6 +113,7 @@ const seedStoryRoomExpression = String.raw`
     import('/src/stores/useAuthStore.ts'),
     import('/src/stores/useSettingsStore.ts'),
     import('/src/stores/useUIStore.ts'),
+    import('/src/stores/useSchedulerStore.ts'),
     import('/src/stores/storePersistenceScope.ts'),
     import('/src/types/chat.ts'),
     import('/src/types/character.ts'),
@@ -269,6 +271,8 @@ const seedStoryRoomExpression = String.raw`
     useSettingsStore.persist.hasHydrated() ? undefined : useSettingsStore.persist.rehydrate(),
     useUIStore.persist.hasHydrated() ? undefined : useUIStore.persist.rehydrate(),
   ]);
+  useSchedulerStore.getState().stop();
+  useSchedulerStore.getState().pause();
   useSettingsStore.setState((state) => ({
     ...state,
     developerMode: false,
@@ -910,7 +914,10 @@ async function main() {
     await evaluate(cdp, `(() => Promise.all([
       import('/src/stores/useChatStore.ts'),
       import('/src/stores/useMessageStore.ts'),
-    ]).then(([{ useChatStore }, { useMessageStore }]) => {
+      import('/src/stores/useSchedulerStore.ts'),
+    ]).then(([{ useChatStore }, { useMessageStore }, { useSchedulerStore }]) => {
+      useSchedulerStore.getState().stop();
+      useSchedulerStore.getState().pause();
       const sourceChat = useChatStore.getState().chats.find((item) => item.id === 'story-browser-smoke');
       if (!sourceChat) throw new Error('source story chat not found');
       const now = Date.now();
@@ -918,6 +925,7 @@ async function main() {
         ...sourceChat,
         id: 'story-custom-input-smoke',
         name: '自定义走向烟测',
+        isActive: false,
         scenarioState: {
           ...(sourceChat.scenarioState || {}),
           phase: 'scene',

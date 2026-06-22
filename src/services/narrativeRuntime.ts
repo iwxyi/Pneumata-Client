@@ -1,6 +1,7 @@
 import type { GroupChat, StoryBeatKind, StoryChoicePolicy, StoryCurrentSceneState } from '../types/chat';
 import type { AICharacter } from '../types/character';
 import type { Message, NarrativeBlock, NarrativeTurnMetadata, StoryChoiceSuggestion, StoryEvent } from '../types/message';
+import { isDeveloperDiagnosticsEnabled } from './developerDiagnostics';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
 
 const MAX_CHOICES = 4;
@@ -274,7 +275,7 @@ function resolveStoryEventSpeaker(event: StoryEvent, characters: AICharacter[]) 
   const character = characters.find((item) => item.id === characterId)
     || characters.find((item) => candidates.includes(normalizeStoryActorName(item.name)));
   if (character) return character;
-  if (typeof console !== 'undefined' && typeof console.warn === 'function') {
+  if (isDeveloperDiagnosticsEnabled() && typeof console !== 'undefined' && typeof console.warn === 'function') {
     console.warn('[story-reader] Unknown storyEvent speech actor; downgraded to narrator prose.', {
       actorId: characterId,
       actorName: speakerName,
