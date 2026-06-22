@@ -1066,6 +1066,7 @@ export default function ChatDetailPage() {
     setCurrentSpeaker,
     resetAllCooldowns,
     start,
+    stop,
     pause,
     updateChat,
     showErrorToast,

@@ -804,6 +804,30 @@ async function main() {
     assertCondition(normalChoiceStore.branches?.some((branch) => branch.branchId === 'inspect-blood' && branch.status === 'completed'), 'Normal story choice did not keep the unchosen branch as a completed alternative', normalChoiceStore);
     assertCondition(normalChoiceStore.messages?.some((message) => message.storyChoiceSelection?.branchId === 'ask-nurse'), 'Normal story choice was not persisted as a storyChoiceSelection message', normalChoiceStore);
 
+    assertCondition(after.messageIds.includes('story-generating-next-node'), 'Story smoke did not show the generating-next-node status after choosing', after);
+    assertCondition(after.buttons.includes('停止'), 'Story smoke did not expose a stop button while generating the next node', after.buttons);
+    await evaluate(cdp, `(() => {
+      const button = Array.from(document.querySelectorAll('button')).find((item) => item.innerText.trim() === '停止');
+      if (!button) throw new Error('story stop generation button not found');
+      button.click();
+      return 'story-generation-stop-clicked';
+    })()`);
+    await wait(600);
+    const stoppedGeneration = JSON.parse(await evaluate(cdp, `Promise.all([
+      import('/src/stores/useSchedulerStore.ts'),
+    ]).then(([{ useSchedulerStore }]) => JSON.stringify({
+      text: document.body.innerText,
+      buttons: Array.from(document.querySelectorAll('button')).map((button) => button.innerText.trim()).filter(Boolean),
+      messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
+      isRunning: useSchedulerStore.getState().isRunning,
+      isPaused: useSchedulerStore.getState().isPaused,
+      loopToken: useSchedulerStore.getState().loopToken,
+    }))`, true));
+    assertCondition(stoppedGeneration.text.includes('生成已停止'), 'Story stop generation did not leave a visible cancelled-generation state', stoppedGeneration);
+    assertCondition(stoppedGeneration.buttons.includes('继续'), 'Story stop generation did not expose a continue button', stoppedGeneration.buttons);
+    assertCondition(stoppedGeneration.messageIds.includes('story-generation-cancelled'), 'Story stop generation did not render the cancelled status node', stoppedGeneration);
+    assertCondition(stoppedGeneration.isRunning === false && stoppedGeneration.isPaused === false && !stoppedGeneration.loopToken, 'Story stop generation did not cancel the active scheduler loop', stoppedGeneration);
+
     await evaluate(cdp, `(() => Promise.all([
       import('/src/stores/useChatStore.ts'),
       import('/src/stores/useMessageStore.ts'),

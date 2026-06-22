@@ -69,6 +69,7 @@ export function useChatRunLoop(params: {
   setCurrentSpeaker: (characterId: string | null) => void;
   resetAllCooldowns: () => void;
   start: (loopToken: string) => void;
+  stop: () => void;
   pause: () => void;
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
   showErrorToast: (message: string) => void;
@@ -386,7 +387,7 @@ export function useChatRunLoop(params: {
     current.clearStreamingMessageRef();
     setThinkingId(null);
     current.setCurrentSpeaker(null);
-    current.pause();
+    current.stop();
     if (current.chatId) void current.updateChat(current.chatId, { isActive: false });
   }, []);
 
