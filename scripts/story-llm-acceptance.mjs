@@ -4,15 +4,15 @@ const HELP = `
 Story room real-model acceptance.
 
 Required environment:
-  PNEUMATA_STORY_LLM_API_KEY   Model API key.
-  PNEUMATA_STORY_LLM_MODEL     Chat model name.
+  PNEUMATA_TEST_LLM_API_KEY    Shared model API key for acceptance tests.
+  PNEUMATA_TEST_LLM_MODEL      Shared chat model name for acceptance tests.
 
 Optional environment:
-  PNEUMATA_STORY_LLM_BASE_URL  OpenAI-compatible base URL. Defaults to ${DEFAULT_BASE_URL}
-  PNEUMATA_STORY_LLM_TIMEOUT_MS Request timeout. Defaults to 45000
+  PNEUMATA_TEST_LLM_BASE_URL   OpenAI-compatible base URL. Defaults to ${DEFAULT_BASE_URL}
+  PNEUMATA_TEST_LLM_TIMEOUT_MS Request timeout. Defaults to 45000
 
 Example:
-  PNEUMATA_STORY_LLM_API_KEY=... PNEUMATA_STORY_LLM_MODEL=gpt-4.1 \\
+  PNEUMATA_TEST_LLM_API_KEY=... PNEUMATA_TEST_LLM_MODEL=gpt-4.1 \\
     npm run test:story-llm-acceptance --workspace=Pneumata-Client
 `.trim();
 
@@ -22,14 +22,14 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
 }
 
 const config = {
-  apiKey: process.env.PNEUMATA_STORY_LLM_API_KEY || '',
-  model: process.env.PNEUMATA_STORY_LLM_MODEL || '',
-  baseUrl: process.env.PNEUMATA_STORY_LLM_BASE_URL || DEFAULT_BASE_URL,
-  timeoutMs: parseTimeoutMs(process.env.PNEUMATA_STORY_LLM_TIMEOUT_MS),
+  apiKey: process.env.PNEUMATA_TEST_LLM_API_KEY || '',
+  model: process.env.PNEUMATA_TEST_LLM_MODEL || '',
+  baseUrl: process.env.PNEUMATA_TEST_LLM_BASE_URL || DEFAULT_BASE_URL,
+  timeoutMs: parseTimeoutMs(process.env.PNEUMATA_TEST_LLM_TIMEOUT_MS),
 };
 
 if (!config.apiKey || !config.model) {
-  console.error('Missing PNEUMATA_STORY_LLM_API_KEY or PNEUMATA_STORY_LLM_MODEL.');
+  console.error('Missing PNEUMATA_TEST_LLM_API_KEY or PNEUMATA_TEST_LLM_MODEL.');
   console.error(HELP);
   process.exit(2);
 }
@@ -137,7 +137,7 @@ function hasAuthorNote(text) {
 
 function selectedChoiceAnchors(choice) {
   const text = normalizeWhitespace(`${choice?.label || ''} ${choice?.prompt || ''}`);
-  const domainAnchors = text.match(/名单|钥匙|血迹|档案室|袖口|停电|失踪|门锁|走廊|医院|推开|交出|追问|逼问|检查/g) || [];
+  const domainAnchors = text.match(/名单|钥匙|血迹|档案室|袖口|停电|失踪|门锁|走廊|医院|推开|交出|追问|逼问|检查|楼梯间|手印|暗红色|太平间|通风口|杂物间|病房|手术室/g) || [];
   const phraseAnchors = (text.match(/[\u4e00-\u9fa5]{2,}/g) || [])
     .filter((token) => !['让林医生', '林医生', '护士', '主角', '立刻', '先', '再'].includes(token))
     .filter((token) => token.length >= 2)
@@ -183,8 +183,8 @@ function evaluateQuality(events) {
   const narrationCount = events.filter((event) => event.type === 'narration').length;
   const speechCount = events.filter((event) => event.type === 'speech').length;
   const choices = events.flatMap((event) => event.type === 'choice_point' ? event.choices : []);
-  const concreteSignals = countMatches(text, /(门|窗|雨|血|灯|脚步|钥匙|名单|病历|档案|信|照片|袖口|走廊|房间|医院|妆台|院子|声音|气味|手指|眼神|伤口|锁)/g);
-  const hookSignals = countMatches(text, /(为什么|谁|哪里|真相|秘密|隐瞒|失踪|异常|危险|威胁|暴露|怀疑|背叛|来不及|脚步声|敲击声|血迹|停电|名单|钥匙|代价|风险|身影|绷带|白大褂|太平间|盯着|脚印|水渍|蒸发|病历|记录|日期|签退|三天前|文件|破门|撞开|撑不住|木屑|潦草)/g);
+  const concreteSignals = countMatches(text, /(门|窗|雨|血|灯|脚步|钥匙|名单|病历|档案|信|照片|袖口|走廊|房间|医院|妆台|院子|声音|气味|手指|眼神|伤口|锁|手电筒|天花板|通风口|铁栅栏|梯子|手术室|病房|病床|水声|液体)/g);
+  const hookSignals = countMatches(text, /(为什么|谁|哪里|真相|秘密|隐瞒|失踪|异常|危险|威胁|暴露|怀疑|背叛|来不及|脚步声|敲击声|血迹|停电|名单|钥匙|代价|风险|身影|绷带|白大褂|太平间|盯着|脚印|水渍|蒸发|病历|记录|日期|签退|三天前|文件|破门|撞开|撑不住|木屑|潦草|别进去|有东西|漆黑|铁锈味|杂物间|门缝|托盘|掉在地上|陷阱|袭击)/g);
   const relationshipSignals = countMatches(text, /(信任|怀疑|保护|试探|逼问|沉默|拒绝|靠近|远离|隐瞒|背叛|动摇|警觉|害怕|犹豫)/g);
   const labels = [
     narrationCount > 0 ? 'has_narration' : '',
