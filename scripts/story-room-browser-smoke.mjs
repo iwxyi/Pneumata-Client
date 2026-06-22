@@ -525,7 +525,10 @@ async function main() {
       import('/src/stores/useUIStore.ts'),
     ]).then(([{ useUIStore }]) => {
       const buttons = Array.from(document.querySelectorAll('button')).map((button) => button.innerText.trim()).filter(Boolean);
-      const narrativeTab = Array.from(document.querySelectorAll('button')).find((button) => button.innerText.includes('叙事线'));
+      const narrativeTab = Array.from(document.querySelectorAll('button')).find((button) => {
+        const text = button.innerText.trim();
+        return text === '故事' || text.includes('叙事线');
+      });
       if (narrativeTab) narrativeTab.click();
       return JSON.stringify({
         clicked: Boolean(narrativeTab),
@@ -671,9 +674,9 @@ async function main() {
       text: document.body.innerText,
       messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id'))
     })`));
-    assertCondition(liveRevealEarly.text.includes('月奴'), 'Live narrative reveal did not start with the first block', liveRevealEarly);
-    assertCondition(!liveRevealEarly.text.includes('第二段顺序验收'), 'Later narrative block appeared before the active block completed', liveRevealEarly);
-    await wait(5200);
+    assertCondition(liveRevealEarly.text.includes('月奴'), 'Live narrative node did not show the first block', liveRevealEarly);
+    assertCondition(liveRevealEarly.text.includes('第二段顺序验收'), 'Live narrative node did not show the full section together', liveRevealEarly);
+    await wait(700);
     const liveRevealDone = JSON.parse(await evaluate(cdp, `JSON.stringify({
       text: document.body.innerText,
       messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
@@ -685,7 +688,7 @@ async function main() {
         return scrollBox ? Math.round(scrollBox.scrollHeight - scrollBox.scrollTop - scrollBox.clientHeight) : null;
       })()
     })`));
-    assertCondition(liveRevealDone.text.includes('第二段顺序验收'), 'Live narrative reveal did not eventually show the later block', liveRevealDone);
+    assertCondition(liveRevealDone.text.includes('第二段顺序验收'), 'Live narrative node lost the later block after reveal settled', liveRevealDone);
     assertCondition(new Set(liveRevealDone.messageIds).size === liveRevealDone.messageIds.length, 'Live narrative reveal duplicated message nodes', liveRevealDone.messageIds);
     assertCondition(
       liveRevealDone.bottomDistance == null || liveRevealDone.bottomDistance <= 160,
@@ -970,7 +973,7 @@ async function main() {
       path: location.pathname,
       placeholders: Array.from(document.querySelectorAll('textarea, input')).map((input) => input.getAttribute('placeholder') || '').filter(Boolean)
     })`));
-    assertCondition(customInputBefore.placeholders.some((placeholder) => placeholder.includes('自定义剧情走向')), 'Story custom direction input did not expose a story-specific placeholder', customInputBefore);
+    assertCondition(customInputBefore.placeholders.includes('安排剧情'), 'Story custom direction input did not expose the director placeholder', customInputBefore);
     await evaluate(cdp, `(() => {
       const input = document.querySelector('textarea, input');
       if (!input) throw new Error('story custom direction input not found');
