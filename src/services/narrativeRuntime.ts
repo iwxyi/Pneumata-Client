@@ -113,6 +113,12 @@ function isNearDuplicateStoryText(text: string, previousTexts: string[], minLeng
   });
 }
 
+function isShortExactDuplicateStoryText(text: string, previousTexts: string[], minLength = 6) {
+  const normalized = normalizeRepeatText(text);
+  if (normalized.length < minLength) return false;
+  return previousTexts.some((previous) => normalizeRepeatText(previous) === normalized);
+}
+
 function isAuthorNoteStoryText(text: string) {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) return false;
@@ -155,12 +161,55 @@ function collectHistoricalSpeechTextsByActor(messages: NormalizeStoryEventsOptio
   return speechTextsByActor;
 }
 
+function collectHistoricalSpeechTexts(messages: NormalizeStoryEventsOptions['previousMessages']) {
+  return Array.from(collectHistoricalSpeechTextsByActor(messages).values()).flat();
+}
+
+function extractChoiceExecutionText(text: string) {
+  const normalized = compactText(text, 160);
+  if (!normalized) return '';
+  const afterColon = normalized.split(/[：:]/).slice(1).join('：').trim();
+  return afterColon || normalized
+    .replace(/^(让|叫|请)?[^，。！？!?：:]{1,12}(追问|询问|逼问|质问|检查|搜查|查看|护住|离开|进入|打开|避开|留下)/, '')
+    .trim();
+}
+
+function collectLatestSelectedChoiceEchoTexts(messages: NormalizeStoryEventsOptions['previousMessages']) {
+  const latestSelection = (messages || [])
+    .filter((message) => !('isDeleted' in message) || !(message as Message).isDeleted)
+    .slice()
+    .reverse()
+    .find((message) => message.metadata?.storyChoiceSelection);
+  const selection = latestSelection?.metadata?.storyChoiceSelection;
+  if (!selection) return [];
+  return Array.from(new Set([
+    extractChoiceExecutionText(String(selection.label || '')),
+    extractChoiceExecutionText(String(selection.prompt || '')),
+  ].filter((item) => normalizeRepeatText(item).length >= 6)));
+}
+
+function isSelectedChoiceEchoAfterConsequence(text: string, selectedChoiceTexts: string[], visibleEventCount: number) {
+  if (visibleEventCount <= 0) return false;
+  const normalizedText = normalizeRepeatText(text);
+  if (normalizedText.length < 6) return false;
+  return selectedChoiceTexts.some((choiceText) => {
+    const normalizedChoice = normalizeRepeatText(choiceText);
+    if (normalizedChoice.length < 6) return false;
+    return normalizedText.includes(normalizedChoice)
+      || normalizedChoice.includes(normalizedText)
+      || textSimilarity(normalizedText, normalizedChoice) >= 0.88;
+  });
+}
+
 export function normalizeStoryEvents(value: unknown, options: NormalizeStoryEventsOptions = {}): StoryEvent[] {
   if (!Array.isArray(value)) return [];
   const events: StoryEvent[] = [];
   const narrationTexts: string[] = (options.previousMessages || [])
     .flatMap((message) => collectHistoricalStoryText(message));
   const speechTextsByActor = collectHistoricalSpeechTextsByActor(options.previousMessages);
+  const roomSpeechTexts = collectHistoricalSpeechTexts(options.previousMessages);
+  const selectedChoiceEchoTexts = collectLatestSelectedChoiceEchoTexts(options.previousMessages);
+  let visibleEventCount = 0;
   for (const raw of value) {
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
@@ -170,24 +219,33 @@ export function normalizeStoryEvents(value: unknown, options: NormalizeStoryEven
       if (text && !isAuthorNoteStoryText(text) && !isNearDuplicateStoryText(text, narrationTexts)) {
         events.push({ type, text });
         narrationTexts.push(text);
+        visibleEventCount += 1;
       }
       continue;
     }
     if (type === 'speech') {
       const text = compactText(item.text, 600);
       if (!text) continue;
+      if (isSelectedChoiceEchoAfterConsequence(text, selectedChoiceEchoTexts, visibleEventCount)) continue;
       const characterId = compactText(item.characterId, 80) || compactText(item.actorId, 80);
       const speakerName = compactText(item.speakerName, 80) || compactText(item.actorName, 80);
       const speakerKey = characterId || speakerName || 'unknown';
       const previousSpeechTexts = speechTextsByActor.get(speakerKey) || [];
-      if (isNearDuplicateStoryText(text, previousSpeechTexts, 14)) continue;
+      if (
+        isShortExactDuplicateStoryText(text, previousSpeechTexts)
+        || isShortExactDuplicateStoryText(text, roomSpeechTexts)
+        || isNearDuplicateStoryText(text, previousSpeechTexts, 12)
+        || isNearDuplicateStoryText(text, roomSpeechTexts, 18)
+      ) continue;
       speechTextsByActor.set(speakerKey, [...previousSpeechTexts, text]);
+      roomSpeechTexts.push(text);
       events.push({
         type,
         text,
         characterId: characterId || undefined,
         speakerName: speakerName || undefined,
       });
+      visibleEventCount += 1;
       continue;
     }
     if (type === 'choice_point') {
@@ -781,6 +839,7 @@ export function buildSelectedChoiceConsequencePrompt(conversation: GroupChat) {
     'This turn is the immediate consequence of the user choice. Do not drift to a generic next scene.',
     ...rows,
     'Show at least one concrete consequence of the selected choice before any new pressure or future option.',
+    'If the selected choice is phrased as a command or question, execute it once or begin after it has just been executed; do not both answer it and later restate it as dialogue.',
     'If the full risk/reward cannot resolve yet, show a visible first sign, complication, clue, relationship shift, or cost.',
   ];
 }

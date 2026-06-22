@@ -326,6 +326,68 @@ describe('narrativeRuntime', () => {
     ]);
   });
 
+  it('drops delayed selected-choice echoes and short repeated dialogue from story events', () => {
+    const previousMessages = [{
+      id: 'selected-choice',
+      chatId: 'story-1',
+      type: 'user' as const,
+      senderId: 'user',
+      senderName: '我',
+      content: '我选择：追问月奴：你避开了，还是那个人避开了你？',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+      metadata: {
+        storyChoiceSelection: {
+          branchId: 'ask',
+          label: '追问月奴：你避开了，还是那个人避开了你？',
+          prompt: '你避开了，还是那个人避开了你？',
+          choiceEpoch: 2,
+        },
+      },
+    }, {
+      id: 'previous-line',
+      chatId: 'story-1',
+      type: 'ai' as const,
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '',
+      emotion: 0,
+      timestamp: 2,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'previous-turn',
+          turnKind: 'narrative_beat' as const,
+          povActorId: 'narrator',
+          blocks: [{
+            id: 'old-speech',
+            actorId: 'nurse',
+            actorKind: 'character' as const,
+            kind: 'dialogue' as const,
+            displayMode: 'bubble' as const,
+            characterId: 'nurse',
+            text: '小姐说是梳子，那就是梳子吧。',
+          }],
+        },
+      },
+    }];
+
+    const events = normalizeStoryEvents([
+      { type: 'narration', text: '沈清婉的声音落进烛火里，月奴的呼吸明显顿了一下。' },
+      { type: 'speech', characterId: 'nurse', text: '小姐，那个人比我快。我还没看清他的脸，他已经拐过廊角了。' },
+      { type: 'speech', speakerName: '沈清婉', text: '你避开了，还是那个人避开了你？' },
+      { type: 'speech', characterId: 'nurse', text: '小姐说是梳子，那就是梳子吧。' },
+      { type: 'speech', characterId: 'nurse', text: '奴婢遇见了人。那个人没有避开奴婢，奴婢也没有避开那个人。' },
+    ], { previousMessages });
+
+    expect(events).toEqual([
+      { type: 'narration', text: '沈清婉的声音落进烛火里，月奴的呼吸明显顿了一下。' },
+      { type: 'speech', characterId: 'nurse', speakerName: undefined, text: '小姐，那个人比我快。我还没看清他的脸，他已经拐过廊角了。' },
+      { type: 'speech', characterId: 'nurse', speakerName: undefined, text: '奴婢遇见了人。那个人没有避开奴婢，奴婢也没有避开那个人。' },
+    ]);
+  });
+
   it('plans story beats and normalizes choices as reusable narrative runtime state', () => {
     const decisionChat = normalizeConversation({
       ...chat,

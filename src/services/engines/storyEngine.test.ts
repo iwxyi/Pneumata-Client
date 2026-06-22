@@ -5,7 +5,13 @@ import { runSessionActionExecutor } from '../sessionActionExecutors/sessionActio
 import { STORY_ENGINE } from './storyEngine';
 
 vi.mock('../aiClient', () => ({
-  generateResponse: vi.fn(async () => '旁白正文'),
+  generateResponse: vi.fn(async () => JSON.stringify({
+    content: '',
+    extraMessages: null,
+    storyEvents: [
+      { type: 'narration', text: '旁白正文推进到新的线索。' },
+    ],
+  })),
 }));
 
 function buildStoryChat() {
