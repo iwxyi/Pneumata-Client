@@ -72,14 +72,21 @@ describe('roomTemplates story seeds', () => {
       expect(preview).toEqual(expect.objectContaining({
         hook: expect.any(String),
         direction: expect.any(String),
+        readerPromise: expect.any(String),
+        firstChapterGoal: expect.any(String),
         trackedAssets: expect.any(Array),
       }));
       expect(preview?.hook.length).toBeGreaterThan(20);
       expect(preview?.hook.length).toBeLessThanOrEqual(86);
       expect(preview?.direction.length).toBeGreaterThan(20);
       expect(preview?.direction.length).toBeLessThanOrEqual(86);
+      expect(preview?.readerPromise.length).toBeGreaterThan(20);
+      expect(preview?.readerPromise.length).toBeLessThanOrEqual(72);
+      expect(preview?.firstChapterGoal.length).toBeGreaterThan(10);
+      expect(preview?.firstChapterGoal.length).toBeLessThanOrEqual(72);
       expect(preview?.trackedAssets).toHaveLength(3);
-      expect(`${preview?.hook}\n${preview?.direction}\n${preview?.trackedAssets.join(' / ')}`).toMatch(/选择|线索|章节|关系|信任|试探|代价|回看|站队|旧账|名单|照片|语音|毒剑/);
+      expect(preview?.readerPromise).toMatch(/选择.*章节回看.*结果/);
+      expect(`${preview?.hook}\n${preview?.direction}\n${preview?.firstChapterGoal}\n${preview?.trackedAssets.join(' / ')}`).toMatch(/选择|线索|章节|关系|信任|试探|代价|回看|站队|旧账|名单|照片|语音|毒剑/);
     }
   });
 

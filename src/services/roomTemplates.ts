@@ -106,6 +106,8 @@ export interface RoomTemplateDefinition {
 export interface RoomTemplatePreview {
   hook: string;
   direction: string;
+  readerPromise: string;
+  firstChapterGoal: string;
   trackedAssets: string[];
 }
 
@@ -933,9 +935,13 @@ export function buildRoomTemplatePreview(template: RoomTemplateDefinition): Room
   if (template.sessionKind.scenarioId !== 'story-reader') return null;
   const hook = compactPreviewText(template.defaults?.storyBackground, 86);
   const direction = compactPreviewText(template.defaults?.storyDirection, 86);
+  const firstChapterGoal = compactPreviewText(template.defaults?.storyOutline?.split(/[；;]/)[0], 72);
   const trackedAssets = (template.sellingPoints || []).slice(0, 3);
-  if (!hook || !direction || trackedAssets.length < 3) return null;
-  return { hook, direction, trackedAssets };
+  const readerPromise = compactPreviewText(trackedAssets.length
+    ? `你的选择会影响${trackedAssets.join('、')}，并在章节回看里留下结果。`
+    : '', 72);
+  if (!hook || !direction || !readerPromise || !firstChapterGoal || trackedAssets.length < 3) return null;
+  return { hook, direction, readerPromise, firstChapterGoal, trackedAssets };
 }
 
 export function hasTemplateDefault<K extends keyof RoomTemplateDefaults>(

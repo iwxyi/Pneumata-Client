@@ -339,6 +339,22 @@ export default function GameplaySection(props: GameplaySectionProps) {
                       {selectedTemplatePreview.direction}
                     </Typography>
                   </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.35 }}>
+                      {isZh ? '第一章目标' : 'First chapter'}
+                    </Typography>
+                    <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
+                      {selectedTemplatePreview.firstChapterGoal}
+                    </Typography>
+                  </Box>
+                  <Box>
+                    <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.35 }}>
+                      {isZh ? '参与感' : 'Reader promise'}
+                    </Typography>
+                    <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
+                      {selectedTemplatePreview.readerPromise}
+                    </Typography>
+                  </Box>
                 </Box>
                 <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
                   {selectedTemplatePreview.trackedAssets.map((item) => (
