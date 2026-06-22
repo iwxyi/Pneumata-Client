@@ -35,10 +35,7 @@ describe('buildStoryNodeProgress', () => {
 
     expect(progress?.chips).toEqual([
       { label: '新章节：枕下长剑', tone: 'chapter' },
-      { label: '2 句角色对白', tone: 'speech' },
       { label: '阶段摘要：沈清婉发现毒剑来自军器监。', tone: 'recap' },
-      { label: '3 个走向', tone: 'choice' },
-      { label: '2 个取舍', tone: 'tradeoff' },
     ]);
   });
 
@@ -51,5 +48,12 @@ describe('buildStoryNodeProgress', () => {
   it('does not create progress chips without protocol events', () => {
     expect(buildStoryNodeProgress(message())).toBeNull();
     expect(buildStoryNodeProgress(message({ storyEvents: [{ type: 'narration', text: '屋里安静下来。' }] }))).toBeNull();
+    expect(buildStoryNodeProgress(message({ storyEvents: [
+      { type: 'speech', characterId: 'maid', text: '小姐，粥已经热好了。' },
+      { type: 'choice_point', choices: [
+        { label: '追问月奴昨夜铺床的细节', risk: '惊动背后的人', reward: '确认月奴立场' },
+        { label: '先检查军器监烙印', risk: '错过追问时机', reward: '掌握物证' },
+      ] },
+    ] }))).toBeNull();
   });
 });
