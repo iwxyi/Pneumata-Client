@@ -182,6 +182,8 @@ function StoryChoicePanel({ options, onChoose, showDeveloperDetails = false, sub
 function getStoryNodeProgressChipSx(tone: StoryNodeProgressChip['tone']) {
   if (tone === 'choice') return { borderColor: 'rgba(99,102,241,0.34)', bgcolor: 'rgba(99,102,241,0.075)' };
   if (tone === 'speech') return { borderColor: 'rgba(16,185,129,0.32)', bgcolor: 'rgba(16,185,129,0.07)' };
+  if (tone === 'recap') return { borderColor: 'rgba(245,158,11,0.34)', bgcolor: 'rgba(245,158,11,0.08)' };
+  if (tone === 'tradeoff') return { borderColor: 'rgba(236,72,153,0.30)', bgcolor: 'rgba(236,72,153,0.07)' };
   return { borderColor: 'rgba(14,165,233,0.32)', bgcolor: 'rgba(14,165,233,0.07)' };
 }
 
