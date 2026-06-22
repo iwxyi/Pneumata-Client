@@ -160,7 +160,9 @@ describe('ChatDetailPage pause/resume behavior', () => {
   });
 
   it('presents story room reader input as text-only story direction control', () => {
-    expect(getStoryReaderComposerPlaceholder()).toBe('推动剧情');
+    expect(getStoryReaderComposerPlaceholder()).toBe('安排剧情');
+    expect(getStoryReaderComposerPlaceholder('director')).toBe('安排剧情');
+    expect(getStoryReaderComposerPlaceholder('participant')).toBe('写我的行动');
     expect(buildStoryReaderTextInputCapabilities({
       imageInput: true,
       multiImageInput: true,

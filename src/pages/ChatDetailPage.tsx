@@ -56,9 +56,10 @@ import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
-import { buildStoryBranchOptions, getStoryChoiceGateState, normalizeStoryChoiceSuggestions, sanitizeStoryChoicePrompt } from '../services/storyChoices';
+import { buildStoryBranchOptions, getStoryChoiceGateState, normalizeStoryChoiceSuggestions, resolveStoryReaderRole, sanitizeStoryChoicePrompt } from '../services/storyChoices';
 import { messagesShareIdentity } from '../services/messageIdentity';
 import { buildStoryRoomOpeningPreview, type StoryRoomOpeningPreview } from '../services/storyRoomOpeningPreview';
+import type { StoryReaderRole } from '../types/chat';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -310,8 +311,8 @@ export function shouldRouteTextAsStoryCustomDirection(params: {
     && Boolean(params.content.trim());
 }
 
-export function getStoryReaderComposerPlaceholder() {
-  return '推动剧情';
+export function getStoryReaderComposerPlaceholder(readerRole: StoryReaderRole = 'director') {
+  return readerRole === 'participant' ? '写我的行动' : '安排剧情';
 }
 
 export function buildStoryReaderTextInputCapabilities<T extends { imageInput?: boolean; multiImageInput?: boolean; fileInput?: boolean }>(capabilities: T): T {
@@ -771,6 +772,7 @@ export default function ChatDetailPage() {
     [effectiveSpeakAsChar, isStoryRoom, textInputCapabilities],
   );
   const effectiveTextInputCapabilityWarning = isStoryRoom && !effectiveSpeakAsChar ? undefined : textInputCapabilityWarning;
+  const storyReaderRole = isStoryRoom ? resolveStoryReaderRole(chat || undefined) : 'director';
   const effectiveComposerSurfaces = useMemo(() => {
     const primaryTextSurface = composerSurfaces.find((surface) => surface.type === 'text') || { key: 'member-guide-text', type: 'text' as const };
     const nonTextSurfaces = isStoryRoom ? [] : composerSurfaces.filter((surface) => surface.type !== 'text');
@@ -794,7 +796,7 @@ export default function ChatDetailPage() {
         mode: 'memberSpeak' as const,
         actorId: 'user',
         capability: 'speak' as const,
-        placeholder: getStoryReaderComposerPlaceholder(),
+        placeholder: getStoryReaderComposerPlaceholder(storyReaderRole),
       }];
     }
     if (!effectiveSpeakAsChar && chat?.type === 'group' && chat.memberIds.includes('user')) {
@@ -805,7 +807,7 @@ export default function ChatDetailPage() {
         mode: 'memberSpeak' as const,
         actorId: 'user',
         capability: 'speak' as const,
-        placeholder: isStoryRoom ? getStoryReaderComposerPlaceholder() : '输入消息',
+        placeholder: isStoryRoom ? getStoryReaderComposerPlaceholder(storyReaderRole) : '输入消息',
       }, ...nonTextSurfaces];
     }
     if (!effectiveSpeakAsChar && chat?.type === 'direct') {
@@ -831,7 +833,7 @@ export default function ChatDetailPage() {
       }, ...nonTextSurfaces];
     }
     return composerSurfaces;
-  }, [chat, composerSurfaces, effectiveSpeakAsChar, guideTargetMember, isStoryRoom]);
+  }, [chat, composerSurfaces, effectiveSpeakAsChar, guideTargetMember, isStoryRoom, storyReaderRole]);
   const handleSidebarTabChange = useCallback((value: SidebarTabValue) => {
     setRightPanelTab(value === 'activities' ? 'actions' : value === 'developer' ? 'developer' : value);
   }, [setRightPanelTab]);
