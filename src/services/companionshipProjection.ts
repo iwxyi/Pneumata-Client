@@ -3185,7 +3185,7 @@ function buildPublicRoomUserCompanionshipLines(chat: GroupChat, character: AICha
   if (chat.type === 'direct') return [];
   if (!(chat.memberIds || []).includes(USER_ACTOR_ID)) return [];
   const ledger = getCharacterToUserLedger(chat, character.id);
-  const semantic = compactText(ledger?.derived?.semantic?.summary || '', 140);
+  const semantic = buildPublicSafeUserRelationshipStance(ledger);
   const userMemoryCount = character.memory?.userMemories?.length || 0;
   const boundaryCount = (character.memory?.userMemories || [])
     .filter((text) => /(不要|不想|别|公开|隐私|边界|禁忌|压力|焦虑|面试|考试|生日|纪念|私下)/.test(text))
@@ -3198,6 +3198,26 @@ function buildPublicRoomUserCompanionshipLines(chat: GroupChat, character: AICha
     '- In public or scenario rooms, show companionship through timing, omissions, protection, warmth, or careful wording rather than explaining the relationship system.',
   ].filter(Boolean);
   return lines;
+}
+
+function hasPrivateUserDisclosureRisk(text: string | undefined | null) {
+  return /(不要|不想|别|公开|隐私|边界|禁忌|压力|焦虑|面试|考试|生日|纪念|私下|只告诉|秘密|住址|地址|电话|手机号|微信|QQ|生病|不舒服|失眠|抑郁|创伤|计划|下周|明天|今晚|昨晚|约定|承诺|称呼)/.test(text || '');
+}
+
+function buildPublicSafeUserRelationshipStance(ledger: RelationshipLedgerEntry | null) {
+  const semantic = ledger?.derived?.semantic;
+  if (!semantic) return '';
+  const summary = compactText(semantic.summary || '', 140);
+  if (summary && !hasPrivateUserDisclosureRisk(summary)) return summary;
+  const stage = !hasPrivateUserDisclosureRisk(semantic.stage) ? compactText(semantic.stage || '', 48) : '';
+  const labels = (semantic.labels || [])
+    .filter((label) => !hasPrivateUserDisclosureRisk(label))
+    .map((label) => compactText(label, 24))
+    .filter(Boolean)
+    .slice(0, 3);
+  const parts = [stage, labels.length ? labels.join('、') : ''].filter(Boolean);
+  if (parts.length) return parts.join('：');
+  return semantic.intensity >= 45 ? 'familiar but private continuity exists' : 'private continuity exists';
 }
 
 function inferCharacterCompanionshipStyle(relation: AICharacter['relationships'][number]): CharacterCompanionshipState['style'] {

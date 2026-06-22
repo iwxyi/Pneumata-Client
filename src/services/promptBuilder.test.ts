@@ -493,6 +493,40 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).not.toContain('希望别被公开点名');
   });
 
+  it('redacts private user facts from public relationship stance summaries', () => {
+    const character = buildCharacter();
+    const groupWithUser = {
+      ...buildChat(),
+      memberIds: ['char-a', 'user'],
+      relationshipLedger: [{
+        pairKey: 'char-a->user',
+        actorId: 'char-a',
+        targetId: 'user',
+        current: { warmth: 42, competence: 0, trust: 38, threat: 4 },
+        derived: {
+          semantic: {
+            stage: '熟悉陪伴',
+            labels: ['牵挂', '下周面试'],
+            summary: '熟悉陪伴：知道用户下周要面试，希望别被公开点名',
+            intensity: 58,
+          },
+        },
+        trend: 'flat' as const,
+        recentEvents: [],
+        lastUpdatedAt: 20,
+      }],
+    };
+
+    const prompt = buildSystemPromptWithContext(character, groupWithUser, 0, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '我也在群里听着。' }),
+    ], new Map([[character.id, character]]));
+
+    expect(prompt).toContain('## Companionship Context');
+    expect(prompt).toContain('Private relationship stance toward the user: 熟悉陪伴：牵挂');
+    expect(prompt).not.toContain('下周要面试');
+    expect(prompt).not.toContain('公开点名');
+  });
+
   it('keeps shared secrets masked in public group prompts', () => {
     const speaker = buildCharacter({
       relationships: [{
