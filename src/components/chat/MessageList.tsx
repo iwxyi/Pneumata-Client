@@ -353,12 +353,14 @@ export default function MessageList({
   const pendingInitialRestoreRef = useRef<MessageListScrollPosition | null>(initialScrollPosition?.pinned ? null : initialScrollPosition);
   const appliedInitialRestoreKeyRef = useRef<string | null>(null);
   const prependRestoreRef = useRef<ScrollAnchorSnapshot | null>(null);
+  const bottomRestoreDistanceRef = useRef<number | null>(null);
   const latestScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
   const autoFillTriggeredRef = useRef(false);
   const lastScrollTopRef = useRef(0);
   const hasUserScrollIntentRef = useRef(false);
   const adaptiveBottomPagesRef = useRef(MIN_BOTTOM_PREFETCH_PAGES);
   const lastScrollSampleRef = useRef<{ top: number; at: number } | null>(null);
+  const scrollAnchorFrameRef = useRef<number | null>(null);
   const followScrollAnimationRef = useRef<number | null>(null);
   const previousStoryChoiceSubmittingValueRef = useRef<string | null>(storyChoiceSubmittingValue);
   const appliedScrollRequestKeyRef = useRef<string | null>(null);
@@ -609,6 +611,7 @@ export default function MessageList({
   ), []);
 
   useEffect(() => {
+    if (hasJumpedToBottomRef.current) return;
     initialScrollPositionRef.current = initialScrollPosition;
     const restoreKey = getInitialRestoreKey(initialScrollPosition);
     if (!restoreKey || appliedInitialRestoreKeyRef.current === restoreKey) return;
@@ -636,12 +639,28 @@ export default function MessageList({
     return snapshot;
   }, [captureScrollAnchor, isLoadingOlder, onScrollPositionChange]);
 
+  const scheduleRememberScrollAnchor = useCallback(() => {
+    if (scrollAnchorFrameRef.current != null) return;
+    scrollAnchorFrameRef.current = window.requestAnimationFrame(() => {
+      scrollAnchorFrameRef.current = null;
+      rememberScrollAnchor();
+    });
+  }, [rememberScrollAnchor]);
+
+  useEffect(() => () => {
+    if (scrollAnchorFrameRef.current != null) {
+      window.cancelAnimationFrame(scrollAnchorFrameRef.current);
+      scrollAnchorFrameRef.current = null;
+    }
+  }, []);
+
   const triggerReachBottom = useCallback(() => {
     if (!onReachBottom || isLoadingNewer || !hasMoreNewer || bottomLoadTriggeredRef.current) return;
-    prependRestoreRef.current = latestScrollAnchorRef.current || captureScrollAnchor();
+    const container = containerRef.current;
+    bottomRestoreDistanceRef.current = container ? getDistanceFromBottom(container) : null;
     bottomLoadTriggeredRef.current = true;
     void onReachBottom();
-  }, [captureScrollAnchor, hasMoreNewer, isLoadingNewer, onReachBottom]);
+  }, [getDistanceFromBottom, hasMoreNewer, isLoadingNewer, onReachBottom]);
 
   useEffect(() => {
     if (storyRevealMode !== 'instant' || !onNarrativeRevealComplete) return;
@@ -872,6 +891,25 @@ export default function MessageList({
   }, [renderItems, restoreScrollAnchor, updatePinnedState]);
 
   useLayoutEffect(() => {
+    const distance = bottomRestoreDistanceRef.current;
+    const container = containerRef.current;
+    if (distance == null || !container) return;
+    bottomRestoreDistanceRef.current = null;
+    const restoreBottomDistance = () => {
+      if (distance <= BOTTOM_STICKY_THRESHOLD) {
+        scrollToBottom('auto');
+        return;
+      }
+      container.scrollTop = Math.max(0, container.scrollHeight - container.clientHeight - distance);
+      lastScrollTopRef.current = container.scrollTop;
+      updatePinnedState();
+    };
+    restoreBottomDistance();
+    const handle = window.requestAnimationFrame(restoreBottomDistance);
+    return () => window.cancelAnimationFrame(handle);
+  }, [isLoadingNewer, renderItems, scrollToBottom, updatePinnedState]);
+
+  useLayoutEffect(() => {
     const currentMetrics = {
       itemCount: renderItems.length,
       lastItemKey: renderItems.at(-1)?.key ?? null,
@@ -969,7 +1007,7 @@ export default function MessageList({
           updatePinnedState();
           if (hasUserScrollIntentRef.current) reportNearBottomState(container);
         }
-        rememberScrollAnchor();
+        scheduleRememberScrollAnchor();
 
         const distanceFromBottom = getDistanceFromBottom(container);
         if (distanceFromBottom < getAdaptiveBottomThreshold(container)) {
