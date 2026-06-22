@@ -6,6 +6,7 @@ import type { MemoryItem } from './memoryTypes';
 import { resolveSessionDefinition } from '../types/sessionEngine';
 import { projectFactionClusters } from './factionProjection';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
+import { buildPublicSafeRelationshipSemanticSummary } from './relationshipSemanticPrivacy';
 
 export type NarrativeLineType = 'conflict' | 'relationship' | 'topic' | 'goal' | 'mystery' | 'faction' | 'growth' | 'scenario';
 export type NarrativeLineStatus = 'latent' | 'active' | 'escalating' | 'cooling' | 'resolved' | 'abandoned';
@@ -92,12 +93,13 @@ function hasRepairImpulse(entry: RelationshipLedgerEntry, characters: AICharacte
 
 function describeRelationshipLineSummary(entry: RelationshipLedgerEntry, characters: AICharacter[]) {
   const semantic = entry.derived?.semantic;
+  const safeSemanticSummary = buildPublicSafeRelationshipSemanticSummary(entry, (text, max) => clipText(text || '', max));
   if (hasRepairImpulse(entry, characters)) {
-    return semantic?.summary
-      ? `${semantic.summary}，但最近出现了找补或缓和的冲动。`
+    return safeSemanticSummary
+      ? `${safeSemanticSummary}，但最近出现了找补或缓和的冲动。`
       : `${characterName(entry.actorId, characters)}与${characterName(entry.targetId, characters)}的拉扯后出现了找补或缓和的冲动。`;
   }
-  return semantic?.summary || describeRelationshipState(entry, characters);
+  return safeSemanticSummary || describeRelationshipState(entry, characters);
 }
 
 function relationshipNextBeat(entry: RelationshipLedgerEntry, tension: number, characters: AICharacter[]): NarrativeBeatType {

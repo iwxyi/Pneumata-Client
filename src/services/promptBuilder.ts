@@ -16,6 +16,7 @@ import { buildInfluenceState, type InfluenceState } from './influenceState';
 import { userProfileMemoryPayloadOf } from './directUserProfileMemory';
 import type { SharedMemoryAnchor, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
+import { buildPublicSafeRelationshipSemanticSummary } from './relationshipSemanticPrivacy';
 
 const styleDescriptions: Record<ChatStyle, string> = {
   free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
@@ -93,26 +94,6 @@ function buildPromptDisplayMembers(character: AICharacter, characters: Map<strin
 
 function cleanPromptText(text: string | undefined | null, members: DisplayTextMember[], max = 240) {
   return compactPromptText(sanitizeUserFacingText(text, members), max);
-}
-
-function hasPrivateUserDisclosureRisk(text: string | undefined | null) {
-  return /(不要|不想|别|公开|隐私|边界|禁忌|压力|焦虑|面试|考试|生日|纪念|私下|只告诉|秘密|住址|地址|电话|手机号|微信|QQ|生病|不舒服|失眠|抑郁|创伤|计划|下周|明天|今晚|昨晚|约定|承诺|称呼)/.test(text || '');
-}
-
-function buildPublicSafeRelationshipSemanticSummary(entry: RelationshipLedgerEntry, members: DisplayTextMember[]) {
-  const semantic = entry.derived?.semantic;
-  if (!semantic) return '';
-  const summary = cleanPromptText(semantic.summary, members, 220);
-  if (summary && !hasPrivateUserDisclosureRisk(summary)) return summary;
-  const stage = !hasPrivateUserDisclosureRisk(semantic.stage) ? cleanPromptText(semantic.stage, members, 60) : '';
-  const labels = (semantic.labels || [])
-    .filter((label) => !hasPrivateUserDisclosureRisk(label))
-    .map((label) => cleanPromptText(label, members, 32))
-    .filter(Boolean)
-    .slice(0, 3);
-  const parts = [stage, labels.length ? labels.join('、') : ''].filter(Boolean);
-  if (parts.length) return parts.join('：');
-  return semantic.intensity >= 45 ? 'familiar but private relationship continuity exists' : 'private relationship continuity exists';
 }
 
 function getPromptMemoryKindLabel(kind: MemoryItem['kind']) {
@@ -493,7 +474,7 @@ function buildRelationshipSemanticPrompt(chat: GroupChat, character: AICharacter
   return `\n## Relationship Semantics\n${relevant.map((entry) => {
     const targetName = characters.get(entry.targetId)?.name || cleanPromptText(entry.targetId, members, 80) || 'member';
     const summary = chat.type !== 'direct'
-      ? buildPublicSafeRelationshipSemanticSummary(entry, members)
+      ? buildPublicSafeRelationshipSemanticSummary(entry, (text, max) => cleanPromptText(text, members, max))
       : cleanPromptText(entry.derived?.semantic?.summary, members, 220);
     return `- Toward ${targetName}: ${summary}`;
   }).join('\n')}\n- Let these relationship meanings bend tone, omissions, willingness to defend, jealousy, rivalry, affection, or avoidance.`;

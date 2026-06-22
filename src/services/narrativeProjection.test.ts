@@ -202,6 +202,40 @@ describe('projectNarrativeLines', () => {
     expect(relationship?.status).toBe('escalating');
   });
 
+  it('redacts private relationship facts in narrative relationship lines', () => {
+    const lines = projectNarrativeLines({
+      chat: buildChat({
+        relationshipLedger: [{
+          pairKey: 'a->b',
+          actorId: 'a',
+          targetId: 'b',
+          current: { warmth: 50, competence: 5, trust: 46, threat: 8 },
+          derived: {
+            salience: 90,
+            semantic: {
+              stage: '互相信任',
+              labels: ['默契', '秘密暗号'],
+              summary: '互相信任：共同秘密是雨夜便利店暗号，不能公开说',
+              intensity: 62,
+            },
+          },
+          axisReasons: {},
+          trend: 'flat',
+          recentEvents: [{ id: 'event-secret', kind: 'relationship_delta', createdAt: 10, summary: '共同秘密是雨夜便利店暗号，不能公开说' }],
+          lastUpdatedAt: 10,
+        }],
+      }),
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages: [buildMessage({ content: '先别把话说太满。' })],
+      now: 20,
+    });
+    const relationship = lines.find((line) => line.id === 'relationship:a->b');
+    expect(relationship?.summary).toContain('互相信任');
+    expect(relationship?.summary).toContain('默契');
+    expect(relationship?.summary).not.toContain('雨夜便利店');
+    expect(relationship?.summary).not.toContain('不能公开说');
+  });
+
   it('uses character names in fallback relationship summaries', () => {
     const lines = projectNarrativeLines({
       chat: buildChat({

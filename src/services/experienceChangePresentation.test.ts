@@ -64,6 +64,40 @@ describe('experienceChangePresentation', () => {
     expect(changes[1].chips).toContain('客观事件');
   });
 
+  it('redacts private relationship facts in recent experience changes', () => {
+    const chat = {
+      layeredMemories: [],
+      relationshipLedger: [relationship({
+        derived: {
+          semantic: {
+            stage: '互相信任',
+            labels: ['默契', '秘密暗号'],
+            summary: '互相信任：共同秘密是雨夜便利店暗号，不能公开说',
+            intensity: 62,
+          },
+        },
+        recentEvents: [{
+          id: 'evt-secret',
+          kind: 'relationship_delta',
+          createdAt: 210,
+          summary: '共同秘密是雨夜便利店暗号，不能公开说',
+        }],
+        lastUpdatedAt: 210,
+      })],
+    } as Pick<GroupChat, 'layeredMemories' | 'relationshipLedger'>;
+
+    const changes = buildRecentExperienceChanges({
+      chat,
+      members: [{ id: 'a', name: '灰太狼' }, { id: 'b', name: '小灰灰' }] as never,
+    });
+
+    expect(changes[0].text).toContain('互相信任');
+    expect(changes[0].text).toContain('默契');
+    expect(changes[0].text).not.toContain('雨夜便利店');
+    expect(changes[0].text).not.toContain('不能公开说');
+    expect(changes[0].chips).not.toContain('秘密暗号');
+  });
+
   it('uses memory summary and masks unknown UUIDs without corrupting short member ids', () => {
     const chat = {
       layeredMemories: [memory({

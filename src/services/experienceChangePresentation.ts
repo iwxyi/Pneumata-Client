@@ -5,6 +5,7 @@ import type { GroupChat } from '../types/chat';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 import { isUserFacingMemoryItem } from './memoryPresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
+import { buildPublicSafeRelationshipSemanticSummary, hasPrivateRelationshipSemanticRisk } from './relationshipSemanticPrivacy';
 
 export type ExperienceChangeKind = 'memory' | 'relationship';
 
@@ -63,8 +64,8 @@ function cleanDisplayText(text: string, names: Map<string, string>) {
   return sanitizeUserFacingText(text, displayMembers(names));
 }
 
-function compactText(text: string, max = 82) {
-  const normalized = text.replace(/\s+/g, ' ').trim();
+function compactText(text: string | undefined | null, max = 82) {
+  const normalized = (text || '').replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
 }
 
@@ -95,10 +96,11 @@ function summarizeRelationshipChange(entry: RelationshipLedgerEntry, names: Map<
   const target = names.get(normalized.targetId) || cleanDisplayText(normalized.targetId, names) || '成员';
   const semantic = normalized.derived?.semantic;
   const latestEvidence = normalized.recentEvents.at(-1)?.summary || semantic?.summary || '';
-  const evidence = compactText(cleanDisplayText(latestEvidence, names), 76);
-  const semanticSummary = semantic?.summary ? cleanDisplayText(semantic.summary, names) : '';
+  const evidence = hasPrivateRelationshipSemanticRisk(latestEvidence) ? '' : compactText(cleanDisplayText(latestEvidence, names), 76);
+  const semanticSummary = buildPublicSafeRelationshipSemanticSummary(normalized, (text, max) => compactText(cleanDisplayText(text || '', names), max));
   const semanticChips = [semantic?.stage, ...(semantic?.labels || []).slice(0, 2)]
     .filter(Boolean)
+    .filter((chip) => !hasPrivateRelationshipSemanticRisk(String(chip)))
     .map((chip) => cleanDisplayText(String(chip), names))
     .filter(Boolean);
   return {
