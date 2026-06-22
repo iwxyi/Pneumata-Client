@@ -251,6 +251,10 @@ function StoryCluePanel({ chat, members }: { chat: GroupChat; members: AICharact
   const latestQuestion = formatItems(state.openQuestions).at(-1) || formatItems(state.chapterRecap?.unresolvedQuestions).at(-1) || '';
   const latestClue = formatItems(state.clues).at(-1) || formatItems(state.chapterRecap?.discoveredClues).at(-1) || '';
   const latestRisk = formatItems(state.stakes).at(-1) || formatItems(state.chapterRecap?.stakes).at(-1) || '';
+  const latestChoice = state.choiceHistory?.slice(-1)[0] || null;
+  const recapClues = formatItems(state.chapterRecap?.discoveredClues);
+  const recapQuestions = formatItems(state.chapterRecap?.unresolvedQuestions);
+  const recapImpacts = formatItems(state.chapterRecap?.choiceImpacts);
   const counts = [
     `${state.openQuestions?.length || 0} 个悬念`,
     `${state.clues?.length || 0} 条线索`,
@@ -269,15 +273,21 @@ function StoryCluePanel({ chat, members }: { chat: GroupChat; members: AICharact
       <StoryAssetList title="未解悬念" tone="question" items={formatItems(state.openQuestions)} emptyText="暂无明确未解悬念" />
       <StoryAssetList title="已发现线索" tone="clue" items={formatItems(state.clues)} emptyText="暂无已沉淀线索" />
       <StoryAssetList title="当前风险" tone="risk" items={formatItems(state.stakes)} emptyText="暂无明确风险" />
-      {state.chapterRecap?.unresolvedQuestions?.length || state.chapterRecap?.discoveredClues?.length ? (
+      {state.chapterRecap?.unresolvedQuestions?.length || state.chapterRecap?.discoveredClues?.length || latestChoice?.impact ? (
         <Box sx={{ px: 1, py: 0.85, borderRadius: 1.25, bgcolor: 'rgba(14,165,233,0.07)' }}>
-          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35, fontWeight: 700 }}>章节回看</Typography>
-          {state.chapterRecap.discoveredClues.slice(-2).map((item) => (
-            <Typography key={`recap-clue:${item}`} variant="body2" sx={{ lineHeight: 1.55 }}>发现：{formatNarrativeLineText(item, members)}</Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35, fontWeight: 700 }}>伏笔回看</Typography>
+          {recapClues.slice(-2).map((item) => (
+            <Typography key={`recap-clue:${item}`} variant="body2" sx={{ lineHeight: 1.55 }}>本章用到：{item}</Typography>
           ))}
-          {state.chapterRecap.unresolvedQuestions.slice(-2).map((item) => (
-            <Typography key={`recap-question:${item}`} variant="body2" sx={{ lineHeight: 1.55 }}>未解：{formatNarrativeLineText(item, members)}</Typography>
+          {recapQuestions.slice(-2).map((item) => (
+            <Typography key={`recap-question:${item}`} variant="body2" sx={{ lineHeight: 1.55 }}>仍待回答：{item}</Typography>
           ))}
+          {recapImpacts.slice(-1).map((item) => (
+            <Typography key={`recap-impact:${item}`} variant="body2" sx={{ lineHeight: 1.55 }}>选择影响：{item}</Typography>
+          ))}
+          {latestChoice?.impact && !recapImpacts.includes(formatNarrativeLineText(latestChoice.impact, members)) ? (
+            <Typography variant="body2" sx={{ lineHeight: 1.55 }}>选择影响：{formatNarrativeLineText(latestChoice.impact, members)}</Typography>
+          ) : null}
         </Box>
       ) : null}
     </Stack>

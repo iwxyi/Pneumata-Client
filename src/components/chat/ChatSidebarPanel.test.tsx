@@ -147,6 +147,18 @@ function buildStoryChat(): GroupChat {
         impact: `${uuidA} 和 ${uuidB} 的信任出现裂缝`,
         choiceEpoch: 2,
       }],
+      chapterRecap: {
+        title: '血迹名单',
+        summary: '旧医院的线索开始收束。',
+        discoveredClues: ['病历被撕掉一页'],
+        unresolvedQuestions: [`${uuidB} 为什么隐瞒停电记录？`],
+        changedRelationships: [`${uuidA} 开始怀疑 ${uuidB}`],
+        stakes: ['暴露位置'],
+        lastChoiceLabels: [`${uuidA} 追问护士`],
+        choiceImpacts: [`${uuidA} 和 ${uuidB} 的信任出现裂缝`],
+        updatedAt: 4,
+        beatCount: 3,
+      },
       roleAssignments: [
         { actorId: uuidA, roleId: 'protagonist' },
         { actorId: uuidB, roleId: 'suspect' },
@@ -224,6 +236,10 @@ describe('ChatSidebarPanel story room panels', () => {
     expect(html).toContain('追踪：护士 为什么隐瞒停电记录？');
     expect(html).toContain('最近线索：病历被撕掉一页');
     expect(html).toContain('当前风险：暴露位置');
+    expect(html).toContain('伏笔回看');
+    expect(html).toContain('本章用到：病历被撕掉一页');
+    expect(html).toContain('仍待回答：护士 为什么隐瞒停电记录？');
+    expect(html).toContain('选择影响：林医生 和 护士 的信任出现裂缝');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
   });
