@@ -28,6 +28,7 @@ export type RoomTemplateKey =
   | 'story_reader'
   | 'campus_story'
   | 'romance_story'
+  | 'palace_intrigue_story'
   | 'ielts_coach'
   | 'interview_prep'
   | 'writing_coach'
@@ -297,6 +298,44 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
         label: '可选补充',
         fields: [
           { key: 'storyOutline', label: '关键节点', kind: 'textarea', placeholder: '例如：表白、误会、吃醋、和好' },
+        ],
+      },
+    ],
+  }),
+  createTemplate({
+    key: 'palace_intrigue_story',
+    label: '权谋宅斗',
+    description: '适合侯府、宫廷、家族秘密和多方试探。',
+    structure: 'conversation',
+    category: 'story',
+    categoryLabel: '互动故事',
+    sessionKind: createTemplateSessionKind('group', 'scripted_play', { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' }),
+    style: 'roleplay',
+    runtimeEvolutionIntensity: 'slow',
+    topicPlaceholder: '例如：新婚夜、太后密诏、侯府旧账',
+    defaults: {
+      storyBranchMode: 'guided',
+      allowPrivateThreads: false,
+      allowCliques: true,
+      allowMockery: false,
+      storyBackground: '新婚夜的侯府喜帐还未撤下，枕下却藏着一把淬毒短剑。太后密诏、军器监烙印和顾家旧账同时浮出水面，每个来请安的人都像是在替不同势力探口风。',
+      storyDirection: '权谋宅斗推进：围绕太后试探、侯府旧账、枕下毒剑和贴身丫鬟的隐瞒展开，让用户在示弱、逼问、结盟、反试探和保全名声之间做关键选择。',
+      storyOutline: '开场从新婚房中的毒剑和军器监烙印切入；第一轮让贴身丫鬟、婆母和太后口信形成三方压力；后续选择影响顾家信任、宫中态度和女主能否掌握主动权。',
+    },
+    configGroups: [
+      {
+        key: 'palace-intrigue-required',
+        label: '权谋主设定',
+        fields: [
+          { key: 'storyBackground', label: '局势背景', kind: 'textarea', required: true, placeholder: '侯府、宫廷、婚事、家族旧账或势力关系' },
+          { key: 'storyDirection', label: '博弈方向', kind: 'textarea', required: true, placeholder: '宅斗、权谋、宫廷试探、家族秘密、名声危机等' },
+        ],
+      },
+      {
+        key: 'palace-intrigue-optional',
+        label: '可选补充',
+        fields: [
+          { key: 'storyOutline', label: '关键伏笔', kind: 'textarea', placeholder: '例如：太后密诏、嫁妆账册、毒物来源、旧案翻出' },
         ],
       },
     ],

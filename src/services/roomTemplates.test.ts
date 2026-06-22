@@ -4,7 +4,7 @@ import { STORY_ENGINE } from './engines/storyEngine';
 import { getRoomTemplate } from './roomTemplates';
 import type { RoomTemplateKey } from './roomTemplates';
 
-const storyTemplateKeys: RoomTemplateKey[] = ['story_reader', 'campus_story', 'romance_story'];
+const storyTemplateKeys: RoomTemplateKey[] = ['story_reader', 'campus_story', 'romance_story', 'palace_intrigue_story'];
 
 function buildStoryDraft(key: RoomTemplateKey, topic: string, memberIds = ['lin', 'nurse']) {
   const template = getRoomTemplate(key);
@@ -92,7 +92,7 @@ describe('roomTemplates story seeds', () => {
       expect(state?.openQuestions?.length).toBeGreaterThanOrEqual(2);
       expect(state?.clues?.length).toBeGreaterThanOrEqual(1);
       expect(state?.stakes?.length).toBeGreaterThanOrEqual(1);
-      expect(seedText).toMatch(/秘密|真相|停电|失踪|匿名|误发|照片|语音|名单|压力|暴露|裂缝|竞争|误会|分手/);
+      expect(seedText).toMatch(/秘密|真相|停电|失踪|匿名|误发|照片|语音|名单|压力|暴露|裂缝|竞争|误会|分手|太后|侯府|毒剑|密诏|旧账/);
     }
   });
 
@@ -171,6 +171,29 @@ describe('roomTemplates story seeds', () => {
     ]));
     expect(romance.scenarioState?.relationshipShifts).toEqual(expect.arrayContaining([
       expect.stringContaining('误会'),
+    ]));
+  });
+
+  it('derives concrete opening hooks for palace intrigue story template', () => {
+    const intrigue = buildStoryDraft('palace_intrigue_story', '太后密诏', ['bride', 'maid']);
+
+    expect(intrigue.scenarioState?.storySituation).toContain('侯府');
+    expect(intrigue.scenarioState?.currentScene).toEqual(expect.objectContaining({
+      location: expect.stringMatching(/侯府|喜房|新婚房/),
+      visibleThreat: expect.stringMatching(/太后|毒|试探|侯府/),
+    }));
+    expect(intrigue.scenarioState?.openQuestions).toEqual(expect.arrayContaining([
+      '太后和侯府各自在试探谁，又想逼谁先露底？',
+      '枕下毒剑到底是谁放进去的？',
+    ]));
+    expect(intrigue.scenarioState?.clues).toEqual(expect.arrayContaining([
+      expect.stringMatching(/密诏|军器监|毒剑|烙印/),
+    ]));
+    expect(intrigue.scenarioState?.stakes).toEqual(expect.arrayContaining([
+      expect.stringMatching(/太后|侯府|名声|毒/),
+    ]));
+    expect(intrigue.scenarioState?.relationshipShifts).toEqual(expect.arrayContaining([
+      expect.stringMatching(/试探|顾家|丫鬟|太后/),
     ]));
   });
 });

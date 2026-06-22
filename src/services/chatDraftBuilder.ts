@@ -160,7 +160,7 @@ function inferInitialSceneTime(seedTexts: string[]) {
 
 function inferInitialSceneLocation(seedTexts: string[], subject: string) {
   const text = seedTexts.join(' / ');
-  const locationPattern = /(?:旧医院走廊|旧医院|地下档案室|封锁(?:的)?旧住院楼|旧住院楼|走廊尽头|宿舍群|宿舍|社团办公室|告白墙|校园|学校|医院|旧楼|走廊|病房|档案室|地下室|住院楼|妆台|侯府|房间|门口|院子|街|巷|车站|教室|办公室|实验室|仓库|码头|森林|城堡|宫殿)/g;
+  const locationPattern = /(?:旧医院走廊|旧医院|地下档案室|封锁(?:的)?旧住院楼|旧住院楼|走廊尽头|宿舍群|宿舍|社团办公室|告白墙|校园|学校|医院|旧楼|走廊|病房|档案室|地下室|住院楼|新婚房|喜房|侯府喜帐|侯府|妆台|宫中|宫门|宫殿|太后寝宫|内宅|正院|祠堂|账房|房间|门口|院子|街|巷|车站|教室|办公室|实验室|仓库|码头|森林|城堡)/g;
   return compactStorySeedAsset(
     pickFirstMatch(text, locationPattern) || subject,
     32,
@@ -173,9 +173,9 @@ function inferInitialVisibleThreat(sentences: string[]) {
 }
 
 function inferInitialSeedAssets(sentences: string[]) {
-  const clues = sentences.filter((sentence) => /(线索|证据|记录|名单|钥匙|档案|病历|血迹|痕迹|照片|录音|门缝|脚印|异常|真相|告白墙|停电)/.test(sentence));
-  const stakes = sentences.filter((sentence) => /(危险|代价|风险|威胁|暴露|失去|来不及|安全|封锁|秘密|隐瞒|失踪|竞争|裂缝|公开质问|冒险|真相|旧账|吃醋|保护欲|误会)/.test(sentence));
-  const relationshipShifts = sentences.filter((sentence) => /(信任|怀疑|保护|隐瞒|背叛|靠近|疏远|敌意|动摇|试探|质问|承认|否认|友情|关系|站队|旧情人|现任|旧账|吃醋|保护欲|误会|拉扯)/.test(sentence));
+  const clues = sentences.filter((sentence) => /(线索|证据|记录|名单|钥匙|档案|病历|血迹|痕迹|照片|录音|门缝|脚印|异常|真相|告白墙|停电|密诏|诏书|账册|账本|嫁妆|烙印|军器监|毒剑|短剑|毒物|玉佩|信物|口信)/.test(sentence));
+  const stakes = sentences.filter((sentence) => /(危险|代价|风险|威胁|暴露|失去|来不及|安全|封锁|秘密|隐瞒|失踪|竞争|裂缝|公开质问|冒险|真相|旧账|吃醋|保护欲|误会|名声|赐婚|太后|宫中|侯府|家族|顾家|势力|试探|毒|淬毒|保全)/.test(sentence));
+  const relationshipShifts = sentences.filter((sentence) => /(信任|怀疑|保护|隐瞒|背叛|靠近|疏远|敌意|动摇|试探|质问|承认|否认|友情|关系|站队|旧情人|现任|旧账|吃醋|保护欲|误会|拉扯|结盟|示弱|逼问|婆母|丫鬟|女主|太后|顾家|探口风)/.test(sentence));
   return {
     clues: mergeStorySeedAssets(clues, 4),
     stakes: mergeStorySeedAssets(stakes, 4),
@@ -194,6 +194,9 @@ function inferInitialOpenQuestions(subject: string, direction: string, sentences
   if (/停电/.test(text)) add('停电期间到底是谁改变了现场？');
   if (/(匿名|照片|告白墙)/.test(text)) add('匿名照片是谁发出来的，又想逼谁暴露？');
   if (/(误发|语音|三年前|分手真相|订婚宴)/.test(text)) add('误发语音为什么会把旧真相重新翻出来？');
+  if (/(太后|密诏|宫中|侯府|顾家|军器监)/.test(text)) add('太后和侯府各自在试探谁，又想逼谁先露底？');
+  if (/(毒剑|短剑|淬毒|毒物|烙印)/.test(text)) add('枕下毒剑到底是谁放进去的？');
+  if (/(账册|账本|嫁妆|旧账)/.test(text)) add('侯府旧账里藏着哪一笔不能见光的交易？');
   if (/(隐瞒|秘密|无法解释|真相)/.test(text)) add(`${subject || '这个故事'}里最先暴露的秘密会牵连谁？`);
   if (subject) add(`${subject}背后真正隐藏着什么？`);
   else if (direction) add(`${direction}会把角色推向什么转折？`);
