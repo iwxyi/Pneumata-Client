@@ -5,6 +5,7 @@ import { formatBeatType, formatKnownReason } from './runtimeInsightPresentation'
 import { formatGuidanceExecutionReasonLabel, formatGuidanceExecutionStatusLabel, formatGuidanceKindLabel } from './guidancePresentation';
 import { classifyActorKindLabel } from './actorRefPresentation';
 import { formatFeedbackStatusLabel, formatGuidanceInputStatusLabel, resolveGuidanceExecutionStatus } from './runtimeStatusPresentation';
+import { hasPrivateRelationshipSemanticRisk } from './relationshipSemanticPrivacy';
 
 export interface MessageRuntimeClueSection {
   key: 'memory' | 'companionship' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'world_influence' | 'narrative' | 'feedback' | 'generation_runtime';
@@ -65,6 +66,18 @@ function asStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
+function hasHighRiskPrivateRuntimeClue(text: string | undefined | null) {
+  return /(不要公开|不能公开|别公开|只告诉|秘密|暗号|住址|地址|电话|手机号|微信|QQ|私下称呼|私下约定|私密|隐私)/.test(text || '');
+}
+
+function sanitizeCompanionshipRuntimeClues(items: string[], replacement: string) {
+  return items.map((item) => {
+    if (!hasPrivateRelationshipSemanticRisk(item) && !hasHighRiskPrivateRuntimeClue(item)) return item;
+    if (hasHighRiskPrivateRuntimeClue(item)) return replacement;
+    return item;
+  });
+}
+
 export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | null | undefined, members: DisplayTextMember[] = []): MessageRuntimeClueSection[] {
   const decision = message?.metadata?.runtimeDecision;
   if (!decision) return [];
@@ -105,6 +118,14 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
   const diagnostics = asStringArray(companionship?.diagnostics);
   const evidence = asStringArray(companionship?.evidence);
   const attachmentAdaptations = asStringArray(companionship?.attachmentProfile?.adaptations);
+  const safeSharedAnchors = sanitizeCompanionshipRuntimeClues(sharedAnchors, '有一条私域共同经历已隐藏原文');
+  const safeSharedPhrases = sanitizeCompanionshipRuntimeClues(sharedPhrases, '有一句私域共同话语已隐藏原文');
+  const safePendingPromises = sanitizeCompanionshipRuntimeClues(pendingPromises, '有一条私域约定已隐藏原文');
+  const safeBoundaries = sanitizeCompanionshipRuntimeClues(boundaries, '有一条私域边界已隐藏原文');
+  const safeBoundaryReasons = sanitizeCompanionshipRuntimeClues(boundaryReasons, '有一条私域克制原因已隐藏原文');
+  const safeEvidence = sanitizeCompanionshipRuntimeClues(evidence, '有一条私域证据已隐藏原文');
+  const intimateConflictSummary = companionship?.intimateConflict?.summary || '';
+  const safeIntimateConflictSummary = hasHighRiskPrivateRuntimeClue(intimateConflictSummary) ? '有一条私域冲突摘要已隐藏原文' : intimateConflictSummary;
   pushSection(sections, {
     key: 'companionship',
     label: '陪伴',
@@ -115,18 +136,18 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     items: companionship ? [
       `阶段：${companionship.phase}`,
       `称呼：${companionship.currentAddress}`,
-      sharedAnchors.length ? `共同锚点：${sharedAnchors.join(' / ')}` : '',
-      sharedPhrases.length ? `共同话语：${sharedPhrases.join(' / ')}` : '',
-      companionship.intimateConflict ? `亲密冲突：${companionship.intimateConflict.summary}（强度 ${companionship.intimateConflict.severity}，修复成熟度 ${companionship.intimateConflict.repairReadiness}）` : '',
+      safeSharedAnchors.length ? `共同锚点：${safeSharedAnchors.join(' / ')}` : '',
+      safeSharedPhrases.length ? `共同话语：${safeSharedPhrases.join(' / ')}` : '',
+      companionship.intimateConflict ? `亲密冲突：${safeIntimateConflictSummary}（强度 ${companionship.intimateConflict.severity}，修复成熟度 ${companionship.intimateConflict.repairReadiness}）` : '',
       companionship.attachmentProfile ? `依恋适配：${companionship.attachmentProfile.inferredStyle} · 置信 ${companionship.attachmentProfile.confidence}%${attachmentAdaptations.length ? ` · ${attachmentAdaptations.join(' / ')}` : ''}` : '',
       pendingCareTopics.length ? `关心事项：${pendingCareTopics.join(' / ')}` : '',
-      pendingPromises.length ? `未完成约定：${pendingPromises.join(' / ')}` : '',
+      safePendingPromises.length ? `未完成约定：${safePendingPromises.join(' / ')}` : '',
       rememberedUserPlans.length ? `记得计划：${rememberedUserPlans.join(' / ')}` : '',
-      boundaries.length ? `用户边界：${boundaries.join(' / ')}` : '',
-      boundaryReasons.length ? `克制原因：${boundaryReasons.join(' / ')}` : '',
+      safeBoundaries.length ? `用户边界：${safeBoundaries.join(' / ')}` : '',
+      safeBoundaryReasons.length ? `克制原因：${safeBoundaryReasons.join(' / ')}` : '',
       diagnostics.length ? `运行诊断：${diagnostics.join(' / ')}` : '',
       `画像置信：${companionship.userProfileConfidence}%`,
-      evidence.length ? `证据：${evidence.join(' / ')}` : '',
+      safeEvidence.length ? `证据：${safeEvidence.join(' / ')}` : '',
     ] : [],
     maxItems: 12,
   }, members);

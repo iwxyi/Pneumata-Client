@@ -194,6 +194,70 @@ describe('messageRuntimeClues', () => {
     ]));
   });
 
+  it('redacts high-risk private companionship clues while keeping care topics useful', () => {
+    const message: Pick<Message, 'metadata'> = {
+      metadata: {
+        runtimeDecision: {
+          companionshipContext: {
+            style: 'ambiguous',
+            phase: 'ambiguous',
+            currentAddress: '小夏',
+            sharedAnchors: ['秘密: 共同秘密是雨夜便利店暗号，不能公开说'],
+            sharedPhrases: ['秘密暗号：雨夜便利店'],
+            sharedSecrets: ['有一件只适合留在心里的事'],
+            rituals: [],
+            pendingCareTopics: ['明天面试有点紧张。'],
+            pendingPromises: ['私下约定：周末去雨夜便利店碰头'],
+            rememberedUserPlans: ['用户明天有面试。'],
+            boundaries: ['不要公开提雨夜便利店暗号'],
+            boundaryReasons: ['only private promise should stay private'],
+            userProfileCues: [],
+            carePolicy: {
+              dailyInitiationBudget: 2,
+              triggerSensitivity: 62,
+              silenceAnxietyThresholdHours: 24,
+              expressionIntensity: 58,
+              allowGoodMorning: true,
+              allowGoodNight: true,
+              allowMissYou: true,
+            },
+            addressingHistory: [],
+            careTopicHistory: [],
+            promiseHistory: [],
+            sharedAnchorHistory: [],
+            sharedSecretHistory: [],
+            sharedPhraseHistory: [],
+            ritualHistory: [],
+            phaseHistory: [],
+            userProfileHistory: [],
+            conflictHistory: [],
+            attachmentHistory: [],
+            diagnostics: [],
+            evidence: ['共同秘密是雨夜便利店暗号，不能公开说'],
+            intimacy: { attraction: 72, intimacy: 68, attachment: 66, longing: 50, exclusivity: 18, security: 76 },
+            userProfileConfidence: 68,
+          },
+        },
+      },
+    };
+    const sections = projectMessageRuntimeClues(message);
+    const companionshipText = (sections.find((section) => section.key === 'companionship')?.items || []).join(' / ');
+
+    expect(companionshipText).toContain('明天面试有点紧张');
+    expect(companionshipText).toContain('有一条私域共同经历已隐藏原文');
+    expect(companionshipText).toContain('有一句私域共同话语已隐藏原文');
+    expect(companionshipText).toContain('有一条私域约定已隐藏原文');
+    expect(companionshipText).toContain('有一条私域边界已隐藏原文');
+    expect(companionshipText).toContain('有一条私域证据已隐藏原文');
+    expect(companionshipText).not.toContain('雨夜便利店');
+    expect(companionshipText).not.toContain('不能公开说');
+
+    const prompt = formatMessageRuntimeCluesForPrompt(message);
+    expect(prompt).toContain('明天面试有点紧张');
+    expect(prompt).not.toContain('雨夜便利店');
+    expect(prompt).not.toContain('不能公开说');
+  });
+
   it('tolerates partial companionship context from older message metadata', () => {
     const sections = projectMessageRuntimeClues({
       metadata: {
