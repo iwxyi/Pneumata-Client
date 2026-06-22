@@ -56,6 +56,8 @@ describe('roomTemplates story seeds', () => {
     for (const key of storyTemplateKeys) {
       const template = getRoomTemplate(key);
       expect(template.sessionKind.scenarioId).toBe('story-reader');
+      expect(template.sellingPoints?.length).toBeGreaterThanOrEqual(3);
+      expect(template.sellingPoints?.join(' / ')).toMatch(/选择|线索|章节|关系|信任|试探|代价|回看|站队|旧账/);
       expect(template.defaults?.storyBackground?.trim().length).toBeGreaterThan(20);
       expect(template.defaults?.storyDirection?.trim().length).toBeGreaterThan(20);
       expect(template.defaults?.storyOutline?.trim().length).toBeGreaterThan(20);

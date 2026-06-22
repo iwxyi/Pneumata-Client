@@ -268,6 +268,29 @@ export default function GameplaySection(props: GameplaySectionProps) {
                           <Box sx={{ textAlign: 'left', width: '100%', display: 'flex', flexDirection: 'column', gap: 0.4 }}>
                             <Typography variant="body2" sx={{ fontWeight: 700 }}>{template.label}</Typography>
                             <Typography variant="caption" color="text.secondary">{template.description}</Typography>
+                            {template.sellingPoints?.length ? (
+                              <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.15 }}>
+                                {template.sellingPoints.slice(0, 3).map((point) => (
+                                  <Chip
+                                    key={point}
+                                    size="small"
+                                    label={point}
+                                    variant="outlined"
+                                    sx={{
+                                      height: 20,
+                                      maxWidth: '100%',
+                                      '& .MuiChip-label': {
+                                        px: 0.75,
+                                        fontSize: 11,
+                                        maxWidth: 120,
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                      },
+                                    }}
+                                  />
+                                ))}
+                              </Stack>
+                            ) : null}
                           </Box>
                         </Button>
                       );

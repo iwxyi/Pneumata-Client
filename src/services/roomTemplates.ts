@@ -91,6 +91,7 @@ export interface RoomTemplateDefinition {
   key: RoomTemplateKey;
   label: string;
   description: string;
+  sellingPoints?: string[];
   structure: RoomTemplateStructure;
   category: RoomTemplateCategory;
   categoryLabel: string;
@@ -190,6 +191,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'story_reader',
     label: '故事房',
     description: '用选项和角色反应推动故事分支。',
+    sellingPoints: ['关键选择留后果', '线索账本', '章节回看'],
     structure: 'conversation',
     category: 'story',
     categoryLabel: '互动故事',
@@ -230,6 +232,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'campus_story',
     label: '校园群像',
     description: '适合校园、宿舍、社团群像互动。',
+    sellingPoints: ['友情裂缝', '匿名线索', '站队变化'],
     structure: 'conversation',
     category: 'story',
     categoryLabel: '互动故事',
@@ -268,6 +271,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'romance_story',
     label: '恋爱剧情',
     description: '适合暧昧、恋爱、修罗场和关系推进剧情。',
+    sellingPoints: ['关系拉扯', '选择影响信任', '修罗场回看'],
     structure: 'conversation',
     category: 'story',
     categoryLabel: '互动故事',
@@ -306,6 +310,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'palace_intrigue_story',
     label: '权谋宅斗',
     description: '适合侯府、宫廷、家族秘密和多方试探。',
+    sellingPoints: ['太后试探', '侯府旧账', '名声代价'],
     structure: 'conversation',
     category: 'story',
     categoryLabel: '互动故事',
