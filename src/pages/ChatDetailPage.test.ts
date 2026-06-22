@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../types/message';
 import { useMessageStore } from '../stores/useMessageStore';
-import { buildStoryChoicePendingKey, buildStoryReaderTextInputCapabilities, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryReaderComposerPlaceholder, getStoryTailStatus, isStoryChoicePending, shouldAutoStartStoryRoom, shouldRegisterLiveNarrativeReveal, shouldRouteTextAsStoryCustomDirection } from './ChatDetailPage';
+import { buildStoryChoicePendingKey, buildStoryReaderTextInputCapabilities, buildVisibleStoryBranchOptions, findVisibleStoryChoiceSourceMessage, getStoryReaderComposerPlaceholder, getStoryTailStatus, isStoryChoicePending, resolveEffectiveStoryReaderAtTail, shouldAutoStartStoryRoom, shouldRegisterLiveNarrativeReveal, shouldRouteTextAsStoryCustomDirection } from './ChatDetailPage';
 
 function buildPauseResumeMessages() {
   return [] as string[];
@@ -202,6 +202,24 @@ describe('ChatDetailPage pause/resume behavior', () => {
     expect(shouldAutoStartStoryRoom({ ...base, hasRunLoopError: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isStoryRoom: false })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, canAutoRunConversation: false })).toBe(false);
+  });
+
+  it('treats restored non-tail story reading positions as not at tail until the reader reaches the tail again', () => {
+    expect(resolveEffectiveStoryReaderAtTail({
+      isStoryReaderAtTail: true,
+      hasSavedNonTailStoryReadingPosition: true,
+      hasStoryReaderReachedTailIntent: false,
+    })).toBe(false);
+    expect(resolveEffectiveStoryReaderAtTail({
+      isStoryReaderAtTail: true,
+      hasSavedNonTailStoryReadingPosition: true,
+      hasStoryReaderReachedTailIntent: true,
+    })).toBe(true);
+    expect(resolveEffectiveStoryReaderAtTail({
+      isStoryReaderAtTail: false,
+      hasSavedNonTailStoryReadingPosition: false,
+      hasStoryReaderReachedTailIntent: true,
+    })).toBe(false);
   });
 
   it('does not register restored narrative history for live reveal after returning to a chat', () => {

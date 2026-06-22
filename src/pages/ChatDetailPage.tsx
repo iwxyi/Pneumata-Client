@@ -250,6 +250,15 @@ export function shouldAutoStartStoryRoom(params: {
     && !params.hasRunLoopError;
 }
 
+export function resolveEffectiveStoryReaderAtTail(params: {
+  isStoryReaderAtTail: boolean;
+  hasSavedNonTailStoryReadingPosition: boolean;
+  hasStoryReaderReachedTailIntent: boolean;
+}) {
+  if (params.hasSavedNonTailStoryReadingPosition && !params.hasStoryReaderReachedTailIntent) return false;
+  return params.isStoryReaderAtTail;
+}
+
 function getNarrativeRevealIdentityKeys(message: Message) {
   if (message.type !== 'ai' || !message.metadata?.narrativeTurn) return [];
   return [message.id, message.clientKey, message.serverId].filter((key): key is string => Boolean(key));
@@ -1794,7 +1803,11 @@ export default function ChatDetailPage() {
   }, [id, isStoryRoom, setChatReadingPosition]);
 
   useEffect(() => {
-    const effectiveStoryReaderAtTail = hasSavedNonTailStoryReadingPosition && !hasStoryReaderReachedTailIntent ? false : isStoryReaderAtTail;
+    const effectiveStoryReaderAtTail = resolveEffectiveStoryReaderAtTail({
+      isStoryReaderAtTail,
+      hasSavedNonTailStoryReadingPosition,
+      hasStoryReaderReachedTailIntent,
+    });
     if (!shouldAutoStartStoryRoom({
       hasChat: Boolean(chat),
       hasChatId: Boolean(id),
