@@ -346,17 +346,23 @@ function onMessageCommitted(params: {
   const previousChoiceHistory = params.conversation.scenarioState?.choiceHistory || [];
   const nextChoiceHistory = updateChoiceHistoryOutcome(params.conversation, summary, storyAssets);
   const selectedEpoch = Number(params.conversation.scenarioState?.selectedChoiceEpoch || 0);
-  const resolvedActiveChoice = params.conversation.scenarioState?.phase !== 'branch'
-    || !params.conversation.scenarioState?.selectedChoice
-    || nextChoiceHistory.some((choice, index) => (
+  const branchConsequenceTurn = params.conversation.scenarioState?.phase === 'branch';
+  const resolvingSelectedChoice = branchConsequenceTurn
+    && Boolean(params.conversation.scenarioState?.selectedChoice);
+  const recordedSelectedChoiceOutcome = resolvingSelectedChoice
+    && nextChoiceHistory.some((choice, index) => (
       Boolean(choice.outcome)
       && !previousChoiceHistory[index]?.outcome
       && (!selectedEpoch || Number(choice.choiceEpoch || 0) === selectedEpoch)
     ));
-  const keepResolvingChoice = params.conversation.scenarioState?.phase === 'branch'
-    && Boolean(params.conversation.scenarioState?.selectedChoice)
-    && !resolvedActiveChoice;
-  const nextSceneBeatCount = normalized.openedChoice || keepResolvingChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1;
+  if (resolvingSelectedChoice && !recordedSelectedChoiceOutcome) {
+    appendDiagnostic({
+      code: 'choice_consequence_unresolved',
+      level: 'error',
+      message: '选择后果回合没有形成可记录的选择结果；已结束本次选择兑现，避免同一选择被反复续写。',
+    });
+  }
+  const nextSceneBeatCount = normalized.openedChoice ? 0 : Number(params.conversation.scenarioState?.sceneBeatCount || 0) + 1;
   const chapterRecap = buildChapterRecap({
     conversation: {
       ...params.conversation,
@@ -392,11 +398,12 @@ function onMessageCommitted(params: {
     choiceHistory: nextChoiceHistory,
     ...(params.conversation.scenarioState?.readerRole ? { readerRole } : {}),
     storyProtocolDiagnostics: diagnostics.slice(-20),
-    phase: normalized.hasOpenChoice ? 'choice' : keepResolvingChoice ? 'branch' : 'scene',
+    phase: normalized.hasOpenChoice ? 'choice' : 'scene',
     sceneBeatCount: nextSceneBeatCount,
     choiceEpoch: nextEpoch,
-    selectedChoiceEpoch: normalized.openedChoice || (params.conversation.scenarioState?.phase === 'branch' && !keepResolvingChoice) ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
-    selectedChoice: params.conversation.scenarioState?.phase === 'branch' && !keepResolvingChoice ? null : params.conversation.scenarioState?.selectedChoice,
+    selectedChoiceEpoch: normalized.openedChoice || branchConsequenceTurn ? undefined : params.conversation.scenarioState?.selectedChoiceEpoch,
+    selectedChoice: branchConsequenceTurn ? null : params.conversation.scenarioState?.selectedChoice,
+    storyDirection: branchConsequenceTurn ? undefined : params.conversation.scenarioState?.storyDirection,
     branches: normalized.branches,
   };
   const nextBeatPlan = resolveStoryBeatPlan({ ...params.conversation, scenarioState: nextScenarioState });

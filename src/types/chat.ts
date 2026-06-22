@@ -130,6 +130,7 @@ export interface StoryProtocolDiagnostic {
     | 'choice_forbidden'
     | 'choice_required_missing'
     | 'choice_subject_mismatch'
+    | 'choice_consequence_unresolved'
     | 'choice_gate_mismatch'
     | 'empty_story_events'
     | 'chapter_title_missing'

@@ -116,6 +116,7 @@ function formatStoryProtocolDiagnosticCode(code: string) {
     choice_forbidden: '禁止抉择时输出选项',
     choice_required_missing: '必须抉择时缺少选项',
     choice_subject_mismatch: '选项主语不匹配',
+    choice_consequence_unresolved: '选择后果未兑现',
     choice_gate_mismatch: '选择闸门不一致',
     empty_story_events: '缺少可见故事事件',
     chapter_title_missing: '章节标题缺失',

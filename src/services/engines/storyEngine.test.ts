@@ -492,7 +492,7 @@ describe('STORY_ENGINE', () => {
     ]));
   });
 
-  it('keeps the selected branch active when the committed beat does not resolve the chosen promise', async () => {
+  it('consumes the selected branch once and records a diagnostic when the consequence is unresolved', async () => {
     const chat = buildStoryChat();
     chat.scenarioState = {
       phase: 'branch',
@@ -506,6 +506,7 @@ describe('STORY_ENGINE', () => {
         reward: '得到停电线索',
         choiceEpoch: 2,
       },
+      storyDirection: '林医生逼问护士说出停电时的真相',
       choiceHistory: [{
         branchId: 'ask',
         label: '让林医生追问护士昨晚去向',
@@ -530,16 +531,21 @@ describe('STORY_ENGINE', () => {
     });
 
     expect(result.chatPatch.scenarioState).toEqual(expect.objectContaining({
-      phase: 'branch',
-      sceneBeatCount: 0,
-      selectedChoiceEpoch: 2,
-      selectedChoice: expect.objectContaining({
-        label: '让林医生追问护士昨晚去向',
-      }),
-      storyBeatKind: 'consequence',
+      phase: 'scene',
+      sceneBeatCount: 1,
+      selectedChoiceEpoch: undefined,
+      selectedChoice: null,
+      storyDirection: undefined,
+      storyBeatKind: 'pressure',
       storyChoicePolicy: 'forbid',
     }));
     expect(result.chatPatch.scenarioState?.choiceHistory?.[0]).not.toHaveProperty('outcome');
+    expect(result.chatPatch.scenarioState?.storyProtocolDiagnostics).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'choice_consequence_unresolved',
+        level: 'error',
+      }),
+    ]));
   });
 
   it('does not append duplicate choice history when the same epoch is selected again before state catches up', async () => {
