@@ -339,6 +339,40 @@ describe('ChatNarrativePanel', () => {
     expect(branchHtml).not.toContain(uuidB);
   });
 
+  it('shows a first-scene waiting state before story assets exist', async () => {
+    const memoryStorage = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => memoryStorage.get(key) ?? null,
+        setItem: (key: string, value: string) => { memoryStorage.set(key, value); },
+        removeItem: (key: string) => { memoryStorage.delete(key); },
+        clear: () => { memoryStorage.clear(); },
+      },
+    });
+    const { default: ChatNarrativePanel } = await import('./ChatNarrativePanel');
+    const html = renderToStaticMarkup(
+      <ChatNarrativePanel
+        hideTitle
+        chat={{
+          ...buildChat(),
+          mode: 'scripted_play' as const,
+          sessionKind: { family: 'conversation' as const, scenarioId: 'story-reader', surfaceProfile: 'hybrid' as const, topology: 'group' as const },
+          scenarioState: { phase: 'scene' },
+        }}
+        members={[buildCharacter(uuidA, '红太狼'), buildCharacter(uuidB, '灰太狼')]}
+        messages={[]}
+      />,
+    );
+
+    expect(html).toContain('等待第一节生成');
+    expect(html).toContain('第一节生成后，这里会显示当前目标、处境、悬念、线索和选择后果。');
+    expect(html).toContain('开场');
+    expect(html).not.toContain('没有待选项时，故事会按当前目标继续推进。');
+    expect(html).not.toContain(uuidA);
+    expect(html).not.toContain(uuidB);
+  });
+
   it('uses the latest chapter recap assets in story settlement', async () => {
     const memoryStorage = new Map<string, string>();
     Object.defineProperty(globalThis, 'localStorage', {

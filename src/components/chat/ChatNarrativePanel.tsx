@@ -417,6 +417,13 @@ function formatStoryBeatKind(kind: string | undefined) {
 function getStoryProgressCopy(chat: GroupChat, members: AICharacter[]) {
   if (chat.sessionKind?.scenarioId !== 'story-reader') return null;
   const state = chat.scenarioState || {};
+  if (!hasStoryAssets(chat) && !state.storyGoal && !state.storySituation && !state.storyDirection && !state.storyBackground) {
+    return {
+      title: '等待第一节生成',
+      body: '第一节生成后，这里会显示当前目标、处境、悬念、线索和选择后果。',
+      chips: ['开场'],
+    };
+  }
   const phase = state.phase || 'scene';
   const beatLabel = formatStoryBeatKind(state.storyBeatKind);
   const latestChoice = state.selectedChoice || state.choiceHistory?.slice(-1)[0] || null;
