@@ -496,6 +496,8 @@ async function main() {
       hasDiagnosticText: document.body.innerText.includes('新的抉择点'),
       hasDeveloperChoiceMeta: /意图[：:]|风险[：:]|收益[：:]/.test(document.body.innerText),
       hasStoryQuality: document.body.innerText.includes('故事质量') || document.body.innerText.includes('质量 72'),
+      hasDeveloperTab: Array.from(document.querySelectorAll('button')).some((button) => button.innerText.trim() === '开发者'),
+      hasProtocolDiagnosticPanel: document.body.innerText.includes('故事协议诊断') || document.body.innerText.includes('epoch：'),
       hasContinueButton: Array.from(document.querySelectorAll('button')).some((button) => button.innerText.includes('继续剧情')),
       hasChoicePrompt: document.body.innerText.includes('选择接下来的剧情走向'),
       hasSpeech: document.body.innerText.includes('不要碰那道血迹')
@@ -506,6 +508,8 @@ async function main() {
     assertCondition(!before.hasDiagnosticText, 'Developer-only story diagnostic text leaked to normal UI', before);
     assertCondition(!before.hasDeveloperChoiceMeta, 'Developer-only story choice meta leaked to normal UI', before);
     assertCondition(!before.hasStoryQuality, 'Developer-only story quality trace leaked to normal UI', before);
+    assertCondition(!before.hasDeveloperTab, 'Developer sidebar tab leaked to normal story UI', before);
+    assertCondition(!before.hasProtocolDiagnosticPanel, 'Story protocol diagnostics leaked to normal story UI', before);
     assertCondition(!before.hasContinueButton, 'Story room exposed a continue button instead of auto-running', before);
     assertCondition(before.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing', before.buttons);
     await evaluate(cdp, `Promise.all([
@@ -629,6 +633,8 @@ async function main() {
       messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
       hasDiagnosticText: document.body.innerText.includes('新的抉择点'),
       hasDeveloperChoiceMeta: /意图[：:]|风险[：:]|收益[：:]/.test(document.body.innerText),
+      hasDeveloperTab: Array.from(document.querySelectorAll('button')).some((button) => button.innerText.trim() === '开发者'),
+      hasProtocolDiagnosticPanel: document.body.innerText.includes('故事协议诊断') || document.body.innerText.includes('epoch：'),
       hasContinueButton: Array.from(document.querySelectorAll('button')).some((button) => button.innerText.includes('继续剧情')),
       hasChoicePrompt: document.body.innerText.includes('选择接下来的剧情走向'),
       hasSpeech: document.body.innerText.includes('不要碰那道血迹')
@@ -638,6 +644,8 @@ async function main() {
     assertCondition(afterReturn.hasSpeech, 'Story speech bubble disappeared after returning from character details', afterReturn);
     assertCondition(!afterReturn.hasDiagnosticText, 'Developer-only story diagnostic text leaked after returning from character details', afterReturn);
     assertCondition(!afterReturn.hasDeveloperChoiceMeta, 'Developer-only story choice meta leaked after returning from character details', afterReturn);
+    assertCondition(!afterReturn.hasDeveloperTab, 'Developer sidebar tab leaked after returning from character details', afterReturn);
+    assertCondition(!afterReturn.hasProtocolDiagnosticPanel, 'Story protocol diagnostics leaked after returning from character details', afterReturn);
     assertCondition(!afterReturn.hasContinueButton, 'Story room exposed a continue button after returning from character details', afterReturn);
     assertCondition(afterReturn.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing after returning from character details', afterReturn.buttons);
     assertCondition(new Set(afterReturn.messageIds).size === afterReturn.messageIds.length, 'Story message nodes duplicated after returning from character details', afterReturn.messageIds);
@@ -710,12 +718,16 @@ async function main() {
       messageIds: Array.from(document.querySelectorAll('[data-message-id]')).map((node) => node.getAttribute('data-message-id')),
       messageTypes: Array.from(document.querySelectorAll('[data-message-type]')).map((node) => node.getAttribute('data-message-type')),
       hasDeveloperChoiceMeta: /意图[：:]|风险[：:]|收益[：:]/.test(document.body.innerText),
+      hasDeveloperTab: Array.from(document.querySelectorAll('button')).some((button) => button.innerText.trim() === '开发者'),
+      hasProtocolDiagnosticPanel: document.body.innerText.includes('故事协议诊断') || document.body.innerText.includes('epoch：'),
       hasContinueButton: Array.from(document.querySelectorAll('button')).some((button) => button.innerText.includes('继续剧情'))
     })`));
     assertCondition(after.text.includes('你选择了'), 'Selected choice reading node was not visible after choosing', after);
     assertCondition(!after.buttons.includes('让林医生追问护士昨晚去向'), 'Story choice button remained visible after choosing', after.buttons);
     assertCondition(after.messageTypes.includes('user'), 'Selected choice did not render as a user narrative node', after);
     assertCondition(!after.hasDeveloperChoiceMeta, 'Developer-only selected choice meta leaked to normal UI', after);
+    assertCondition(!after.hasDeveloperTab, 'Developer sidebar tab leaked after selecting a story choice', after);
+    assertCondition(!after.hasProtocolDiagnosticPanel, 'Story protocol diagnostics leaked after selecting a story choice', after);
     assertCondition(!after.hasContinueButton, 'Story room exposed a continue button after choosing', after);
     const normalChoiceStore = JSON.parse(await evaluate(cdp, `Promise.all([
       import('/src/stores/useChatStore.ts'),
