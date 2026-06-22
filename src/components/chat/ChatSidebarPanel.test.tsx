@@ -281,13 +281,14 @@ describe('ChatSidebarPanel story room panels', () => {
     const html = await renderPanel('roles');
 
     expect(html).toContain('1 位在场');
-    expect(html).toContain('1 条关系变化');
+    expect(html).toContain('2 条关系变化');
     expect(html).toContain('场上压力：护士 门外还有脚步声');
     expect(html).toContain('阵营：医院旧案');
     expect(html).toContain('林医生');
     expect(html).toContain('在场');
     expect(html).toContain('护士');
     expect(html).toContain('林医生 开始怀疑 护士');
+    expect(html).toContain('林医生 和 护士 的信任出现裂缝');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
   });

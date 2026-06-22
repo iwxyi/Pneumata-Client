@@ -349,7 +349,13 @@ function StoryCluePanel({ chat, members }: { chat: GroupChat; members: AICharact
 function StoryRolePanel({ chat, members, onStartDirectChat }: { chat: GroupChat; members: AICharacter[]; onStartDirectChat?: (charId: string) => void }) {
   const state = chat.scenarioState || {};
   const presentIds = new Set(state.currentScene?.presentActorIds || []);
-  const relationshipShifts = (state.relationshipShifts || []).map((item) => formatNarrativeLineText(item, members)).slice(-6).reverse();
+  const relationshipSources = [
+    ...(state.relationshipShifts || []),
+    ...(state.chapterRecap?.changedRelationships || []),
+    ...(state.chapterRecap?.choiceImpacts || []),
+    ...(state.choiceHistory || []).map((choice) => choice.impact || '').filter(Boolean),
+  ];
+  const relationshipShifts = Array.from(new Set(relationshipSources.map((item) => formatNarrativeLineText(item, members)).filter(Boolean))).slice(-8).reverse();
   const relationshipForMember = (member: AICharacter) => relationshipShifts.filter((item) => item.includes(member.name)).slice(0, 2);
   const roleByActorId = new Map((state.roleAssignments || []).map((item) => [item.actorId, item.roleId ? formatScenarioRoleLabel(item.roleId) : '角色位'] as const));
   const factionLabels = state.factions || [];
