@@ -147,16 +147,21 @@ function buildPromptMemoryLine(item: MemoryItem, members: DisplayTextMember[]) {
   return evidence ? `- ${tags}: ${text} Evidence: ${evidence}` : `- ${tags}: ${text}`;
 }
 
-function buildManualMemorySeedPrompt(character: AICharacter, members: DisplayTextMember[]) {
+function buildManualMemorySeedPrompt(character: AICharacter, members: DisplayTextMember[], chat?: GroupChat) {
   const memory = character.memory;
   if (!memory) return '';
+  const canExposeUserMemoryText = !chat || chat.type === 'direct';
+  const hasUserMemory = Boolean(memory.userMemories?.length);
+  const hasUserBoundaryMemory = (memory.userMemories || []).some((text) => /(不要|不想|别|公开|隐私|边界|禁忌|压力|焦虑|面试|考试|生日|纪念|私下)/.test(text));
   const lines = [
     memory.shortTermSummary?.trim() ? `- Current private summary: ${cleanPromptText(memory.shortTermSummary, members)}` : '',
     memory.longTerm?.length ? `- Stable long-term memories: ${memory.longTerm.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
     memory.secrets?.length ? `- Private secrets you know but should not reveal casually: ${memory.secrets.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
     memory.obsessions?.length ? `- Obsessions that may leak into your attention and wording: ${memory.obsessions.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
     memory.tabooTopics?.length ? `- Taboo or sensitive topics that trigger avoidance, defensiveness, or careful wording: ${memory.tabooTopics.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
-    memory.userMemories?.length ? `- Memories about the user: ${memory.userMemories.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
+    canExposeUserMemoryText && hasUserMemory ? `- Memories about the user: ${memory.userMemories.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
+    !canExposeUserMemoryText && hasUserMemory ? `- Private user continuity exists but this is not a pair-private channel. Let it shape restraint and care; do not expose the underlying user facts.` : '',
+    !canExposeUserMemoryText && hasUserBoundaryMemory ? `- User-related boundaries or sensitive cues exist. Avoid public pressure, public reminders, or revealing private details unless the user states them here.` : '',
   ].filter(Boolean);
   if (!lines.length) return '';
   return `\n## Manual Memory Seeds\n${lines.join('\n')}\n- Treat these as authored character continuity. Let them shape tone, attention, omissions, and reactions; do not list them unless the conversation naturally calls for it.`;
@@ -633,7 +638,7 @@ function buildPromptMemorySection(chat: GroupChat, character: AICharacter, conve
   const members = buildPromptDisplayMembers(character, characters);
   const cleanInfluence = (item: string) => cleanPromptText(item, members, 80);
   const influenceSummary = `\n## Influence State\n${influenceState.topicBias.map((item: string) => `- Topic bias: ${cleanInfluence(item)}`).join('\n')}${influenceState.relationshipBias.map((item: string) => `\n- Relationship bias: ${cleanInfluence(item)}`).join('')}${influenceState.careBias.map((item: string) => `\n- Care bias: ${cleanInfluence(item)}`).join('')}${influenceState.avoidanceBias.map((item: string) => `\n- Avoidance bias: ${cleanInfluence(item)}`).join('')}${influenceState.noveltyBias !== 'neutral' ? `\n- Novelty bias: ${influenceState.noveltyBias}` : ''}`;
-  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories, members)}${influenceSummary}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildSharedSecretPromptBlock(chat, character, target, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
+  return `${buildManualMemorySeedPrompt(character, members, chat)}${buildPromptMemoryBundle(chat, conversationMemories, characterMemories, targetedCharacterMemories, members)}${influenceSummary}${buildPromptInfluenceContext(chat, character, target, relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, target, relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, target, relationshipSnapshot, characters)}${buildSharedSecretPromptBlock(chat, character, target, characters)}${buildPromptReasoningSummary(chat)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
 function traceMemoryItem(item: MemoryItem, members: DisplayTextMember[]): PromptMemoryTraceItem {
@@ -719,7 +724,7 @@ export function buildCrossModeMemoryPrompt(character: AICharacter, chat: GroupCh
     ...memoryContext.conversationMemories,
   ]);
   const members = buildPromptDisplayMembers(character, characters);
-  return `${buildManualMemorySeedPrompt(character, members)}${buildPromptMemoryBundle(chat, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, memoryContext.target, memoryContext.relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildSharedSecretPromptBlock(chat, character, memoryContext.target, characters)}${buildMemoryPriorityPrompt(chat)}`;
+  return `${buildManualMemorySeedPrompt(character, members, chat)}${buildPromptMemoryBundle(chat, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, members)}${buildPromptInfluenceContext(chat, character, memoryContext.target, memoryContext.relationshipSnapshot, merged, characters)}${buildPromptTargetingContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildTargetedInfluenceContext(chat, memoryContext.target, memoryContext.relationshipSnapshot, characters)}${buildSharedSecretPromptBlock(chat, character, memoryContext.target, characters)}${buildMemoryPriorityPrompt(chat)}`;
 }
 
 function buildTopicSection(chat: GroupChat) {

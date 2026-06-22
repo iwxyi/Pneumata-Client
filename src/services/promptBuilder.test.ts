@@ -293,7 +293,7 @@ describe('buildSystemPromptWithContext', () => {
     expect(trace.targetReason).toBeUndefined();
   });
 
-  it('includes every manual memory seed field in the unified prompt', () => {
+  it('keeps private user memory text out of public room manual memory seeds', () => {
     const character = buildCharacter({
       memory: {
         shortTermSummary: '刚和用户聊过春季穿搭',
@@ -313,6 +313,25 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('不想承认自己接了商业合作');
     expect(prompt).toContain('总会关注鞋包搭配');
     expect(prompt).toContain('被质疑审美时会防御');
+    expect(prompt).toContain('Private user continuity exists');
+    expect(prompt).not.toContain('用户预算有限但重视质感');
+  });
+
+  it('keeps direct chat user memory text available as pair-private context', () => {
+    const character = buildCharacter({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户预算有限但重视质感'],
+      },
+    });
+
+    const prompt = buildSystemPromptWithContext(character, buildDirectChat(), 0, [], new Map([[character.id, character]]));
+
+    expect(prompt).toContain('Memories about the user');
     expect(prompt).toContain('用户预算有限但重视质感');
   });
 
@@ -376,13 +395,58 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).not.toContain('只有他们知道的暗号');
   });
 
-  it('does not inject companionship context for group chats', () => {
+  it('does not inject user companionship context for group chats where user is not a member', () => {
     const character = buildCharacter();
     const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [
       buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '明天面试有点紧张。' }),
     ], new Map([[character.id, character]]));
 
     expect(prompt).not.toContain('## Companionship Context');
+  });
+
+  it('injects public-safe companionship continuity when user joins a group room', () => {
+    const character = buildCharacter({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户下周要面试，希望别被公开点名。'],
+      },
+    });
+    const groupWithUser = {
+      ...buildChat(),
+      memberIds: ['char-a', 'user'],
+      relationshipLedger: [{
+        pairKey: 'char-a->user',
+        actorId: 'char-a',
+        targetId: 'user',
+        current: { warmth: 36, competence: 0, trust: 30, threat: 4 },
+        derived: {
+          semantic: {
+            stage: '熟悉陪伴',
+            labels: ['牵挂'],
+            summary: '熟悉陪伴：有牵挂但需要克制公开表达',
+            intensity: 54,
+          },
+        },
+        trend: 'flat' as const,
+        recentEvents: [],
+        lastUpdatedAt: 20,
+      }],
+    };
+
+    const prompt = buildSystemPromptWithContext(character, groupWithUser, 0, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '我也在群里听着。' }),
+    ], new Map([[character.id, character]]));
+
+    expect(prompt).toContain('## Companionship Context');
+    expect(prompt).toContain('The user is a room participant');
+    expect(prompt).toContain('Private relationship stance toward the user');
+    expect(prompt).toContain('Do not reveal private user facts');
+    expect(prompt).not.toContain('用户下周要面试');
+    expect(prompt).not.toContain('希望别被公开点名');
   });
 
   it('keeps shared secrets masked in public group prompts', () => {
@@ -535,7 +599,7 @@ describe('buildSystemPromptWithContext', () => {
     const prompt = buildSystemPromptWithContext(speaker, chat, 0, messages, characters);
 
     expect(trace.injectedIds.some((id) => id.startsWith('companionship-user-profile-memory-char-a-pressure_source'))).toBe(true);
-    expect(prompt).toContain('pressure source: 用户这周因为面试压力很大');
+    expect(prompt).toContain('用户这周因为面试压力很大');
     expect(prompt).toContain('Private-Channel Memories');
 
     const revokedChat = {

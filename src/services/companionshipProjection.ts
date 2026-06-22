@@ -3173,8 +3173,31 @@ export function buildCompanionshipPromptBlock(params: {
   now?: number;
 }) {
   const projection = buildUserCompanionshipProjection(params);
-  if (!projection.userBond || !projection.promptLines.length) return '';
-  return `\n## Companionship Context\n${projection.promptLines.join('\n')}`;
+  if (projection.userBond && projection.promptLines.length) {
+    return `\n## Companionship Context\n${projection.promptLines.join('\n')}`;
+  }
+  const publicLines = buildPublicRoomUserCompanionshipLines(params.chat, params.character);
+  if (!publicLines.length) return '';
+  return `\n## Companionship Context\n${publicLines.join('\n')}`;
+}
+
+function buildPublicRoomUserCompanionshipLines(chat: GroupChat, character: AICharacter) {
+  if (chat.type === 'direct') return [];
+  if (!(chat.memberIds || []).includes(USER_ACTOR_ID)) return [];
+  const ledger = getCharacterToUserLedger(chat, character.id);
+  const semantic = compactText(ledger?.derived?.semantic?.summary || '', 140);
+  const userMemoryCount = character.memory?.userMemories?.length || 0;
+  const boundaryCount = (character.memory?.userMemories || [])
+    .filter((text) => /(不要|不想|别|公开|隐私|边界|禁忌|压力|焦虑|面试|考试|生日|纪念|私下)/.test(text))
+    .length;
+  const lines = [
+    '- The user is a room participant with possible private continuity with you. Let familiarity, care, restraint, or distance subtly affect tone when relevant.',
+    semantic ? `- Private relationship stance toward the user: ${semantic}. Use it as acting context, not as exposition.` : '',
+    userMemoryCount ? '- User-related memories exist, but this is not a pair-private channel. Do not reveal private user facts, private addresses, sensitive plans, or pair-only promises unless the user brings them into this room.' : '',
+    boundaryCount ? '- Known user boundaries or sensitive cues exist. Prefer restraint, avoid public pressure, and do not turn private care into public exposure.' : '',
+    '- In public or scenario rooms, show companionship through timing, omissions, protection, warmth, or careful wording rather than explaining the relationship system.',
+  ].filter(Boolean);
+  return lines;
 }
 
 function inferCharacterCompanionshipStyle(relation: AICharacter['relationships'][number]): CharacterCompanionshipState['style'] {
