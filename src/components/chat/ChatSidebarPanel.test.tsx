@@ -316,6 +316,102 @@ describe('ChatSidebarPanel story room panels', () => {
     expect(html).not.toContain(uuidB);
   });
 
+  it('uses chapter recap choice labels when chapter key choices are missing', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      ...(chat.scenarioState || {}),
+      storyChapters: [{
+        id: 'chapter-1',
+        index: 1,
+        title: '血迹名单',
+        status: 'active',
+        startMessageId: 'story-message-1',
+        startBeatId: 'beat-1',
+        summary: '旧医院的线索开始收束。',
+        openedAt: 1,
+      }],
+      chapterRecap: {
+        title: '血迹名单',
+        summary: '旧医院的线索开始收束。',
+        discoveredClues: [],
+        unresolvedQuestions: [],
+        changedRelationships: [],
+        stakes: [],
+        lastChoiceLabels: [`${uuidA} 追问护士`],
+        choiceImpacts: [`${uuidA} 和 ${uuidB} 的信任出现裂缝`],
+        updatedAt: 4,
+        beatCount: 3,
+      },
+    };
+    const html = await renderPanel('chapters', chat);
+
+    expect(html).toContain('关键选择：林医生 追问护士');
+    expect(html).toContain('已选：林医生 追问护士');
+    expect(html).toContain('结果：护士 承认停电时有人进入档案室');
+    expect(html).toContain('影响：林医生 和 护士 的信任出现裂缝');
+    expect(html).not.toContain(uuidA);
+    expect(html).not.toContain(uuidB);
+  });
+
+  it('assigns timestamped choice history to the matching chapter window', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      ...(chat.scenarioState || {}),
+      chapterRecap: null,
+      choiceHistory: [
+        {
+          branchId: 'early',
+          label: `${uuidA} 追问护士`,
+          outcome: `${uuidB} 承认停电时有人进入档案室`,
+          impact: `${uuidA} 和 ${uuidB} 的信任出现裂缝`,
+          choiceEpoch: 2,
+          chosenAt: 12,
+        },
+        {
+          branchId: 'late',
+          label: `${uuidB} 去地下档案室`,
+          outcome: `${uuidB} 找到缺页病历`,
+          impact: `${uuidB} 掌握新的谈判筹码`,
+          choiceEpoch: 3,
+          chosenAt: 32,
+        },
+      ],
+      storyChapters: [
+        {
+          id: 'chapter-1',
+          index: 1,
+          title: '血迹名单',
+          status: 'completed',
+          startMessageId: 'story-message-1',
+          endMessageId: 'story-message-2',
+          startBeatId: 'beat-1',
+          endBeatId: 'beat-2',
+          openedAt: 10,
+          closedAt: 20,
+        },
+        {
+          id: 'chapter-2',
+          index: 2,
+          title: '地下档案',
+          status: 'active',
+          startMessageId: 'story-message-3',
+          startBeatId: 'beat-3',
+          openedAt: 30,
+        },
+      ],
+    };
+    const html = await renderPanel('chapters', chat);
+
+    expect(html).toContain('第 1 章 · 血迹名单');
+    expect(html).toContain('关键选择：林医生 追问护士');
+    expect(html).toContain('结果：护士 承认停电时有人进入档案室');
+    expect(html).toContain('第 2 章 · 地下档案');
+    expect(html).toContain('关键选择：护士 去地下档案室');
+    expect(html).toContain('结果：护士 找到缺页病历');
+    expect(html).not.toContain(uuidA);
+    expect(html).not.toContain(uuidB);
+  });
+
   it('renders role summary and relationship pressure without raw ids', async () => {
     const { default: ChatSidebarPanel } = await import('./ChatSidebarPanel');
     const html = await renderPanel('roles');

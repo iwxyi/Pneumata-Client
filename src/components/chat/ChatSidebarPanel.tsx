@@ -172,15 +172,48 @@ function normalizeChoiceLabel(value: string, members: AICharacter[]) {
     .trim();
 }
 
+function isLatestStoryChapter(chapter: StoryChapterState, chat: GroupChat) {
+  const chapters = chat.scenarioState?.storyChapters || [];
+  return chapters.at(-1)?.id === chapter.id;
+}
+
+function isChoiceInsideChapter(choice: StoryChoiceHistoryItem, chapter: StoryChapterState) {
+  if (!choice.chosenAt) return false;
+  if (choice.chosenAt < chapter.openedAt) return false;
+  if (chapter.closedAt && choice.chosenAt > chapter.closedAt) return false;
+  return true;
+}
+
+function getChapterChoiceLabels(chapter: StoryChapterState, chat: GroupChat) {
+  const labels = [...(chapter.keyChoices || [])];
+  const history = chat.scenarioState?.choiceHistory || [];
+  for (const choice of history) {
+    if (isChoiceInsideChapter(choice, chapter)) labels.push(choice.label);
+  }
+  if (isLatestStoryChapter(chapter, chat)) {
+    labels.push(...(chat.scenarioState?.chapterRecap?.lastChoiceLabels || []));
+  }
+  const seen = new Set<string>();
+  return labels.map((item) => item.trim()).filter((item) => {
+    if (!item || seen.has(item)) return false;
+    seen.add(item);
+    return true;
+  });
+}
+
 function getChapterChoiceReviews(chapter: StoryChapterState, chat: GroupChat, members: AICharacter[]) {
   const history = chat.scenarioState?.choiceHistory || [];
-  const chapterChoiceLabels = chapter.keyChoices || [];
+  const chapterChoiceLabels = getChapterChoiceLabels(chapter, chat);
   if (!history.length || !chapterChoiceLabels.length) return [];
   const wanted = new Set(chapterChoiceLabels.map((item) => normalizeChoiceLabel(item, members)).filter(Boolean));
   const reviews: StoryChoiceHistoryItem[] = [];
+  const seen = new Set<string>();
   for (const choice of history) {
     const normalized = normalizeChoiceLabel(choice.label || '', members);
-    if (!normalized || !wanted.has(normalized)) continue;
+    if (!normalized || (!wanted.has(normalized) && !isChoiceInsideChapter(choice, chapter))) continue;
+    const key = `${choice.branchId || ''}:${choice.choiceEpoch || ''}:${normalized}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
     reviews.push(choice);
   }
   return reviews.slice(-3);
@@ -199,6 +232,7 @@ function StoryChapterPanel({ chat, members, onStoryChapterClick }: { chat: Group
     <Stack spacing={1}>
       {chapters.map((chapter) => {
         const hasTitle = Boolean(chapter.title?.trim());
+        const chapterChoiceLabels = getChapterChoiceLabels(chapter, chat);
         const choiceReviews = getChapterChoiceReviews(chapter, chat, members);
         return (
           <Box
@@ -236,9 +270,9 @@ function StoryChapterPanel({ chat, members, onStoryChapterClick }: { chat: Group
                   {formatNarrativeLineText(chapter.summary, members)}
                 </Typography>
               ) : null}
-              {chapter.keyChoices?.length ? (
+              {chapterChoiceLabels.length ? (
                 <Typography variant="caption" color="text.secondary">
-                  {`关键选择：${chapter.keyChoices.slice(0, 3).map((item) => formatNarrativeLineText(item, members)).join(' / ')}`}
+                  {`关键选择：${chapterChoiceLabels.slice(0, 3).map((item) => formatNarrativeLineText(item, members)).join(' / ')}`}
                 </Typography>
               ) : null}
               {choiceReviews.length ? (
