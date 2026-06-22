@@ -235,6 +235,7 @@ export interface ChatEngineCallbacks {
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   onIdle?: (reason: string) => void;
   onError: (error: Error) => void;
+  signal?: AbortSignal;
 }
 
 function isTestRuntime() {
@@ -548,10 +549,12 @@ function buildStoryProtocolPrompt(basePrompt: string) {
 Final story-reader output requirements:
 - Return exactly one valid JSON object, with no markdown and no prose outside JSON.
 - storyEvents is mandatory and must contain at least one narration, speech, or choice_point event. It may also include a chapter_update event for structured chapter indexing.
+- Use as many narration and speech events as the current story beat needs. Do not follow a fixed event count, and do not stop early just to be concise.
 - Keep content="", extraMessages=null, narrativeText=null, and narrativeBlocks=null for normal story turns.
 - Do not put the visible story in content, narrativeText, markdown, or plain prose.
 - If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.
 - If you output a choice_point, each choice should include label, prompt, intent, risk, and reward.
+- For non-choice beats, write a complete readable section that lands on a hook, pressure, consequence, or scene movement. Stop for the user only at a genuine choice_point.
 - When opening or settling a chapter, add one chapter_update event with title and optional summary/status; do not put chapter metadata in visible prose.`;
 }
 
@@ -2114,6 +2117,7 @@ async function generateWithPrompt(params: {
   surface?: ResponseSurface;
   turnPlan?: TurnPlan | null;
   onChunk?: (content: string) => void;
+  signal?: AbortSignal;
 }) {
   const streamBridge = createStreamingDisplayBridge(params.speaker, params.showRoleActions, params.onChunk);
   const jsonPrompt = `${params.systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
@@ -2124,8 +2128,9 @@ async function generateWithPrompt(params: {
     params.onChunk
       ? (raw) => {
           streamBridge.push(raw);
-        }
+      }
       : undefined,
+    { signal: params.signal },
   );
   logRawAiResponse({ chat: params.chat, speaker: params.speaker, attempt: params.attempt, response });
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
@@ -2183,6 +2188,7 @@ async function generateNonDuplicateResponse(params: {
   mediaCapabilities?: { image: boolean; audio: boolean };
   onChunk?: (content: string) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
+  signal?: AbortSignal;
 }): Promise<GenerationWithGuidanceTrace> {
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   let prompt = isStoryReader ? buildStoryProtocolPrompt(params.systemPrompt) : params.systemPrompt;
@@ -2507,6 +2513,7 @@ export async function generateSpeakerMessage(params: {
   onChunk?: (content: string) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   delay?: (ms: number) => Promise<void>;
+  signal?: AbortSignal;
 }): Promise<GeneratedRoundMessage> {
   const chatMembers = resolveEffectiveChatMembers(params.chat, params.characters);
   const effectiveMembers = chatMembers.length ? chatMembers : params.characters;
@@ -2620,6 +2627,7 @@ Current speaking intent:
     mediaCapabilities,
     onChunk: params.onChunk,
     onLocalInterception: params.onLocalInterception,
+    signal: params.signal,
   });
   const generatedDialogueResponse = generated.fullResponse || '';
   const generatedStoryResponse = generated.fullNarrativeResponse || generatedDialogueResponse || '';
@@ -2915,6 +2923,7 @@ export const runOneRound = async (
         generationContext,
         onChunk: callbacks.onMessageChunk,
         onLocalInterception: callbacks.onLocalInterception,
+        signal: callbacks.signal,
       });
     } catch (error) {
       if (!(error instanceof EmptyGeneratedResponseError)) throw error;
@@ -2960,6 +2969,7 @@ export const runOneRound = async (
         generationContext,
         onChunk: callbacks.onMessageChunk,
         onLocalInterception: callbacks.onLocalInterception,
+        signal: callbacks.signal,
       });
     }
     await callbacks.onMessageComplete(completedMessage);

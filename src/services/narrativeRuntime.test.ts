@@ -8,6 +8,7 @@ import {
   buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
   buildStoryEventsVisibleText,
+  buildStoryReadingPanelBlock,
   appendStoryReadingPanelBlock,
   extractStoryAssets,
   getStoryChapterUpdateFromEvents,
@@ -75,6 +76,67 @@ describe('narrativeRuntime', () => {
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: '雨水顺着旧楼铁门往下流。' }),
       expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin', text: '不要开那扇门。' }),
     ]));
+  });
+
+  it('does not truncate valid story events to a fixed paragraph count', () => {
+    const rawEvents = Array.from({ length: 18 }, (_, index) => {
+      const sceneNumber = index + 1;
+      if (index % 3 === 1) {
+        return {
+          type: 'speech',
+          characterId: index % 2 === 0 ? 'lin' : 'nurse',
+          text: `第${sceneNumber}句对白把旧医院第${sceneNumber}处新线索说清楚，语义独立且不会复用前文措辞。`,
+        };
+      }
+      return {
+        type: 'narration',
+        text: `第${sceneNumber}段叙事推进到旧医院第${sceneNumber}个房间，窗边留下新的纸灰、脚印和灯影变化。`,
+      };
+    });
+
+    const events = normalizeStoryEvents(rawEvents);
+
+    expect(events).toHaveLength(rawEvents.length);
+    expect(buildStoryEventsVisibleText(events, characters)).toContain('第18段叙事推进到旧医院第18个房间');
+  });
+
+  it('uses current scene pressure instead of old chapter-memory prefix in choice panels', () => {
+    const story = normalizeConversation({
+      ...chat,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        chapterMemory: '开局时林医生在旧医院门口听见第一声脚步，雨水打湿了病历袋。',
+        chapterRecap: {
+          title: '新的抉择点',
+          summary: '开局时林医生在旧医院门口听见第一声脚步。',
+          discoveredClues: [],
+          unresolvedQuestions: [],
+          changedRelationships: [],
+          stakes: [],
+          lastChoiceLabels: [],
+          updatedAt: 1,
+          beatCount: 1,
+        },
+        currentScene: {
+          summary: '护士刚承认停电前有人进过地下档案室。',
+          visibleThreat: '门外的脚步正在靠近病房。',
+          updatedAt: 2,
+        },
+        openQuestions: ['谁拿走了被撕掉的病历？'],
+        clues: ['钥匙孔里有新鲜铁锈粉末'],
+        stakes: ['继续追问可能惊动门外的人'],
+      },
+    });
+    const block = buildStoryReadingPanelBlock({
+      conversation: story,
+      choices: [
+        { label: '林医生追问护士昨晚停电前的去向', prompt: '林医生追问护士昨晚停电前的去向', risk: '惊动门外来人', reward: '确认档案室线索' },
+        { label: '顾凌霄封住后窗退路', prompt: '顾凌霄封住后窗退路', risk: '暴露他已经察觉异常', reward: '截住传信的人' },
+      ],
+    });
+
+    expect(block?.text).toContain('护士刚承认停电前有人进过地下档案室');
+    expect(block?.text).not.toContain('开局时林医生在旧医院门口');
   });
 
   it('keeps chapter_update as structured metadata instead of visible story text', () => {
@@ -156,10 +218,8 @@ describe('narrativeRuntime', () => {
     const turn = buildNarrativeTurnFromStoryEvents({ conversation: chat, events, characters });
     expect(turn?.blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        actorKind: 'character',
-        displayMode: 'bubble',
-        actorName: 'unknown-actor',
-        characterId: 'unknown-actor',
+        actorKind: 'narrator',
+        displayMode: 'paragraph',
         text: '别往前走。',
       }),
     ]));
@@ -325,7 +385,10 @@ describe('narrativeRuntime', () => {
         ...chat,
         scenarioState: {
           phase: 'scene',
-          chapterMemory: '林医生在旧医院发现被撕掉的病历。',
+          currentScene: {
+            summary: '林医生在旧医院发现被撕掉的病历。',
+            updatedAt: 1,
+          },
           stakes: ['激怒护士'],
         },
       }),
@@ -337,14 +400,17 @@ describe('narrativeRuntime', () => {
         ...chat,
         scenarioState: {
           phase: 'scene',
-          chapterMemory: '林医生在旧医院发现被撕掉的病历。',
+          currentScene: {
+            summary: '林医生在旧医院发现被撕掉的病历。',
+            updatedAt: 1,
+          },
           stakes: ['激怒护士'],
         },
       }),
       narrativeTurn: turn,
       choices: [
-        { label: '让林医生追问昨晚停电记录', prompt: '追问停电记录', risk: '激怒护士', reward: '得到线索' },
-        { label: '让护士检查墙上的血迹', prompt: '检查血迹', risk: '暴露位置', reward: '找到证据' },
+        { label: '林医生追问昨晚停电记录', prompt: '林医生追问昨晚停电记录', risk: '激怒护士', reward: '得到线索' },
+        { label: '顾凌霄封住后窗退路', prompt: '顾凌霄封住后窗退路', risk: '暴露位置', reward: '找到证据' },
       ],
     });
 

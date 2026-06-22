@@ -12,6 +12,7 @@ type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string
 type GenerateResponseOptions = {
   responseFormat?: 'text' | 'json';
   maxTokens?: number;
+  signal?: AbortSignal;
 };
 
 export interface AvailableModelInfo {
@@ -373,6 +374,7 @@ async function generateAnthropicResponse(
         temperature: 0.8,
         stream: true,
       }),
+      signal: options.signal,
     });
 
     await parseSSEStream(response, (parsed) => {
@@ -402,6 +404,7 @@ async function generateAnthropicResponse(
         ...maxTokensConfig,
         temperature: 0.8,
       }),
+      signal: options.signal,
   });
 
   if (!response.ok) {
@@ -445,6 +448,7 @@ async function generateGeminiResponse(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
+      signal: options.signal,
     });
 
     await parseSSEStream(response, (parsed) => {
@@ -462,6 +466,7 @@ async function generateGeminiResponse(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(requestBody),
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -502,6 +507,7 @@ async function generateZhipuResponse(
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify(requestBody),
+      signal: options.signal,
     });
 
     await parseSSEStream(response, (parsed) => {
@@ -522,6 +528,7 @@ async function generateZhipuResponse(
       Authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify(requestBody),
+    signal: options.signal,
   });
 
   if (!response.ok) {
@@ -566,6 +573,7 @@ async function generateQwenResponse(
         'X-DashScope-SSE': 'enable',
       },
       body: JSON.stringify(requestBody),
+      signal: options.signal,
     });
 
     await parseSSEStream(response, (parsed) => {
@@ -591,6 +599,7 @@ async function generateQwenResponse(
       Authorization: `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify(requestBody),
+    signal: options.signal,
   });
 
   if (!response.ok) {

@@ -11,6 +11,7 @@ import { runSessionActionExecutor } from './sessionActionExecutors/sessionAction
 import { createFamilyTurnPolicy, deriveFamilyLoopDecision, getFamilyActionChance } from './sessionFamilies';
 import { getPreferredAIProfile } from '../types/settings';
 import { resolveUserInputHold, type UserDraftActivity } from './userInputBuffer';
+import { isGenerationCancelledError } from './generationCancellation';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -211,6 +212,7 @@ export async function runSessionLoop(params: {
   recordSpeak: (characterId: string) => void;
   getCooldownMap?: () => Record<string, number>;
   random?: () => number;
+  signal?: AbortSignal;
 }) {
   const random = params.random || Math.random;
   activeSessionLoops.set(params.loopId, {
@@ -222,6 +224,7 @@ export async function runSessionLoop(params: {
   });
   try {
     while (shouldContinueLoop(params)) {
+      if (params.signal?.aborted) return;
       if (!isActiveLoop(params)) return;
       if (params.isPaused()) {
         markSessionLoop(params.loopId, { phase: 'paused' });
@@ -372,6 +375,7 @@ export async function runSessionLoop(params: {
             if (!isActiveLoop(params)) return;
             params.onEngineError(error);
           },
+          signal: params.signal,
         },
         undefined,
         engine.buildGenerationPromptContext
@@ -396,6 +400,11 @@ export async function runSessionLoop(params: {
         if (turnWorkActive) params.onTurnWorkFinished?.();
       }
       } catch (error) {
+        if (isGenerationCancelledError(error) || params.signal?.aborted) {
+          params.onClearStreamingState();
+          params.pauseLoop?.();
+          return;
+        }
         if (typeof console !== 'undefined' && typeof console.error === 'function') {
           console.error('[session-runner:loop-error]', {
             error,

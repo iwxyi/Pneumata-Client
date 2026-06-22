@@ -784,7 +784,7 @@ describe('chatEngine streaming preview', () => {
       expect.objectContaining({ actorId: 'mei', actorName: '阿梅', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', text: '现在只能进去。' }),
       expect.objectContaining({ actorKind: 'system', kind: 'system_note', displayMode: 'system_panel', text: expect.stringContaining('新的抉择点') }),
     ]);
-    expect(message.metadata?.narrativeTurn?.blocks.at(-1)?.text).toContain('前情：阿梅在旧宅门口听见门内有脚步声。');
+    expect(message.metadata?.narrativeTurn?.blocks.at(-1)?.text).toContain('当前压力已经形成，下一步会改变这一章的走向。');
     expect(message.metadata?.narrativeTurn?.blocks.at(-1)?.text).toContain('取舍：暴露位置');
     expect(message.metadata?.storyChoices).toEqual([
       { label: '让阿梅推门进入', prompt: '阿梅推门进入旧宅' },

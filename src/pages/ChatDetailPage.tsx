@@ -212,10 +212,12 @@ export function getStoryTailStatus(params: {
   isStoryChoiceSubmitting: boolean;
   isGeneratingStoryNode?: boolean;
   isWaitingForReaderTail?: boolean;
+  isGenerationCancelled?: boolean;
 }) {
   if (params.hasRunLoopStatus) return 'status' as const;
   if (params.isStoryChoiceSubmitting) return 'submitting_choice' as const;
   if (params.isGeneratingStoryNode) return 'generating_node' as const;
+  if (params.isGenerationCancelled) return 'generation_cancelled' as const;
   if (params.isWaitingForReaderTail) return 'waiting_reader_tail' as const;
   return null;
 }
@@ -230,6 +232,7 @@ export function shouldAutoStartStoryRoom(params: {
   isPaused: boolean;
   isStoryWaitingForChoice: boolean;
   isStoryChoiceSubmitting: boolean;
+  hasUserDraft?: boolean;
   hasRunLoopError: boolean;
 }) {
   return params.hasChat
@@ -241,6 +244,7 @@ export function shouldAutoStartStoryRoom(params: {
     && !params.isPaused
     && !params.isStoryWaitingForChoice
     && !params.isStoryChoiceSubmitting
+    && !params.hasUserDraft
     && !params.hasRunLoopError;
 }
 
@@ -306,7 +310,7 @@ export function shouldRouteTextAsStoryCustomDirection(params: {
 }
 
 export function getStoryReaderComposerPlaceholder() {
-  return '输入自定义剧情走向，例如试探、追问、转移地点';
+  return '推动剧情';
 }
 
 export function buildStoryReaderTextInputCapabilities<T extends { imageInput?: boolean; multiImageInput?: boolean; fileInput?: boolean }>(capabilities: T): T {
@@ -466,6 +470,9 @@ export default function ChatDetailPage() {
   const [pendingStoryChoiceKey, setPendingStoryChoiceKey] = useState<string | null>(null);
   const [pendingStoryChoiceVisual, setPendingStoryChoiceVisual] = useState<PendingStoryChoiceVisual | null>(null);
   const [isStoryReaderAtTail, setIsStoryReaderAtTail] = useState(true);
+  const [hasStoryReaderReachedTailIntent, setHasStoryReaderReachedTailIntent] = useState(false);
+  const [hasStoryUserDraft, setHasStoryUserDraft] = useState(false);
+  const [isStoryGenerationCancelled, setIsStoryGenerationCancelled] = useState(false);
   const [narrativeRevealMessageKeys, setNarrativeRevealMessageKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [chatPageSettingsOpen, setChatPageSettingsOpen] = useState(false);
 
@@ -477,6 +484,7 @@ export default function ChatDetailPage() {
   const pendingStoryChoiceVisualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isStoryReaderAtTailRef = useRef(true);
   const lastReadingPositionPersistRef = useRef<{ chatId: string; key: string; at: number } | null>(null);
+  const openedChatWindowRef = useRef<{ chatId: string; requestKey: string; openedAt: number; restored: boolean } | null>(null);
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
@@ -593,6 +601,10 @@ export default function ChatDetailPage() {
     [characters, speakAsCharacterId]
   );
   const savedStoryReadingPositionForChat = id ? chatReadingPositions[id] : null;
+  const storyReadingRestoreKey = savedStoryReadingPositionForChat && !savedStoryReadingPositionForChat.pinned
+    ? `${savedStoryReadingPositionForChat.messageId}:${savedStoryReadingPositionForChat.sourceTimestamp ?? ''}:${Math.round(savedStoryReadingPositionForChat.offsetTop)}`
+    : '';
+  const hasSavedNonTailStoryReadingPosition = Boolean(chat?.sessionKind?.scenarioId === 'story-reader' && savedStoryReadingPositionForChat && !savedStoryReadingPositionForChat.pinned);
   useEffect(() => {
     if (!chat || chat.type !== 'ai_direct') {
       setAiDirectPerspectiveMemberId(null);
@@ -605,6 +617,7 @@ export default function ChatDetailPage() {
     setGuideTargetMemberId(null);
     setNarrativeRevealMessageKeys(new Set());
     setPendingStoryChoiceVisual(null);
+    setHasStoryReaderReachedTailIntent(false);
     const nextAtTail = chat?.sessionKind?.scenarioId === 'story-reader' && savedStoryReadingPositionForChat
       ? savedStoryReadingPositionForChat.pinned
       : true;
@@ -935,6 +948,7 @@ export default function ChatDetailPage() {
     runLoopError,
     hasPendingTurnWork,
     startConversationLoopIfNeeded,
+    cancelActiveConversationLoop,
     resetRunLoopUiState,
   } = useChatRunLoop({
     chat,
@@ -1016,17 +1030,54 @@ export default function ChatDetailPage() {
       const aroundTimestamp = chat?.sessionKind?.scenarioId === 'story-reader' && savedStoryReadingPositionForChat && !savedStoryReadingPositionForChat.pinned
         ? savedStoryReadingPositionForChat.sourceTimestamp
         : undefined;
-      void openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true, aroundTimestamp });
-      return () => {
-        activeChatIdRef.current = null;
-        loopTokenRef.current = null;
-        resetRunLoopUiState();
-        discardStreamingMessage();
-        closeChatWindow(id, { clearActiveOnly: true });
-        stop();
+      const requestKey = aroundTimestamp !== undefined && storyReadingRestoreKey
+        ? `restore:${storyReadingRestoreKey}`
+        : 'tail';
+      const previousOpen = openedChatWindowRef.current;
+      if (previousOpen?.chatId === id && previousOpen.requestKey === requestKey) return;
+      if (previousOpen?.chatId === id && previousOpen.restored) return;
+      if (previousOpen?.chatId === id && requestKey !== 'tail' && Date.now() - previousOpen.openedAt > 3000) return;
+      openedChatWindowRef.current = {
+        chatId: id,
+        requestKey,
+        openedAt: Date.now(),
+        restored: requestKey !== 'tail',
       };
+      logDeveloperDiagnostic('chat-window:open', {
+        chatId: id,
+        isStoryRoom: chat?.sessionKind?.scenarioId === 'story-reader',
+        requestKey,
+        savedPosition: savedStoryReadingPositionForChat ? {
+          messageId: savedStoryReadingPositionForChat.messageId,
+          offsetTop: savedStoryReadingPositionForChat.offsetTop,
+          pinned: savedStoryReadingPositionForChat.pinned,
+          sourceTimestamp: savedStoryReadingPositionForChat.sourceTimestamp,
+          updatedAt: savedStoryReadingPositionForChat.updatedAt,
+        } : null,
+        aroundTimestamp,
+      }, 'info');
+      void openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true, aroundTimestamp });
     }
-  }, [chat?.sessionKind?.scenarioId, closeChatWindow, discardStreamingMessage, id, openChatWindow, resetRunLoopUiState, stop]);
+  }, [chat?.sessionKind?.scenarioId, id, openChatWindow, savedStoryReadingPositionForChat?.pinned, storyReadingRestoreKey]);
+
+  useEffect(() => {
+    userDraftActivityRef.current = null;
+    setHasStoryUserDraft(false);
+    setIsStoryGenerationCancelled(false);
+  }, [id, isStoryRoom]);
+
+  useEffect(() => {
+    if (!id) return undefined;
+    return () => {
+      if (openedChatWindowRef.current?.chatId === id) openedChatWindowRef.current = null;
+      activeChatIdRef.current = null;
+      loopTokenRef.current = null;
+      resetRunLoopUiState();
+      discardStreamingMessage();
+      closeChatWindow(id, { clearActiveOnly: true });
+      stop();
+    };
+  }, [closeChatWindow, discardStreamingMessage, id, resetRunLoopUiState, stop]);
 
   const handleMemberSpeakSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id) return;
@@ -1288,7 +1339,11 @@ export default function ChatDetailPage() {
         },
       } : chat;
       await updateChat(id, actionResult?.chatPatch || {});
-      const startBlockReason = startConversationLoopIfNeeded(nextChat);
+      setIsStoryGenerationCancelled(false);
+      isStoryReaderAtTailRef.current = true;
+      setIsStoryReaderAtTail(true);
+      setHasStoryReaderReachedTailIntent(true);
+      const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true });
       if (startBlockReason) {
         logDeveloperDiagnostic('story-choice:start-blocked-after-select', {
           chatId: id,
@@ -1373,7 +1428,11 @@ export default function ChatDetailPage() {
           },
         } : chat;
         await updateChat(id, actionResult?.chatPatch || {});
-        const startBlockReason = startConversationLoopIfNeeded(nextChat);
+        setIsStoryGenerationCancelled(false);
+        isStoryReaderAtTailRef.current = true;
+        setIsStoryReaderAtTail(true);
+        setHasStoryReaderReachedTailIntent(true);
+        const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true });
         if (startBlockReason) {
           logDeveloperDiagnostic('story-choice:start-blocked-after-custom-direction', {
             chatId: id,
@@ -1394,8 +1453,30 @@ export default function ChatDetailPage() {
     hasRunLoopStatus: Boolean(runLoopStatusContent),
     isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
     isGeneratingStoryNode: Boolean(isStoryRoom && !isStoryWaitingForChoice && !isCurrentStoryChoiceSubmitting && isRunning && !isPaused && (thinkingId || hasPendingTurnWork())),
+    isGenerationCancelled: Boolean(isStoryRoom && isStoryGenerationCancelled && !isStoryWaitingForChoice && !isCurrentStoryChoiceSubmitting),
     isWaitingForReaderTail: Boolean(isStoryRoom && !isStoryWaitingForChoice && !isCurrentStoryChoiceSubmitting && isRunning && !isPaused && !thinkingId && !hasPendingTurnWork() && !isStoryReaderAtTail),
   });
+  const handleCancelStoryGeneration = useCallback(() => {
+    setIsStoryGenerationCancelled(true);
+    cancelActiveConversationLoop('story_generation_cancelled');
+  }, [cancelActiveConversationLoop]);
+  const handleContinueStoryGeneration = useCallback(() => {
+    if (!chat || !id) return;
+    setIsStoryGenerationCancelled(false);
+    isStoryReaderAtTailRef.current = true;
+    setIsStoryReaderAtTail(true);
+    setHasStoryReaderReachedTailIntent(true);
+    resume();
+    const startBlockReason = startConversationLoopIfNeeded(chat, { ignoreReaderPositionOnce: true });
+    if (startBlockReason) {
+      logDeveloperDiagnostic('story-run:continue-blocked-after-cancel', {
+        chatId: id,
+        startBlockReason,
+        phase: chat.scenarioState?.phase || null,
+        storyChoiceGate,
+      }, startBlockReason === 'waiting_story_choice' ? 'info' : 'warn');
+    }
+  }, [chat, id, resume, startConversationLoopIfNeeded, storyChoiceGate]);
   const storyBranchSuggestionContent = storyTailStatus ? (
     <>
       {runLoopStatusContent}
@@ -1437,6 +1518,35 @@ export default function ChatDetailPage() {
             <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
               正在生成下一节
             </Typography>
+            <Button size="small" variant="text" onClick={handleCancelStoryGeneration} sx={{ minWidth: 0, px: 0.75 }}>
+              停止
+            </Button>
+          </Box>
+        </Box>
+      ) : null}
+      {storyTailStatus === 'generation_cancelled' ? (
+        <Box data-message-id="story-generation-cancelled" data-message-type="story-loading" sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
+          <Box
+            sx={(theme) => ({
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 1,
+              maxWidth: '100%',
+              px: 1.4,
+              py: 0.9,
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: theme.palette.mode === 'light' ? 'rgba(148,163,184,0.28)' : 'rgba(226,232,240,0.14)',
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.9)' : 'rgba(15,23,42,0.78)',
+              boxShadow: '0 8px 22px rgba(15,23,42,0.10)',
+            })}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 700, color: 'text.secondary' }}>
+              生成已停止
+            </Typography>
+            <Button size="small" variant="contained" onClick={handleContinueStoryGeneration} sx={{ minWidth: 0, px: 1 }}>
+              继续
+            </Button>
           </Box>
         </Box>
       ) : null}
@@ -1444,7 +1554,7 @@ export default function ChatDetailPage() {
         <Box data-message-id="story-waiting-reader-tail" data-message-type="story-loading" sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
           <Chip
             size="small"
-            label="阅读到底后自动生成下一节"
+            label="贴近底部后生成下一节"
             variant="outlined"
             sx={(theme) => ({
               borderRadius: 2,
@@ -1459,6 +1569,11 @@ export default function ChatDetailPage() {
       ) : null}
     </>
   ) : null;
+  const messageListBottomInset = isRemoteDeletedChat
+    ? { xs: '24px', sm: '24px' }
+    : storyTailStatus
+      ? { xs: 'calc(136px + env(safe-area-inset-bottom, 0px))', sm: '124px' }
+      : { xs: 'calc(96px + env(safe-area-inset-bottom, 0px))', sm: '88px' };
 
   const handleExpressionFeedback = useCallback(async (message: Message, kind: ExpressionFeedbackKind) => {
     if (message.type !== 'ai') return;
@@ -1519,11 +1634,13 @@ export default function ChatDetailPage() {
 
   const handleJumpToConversationBottom = useCallback(async () => {
     if (!id) return;
-    await openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true });
-    await waitForNextFrame();
+    if (hasMoreNewer) {
+      await openChatWindow(id, { limit: CHAT_MESSAGE_WINDOW_SIZE, revalidate: true, resetWindow: true });
+      await waitForNextFrame();
+    }
     const scrollContainer = document.querySelector<HTMLElement>('[data-chat-message-list]');
     scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
-  }, [id, openChatWindow]);
+  }, [hasMoreNewer, id, openChatWindow]);
 
   const fromTab = useMemo(() => new URLSearchParams(window.location.search).get('fromTab'), []);
 
@@ -1575,6 +1692,13 @@ export default function ChatDetailPage() {
     setIsStoryReaderAtTail(pinned);
   }, []);
 
+  const handleMessageListNearBottomChange = useCallback((nearBottom: boolean) => {
+    if (!nearBottom) return;
+    isStoryReaderAtTailRef.current = true;
+    setIsStoryReaderAtTail(true);
+    setHasStoryReaderReachedTailIntent(true);
+  }, []);
+
   const handleStoryReadingPositionChange = useCallback((position: MessageListScrollPosition) => {
     if (!id || !isStoryRoom) return;
     const roundedOffsetTop = Math.round(position.offsetTop);
@@ -1583,6 +1707,13 @@ export default function ChatDetailPage() {
     const previous = lastReadingPositionPersistRef.current;
     if (previous?.chatId === id && previous.key === key && now - previous.at < STORY_READING_POSITION_SAVE_MS) return;
     lastReadingPositionPersistRef.current = { chatId: id, key, at: now };
+    logDeveloperDiagnostic('chat-scroll:save-position', {
+      chatId: id,
+      messageId: position.messageId,
+      offsetTop: roundedOffsetTop,
+      pinned: position.pinned,
+      sourceTimestamp: position.sourceTimestamp,
+    }, 'debug');
     setChatReadingPosition(id, {
       messageId: position.messageId,
       offsetTop: roundedOffsetTop,
@@ -1592,23 +1723,30 @@ export default function ChatDetailPage() {
   }, [id, isStoryRoom, setChatReadingPosition]);
 
   useEffect(() => {
+    const effectiveStoryReaderAtTail = hasSavedNonTailStoryReadingPosition && !hasStoryReaderReachedTailIntent ? false : isStoryReaderAtTail;
     if (!shouldAutoStartStoryRoom({
       hasChat: Boolean(chat),
       hasChatId: Boolean(id),
       canAutoRunConversation: Boolean(canAutoRunConversation),
       isStoryRoom,
-      isStoryReaderAtTail,
+      isStoryReaderAtTail: effectiveStoryReaderAtTail,
       isRunning,
       isPaused,
       isStoryWaitingForChoice,
       isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
+      hasUserDraft: hasStoryUserDraft,
       hasRunLoopError: Boolean(chatError || runLoopError),
     })) return;
     if (!chat || !id) return;
+    setIsStoryGenerationCancelled(false);
     logDeveloperDiagnostic('story-run:auto-tail-start', {
       chatId: id,
       phase: chat.scenarioState?.phase || null,
-      isStoryReaderAtTail,
+      isStoryReaderAtTail: effectiveStoryReaderAtTail,
+      rawStoryReaderAtTail: isStoryReaderAtTail,
+      hasSavedNonTailStoryReadingPosition,
+      hasStoryReaderReachedTailIntent,
+      hasUserDraft: hasStoryUserDraft,
       storyChoiceGate,
     }, 'info');
     resume();
@@ -1621,7 +1759,7 @@ export default function ChatDetailPage() {
         storyChoiceGate,
       }, startBlockReason === 'waiting_story_choice' ? 'info' : 'warn');
     }
-  }, [canAutoRunConversation, chat, chatError, id, isCurrentStoryChoiceSubmitting, isPaused, isRunning, isStoryReaderAtTail, isStoryRoom, isStoryWaitingForChoice, resume, runLoopError, startConversationLoopIfNeeded, storyChoiceGate]);
+  }, [canAutoRunConversation, chat, chatError, hasSavedNonTailStoryReadingPosition, hasStoryReaderReachedTailIntent, hasStoryUserDraft, id, isCurrentStoryChoiceSubmitting, isPaused, isRunning, isStoryReaderAtTail, isStoryRoom, isStoryWaitingForChoice, resume, runLoopError, startConversationLoopIfNeeded, storyChoiceGate]);
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
@@ -1656,6 +1794,7 @@ export default function ChatDetailPage() {
       return;
     }
     if (!isRunning || isPaused) {
+      setIsStoryGenerationCancelled(false);
       resume();
       const startBlockReason = startConversationLoopIfNeeded(chat);
       if (startBlockReason) {
@@ -1668,11 +1807,10 @@ export default function ChatDetailPage() {
         });
       }
     } else {
-      isPausedRef.current = true;
-      pause();
-      updateChat(id, { isActive: false });
+      if (isStoryRoom) setIsStoryGenerationCancelled(true);
+      cancelActiveConversationLoop(isStoryRoom ? 'story_header_cancelled' : 'header_cancelled');
     }
-  }, [canAutoRunConversation, chat, id, isPaused, isRunning, isStoryWaitingForChoice, pause, resume, setSnackbar, startConversationLoopIfNeeded, stop, storyChoiceGate, updateChat, visibleStoryBranchOptions.length]);
+  }, [canAutoRunConversation, cancelActiveConversationLoop, chat, id, isPaused, isRunning, isStoryRoom, isStoryWaitingForChoice, resume, setSnackbar, startConversationLoopIfNeeded, stop, storyChoiceGate, updateChat, visibleStoryBranchOptions.length]);
 
   const headerPrimaryActionButton = canAutoRunConversation && !isStoryRoom ? (
     <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>
@@ -1724,7 +1862,7 @@ export default function ChatDetailPage() {
 
   if (!chat) {
     return (
-      <Box sx={{ display: 'grid', justifyItems: 'center', alignContent: 'start', height: '100%', p: 3, pt: { xs: 4, sm: 6 } }}>
+      <Box sx={{ display: 'grid', placeItems: 'center', flex: 1, width: '100%', height: '100%', minHeight: 0, p: 3 }}>
         {!isRemoteDeletedChat && (chatsLoading || !detailBootstrapComplete) ? (
           <LoadingState title="正在打开会话" compact />
         ) : (
@@ -1858,14 +1996,15 @@ export default function ChatDetailPage() {
             loadingText={t('common.loading')}
             topHint="没有更早的消息"
             topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
-            bottomInset={isRemoteDeletedChat ? { xs: '24px', sm: '24px' } : { xs: 'calc(82px + env(safe-area-inset-bottom, 0px))', sm: '82px' }}
+            bottomInset={messageListBottomInset}
             privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
-            tailContent={storyBranchSuggestionContent}
+            tailContent={undefined}
             storyChoiceMessageId={displayedStoryChoiceMessageId}
             storyChoiceOptions={displayedStoryChoiceOptions}
             storyChoiceSubmittingValue={displayedStoryChoiceSubmittingValue}
             onChooseStoryChoice={isStoryWaitingForChoice ? handleChooseStoryBranch : undefined}
             onBottomPinnedChange={isStoryRoom ? handleMessageListBottomPinnedChange : undefined}
+            onNearBottomChange={isStoryRoom ? handleMessageListNearBottomChange : undefined}
             initialScrollPosition={isStoryRoom ? initialStoryReadingPosition : null}
             onScrollPositionChange={isStoryRoom ? handleStoryReadingPositionChange : undefined}
             narrativeRevealMessageKeys={narrativeRevealMessageKeys}
@@ -1881,6 +2020,16 @@ export default function ChatDetailPage() {
             zIndex: 2,
           }}
         >
+          {storyBranchSuggestionContent ? (
+            <Box
+              sx={{
+                pointerEvents: 'auto',
+                pb: 0.25,
+              }}
+            >
+              {storyBranchSuggestionContent}
+            </Box>
+          ) : null}
           <SessionComposerHost
             surfaces={effectiveComposerSurfaces}
             speakAsCharacterName={effectiveSpeakAsChar?.name}
@@ -1892,6 +2041,7 @@ export default function ChatDetailPage() {
             onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
             onDraftActivity={(activity) => {
               userDraftActivityRef.current = activity;
+              if (isStoryRoom) setHasStoryUserDraft(Boolean(activity.hasDraft));
             }}
             onSubmitText={(submission, surface) => {
               if (shouldRouteTextAsStoryCustomDirection({

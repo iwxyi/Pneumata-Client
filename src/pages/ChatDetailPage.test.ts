@@ -111,6 +111,13 @@ describe('ChatDetailPage pause/resume behavior', () => {
       hasRunLoopStatus: false,
       isStoryChoiceSubmitting: false,
       isGeneratingStoryNode: false,
+      isGenerationCancelled: true,
+      isWaitingForReaderTail: true,
+    })).toBe('generation_cancelled');
+    expect(getStoryTailStatus({
+      hasRunLoopStatus: false,
+      isStoryChoiceSubmitting: false,
+      isGeneratingStoryNode: false,
       isWaitingForReaderTail: true,
     })).toBe('waiting_reader_tail');
     expect(getStoryTailStatus({
@@ -153,7 +160,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
   });
 
   it('presents story room reader input as text-only story direction control', () => {
-    expect(getStoryReaderComposerPlaceholder()).toContain('自定义剧情走向');
+    expect(getStoryReaderComposerPlaceholder()).toBe('推动剧情');
     expect(buildStoryReaderTextInputCapabilities({
       imageInput: true,
       multiImageInput: true,
@@ -189,6 +196,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
     expect(shouldAutoStartStoryRoom({ ...base, isStoryChoiceSubmitting: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isPaused: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isRunning: true })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, hasUserDraft: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, hasRunLoopError: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isStoryRoom: false })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, canAutoRunConversation: false })).toBe(false);

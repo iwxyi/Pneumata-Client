@@ -141,10 +141,32 @@ function activeMessageWindow(messages: Message[], limit = DEFAULT_MESSAGE_WINDOW
   return messages.slice(-limit);
 }
 
-function getActiveWindowLimit(window: CachedMessageWindow | undefined, requestedLimit = DEFAULT_MESSAGE_WINDOW_LIMIT) {
+function findFirstTimestampGreaterThan(messages: Message[], timestamp: number) {
+  let low = 0;
+  let high = messages.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (messages[mid]?.timestamp <= timestamp) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function findFirstTimestampAtLeast(messages: Message[], timestamp: number) {
+  let low = 0;
+  let high = messages.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (messages[mid]?.timestamp < timestamp) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
+function getRequestedWindowLimit(requestedLimit = DEFAULT_MESSAGE_WINDOW_LIMIT) {
   return Math.min(
     MAX_ACTIVE_MESSAGES_PER_CHAT,
-    Math.max(DEFAULT_MESSAGE_WINDOW_LIMIT, requestedLimit, window?.activeLimit || 0),
+    Math.max(DEFAULT_MESSAGE_WINDOW_LIMIT, requestedLimit),
   );
 }
 
@@ -169,7 +191,7 @@ function canLoadNewerFromWindow(window: CachedMessageWindow | undefined, activeM
 function localHydratedWindow(state: MessageStore, chatId: string) {
   const cachedWindow = state.messageWindowsByChatId[chatId];
   const cachedMessages = cachedWindow?.messages || [];
-  const limit = getActiveWindowLimit(cachedWindow);
+  const limit = DEFAULT_MESSAGE_WINDOW_LIMIT;
   const activeMessages = activeMessageWindow(cachedMessages, limit);
   return {
     activeChatId: chatId,
@@ -193,13 +215,14 @@ function localUpsertMessage(state: MessageStore, message: Message) {
 function localLoadMessages(state: MessageStore, chatId: string, options?: MessageLoadOptions) {
   const currentWindow = state.messageWindowsByChatId[chatId];
   const current = currentWindow?.messages || [];
-  const limit = getActiveWindowLimit(currentWindow, options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT);
+  const limit = getRequestedWindowLimit(options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT);
   if (options?.aroundTimestamp !== undefined) {
     const target = Number(options.aroundTimestamp);
     const beforeLimit = Math.max(1, Math.ceil(limit / 2));
     const afterLimit = Math.max(0, limit - beforeLimit);
-    const olderMessages = current.filter((message) => message.timestamp <= target).slice(-beforeLimit);
-    const newerMessages = current.filter((message) => message.timestamp > target).slice(0, afterLimit);
+    const splitIndex = findFirstTimestampGreaterThan(current, target);
+    const olderMessages = current.slice(Math.max(0, splitIndex - beforeLimit), splitIndex);
+    const newerMessages = current.slice(splitIndex, splitIndex + afterLimit);
     const nextMessages = mergeMessages(olderMessages, newerMessages);
     const earliestTimestamp = nextMessages.find((message) => message.chatId === chatId && !message.isDeleted)?.timestamp ?? Number.NEGATIVE_INFINITY;
     const hasMoreLocal = current.some((message) => !message.isDeleted && message.timestamp < earliestTimestamp);
@@ -209,7 +232,7 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: Messag
         ...state.messageWindowsByChatId,
         [chatId]: {
           ...(currentWindow || { messages: current, lastSyncedAt: 0, updatedAt: current.at(-1)?.timestamp || Date.now() }),
-          activeLimit: Math.max(currentWindow?.activeLimit || 0, countUniqueMessages(nextMessages), limit),
+          activeLimit: Math.max(countUniqueMessages(nextMessages), limit),
         },
       }, state.pendingOperations),
       activeChatId: chatId,
@@ -221,9 +244,10 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: Messag
     };
   }
   if (options?.append && options.before !== undefined) {
-    const olderMessages = current.filter((message) => message.timestamp < Number(options.before)).slice(-limit);
+    const beforeIndex = findFirstTimestampAtLeast(current, Number(options.before));
+    const olderMessages = current.slice(Math.max(0, beforeIndex - limit), beforeIndex);
     const activeCurrent = state.activeChatId === chatId ? state.messages : activeMessageWindow(current, limit);
-    const nextMessages = trimActiveMessages(mergeMessages(activeCurrent, olderMessages));
+    const nextMessages = trimActiveMessagesForDirection(mergeMessages(activeCurrent, olderMessages), 'older');
     const earliestTimestamp = nextMessages.find((message) => message.chatId === chatId && !message.isDeleted)?.timestamp ?? Number.NEGATIVE_INFINITY;
     const hasMoreLocal = current.some((message) => !message.isDeleted && message.timestamp < earliestTimestamp);
     return {
@@ -232,7 +256,7 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: Messag
         ...state.messageWindowsByChatId,
         [chatId]: {
           ...(currentWindow || { messages: current, lastSyncedAt: 0, updatedAt: current.at(-1)?.timestamp || Date.now() }),
-          activeLimit: Math.max(currentWindow?.activeLimit || 0, countUniqueMessages(nextMessages), limit),
+          activeLimit: Math.max(countUniqueMessages(nextMessages), limit),
         },
       }, state.pendingOperations),
       activeChatId: chatId,
@@ -244,9 +268,10 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: Messag
     };
   }
   if (options?.append && options.after !== undefined) {
-    const newerMessages = current.filter((message) => message.timestamp > Number(options.after)).slice(0, limit);
+    const afterIndex = findFirstTimestampGreaterThan(current, Number(options.after));
+    const newerMessages = current.slice(afterIndex, afterIndex + limit);
     const activeCurrent = state.activeChatId === chatId ? state.messages : activeMessageWindow(current, limit);
-    const nextMessages = trimActiveMessages(mergeMessages(activeCurrent, newerMessages));
+    const nextMessages = trimActiveMessagesForDirection(mergeMessages(activeCurrent, newerMessages), 'newer');
     const latestTimestamp = nextMessages.at(-1)?.timestamp ?? Number.POSITIVE_INFINITY;
     return {
       messages: nextMessages,
@@ -254,7 +279,7 @@ function localLoadMessages(state: MessageStore, chatId: string, options?: Messag
         ...state.messageWindowsByChatId,
         [chatId]: {
           ...(currentWindow || { messages: current, lastSyncedAt: 0, updatedAt: current.at(-1)?.timestamp || Date.now() }),
-          activeLimit: Math.max(currentWindow?.activeLimit || 0, countUniqueMessages(nextMessages), limit),
+          activeLimit: Math.max(countUniqueMessages(nextMessages), limit),
         },
       }, state.pendingOperations),
       activeChatId: chatId,
@@ -4339,7 +4364,7 @@ void maybeReplayCoreGuestMessages;
 
 const DEFAULT_MESSAGE_WINDOW_LIMIT = 40;
 const MAX_CACHED_MESSAGES_PER_CHAT = 1000;
-const MAX_ACTIVE_MESSAGES_PER_CHAT = 1000;
+const MAX_ACTIVE_MESSAGES_PER_CHAT = 240;
 const MAX_CACHED_CHATS = 12;
 const MAX_PERSISTED_DATA_URL_CHARS = 2048;
 
@@ -4367,7 +4392,7 @@ interface PendingMessageOperation {
   lockedAt?: number;
 }
 
-type MessageLoadOptions = { append?: boolean; before?: number; after?: number; aroundTimestamp?: number; limit?: number };
+type MessageLoadOptions = { append?: boolean; before?: number; after?: number; aroundTimestamp?: number; limit?: number; resetWindow?: boolean };
 
 function buildMessageFetchOptions(options: {
   limit: number;
@@ -4659,6 +4684,14 @@ function trimActiveMessages(messages: Message[]) {
   return dedupeMessages(messages).slice(-MAX_ACTIVE_MESSAGES_PER_CHAT);
 }
 
+function trimActiveMessagesForDirection(messages: Message[], direction: 'older' | 'newer' | 'tail') {
+  const deduped = dedupeMessages(messages);
+  if (deduped.length <= MAX_ACTIVE_MESSAGES_PER_CHAT) return deduped;
+  return direction === 'older'
+    ? deduped.slice(0, MAX_ACTIVE_MESSAGES_PER_CHAT)
+    : deduped.slice(-MAX_ACTIVE_MESSAGES_PER_CHAT);
+}
+
 function getPendingChatIds(pendingOperations: PendingMessageOperation[] = []) {
   return new Set(pendingOperations.map((operation) => operation.chatId).filter(Boolean));
 }
@@ -4811,7 +4844,7 @@ interface MessageStore {
   hasMoreNewer: boolean;
 
   hydrateMessagesFromCache: (chatId: string) => Promise<void>;
-  openChatWindow: (chatId: string, options?: { limit?: number; revalidate?: boolean; aroundTimestamp?: number }) => Promise<void>;
+  openChatWindow: (chatId: string, options?: { limit?: number; revalidate?: boolean; aroundTimestamp?: number; resetWindow?: boolean }) => Promise<void>;
   closeChatWindow: (chatId: string, options?: { clearActiveOnly?: boolean }) => void;
   prefetchMessages: (chatId: string, options?: { limit?: number }) => Promise<void>;
   hasMessageWindow: (chatId: string) => boolean;
@@ -4935,7 +4968,7 @@ export const useMessageStore = create<MessageStore>()(
               return {
                 messageWindowsByChatId: nextCache,
                 messages: state.activeChatId === chatId
-                  ? activeMessageWindow(trimmed, getActiveWindowLimit(nextCache[chatId]))
+                  ? activeMessageWindow(trimmed, DEFAULT_MESSAGE_WINDOW_LIMIT)
                   : state.messages,
               };
             });
@@ -4973,14 +5006,18 @@ export const useMessageStore = create<MessageStore>()(
         return ensureMessageStoreHydrated().then(applyCachedWindow);
       },
 
-      openChatWindow: async (chatId: string, options?: { limit?: number; revalidate?: boolean; aroundTimestamp?: number }) => {
+      openChatWindow: async (chatId: string, options?: { limit?: number; revalidate?: boolean; aroundTimestamp?: number; resetWindow?: boolean }) => {
         await ensureMessageStoreHydrated();
         if (!shouldSkipCloudSync()) messageSyncScheduler.schedule(flushPendingOperations, 100);
-        await get().hydrateMessagesFromCache(chatId);
         if (options?.aroundTimestamp !== undefined) {
           await get().loadMessages(chatId, { limit: options.limit, aroundTimestamp: options.aroundTimestamp });
           return;
         }
+        if (options?.resetWindow) {
+          await get().loadMessages(chatId, { limit: options.limit, resetWindow: true });
+          return;
+        }
+        await get().hydrateMessagesFromCache(chatId);
         const currentWindow = get().messageWindowsByChatId[chatId];
         const limit = options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT;
         const shouldRevalidate = shouldRevalidateMessageWindow(currentWindow?.lastSyncedAt, options?.revalidate ?? true);
@@ -5022,9 +5059,10 @@ export const useMessageStore = create<MessageStore>()(
         try {
           await uploadGuestMessagesToCloud();
           const currentWindowBeforeFetch = get().messageWindowsByChatId[chatId];
-          const limit = getActiveWindowLimit(currentWindowBeforeFetch, options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT);
           const isAroundWindow = options?.aroundTimestamp !== undefined;
-          const canProbeWindow = !isAppend && !options?.before && !options?.after && !isAroundWindow && Boolean(currentWindowBeforeFetch?.messages?.length);
+          const isResetWindow = Boolean(options?.resetWindow);
+          const limit = getRequestedWindowLimit(options?.limit ?? DEFAULT_MESSAGE_WINDOW_LIMIT);
+          const canProbeWindow = !isAppend && !options?.before && !options?.after && !isAroundWindow && !isResetWindow && Boolean(currentWindowBeforeFetch?.messages?.length);
           if (canProbeWindow && messageSyncScopes.isFresh(messageWindowScope(chatId))) {
             const activeMessages = activeMessageWindow(currentWindowBeforeFetch?.messages || [], limit);
             set((state) => ({
@@ -5077,7 +5115,7 @@ export const useMessageStore = create<MessageStore>()(
             const nextActiveMessages = isAroundWindow
               ? fetched
               : isAppend
-              ? trimActiveMessages(mergedActiveMessages)
+              ? trimActiveMessagesForDirection(mergedActiveMessages, isAppendNewer ? 'newer' : 'older')
               : activeMessageWindow(mergedActiveMessages, limit);
             const currentVisibleCount = countUniqueMessages(activeCurrent);
             const nextVisibleCount = countUniqueMessages(nextActiveMessages);
@@ -5110,8 +5148,10 @@ export const useMessageStore = create<MessageStore>()(
                 remoteExhausted,
                 remoteNewerExhausted,
                 activeLimit: isAppend
-                  ? Math.max(currentWindow?.activeLimit || 0, nextVisibleCount, limit)
-                  : Math.max(currentWindow?.activeLimit || 0, limit),
+                  ? Math.max(nextVisibleCount, limit)
+                  : isAroundWindow || isResetWindow
+                    ? Math.max(nextVisibleCount, limit)
+                    : Math.max(currentWindow?.activeLimit || 0, limit),
               },
             }, state.pendingOperations);
             if (!isAppend && !options?.before && !options?.after && !isAroundWindow) {

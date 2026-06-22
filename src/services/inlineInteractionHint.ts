@@ -212,7 +212,7 @@ export function buildInlineInteractionContract(params: {
   const storyNarrativeRules = params.chat.sessionKind?.scenarioId === 'story-reader'
     ? `\n\nRules for story event DSL:
 1. Story-reader turns must use storyEvents as the authoritative visible story body. Do not copy the JSON shape with storyEvents=null for a normal story turn.
-2. storyEvents must be an ordered array of 2-9 events for every normal story-reader turn. Do not set storyEvents=null; even a single spoken line must be represented as a speech event. Each event is one of:
+2. storyEvents must be an ordered array for every normal story-reader turn. Do not set storyEvents=null; even a single spoken line must be represented as a speech event. Use as many narration and speech events as the current story beat needs; do not pad, truncate, or stop early just to fit a fixed count. Each event is one of:
    - {"type":"narration","actorId":"narrator","text":"brief external scene action or visible consequence"}
    - {"type":"speech","actorId":"character-id-or-null","actorName":"exact display name or null","text":"spoken line only"}
    - {"type":"choice_point","choices":[{"label":"让某人做具体动作","prompt":"选择后要推进的具体后果","intent":"逼问/保护/追踪/隐瞒/冒险/揭露","risk":"可能付出的代价","reward":"可能获得的信息或关系推进"}]}
@@ -227,10 +227,11 @@ export function buildInlineInteractionContract(params: {
 10. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
 11. Put user decision pauses in a choice_point event. Do not render choices inside content, extraMessages, or a separate visible prose block.
 12. Write visible scene execution, not author notes, beat analysis, future outline, or summaries like "接下来剧情将". If the user just chose a branch, first show what immediately changes on screen: a cost, clue, relationship shift, danger, or opportunity.
-13. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
-14. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
-15. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.
-16. chapter_update is structured metadata for the chapter sidebar. It is not visible body text. Use it when opening a new chapter, renaming the current chapter, or settling a chapter; do not invent a generic title such as "阶段回顾".`
+13. For non-choice beats, write a satisfying readable section rather than a minimal stub. Let the scene breathe with consequences, sensory detail, movement, and dialogue when useful. Stop only when the beat naturally lands on a hook or a genuine choice point.
+14. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
+15. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
+16. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.
+17. chapter_update is structured metadata for the chapter sidebar. It is not visible body text. Use it when opening a new chapter, renaming the current chapter, or settling a chapter; do not invent a generic title such as "阶段回顾".`
     : '';
   const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
     ? `\n\nRules for story choice points:

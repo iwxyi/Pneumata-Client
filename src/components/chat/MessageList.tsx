@@ -12,14 +12,16 @@ import { buildChatRenderItems, type ChatRenderItem } from './chatRenderModel';
 import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import ImageLightbox from '../common/ImageLightbox';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
 
 const TOP_PREFETCH_THRESHOLD = 520;
-const BOTTOM_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
 const JUMP_TO_BOTTOM_PAGE_MULTIPLIER = 3;
 const BOTTOM_RESTORE_ANCHOR_THRESHOLD = 700;
 const SMOOTH_SCROLL_DISTANCE_LIMIT = 900;
 const FOLLOW_SCROLL_DURATION_MS = 180;
+const MIN_BOTTOM_PREFETCH_PAGES = 1;
+const MAX_BOTTOM_PREFETCH_PAGES = 3;
 const storyNodeFadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -62,6 +64,7 @@ interface MessageListProps {
   storyChoiceSubmittingValue?: string | null;
   onChooseStoryChoice?: (value: string) => void;
   onBottomPinnedChange?: (pinned: boolean) => void;
+  onNearBottomChange?: (nearBottom: boolean) => void;
   initialScrollPosition?: MessageListScrollPosition | null;
   onScrollPositionChange?: (position: MessageListScrollPosition) => void;
   narrativeRevealMessageKeys?: ReadonlySet<string>;
@@ -279,6 +282,7 @@ export default function MessageList({
   storyChoiceSubmittingValue = null,
   onChooseStoryChoice,
   onBottomPinnedChange,
+  onNearBottomChange,
   initialScrollPosition = null,
   onScrollPositionChange,
   narrativeRevealMessageKeys,
@@ -295,12 +299,18 @@ export default function MessageList({
   const bottomLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
   const lastReportedBottomPinnedRef = useRef<boolean | null>(null);
+  const lastReportedNearBottomRef = useRef<boolean | null>(null);
   const hasJumpedToBottomRef = useRef(false);
   const initialScrollPositionRef = useRef(initialScrollPosition);
+  const pendingInitialRestoreRef = useRef<MessageListScrollPosition | null>(initialScrollPosition?.pinned ? null : initialScrollPosition);
+  const appliedInitialRestoreKeyRef = useRef<string | null>(null);
   const prependRestoreRef = useRef<ScrollAnchorSnapshot | null>(null);
   const latestScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
   const autoFillTriggeredRef = useRef(false);
   const lastScrollTopRef = useRef(0);
+  const hasUserScrollIntentRef = useRef(false);
+  const adaptiveBottomPagesRef = useRef(MIN_BOTTOM_PREFETCH_PAGES);
+  const lastScrollSampleRef = useRef<{ top: number; at: number } | null>(null);
   const followScrollAnimationRef = useRef<number | null>(null);
   const previousStoryChoiceSubmittingValueRef = useRef<string | null>(storyChoiceSubmittingValue);
   const previousRenderMetricsRef = useRef({
@@ -338,12 +348,6 @@ export default function MessageList({
     if (!onReachTop || isLoadingOlder || !hasMore) return;
     void onReachTop();
   }, [hasMore, isLoadingOlder, onReachTop]);
-
-  const triggerReachBottom = useCallback(() => {
-    if (!onReachBottom || isLoadingNewer || !hasMoreNewer || bottomLoadTriggeredRef.current) return;
-    bottomLoadTriggeredRef.current = true;
-    void onReachBottom();
-  }, [hasMoreNewer, isLoadingNewer, onReachBottom]);
 
   const renderBubble = useCallback((item: ChatRenderItem, options?: { key?: string; message?: Message; character?: AICharacter }) => (
     <MessageBubble
@@ -449,6 +453,41 @@ export default function MessageList({
     getDistanceFromBottom(element) > element.clientHeight * JUMP_TO_BOTTOM_PAGE_MULTIPLIER
   ), [getDistanceFromBottom]);
 
+  const getAdaptiveBottomThreshold = useCallback((element: HTMLDivElement) => (
+    element.clientHeight * adaptiveBottomPagesRef.current
+  ), []);
+
+  const reportNearBottomState = useCallback((element: HTMLDivElement) => {
+    const nearBottom = getDistanceFromBottom(element) <= getAdaptiveBottomThreshold(element) && !hasMoreNewer;
+    if (lastReportedNearBottomRef.current !== nearBottom) {
+      lastReportedNearBottomRef.current = nearBottom;
+      onNearBottomChange?.(nearBottom);
+    }
+    return nearBottom;
+  }, [getAdaptiveBottomThreshold, getDistanceFromBottom, hasMoreNewer, onNearBottomChange]);
+
+  const markUserScrollIntent = useCallback(() => {
+    hasUserScrollIntentRef.current = true;
+  }, []);
+
+  const updateAdaptiveBottomPrefetch = useCallback((element: HTMLDivElement, isScrollingDown: boolean) => {
+    if (!hasUserScrollIntentRef.current || !isScrollingDown) return;
+    const now = performance.now();
+    const previous = lastScrollSampleRef.current;
+    lastScrollSampleRef.current = { top: element.scrollTop, at: now };
+    if (!previous) return;
+    const deltaTop = element.scrollTop - previous.top;
+    const deltaTime = Math.max(16, now - previous.at);
+    const velocity = deltaTop / deltaTime;
+    if (velocity >= 1.2) {
+      adaptiveBottomPagesRef.current = MAX_BOTTOM_PREFETCH_PAGES;
+    } else if (velocity >= 0.45) {
+      adaptiveBottomPagesRef.current = 2;
+    } else {
+      adaptiveBottomPagesRef.current = MIN_BOTTOM_PREFETCH_PAGES;
+    }
+  }, []);
+
   const captureScrollAnchor = useCallback(() => {
     const container = containerRef.current;
     if (!container) return null;
@@ -493,6 +532,25 @@ export default function MessageList({
     return true;
   }, []);
 
+  const getInitialRestoreKey = useCallback((position: MessageListScrollPosition | null) => (
+    position && !position.pinned
+      ? `${position.messageId}:${Math.round(position.offsetTop)}:${position.sourceTimestamp ?? ''}`
+      : null
+  ), []);
+
+  useEffect(() => {
+    initialScrollPositionRef.current = initialScrollPosition;
+    const restoreKey = getInitialRestoreKey(initialScrollPosition);
+    if (!restoreKey || appliedInitialRestoreKeyRef.current === restoreKey) return;
+    pendingInitialRestoreRef.current = initialScrollPosition;
+    logDeveloperDiagnostic('chat-scroll:restore-pending', {
+      messageId: initialScrollPosition?.messageId,
+      offsetTop: initialScrollPosition?.offsetTop,
+      sourceTimestamp: initialScrollPosition?.sourceTimestamp,
+      renderItemCount: renderItems.length,
+    }, 'info');
+  }, [getInitialRestoreKey, initialScrollPosition, renderItems.length]);
+
   const rememberScrollAnchor = useCallback(() => {
     const snapshot = captureScrollAnchor();
     latestScrollAnchorRef.current = snapshot;
@@ -507,6 +565,13 @@ export default function MessageList({
     }
     return snapshot;
   }, [captureScrollAnchor, isLoadingOlder, onScrollPositionChange]);
+
+  const triggerReachBottom = useCallback(() => {
+    if (!onReachBottom || isLoadingNewer || !hasMoreNewer || bottomLoadTriggeredRef.current) return;
+    prependRestoreRef.current = latestScrollAnchorRef.current || captureScrollAnchor();
+    bottomLoadTriggeredRef.current = true;
+    void onReachBottom();
+  }, [captureScrollAnchor, hasMoreNewer, isLoadingNewer, onReachBottom]);
 
   useEffect(() => {
     if (storyRevealMode !== 'instant' || !onNarrativeRevealComplete) return;
@@ -600,11 +665,18 @@ export default function MessageList({
     if (!content || typeof ResizeObserver === 'undefined') return undefined;
     let frame: number | null = null;
     const observer = new ResizeObserver(() => {
-      if (!hasJumpedToBottomRef.current || !shouldStickToBottomRef.current) return;
+      if (!hasJumpedToBottomRef.current) return;
       if (frame != null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        if (shouldStickToBottomRef.current) followScrollToBottom();
+        if (shouldStickToBottomRef.current) {
+          followScrollToBottom();
+          return;
+        }
+        const snapshot = latestScrollAnchorRef.current;
+        if (!snapshot) return;
+        restoreScrollAnchor(snapshot);
+        lastScrollTopRef.current = containerRef.current?.scrollTop ?? lastScrollTopRef.current;
       });
     });
     observer.observe(content);
@@ -612,7 +684,7 @@ export default function MessageList({
       observer.disconnect();
       if (frame != null) window.cancelAnimationFrame(frame);
     };
-  }, [followScrollToBottom]);
+  }, [followScrollToBottom, restoreScrollAnchor]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -621,25 +693,43 @@ export default function MessageList({
     if (initialPosition && !initialPosition.pinned) {
       const restored = restoreScrollAnchor(initialPosition);
       if (!restored) {
-        scrollToBottom('auto');
-        hasJumpedToBottomRef.current = true;
-        shouldStickToBottomRef.current = true;
-        if (lastReportedBottomPinnedRef.current !== true) {
-          lastReportedBottomPinnedRef.current = true;
-          onBottomPinnedChange?.(true);
-        }
+        pendingInitialRestoreRef.current = initialPosition;
+        shouldStickToBottomRef.current = false;
+        lastReportedBottomPinnedRef.current = false;
+        onBottomPinnedChange?.(false);
+        logDeveloperDiagnostic('chat-scroll:initial-restore-miss', {
+          messageId: initialPosition.messageId,
+          offsetTop: initialPosition.offsetTop,
+          sourceTimestamp: initialPosition.sourceTimestamp,
+          renderItemCount: renderItems.length,
+          firstMessageId: renderItems[0]?.message.id,
+          firstTimestamp: renderItems[0]?.message.timestamp,
+          lastMessageId: renderItems.at(-1)?.message.id,
+          lastTimestamp: renderItems.at(-1)?.message.timestamp,
+        }, 'warn');
         return;
       }
       hasJumpedToBottomRef.current = true;
       shouldStickToBottomRef.current = false;
       lastReportedBottomPinnedRef.current = false;
+      appliedInitialRestoreKeyRef.current = getInitialRestoreKey(initialPosition);
+      pendingInitialRestoreRef.current = null;
+      latestScrollAnchorRef.current = initialPosition;
       onBottomPinnedChange?.(false);
+      logDeveloperDiagnostic('chat-scroll:initial-restore-hit', {
+        messageId: initialPosition.messageId,
+        offsetTop: initialPosition.offsetTop,
+        sourceTimestamp: initialPosition.sourceTimestamp,
+        scrollTop: container.scrollTop,
+        renderItemCount: renderItems.length,
+      }, 'info');
       const handle = window.requestAnimationFrame(() => {
         restoreScrollAnchor(initialPosition);
         lastScrollTopRef.current = container.scrollTop;
       });
       return () => window.cancelAnimationFrame(handle);
     }
+    pendingInitialRestoreRef.current = null;
     scrollToBottom('auto');
     hasJumpedToBottomRef.current = true;
     shouldStickToBottomRef.current = true;
@@ -647,7 +737,34 @@ export default function MessageList({
       lastReportedBottomPinnedRef.current = true;
       onBottomPinnedChange?.(true);
     }
-  }, [onBottomPinnedChange, renderItems.length, restoreScrollAnchor, scrollToBottom]);
+  }, [getInitialRestoreKey, onBottomPinnedChange, renderItems, restoreScrollAnchor, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    const pending = pendingInitialRestoreRef.current;
+    const container = containerRef.current;
+    if (!pending || !container || pending.pinned || renderItems.length === 0) return;
+    const restoreKey = getInitialRestoreKey(pending);
+    if (restoreKey && appliedInitialRestoreKeyRef.current === restoreKey) {
+      pendingInitialRestoreRef.current = null;
+      return;
+    }
+    if (!restoreScrollAnchor(pending)) return;
+    hasJumpedToBottomRef.current = true;
+    shouldStickToBottomRef.current = false;
+    lastReportedBottomPinnedRef.current = false;
+    appliedInitialRestoreKeyRef.current = restoreKey;
+    pendingInitialRestoreRef.current = null;
+    latestScrollAnchorRef.current = pending;
+    onBottomPinnedChange?.(false);
+    updatePinnedState();
+    logDeveloperDiagnostic('chat-scroll:deferred-restore-hit', {
+      messageId: pending.messageId,
+      offsetTop: pending.offsetTop,
+      sourceTimestamp: pending.sourceTimestamp,
+      scrollTop: container.scrollTop,
+      renderItemCount: renderItems.length,
+    }, 'info');
+  }, [getInitialRestoreKey, onBottomPinnedChange, renderItems, restoreScrollAnchor, updatePinnedState]);
 
   useLayoutEffect(() => {
     const snapshot = prependRestoreRef.current;
@@ -732,27 +849,37 @@ export default function MessageList({
     <Box
       ref={containerRef}
       data-chat-message-list
+      onWheel={markUserScrollIntent}
+      onTouchStart={markUserScrollIntent}
+      onPointerDown={markUserScrollIntent}
+      onKeyDown={markUserScrollIntent}
+      tabIndex={0}
+      aria-label="聊天消息列表"
       onScroll={() => {
         const container = containerRef.current;
         if (!container) return;
 
         const previousScrollTop = lastScrollTopRef.current;
         const isScrollingUp = container.scrollTop < previousScrollTop - 2;
+        const isScrollingDown = container.scrollTop > previousScrollTop + 2;
+        updateAdaptiveBottomPrefetch(container, isScrollingDown);
         lastScrollTopRef.current = container.scrollTop;
         if (isScrollingUp) {
           shouldStickToBottomRef.current = false;
           setShowJumpToBottom(shouldShowJumpToBottomButton(container));
+          if (hasUserScrollIntentRef.current) reportNearBottomState(container);
           if (lastReportedBottomPinnedRef.current !== false) {
             lastReportedBottomPinnedRef.current = false;
             onBottomPinnedChange?.(false);
           }
         } else {
           updatePinnedState();
+          if (hasUserScrollIntentRef.current) reportNearBottomState(container);
         }
         rememberScrollAnchor();
 
         const distanceFromBottom = getDistanceFromBottom(container);
-        if (distanceFromBottom < BOTTOM_PREFETCH_THRESHOLD) {
+        if (distanceFromBottom < getAdaptiveBottomThreshold(container)) {
           triggerReachBottom();
         } else {
           bottomLoadTriggeredRef.current = false;
@@ -819,6 +946,7 @@ export default function MessageList({
           color="primary"
           aria-label="滚动到底部"
           onClick={() => {
+            markUserScrollIntent();
             if (onJumpToConversationBottom) {
               void onJumpToConversationBottom();
               return;
@@ -826,10 +954,10 @@ export default function MessageList({
             scrollToBottom('smooth');
           }}
           sx={{
-            position: 'sticky',
-            left: 'calc(100% - 56px)',
-            bottom: bottomInset || 16,
-            zIndex: 3,
+            position: 'fixed',
+            right: { xs: 16, sm: 24 },
+            bottom: { xs: 'calc(104px + env(safe-area-inset-bottom, 0px))', sm: 104 },
+            zIndex: 6,
             boxShadow: 4,
           }}
         >

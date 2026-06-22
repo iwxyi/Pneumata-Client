@@ -55,6 +55,7 @@ export interface TextGenerationAdapterOptions {
   messages: ChatMessage[];
   onChunk?: (chunk: string) => void;
   maxTokens?: number;
+  signal?: AbortSignal;
 }
 
 export interface SpeechGenerationAdapterOptions extends SpeechSynthesisOptions {
@@ -180,7 +181,7 @@ export async function generateTextWithAdapter(params: TextGenerationAdapterOptio
     params.systemPrompt,
     params.messages,
     params.onChunk,
-    params.maxTokens === undefined ? undefined : { maxTokens: params.maxTokens },
+    params.maxTokens === undefined && !params.signal ? undefined : { maxTokens: params.maxTokens, signal: params.signal },
   );
 }
 

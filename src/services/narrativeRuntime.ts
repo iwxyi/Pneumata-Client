@@ -3,7 +3,6 @@ import type { AICharacter } from '../types/character';
 import type { Message, NarrativeBlock, NarrativeTurnMetadata, StoryChoiceSuggestion, StoryEvent } from '../types/message';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
 
-const MAX_STORY_EVENTS = 12;
 const MAX_CHOICES = 4;
 const STORY_ASSET_LIMIT = 6;
 const STORY_ASSET_TEXT_LIMIT = 56;
@@ -96,7 +95,7 @@ function sharesDistinctiveStoryFragment(text: string, previous: string) {
   return fragments.some((fragment) => previousFragments.some((previousFragment) => (
     fragment.includes(previousFragment)
     || previousFragment.includes(fragment)
-    || textSimilarity(fragment, previousFragment) >= 0.86
+    || textSimilarity(fragment, previousFragment) >= 0.94
   )));
 }
 
@@ -109,7 +108,7 @@ function isNearDuplicateStoryText(text: string, previousTexts: string[], minLeng
     if (previousNormalized.includes(normalized) || normalized.includes(previousNormalized)) return true;
     if (previousNormalized.slice(0, 36) === normalized.slice(0, 36)) return true;
     if (sharesDistinctiveStoryFragment(normalized, previousNormalized)) return true;
-    return textSimilarity(normalized, previousNormalized) >= 0.72;
+    return textSimilarity(normalized, previousNormalized) >= 0.9;
   });
 }
 
@@ -161,7 +160,7 @@ export function normalizeStoryEvents(value: unknown, options: NormalizeStoryEven
   const narrationTexts: string[] = (options.previousMessages || [])
     .flatMap((message) => collectHistoricalStoryText(message));
   const speechTextsByActor = collectHistoricalSpeechTextsByActor(options.previousMessages);
-  for (const raw of value.slice(0, MAX_STORY_EVENTS)) {
+  for (const raw of value) {
     if (!raw || typeof raw !== 'object') continue;
     const item = raw as Record<string, unknown>;
     const type = item.type;
@@ -414,7 +413,17 @@ export function buildStoryReadingPanelBlock(params: {
   if (choices.length < 2) return null;
   const state = params.conversation.scenarioState;
   const recap = state?.chapterRecap;
-  const recapText = compactStoryAssetText(recap?.summary || state?.chapterMemory || '', 120);
+  const latestChoice = state?.choiceHistory?.slice(-1)[0];
+  const currentContext = [
+    state?.currentScene?.summary,
+    state?.currentScene?.visibleThreat,
+    state?.storySituation,
+    latestChoice?.impact,
+    latestChoice?.outcome,
+    ...(state?.openQuestions || []).slice(-2),
+    ...(state?.clues || []).slice(-1),
+  ].map((item) => compactStoryAssetText(item || '', 64)).filter(Boolean);
+  const recapText = compactStoryAssetText(Array.from(new Set(currentContext)).slice(0, 3).join('；') || recap?.summary || '', 120);
   const stakes = [
     ...(state?.stakes || []).slice(-2),
     ...choices.flatMap((choice) => [choice.risk, choice.reward].filter(Boolean) as string[]),

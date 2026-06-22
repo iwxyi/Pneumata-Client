@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GroupChat } from '../types/chat';
 import { runSessionLoop } from './sessionRunner';
+import { GenerationCancelledError } from './generationCancellation';
 
 const runOneRoundMock = vi.fn();
 const runSessionActionExecutorMock = vi.fn();
@@ -225,6 +226,7 @@ function buildLoopParams(chat: GroupChat) {
     appendEventMessage: vi.fn(async () => undefined),
     updateChat: vi.fn(async () => { running = false; }),
     recordSpeak: vi.fn(),
+    signal: undefined as AbortSignal | undefined,
   };
 }
 
@@ -248,6 +250,26 @@ describe('runSessionLoop', () => {
     expect(params.onMessageChunk).toHaveBeenNthCalledWith(2, '真正');
     expect(params.onMessageChunk).toHaveBeenNthCalledWith(3, '真正流式');
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes cancellation signal to the active round and does not commit after cancellation', async () => {
+    const controller = new AbortController();
+    runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
+      expect(hooks.signal).toBe(controller.signal);
+      hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
+      controller.abort();
+      throw new GenerationCancelledError();
+    });
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
+    params.signal = controller.signal;
+    params.getCurrentMessages = () => [{ id: 'm1', chatId: 'chat-1', type: 'ai', senderId: 'b', senderName: '乙', content: '上一句', emotion: 0 }] as never[];
+
+    await runSessionLoop(params as never);
+
+    expect(params.onClearStreamingState).toHaveBeenCalledTimes(1);
+    expect(params.onCommit).not.toHaveBeenCalled();
+    expect(params.appendEventMessage).not.toHaveBeenCalled();
+    expect(params.onEngineError).not.toHaveBeenCalled();
   });
 
   it('reports blocked interview actions when no executable schema action is available', async () => {

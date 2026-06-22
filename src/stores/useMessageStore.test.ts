@@ -96,8 +96,8 @@ describe('useMessageStore', () => {
     useMessageStore.getState().upsertMessage(buildMessage(1000, chatId));
 
     const state = useMessageStore.getState();
-    expect(state.messages).toHaveLength(1000);
-    expect(state.messages[0]?.id).toBe('message-1');
+    expect(state.messages).toHaveLength(240);
+    expect(state.messages[0]?.id).toBe('message-761');
     expect(state.messages.at(-1)?.id).toBe('message-1000');
     expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(1000);
     expect(state.messageWindowsByChatId[chatId]?.messages[0]?.id).toBe('message-1');
