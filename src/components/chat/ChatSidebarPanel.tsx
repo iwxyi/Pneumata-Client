@@ -111,6 +111,58 @@ function PanelFallback() {
   return null;
 }
 
+function formatStoryProtocolDiagnosticCode(code: string) {
+  const labels: Record<string, string> = {
+    choice_forbidden: '禁止抉择时输出选项',
+    choice_required_missing: '必须抉择时缺少选项',
+    choice_subject_mismatch: '选项主语不匹配',
+    choice_gate_mismatch: '选择闸门不一致',
+    empty_story_events: '缺少可见故事事件',
+    chapter_title_missing: '章节标题缺失',
+    chapter_recap_missing: '章节结算缺失',
+  };
+  return labels[code] || code;
+}
+
+function StoryProtocolDiagnosticPanel({ chat }: { chat: GroupChat }) {
+  const diagnostics = chat.scenarioState?.storyProtocolDiagnostics || [];
+  if (!diagnostics.length) return null;
+  const recent = diagnostics.slice(-5).reverse();
+  const errorCount = diagnostics.filter((item) => item.level === 'error').length;
+  const warnCount = diagnostics.filter((item) => item.level === 'warn').length;
+  return (
+    <Box sx={(theme) => ({
+      p: 1,
+      borderRadius: 1.25,
+      border: '1px solid',
+      borderColor: errorCount ? theme.palette.error.main : theme.palette.warning.main,
+      bgcolor: theme.palette.mode === 'light' ? 'rgba(254,242,242,0.66)' : 'rgba(127,29,29,0.18)',
+    })}>
+      <Stack spacing={0.75}>
+        <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>故事协议诊断</Typography>
+          <Chip size="small" label={`${errorCount} 错误`} variant="outlined" sx={compactPillChipSx} />
+          <Chip size="small" label={`${warnCount} 警告`} variant="outlined" sx={compactPillChipSx} />
+        </Stack>
+        {recent.map((item) => (
+          <Box key={`${item.createdAt}:${item.code}:${item.message}`} sx={{ px: 0.8, py: 0.65, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.42)' }}>
+            <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center', mb: 0.25 }}>
+              <Chip size="small" label={item.level === 'error' ? '错误' : '警告'} variant="outlined" sx={compactPillChipSx} />
+              <Typography variant="caption" sx={{ fontWeight: 700 }}>{formatStoryProtocolDiagnosticCode(item.code)}</Typography>
+            </Stack>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>
+              {item.message}
+            </Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>
+              {[item.beatKind ? `节拍：${item.beatKind}` : '', item.choicePolicy ? `抉择策略：${item.choicePolicy}` : '', item.choiceEpoch ? `epoch：${item.choiceEpoch}` : ''].filter(Boolean).join(' · ')}
+            </Typography>
+          </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
 type StoryChoiceHistoryItem = NonNullable<NonNullable<GroupChat['scenarioState']>['choiceHistory']>[number];
 
 function normalizeChoiceLabel(value: string, members: AICharacter[]) {
@@ -391,7 +443,9 @@ export default function ChatSidebarPanel({
   onStoryChapterClick,
   perspectiveMemberId,
 }: ChatSidebarPanelProps) {
-  const developerMode = useSettingsStore((state) => state.developerMode);
+  const developerModeFromHook = useSettingsStore((state) => state.developerMode);
+  const settingsSnapshot = useSettingsStore.getState();
+  const developerMode = developerModeFromHook || settingsSnapshot.developerMode;
   const isStoryRoom = chat.sessionKind?.scenarioId === 'story-reader';
   const panelTabs = (isStoryRoom ? [
     showRuntimeTab ? { value: 'narrative' as const, label: '故事' } : null,
@@ -465,6 +519,7 @@ export default function ChatSidebarPanel({
 
         {(activePanelTab === 'world' || activePanelTab === 'developer') && showRuntimeTab ? (
           <Stack spacing={2}>
+            {isStoryRoom && activePanelTab === 'developer' ? <StoryProtocolDiagnosticPanel chat={chat} /> : null}
             <ChatScenarioCard chat={chat} members={members} />
             <ChatPrivateInfoCard chat={chat} members={members} directMemoryContext={directMemoryContext || null} />
             <Suspense fallback={<PanelFallback />}>

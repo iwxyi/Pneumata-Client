@@ -159,6 +159,26 @@ function buildStoryChat(): GroupChat {
         updatedAt: 4,
         beatCount: 3,
       },
+      storyProtocolDiagnostics: [
+        {
+          code: 'choice_required_missing',
+          message: '模型在必须形成关键抉择的节拍没有输出 2-4 个合格候选项。',
+          level: 'error',
+          beatKind: 'decision',
+          choicePolicy: 'require',
+          choiceEpoch: 3,
+          createdAt: 5,
+        },
+        {
+          code: 'chapter_title_missing',
+          message: '章节索引已创建，但模型尚未提供协议化章节标题。',
+          level: 'warn',
+          beatKind: 'pressure',
+          choicePolicy: 'forbid',
+          choiceEpoch: 2,
+          createdAt: 6,
+        },
+      ],
       roleAssignments: [
         { actorId: uuidA, roleId: 'protagonist' },
         { actorId: uuidB, roleId: 'suspect' },
@@ -270,5 +290,24 @@ describe('ChatSidebarPanel story room panels', () => {
     expect(html).toContain('林医生 开始怀疑 护士');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
+  });
+
+  it('renders story protocol diagnostics only in developer story panel', async () => {
+    const { useSettingsStore } = await import('../../stores/useSettingsStore');
+    useSettingsStore.setState((state) => ({
+      ...state,
+      developerMode: true,
+      developerUI: { ...state.developerUI, showAdvancedRuntimePanels: true },
+    }));
+    const developerHtml = await renderPanel('developer');
+    const normalHtml = await renderPanel('clues');
+
+    expect(developerHtml).toContain('故事协议诊断');
+    expect(developerHtml).toContain('1 错误');
+    expect(developerHtml).toContain('1 警告');
+    expect(developerHtml).toContain('必须抉择时缺少选项');
+    expect(developerHtml).toContain('章节标题缺失');
+    expect(developerHtml).toContain('节拍：decision');
+    expect(normalHtml).not.toContain('故事协议诊断');
   });
 });
