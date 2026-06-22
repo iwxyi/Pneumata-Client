@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Box, Stack, Typography } from '@mui/material';
+import { Box, Chip, Stack, Typography } from '@mui/material';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat, StoryChapterState } from '../../types/chat';
 import type { Message } from '../../types/message';
@@ -8,12 +8,15 @@ import FloatingSegmentedTabs from '../common/FloatingSegmentedTabs';
 import { formatScenarioRoleLabel } from '../../services/scenarioPresentation';
 import { ChatPrivateInfoCard } from './ChatPrivateInfoCard';
 import { projectSessionParticipantTopology } from '../../services/sessionParticipantProjection';
+import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
+import { useSettingsStore } from '../../stores/useSettingsStore';
+import { compactPillChipSx } from '../../styles/interaction';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
 const ChatNarrativePanel = lazy(() => import('./ChatNarrativePanel'));
 
-type ChatSidebarTab = 'members' | 'narrative' | 'chapters' | 'world' | 'activities';
+type ChatSidebarTab = 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities';
 
 interface ChatSidebarPanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -170,6 +173,143 @@ function StoryChapterPanel({ chat, onStoryChapterClick }: { chat: GroupChat; onS
   );
 }
 
+function StoryAssetList({ title, items, emptyText, tone = 'default' }: { title: string; items?: string[]; emptyText: string; tone?: 'default' | 'clue' | 'risk' | 'question' }) {
+  const visible = (items || []).map((item) => item.trim()).filter(Boolean).slice(-6).reverse();
+  const toneColor = tone === 'risk'
+    ? 'rgba(239,68,68,0.07)'
+    : tone === 'question'
+      ? 'rgba(99,102,241,0.07)'
+      : tone === 'clue'
+        ? 'rgba(16,185,129,0.08)'
+        : 'rgba(148,163,184,0.08)';
+  return (
+    <Box>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 700 }}>{title}</Typography>
+      {visible.length ? (
+        <Stack spacing={0.7}>
+          {visible.map((item, index) => (
+            <Box key={`${title}:${index}:${item}`} sx={{ px: 1, py: 0.85, borderRadius: 1.25, bgcolor: toneColor }}>
+              <Typography variant="body2" sx={{ lineHeight: 1.55 }}>{item}</Typography>
+            </Box>
+          ))}
+        </Stack>
+      ) : (
+        <Typography variant="body2" color="text.secondary" sx={{ px: 0.5 }}>{emptyText}</Typography>
+      )}
+    </Box>
+  );
+}
+
+function StoryCluePanel({ chat, members }: { chat: GroupChat; members: AICharacter[] }) {
+  const state = chat.scenarioState || {};
+  const formatItems = (items?: string[]) => (items || []).map((item) => formatNarrativeLineText(item, members));
+  const latestQuestion = formatItems(state.openQuestions).at(-1) || formatItems(state.chapterRecap?.unresolvedQuestions).at(-1) || '';
+  const latestClue = formatItems(state.clues).at(-1) || formatItems(state.chapterRecap?.discoveredClues).at(-1) || '';
+  const latestRisk = formatItems(state.stakes).at(-1) || formatItems(state.chapterRecap?.stakes).at(-1) || '';
+  const counts = [
+    `${state.openQuestions?.length || 0} 个悬念`,
+    `${state.clues?.length || 0} 条线索`,
+    `${state.stakes?.length || 0} 个风险`,
+  ];
+  return (
+    <Stack spacing={1.3}>
+      <Box sx={{ px: 1, py: 0.9, borderRadius: 1.25, bgcolor: 'rgba(99,102,241,0.08)' }}>
+        <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', mb: latestQuestion || latestClue || latestRisk ? 0.55 : 0 }}>
+          {counts.map((item) => <Chip key={item} size="small" label={item} variant="outlined" sx={compactPillChipSx} />)}
+        </Stack>
+        {latestQuestion ? <Typography variant="body2" sx={{ lineHeight: 1.55, fontWeight: 700 }}>追踪：{latestQuestion}</Typography> : null}
+        {latestClue ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>最近线索：{latestClue}</Typography> : null}
+        {latestRisk ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>当前风险：{latestRisk}</Typography> : null}
+      </Box>
+      <StoryAssetList title="未解悬念" tone="question" items={formatItems(state.openQuestions)} emptyText="暂无明确未解悬念" />
+      <StoryAssetList title="已发现线索" tone="clue" items={formatItems(state.clues)} emptyText="暂无已沉淀线索" />
+      <StoryAssetList title="当前风险" tone="risk" items={formatItems(state.stakes)} emptyText="暂无明确风险" />
+      {state.chapterRecap?.unresolvedQuestions?.length || state.chapterRecap?.discoveredClues?.length ? (
+        <Box sx={{ px: 1, py: 0.85, borderRadius: 1.25, bgcolor: 'rgba(14,165,233,0.07)' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35, fontWeight: 700 }}>章节回看</Typography>
+          {state.chapterRecap.discoveredClues.slice(-2).map((item) => (
+            <Typography key={`recap-clue:${item}`} variant="body2" sx={{ lineHeight: 1.55 }}>发现：{formatNarrativeLineText(item, members)}</Typography>
+          ))}
+          {state.chapterRecap.unresolvedQuestions.slice(-2).map((item) => (
+            <Typography key={`recap-question:${item}`} variant="body2" sx={{ lineHeight: 1.55 }}>未解：{formatNarrativeLineText(item, members)}</Typography>
+          ))}
+        </Box>
+      ) : null}
+    </Stack>
+  );
+}
+
+function StoryRolePanel({ chat, members, onStartDirectChat }: { chat: GroupChat; members: AICharacter[]; onStartDirectChat?: (charId: string) => void }) {
+  const state = chat.scenarioState || {};
+  const presentIds = new Set(state.currentScene?.presentActorIds || []);
+  const relationshipShifts = (state.relationshipShifts || []).map((item) => formatNarrativeLineText(item, members)).slice(-6).reverse();
+  const relationshipForMember = (member: AICharacter) => relationshipShifts.filter((item) => item.includes(member.name)).slice(0, 2);
+  const roleByActorId = new Map((state.roleAssignments || []).map((item) => [item.actorId, item.roleId ? formatScenarioRoleLabel(item.roleId) : '角色位'] as const));
+  const factionLabels = state.factions || [];
+  const factionText = factionLabels.length ? `阵营：${factionLabels.slice(0, 4).map((item) => item.label).join(' / ')}` : '';
+  return (
+    <Stack spacing={1.2}>
+      <Box sx={{ px: 1, py: 0.9, borderRadius: 1.25, bgcolor: 'rgba(14,165,233,0.07)' }}>
+        <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', mb: factionText || state.currentScene?.visibleThreat ? 0.55 : 0 }}>
+          <Chip size="small" label={`${presentIds.size || 0} 位在场`} variant="outlined" sx={compactPillChipSx} />
+          <Chip size="small" label={`${relationshipShifts.length} 条关系变化`} variant="outlined" sx={compactPillChipSx} />
+        </Stack>
+        {state.currentScene?.visibleThreat ? (
+          <Typography variant="body2" sx={{ lineHeight: 1.55, fontWeight: 700 }}>
+            场上压力：{formatNarrativeLineText(state.currentScene.visibleThreat, members)}
+          </Typography>
+        ) : null}
+        {factionText ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>{factionText}</Typography> : null}
+      </Box>
+      {members.map((member) => {
+        const shifts = relationshipForMember(member);
+        const isPresent = presentIds.has(member.id);
+        const role = roleByActorId.get(member.id);
+        return (
+          <Box
+            key={member.id}
+            component="button"
+            type="button"
+            onClick={() => onStartDirectChat?.(member.id)}
+            sx={(theme) => ({
+              width: '100%',
+              textAlign: 'left',
+              border: '1px solid',
+              borderColor: isPresent ? theme.palette.primary.main : theme.palette.divider,
+              borderRadius: 1.25,
+              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.06)',
+              color: 'text.primary',
+              p: 1,
+              cursor: onStartDirectChat ? 'pointer' : 'default',
+              font: 'inherit',
+            })}
+          >
+            <Stack spacing={0.55}>
+              <Stack direction="row" spacing={0.6} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{member.name}</Typography>
+                {isPresent ? <Chip size="small" label="在场" variant="outlined" sx={compactPillChipSx} /> : null}
+                {role ? <Chip size="small" label={role} variant="outlined" sx={compactPillChipSx} /> : null}
+              </Stack>
+              {shifts.length ? shifts.map((shift) => (
+                <Typography key={`${member.id}:${shift}`} variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>
+                  {shift}
+                </Typography>
+              )) : (
+                <Typography variant="caption" color="text.secondary">
+                  暂无明确剧情关系变化
+                </Typography>
+              )}
+            </Stack>
+          </Box>
+        );
+      })}
+      {relationshipShifts.length ? (
+        <StoryAssetList title="最近关系压力" items={relationshipShifts} emptyText="暂无关系压力" />
+      ) : null}
+    </Stack>
+  );
+}
+
 export default function ChatSidebarPanel({
   chat,
   members,
@@ -196,13 +336,20 @@ export default function ChatSidebarPanel({
   onStoryChapterClick,
   perspectiveMemberId,
 }: ChatSidebarPanelProps) {
-  const panelTabs = [
+  const developerMode = useSettingsStore((state) => state.developerMode);
+  const isStoryRoom = chat.sessionKind?.scenarioId === 'story-reader';
+  const panelTabs = (isStoryRoom ? [
+    showRuntimeTab ? { value: 'narrative' as const, label: '故事' } : null,
+    showRuntimeTab ? { value: 'chapters' as const, label: '章节' } : null,
+    showRuntimeTab ? { value: 'clues' as const, label: '线索' } : null,
+    showMemberTab ? { value: 'roles' as const, label: `角色 ${members.length}` } : null,
+    showRuntimeTab && developerMode ? { value: 'developer' as const, label: '开发者' } : null,
+  ] : [
     showMemberTab ? { value: 'members' as const, label: `${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}` } : null,
     showRuntimeTab ? { value: 'narrative' as const, label: '叙事线' } : null,
-    showRuntimeTab && chat.sessionKind?.scenarioId === 'story-reader' ? { value: 'chapters' as const, label: '章节' } : null,
     showRuntimeTab ? { value: 'world' as const, label: runtimePanelTitle || '运行态' } : null,
     showActivityTab ? { value: 'activities' as const, label: '活动' } : null,
-  ].filter(Boolean) as Array<{ value: ChatSidebarTab; label: string }>;
+  ]).filter(Boolean) as Array<{ value: ChatSidebarTab; label: string }>;
   const activePanelTab = panelTabs.some((item) => item.value === rightPanelTab)
     ? rightPanelTab as ChatSidebarTab
     : panelTabs[0]?.value || 'members';
@@ -253,7 +400,15 @@ export default function ChatSidebarPanel({
           <StoryChapterPanel chat={chat} onStoryChapterClick={onStoryChapterClick} />
         ) : null}
 
-        {activePanelTab === 'world' && showRuntimeTab ? (
+        {activePanelTab === 'clues' && showRuntimeTab ? (
+          <StoryCluePanel chat={chat} members={members} />
+        ) : null}
+
+        {activePanelTab === 'roles' && showMemberTab ? (
+          <StoryRolePanel chat={chat} members={members} onStartDirectChat={onStartDirectChat} />
+        ) : null}
+
+        {(activePanelTab === 'world' || activePanelTab === 'developer') && showRuntimeTab ? (
           <Stack spacing={2}>
             <ChatScenarioCard chat={chat} members={members} />
             <ChatPrivateInfoCard chat={chat} members={members} directMemoryContext={directMemoryContext || null} />

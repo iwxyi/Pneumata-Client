@@ -488,6 +488,94 @@ function renderStoryProgressCard(chat: GroupChat, members: AICharacter[]) {
   );
 }
 
+function getActiveStoryChapter(chat: GroupChat) {
+  const chapters = chat.scenarioState?.storyChapters || [];
+  return chapters.find((chapter) => chapter.status === 'active') || chapters.at(-1) || null;
+}
+
+function getStoryHookText(chat: GroupChat, members: AICharacter[]) {
+  const state = chat.scenarioState || {};
+  const latestImpact = state.chapterRecap?.choiceImpacts?.slice(-1)[0] || state.choiceHistory?.slice(-1)[0]?.impact;
+  const latestQuestion = state.openQuestions?.slice(-1)[0] || state.chapterRecap?.unresolvedQuestions?.slice(-1)[0];
+  const latestClue = state.clues?.slice(-1)[0] || state.chapterRecap?.discoveredClues?.slice(-1)[0];
+  const latestRelationship = state.relationshipShifts?.slice(-1)[0] || state.chapterRecap?.changedRelationships?.slice(-1)[0];
+  const latestStake = state.stakes?.slice(-1)[0] || state.chapterRecap?.stakes?.slice(-1)[0];
+  const hook = latestImpact || latestQuestion || latestClue || latestRelationship || latestStake || state.currentScene?.visibleThreat || '';
+  return hook ? formatNarrativeLineText(hook, members) : '';
+}
+
+function renderStoryDashboard(chat: GroupChat, members: AICharacter[]) {
+  if (chat.sessionKind?.scenarioId !== 'story-reader') return null;
+  const state = chat.scenarioState || {};
+  const activeChapter = getActiveStoryChapter(chat);
+  const chapterTitle = activeChapter?.title?.trim() || state.chapterRecap?.title || '当前章节';
+  const chapterLabel = activeChapter ? `第 ${activeChapter.index} 章` : '故事';
+  const goal = state.storyGoal ? formatNarrativeLineText(state.storyGoal, members) : '';
+  const situation = state.storySituation || state.currentScene?.summary || state.currentScene?.visibleThreat || '';
+  const formattedSituation = situation ? formatNarrativeLineText(situation, members) : '';
+  const hook = getStoryHookText(chat, members);
+  const latestChoice = state.selectedChoice || state.choiceHistory?.slice(-1)[0] || null;
+  const location = state.currentScene?.location ? formatNarrativeLineText(state.currentScene.location, members) : '';
+  const time = state.currentScene?.time ? formatNarrativeLineText(state.currentScene.time, members) : '';
+  const chips = [
+    formatStoryBeatKind(state.storyBeatKind) || '',
+    state.phase === 'choice' ? '等待选择' : state.phase === 'branch' ? '兑现选择' : '',
+    activeChapter?.status === 'completed' ? '已完成' : activeChapter ? '进行中' : '',
+  ].filter(Boolean);
+  return (
+    <Box
+      sx={(theme) => ({
+        p: { xs: 1, sm: 1.1 },
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.12)',
+        bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.76)' : 'rgba(15,23,42,0.36)',
+        boxShadow: theme.palette.mode === 'light' ? '0 10px 24px rgba(15,23,42,0.055)' : '0 14px 28px rgba(0,0,0,0.2)',
+      })}
+    >
+      <Stack spacing={0.85}>
+        <Stack direction="row" spacing={0.65} useFlexGap sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+          <Chip size="small" label={chapterLabel} variant="outlined" sx={compactPillChipSx} />
+          {chips.map((chip) => <Chip key={chip} size="small" label={chip} variant="outlined" sx={compactPillChipSx} />)}
+        </Stack>
+        <Typography variant="subtitle2" sx={{ fontWeight: 800, lineHeight: 1.35 }}>
+          {formatNarrativeLineText(chapterTitle, members)}
+        </Typography>
+        {goal ? (
+          <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.55 }}>
+            当前目标：{goal}
+          </Typography>
+        ) : null}
+        {formattedSituation ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.65 }}>
+            当前处境：{formattedSituation}
+          </Typography>
+        ) : null}
+        {latestChoice?.label ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.65 }}>
+            最近选择：{formatNarrativeLineText(latestChoice.label, members)}
+          </Typography>
+        ) : null}
+        {hook ? (
+          <Box sx={{ px: 0.85, py: 0.7, borderRadius: 1.25, bgcolor: 'rgba(99,102,241,0.075)' }}>
+            <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, lineHeight: 1.5 }}>
+              追看钩子
+            </Typography>
+            <Typography variant="body2" sx={{ lineHeight: 1.55 }}>
+              {hook}
+            </Typography>
+          </Box>
+        ) : null}
+        {location || time ? (
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>
+            {[time, location].filter(Boolean).join(' · ')}
+          </Typography>
+        ) : null}
+      </Stack>
+    </Box>
+  );
+}
+
 function renderStoryAssetSummary(chat: GroupChat, members: AICharacter[], messages: Message[], showDebugDetails: boolean) {
   const qualityPanel = renderStoryQuality(messages, showDebugDetails);
   if (!hasStoryAssets(chat) && !qualityPanel) return null;
@@ -587,13 +675,17 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
   const settingsSnapshot = useSettingsStore.getState();
   const showDebugDetails = (developerMode || settingsSnapshot.developerMode)
     && (showAdvancedRuntimePanels || settingsSnapshot.developerUI.showAdvancedRuntimePanels);
+  const isStoryRoom = chat.sessionKind?.scenarioId === 'story-reader';
   const runtimePressure = useMemo(() => projectRuntimePressure({ chat, characters: members, messages }), [chat, members, messages]);
   const narrativeLines = useMemo(() => projectNarrativeLines({ chat, characters: members, messages }), [chat, members, messages]);
   const mainLineId = runtimePressure.primaryLine?.id || narrativeLines[0]?.id || null;
   const showDirectorIntent = Boolean(runtimePressure.directorIntent) && activeFilter === 'main';
   const visibleLines = narrativeLines.filter((line) => activeFilter === 'all' ? true : activeFilter === 'main' ? line.id === mainLineId : line.type === activeFilter);
   const storyProgressCard = activeFilter === 'all' || activeFilter === 'main' ? renderStoryProgressCard(chat, members) : null;
+  const storyDashboard = activeFilter === 'all' || activeFilter === 'main' ? renderStoryDashboard(chat, members) : null;
   const storyAssetSummary = activeFilter === 'all' || activeFilter === 'main' ? renderStoryAssetSummary(chat, members, messages, showDebugDetails) : null;
+  const showLineFilters = !isStoryRoom || showDebugDetails;
+  const showLineList = !isStoryRoom || showDebugDetails || activeFilter !== 'all';
   const filters = LINE_FILTERS.map((filter) => ({
     ...filter,
     count: filter.key === 'all' ? narrativeLines.length : filter.key === 'main' ? (mainLineId ? 1 : 0) : narrativeLines.filter((line) => line.type === filter.key).length,
@@ -603,7 +695,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
     <SurfaceCard>
       {hideTitle ? null : <SectionHeader title="叙事线" dense />}
       <Stack spacing={1}>
-        <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+        {showLineFilters ? <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
           {filters.map((filter) => (
             <Chip
               key={filter.key}
@@ -615,7 +707,7 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
               sx={compactPillChipSx}
             />
           ))}
-        </Box>
+        </Box> : null}
         {showDirectorIntent && runtimePressure.directorIntent ? (
           <Box sx={{ p: { xs: 0.85, sm: 0.95 }, borderRadius: 2, bgcolor: 'rgba(25, 118, 210, 0.06)' }}>
             <Typography variant="caption" color="text.secondary">主线方向</Typography>
@@ -626,9 +718,10 @@ export default function ChatNarrativePanel({ chat, members, messages = [], hideT
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{formatNarrativeLineText(formatKnownReason(runtimePressure.directorIntent.reason), members)}</Typography>
           </Box>
         ) : null}
+        {storyDashboard}
         {storyProgressCard}
         {storyAssetSummary}
-        {visibleLines.length ? <Stack spacing={0.8}>{visibleLines.map((line) => renderLine(line, chat, members, messages, isZh, showDebugDetails))}</Stack> : storyAssetSummary ? null : <Typography variant="body2" color="text.secondary">暂无对应叙事线</Typography>}
+        {showLineList && visibleLines.length ? <Stack spacing={0.8}>{visibleLines.map((line) => renderLine(line, chat, members, messages, isZh, showDebugDetails))}</Stack> : storyAssetSummary || storyDashboard ? null : <Typography variant="body2" color="text.secondary">暂无对应叙事线</Typography>}
       </Stack>
     </SurfaceCard>
   );

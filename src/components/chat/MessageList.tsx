@@ -35,6 +35,12 @@ export interface MessageListScrollPosition extends ScrollAnchorSnapshot {
   pinned: boolean;
   sourceTimestamp?: number;
 }
+export interface MessageListScrollRequest extends ScrollAnchorSnapshot {
+  key: string;
+  sourceTimestamp?: number;
+  behavior?: ScrollBehavior;
+  highlight?: boolean;
+}
 
 interface MessageListProps {
   messages: Message[];
@@ -66,6 +72,8 @@ interface MessageListProps {
   onBottomPinnedChange?: (pinned: boolean) => void;
   onNearBottomChange?: (nearBottom: boolean) => void;
   initialScrollPosition?: MessageListScrollPosition | null;
+  scrollRequest?: MessageListScrollRequest | null;
+  onScrollRequestResolved?: (request: MessageListScrollRequest, resolved: boolean) => void;
   onScrollPositionChange?: (position: MessageListScrollPosition) => void;
   narrativeRevealMessageKeys?: ReadonlySet<string>;
   onNarrativeRevealComplete?: (message: Message) => void;
@@ -284,6 +292,8 @@ export default function MessageList({
   onBottomPinnedChange,
   onNearBottomChange,
   initialScrollPosition = null,
+  scrollRequest = null,
+  onScrollRequestResolved,
   onScrollPositionChange,
   narrativeRevealMessageKeys,
   onNarrativeRevealComplete,
@@ -313,6 +323,7 @@ export default function MessageList({
   const lastScrollSampleRef = useRef<{ top: number; at: number } | null>(null);
   const followScrollAnimationRef = useRef<number | null>(null);
   const previousStoryChoiceSubmittingValueRef = useRef<string | null>(storyChoiceSubmittingValue);
+  const appliedScrollRequestKeyRef = useRef<string | null>(null);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
@@ -516,7 +527,7 @@ export default function MessageList({
     };
   }, [getDistanceFromBottom]);
 
-  const restoreScrollAnchor = useCallback((snapshot: ScrollAnchorSnapshot) => {
+  const restoreScrollAnchor = useCallback((snapshot: ScrollAnchorSnapshot & { behavior?: ScrollBehavior }) => {
     const container = containerRef.current;
     if (!container) return false;
     const containerRect = container.getBoundingClientRect();
@@ -526,10 +537,30 @@ export default function MessageList({
     const currentOffset = target.getBoundingClientRect().top - containerRect.top;
     const delta = currentOffset - snapshot.offsetTop;
     if (Math.abs(delta) >= 1) {
-      container.scrollTop += delta;
+      if ('behavior' in snapshot && snapshot.behavior && snapshot.behavior !== 'auto') {
+        container.scrollTo({ top: container.scrollTop + delta, behavior: snapshot.behavior });
+      } else {
+        container.scrollTop += delta;
+      }
     }
     lastScrollTopRef.current = container.scrollTop;
     return true;
+  }, []);
+
+  const highlightScrollTarget = useCallback((messageId: string) => {
+    const container = containerRef.current;
+    if (!container) return;
+    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-scroll-anchor], [data-message-id]'))
+      .find((node) => getElementScrollAnchorId(node) === messageId);
+    if (!target) return;
+    const previousOutline = target.style.outline;
+    const previousOutlineOffset = target.style.outlineOffset;
+    target.style.outline = '2px solid rgba(59,130,246,0.88)';
+    target.style.outlineOffset = '3px';
+    window.setTimeout(() => {
+      target.style.outline = previousOutline;
+      target.style.outlineOffset = previousOutlineOffset;
+    }, 1300);
   }, []);
 
   const getInitialRestoreKey = useCallback((position: MessageListScrollPosition | null) => (
@@ -740,6 +771,28 @@ export default function MessageList({
   }, [getInitialRestoreKey, onBottomPinnedChange, renderItems, restoreScrollAnchor, scrollToBottom]);
 
   useLayoutEffect(() => {
+    if (!scrollRequest || appliedScrollRequestKeyRef.current === scrollRequest.key) return;
+    const restored = restoreScrollAnchor(scrollRequest);
+    appliedScrollRequestKeyRef.current = scrollRequest.key;
+    if (!restored) {
+      onScrollRequestResolved?.(scrollRequest, false);
+      return;
+    }
+    shouldStickToBottomRef.current = false;
+    lastReportedBottomPinnedRef.current = false;
+    onBottomPinnedChange?.(false);
+    updatePinnedState();
+    if (scrollRequest.highlight) highlightScrollTarget(scrollRequest.messageId);
+    onScrollRequestResolved?.(scrollRequest, true);
+    logDeveloperDiagnostic('chat-scroll:request-hit', {
+      messageId: scrollRequest.messageId,
+      offsetTop: scrollRequest.offsetTop,
+      key: scrollRequest.key,
+      renderItemCount: renderItems.length,
+    }, 'info');
+  }, [highlightScrollTarget, onBottomPinnedChange, onScrollRequestResolved, renderItems.length, restoreScrollAnchor, scrollRequest, updatePinnedState]);
+
+  useLayoutEffect(() => {
     const pending = pendingInitialRestoreRef.current;
     const container = containerRef.current;
     if (!pending || !container || pending.pinned || renderItems.length === 0) return;
@@ -792,6 +845,7 @@ export default function MessageList({
 
     if (!hasJumpedToBottomRef.current) return;
     if (!shouldStickToBottomRef.current) return;
+    if (!lastReportedBottomPinnedRef.current) return;
     if (
       currentMetrics.itemCount === previousMetrics.itemCount
       && currentMetrics.lastItemContentLength === previousMetrics.lastItemContentLength

@@ -19,7 +19,7 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { type DriverMessageCommitResult, type GroupChat, type StoryChapterState } from '../types/chat';
-import MessageList, { type MessageListScrollPosition } from '../components/chat/MessageList';
+import MessageList, { type MessageListScrollPosition, type MessageListScrollRequest } from '../components/chat/MessageList';
 import type { NarrativeStoryChoiceOption } from '../components/chat/messageBubblePresentation';
 import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
 import SessionComposerHost from '../components/session/SessionComposerHost';
@@ -432,7 +432,7 @@ function buildLocalInterceptionSummary(event: LocalInterceptionEvent) {
   return `拦截了${event.speakerName || '角色'}的发言：${compactInterceptedDraft(event.draft)}（原因：${localizeLocalInterceptionReason(event.reason)}）`;
 }
 
-type SidebarTabValue = 'members' | 'narrative' | 'chapters' | 'world' | 'activities';
+type SidebarTabValue = 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities';
 const EMPTY_MESSAGES: never[] = [];
 
 export default function ChatDetailPage() {
@@ -468,6 +468,7 @@ export default function ChatDetailPage() {
   const [aiDirectPerspectiveMemberId, setAiDirectPerspectiveMemberId] = useState<string | null>(null);
   const [guideTargetMemberId, setGuideTargetMemberId] = useState<string | null>(null);
   const [pendingStoryChoiceKey, setPendingStoryChoiceKey] = useState<string | null>(null);
+  const [messageScrollRequest, setMessageScrollRequest] = useState<MessageListScrollRequest | null>(null);
   const [pendingStoryChoiceVisual, setPendingStoryChoiceVisual] = useState<PendingStoryChoiceVisual | null>(null);
   const [isStoryReaderAtTail, setIsStoryReaderAtTail] = useState(true);
   const [hasStoryReaderReachedTailIntent, setHasStoryReaderReachedTailIntent] = useState(false);
@@ -766,7 +767,7 @@ export default function ChatDetailPage() {
     return composerSurfaces;
   }, [chat, composerSurfaces, effectiveSpeakAsChar, guideTargetMember, isStoryRoom]);
   const handleSidebarTabChange = useCallback((value: SidebarTabValue) => {
-    setRightPanelTab(value === 'activities' ? 'actions' : value);
+    setRightPanelTab(value === 'activities' ? 'actions' : value === 'developer' ? 'developer' : value);
   }, [setRightPanelTab]);
   void dramaBoost;
   void rightPanelOpen;
@@ -1477,7 +1478,11 @@ export default function ChatDetailPage() {
       }, startBlockReason === 'waiting_story_choice' ? 'info' : 'warn');
     }
   }, [chat, id, resume, startConversationLoopIfNeeded, storyChoiceGate]);
-  const storyBranchSuggestionContent = storyTailStatus ? (
+  const hasStoryTailStatusContent = Boolean(runLoopStatusContent)
+    || storyTailStatus === 'submitting_choice'
+    || storyTailStatus === 'generating_node'
+    || storyTailStatus === 'generation_cancelled';
+  const storyBranchSuggestionContent = hasStoryTailStatusContent ? (
     <>
       {runLoopStatusContent}
       {storyTailStatus === 'submitting_choice' ? (
@@ -1550,28 +1555,11 @@ export default function ChatDetailPage() {
           </Box>
         </Box>
       ) : null}
-      {storyTailStatus === 'waiting_reader_tail' ? (
-        <Box data-message-id="story-waiting-reader-tail" data-message-type="story-loading" sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, pt: 0.75, pb: 1.5 }}>
-          <Chip
-            size="small"
-            label="贴近底部后生成下一节"
-            variant="outlined"
-            sx={(theme) => ({
-              borderRadius: 2,
-              px: 0.8,
-              py: 1.75,
-              fontWeight: 700,
-              bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.86)' : 'rgba(15,23,42,0.72)',
-              boxShadow: '0 8px 22px rgba(15,23,42,0.10)',
-            })}
-          />
-        </Box>
-      ) : null}
     </>
   ) : null;
   const messageListBottomInset = isRemoteDeletedChat
     ? { xs: '24px', sm: '24px' }
-    : storyTailStatus
+    : hasStoryTailStatusContent
       ? { xs: 'calc(136px + env(safe-area-inset-bottom, 0px))', sm: '124px' }
       : { xs: 'calc(96px + env(safe-area-inset-bottom, 0px))', sm: '88px' };
 
@@ -1652,38 +1640,35 @@ export default function ChatDetailPage() {
     const messageId = chapter.startMessageId;
     if (!id || !messageId) return;
     if (chapter.openedAt) {
-      await loadMessages(id, { aroundTimestamp: chapter.openedAt, limit: CHAT_MESSAGE_WINDOW_SIZE });
+      await loadMessages(id, { aroundTimestamp: chapter.openedAt, limit: CHAT_MESSAGE_WINDOW_SIZE * 2 });
       await waitForNextFrame();
     }
-    const findTarget = () => {
-      const candidates = Array.from(document.querySelectorAll<HTMLElement>('[data-message-id]'));
-      return candidates.find((element) => (
-        element.dataset.messageId === messageId
-        || element.dataset.messageClientKey === messageId
-        || element.dataset.messageServerId === messageId
-      )) || null;
-    };
-    let target = findTarget();
-    if (!target) {
-      setSnackbar({ open: true, message: '没有定位到章节起点；当前消息窗口或云端分页里缺少对应消息。', severity: 'error' });
-      logDeveloperDiagnostic('story-chapter:jump-miss', {
-        chatId: id,
-        chapterId: chapter.id,
-        startMessageId: chapter.startMessageId,
-        openedAt: chapter.openedAt,
-      }, 'warn');
-      return;
-    }
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    const previousOutline = target.style.outline;
-    const previousOutlineOffset = target.style.outlineOffset;
-    target.style.outline = '2px solid rgba(59,130,246,0.88)';
-    target.style.outlineOffset = '3px';
-    window.setTimeout(() => {
-      target.style.outline = previousOutline;
-      target.style.outlineOffset = previousOutlineOffset;
-    }, 1300);
-  }, [id, loadMessages, setSnackbar]);
+    setMessageScrollRequest({
+      key: `story-chapter:${chapter.id}:${messageId}:${chapter.openedAt || 0}:${Date.now()}`,
+      messageId,
+      offsetTop: isSplitDetailPane ? 84 : 96,
+      sourceTimestamp: chapter.openedAt,
+      behavior: 'smooth',
+      highlight: true,
+    });
+    logDeveloperDiagnostic('story-chapter:jump-request', {
+      chatId: id,
+      chapterId: chapter.id,
+      startMessageId: chapter.startMessageId,
+      openedAt: chapter.openedAt,
+    }, 'info');
+  }, [id, isSplitDetailPane, loadMessages]);
+
+  const handleMessageScrollRequestResolved = useCallback((request: MessageListScrollRequest, resolved: boolean) => {
+    if (resolved) return;
+    setSnackbar({ open: true, message: '没有定位到章节起点；当前消息窗口或云端分页里缺少对应消息。', severity: 'error' });
+    logDeveloperDiagnostic('chat-scroll:request-miss', {
+      chatId: id,
+      requestKey: request.key,
+      messageId: request.messageId,
+      sourceTimestamp: request.sourceTimestamp,
+    }, 'warn');
+  }, [id, setSnackbar]);
 
   const canAutoRunConversation = chat?.type !== 'direct' && !isRemoteDeletedChat;
 
@@ -2006,6 +1991,8 @@ export default function ChatDetailPage() {
             onBottomPinnedChange={isStoryRoom ? handleMessageListBottomPinnedChange : undefined}
             onNearBottomChange={isStoryRoom ? handleMessageListNearBottomChange : undefined}
             initialScrollPosition={isStoryRoom ? initialStoryReadingPosition : null}
+            scrollRequest={messageScrollRequest}
+            onScrollRequestResolved={handleMessageScrollRequestResolved}
             onScrollPositionChange={isStoryRoom ? handleStoryReadingPositionChange : undefined}
             narrativeRevealMessageKeys={narrativeRevealMessageKeys}
             onNarrativeRevealComplete={clearNarrativeRevealMessage}

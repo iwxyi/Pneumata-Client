@@ -121,10 +121,22 @@ export function useChatSidebarProjection(params: {
   const showActionTab = chat?.sessionKind?.scenarioId === 'story-reader'
     ? false
     : projectedDetailState?.showActionTab ?? (chat?.type === 'group');
+  const isStoryRoom = chat?.sessionKind?.scenarioId === 'story-reader';
   const projectedActiveTab = projectedDetailState?.activeSidebarTab === 'actions'
     ? 'activities'
     : projectedDetailState?.activeSidebarTab;
-  const activeSidebarTab = projectedActiveTab
+  const storySidebarTab = isStoryRoom
+    ? rightPanelTab === 'chapters'
+      ? 'chapters'
+      : rightPanelTab === 'clues'
+        ? 'clues'
+        : rightPanelTab === 'members' || rightPanelTab === 'roles'
+          ? 'roles'
+          : rightPanelTab === 'world' || rightPanelTab === 'developer'
+            ? 'developer'
+            : 'narrative'
+    : null;
+  const activeSidebarTab = storySidebarTab || projectedActiveTab
     || (showMemberTab && rightPanelTab === 'members' ? 'members'
       : showRuntimeTab && rightPanelTab === 'narrative' ? 'narrative'
       : showRuntimeTab && rightPanelTab === 'chapters' ? 'chapters'
@@ -142,7 +154,18 @@ export function useChatSidebarProjection(params: {
   const projectedSidebarTitle = projectedDetailState?.sidebarTitle === '动作' || projectedDetailState?.sidebarTitle === 'Actions'
     ? (isZh ? '活动' : 'Activities')
     : localizePanelTitle(projectedDetailState?.sidebarTitle, '');
-  const sidebarTitle = projectedSidebarTitle
+  const storySidebarTitle = isStoryRoom && activeSidebarTab === 'narrative'
+      ? (isZh ? '故事' : 'Story')
+      : isStoryRoom && activeSidebarTab === 'clues'
+        ? (isZh ? '线索' : 'Clues')
+      : isStoryRoom && activeSidebarTab === 'roles'
+        ? (isZh ? '角色' : 'Characters')
+      : isStoryRoom && activeSidebarTab === 'developer'
+        ? (isZh ? '开发者' : 'Developer')
+        : isStoryRoom && activeSidebarTab === 'chapters'
+          ? (isZh ? '章节' : 'Chapters')
+          : '';
+  const sidebarTitle = storySidebarTitle || projectedSidebarTitle
     || (activeSidebarTab === 'members'
       ? memberTabTitle
       : activeSidebarTab === 'activities'

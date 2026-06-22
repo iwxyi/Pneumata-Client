@@ -182,7 +182,15 @@ export function migrateUiStoreState<T extends Record<string, unknown>>(persisted
     godModeActive: Boolean(persisted.godModeActive),
     topicGuideOpen: Boolean(persisted.topicGuideOpen),
     speakAsCharacterId: typeof persisted.speakAsCharacterId === 'string' ? persisted.speakAsCharacterId : null,
-    rightPanelTab: persisted.rightPanelTab === 'world' || persisted.rightPanelTab === 'actions' || persisted.rightPanelTab === 'narrative' || persisted.rightPanelTab === 'chapters' ? persisted.rightPanelTab : 'members',
+    rightPanelTab: persisted.rightPanelTab === 'world'
+      || persisted.rightPanelTab === 'developer'
+      || persisted.rightPanelTab === 'actions'
+      || persisted.rightPanelTab === 'narrative'
+      || persisted.rightPanelTab === 'chapters'
+      || persisted.rightPanelTab === 'clues'
+      || persisted.rightPanelTab === 'roles'
+      ? persisted.rightPanelTab
+      : 'members',
     chatReadingPositions,
   } as T;
 }

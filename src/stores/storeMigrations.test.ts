@@ -68,4 +68,10 @@ describe('storeMigrations', () => {
       'story-1': { messageId: 'message-2', offsetTop: 42, pinned: false, updatedAt: 123, sourceTimestamp: 456 },
     });
   });
+
+  it('keeps story room sidebar tab values during migration', () => {
+    expect(migrateUiStoreState({ rightPanelTab: 'clues' })?.rightPanelTab).toBe('clues');
+    expect(migrateUiStoreState({ rightPanelTab: 'roles' })?.rightPanelTab).toBe('roles');
+    expect(migrateUiStoreState({ rightPanelTab: 'developer' })?.rightPanelTab).toBe('developer');
+  });
 });

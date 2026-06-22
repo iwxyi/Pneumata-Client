@@ -206,6 +206,17 @@ describe('ChatNarrativePanel', () => {
           updatedAt: 2,
           beatCount: 0,
         },
+        storyChapters: [{
+          id: 'chapter-1',
+          index: 1,
+          title: '血迹名单',
+          status: 'active' as const,
+          startMessageId: 'story-message-1',
+          startBeatId: 'beat-1',
+          summary: '旧医院的线索开始收束。',
+          keyChoices: [`${uuidA} 追问护士`],
+          openedAt: 1,
+        }],
       },
     } satisfies GroupChat;
     const html = renderToStaticMarkup(
@@ -218,6 +229,10 @@ describe('ChatNarrativePanel', () => {
     );
 
     expect(html).toContain('新的抉择点');
+    expect(html).toContain('第 1 章');
+    expect(html).toContain('血迹名单');
+    expect(html).toContain('追看钩子');
+    expect(html).toContain('关系变化：护士开始怀疑林医生');
     expect(html).toContain('主线推进');
     expect(html).toContain('当前目标：红太狼 查清旧医院失踪案。当前处境：灰太狼 刚从地下档案室逃出来');
     expect(html).toContain('加压');
@@ -248,7 +263,7 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('压力：门外还有脚步声');
     expect(html).not.toContain('在场：');
     expect(html).toContain('灰太狼 去地下档案室');
-    expect(html).not.toContain('最近选择');
+    expect(html).toContain('最近选择：红太狼 追问护士');
     expect(html).toContain('影响：关系变化：护士开始怀疑林医生');
     expect(html).toContain('灰太狼 为什么隐瞒停电记录？');
     expect(html).toContain('地下档案室的病历被撕掉一页');
@@ -258,6 +273,8 @@ describe('ChatNarrativePanel', () => {
     expect(html).not.toContain('收益：得到线索');
     expect(html).not.toContain('收益：找到病历');
     expect(html).not.toContain('意图：探索');
+    expect(html).not.toContain('全部 1');
+    expect(html).not.toContain('关系线 1');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
   });
@@ -461,7 +478,7 @@ describe('ChatNarrativePanel', () => {
     expect(html).toContain('影响：保安正在赶来，但失踪者姓名第一次变得完整');
     expect(html).toContain('未走路径：跟着血迹去旧住院楼');
     expect(html).toContain('未走路径：先带护士离开走廊');
-    expect(html).not.toContain('最近选择');
+    expect(html).toContain('最近选择：打开被封存的病历柜');
     expect(html).not.toContain('意图：');
     expect(html).not.toContain('风险：');
     expect(html).not.toContain('收益：');
