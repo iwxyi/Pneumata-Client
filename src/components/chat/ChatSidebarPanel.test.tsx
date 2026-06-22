@@ -202,11 +202,11 @@ function buildStoryChat(): GroupChat {
   };
 }
 
-async function renderPanel(rightPanelTab: string) {
+async function renderPanel(rightPanelTab: string, chat: GroupChat = buildStoryChat()) {
   const { default: ChatSidebarPanel } = await import('./ChatSidebarPanel');
   return renderToStaticMarkup(
     <ChatSidebarPanel
-      chat={buildStoryChat()}
+      chat={chat}
       members={[buildCharacter(uuidA, '林医生'), buildCharacter(uuidB, '护士')]}
       messages={[]}
       thinkingId={null}
@@ -260,6 +260,46 @@ describe('ChatSidebarPanel story room panels', () => {
     expect(html).toContain('本章用到：病历被撕掉一页');
     expect(html).toContain('仍待回答：护士 为什么隐瞒停电记录？');
     expect(html).toContain('选择影响：林医生 和 护士 的信任出现裂缝');
+    expect(html).not.toContain(uuidA);
+    expect(html).not.toContain(uuidB);
+  });
+
+  it('uses chapter recap and choice impacts as clue wall assets', async () => {
+    const chat = buildStoryChat();
+    chat.scenarioState = {
+      ...(chat.scenarioState || {}),
+      openQuestions: [],
+      clues: [],
+      stakes: [],
+      chapterRecap: {
+        title: '血迹名单',
+        summary: '旧医院的线索开始收束。',
+        discoveredClues: ['病历被撕掉一页'],
+        unresolvedQuestions: [`${uuidB} 为什么隐瞒停电记录？`],
+        changedRelationships: [],
+        stakes: ['暴露位置'],
+        lastChoiceLabels: [],
+        choiceImpacts: [`${uuidA} 和 ${uuidB} 的信任出现裂缝`],
+        updatedAt: 4,
+        beatCount: 3,
+      },
+      choiceHistory: [{
+        branchId: 'ask-nurse',
+        label: `${uuidA} 追问护士`,
+        impact: `${uuidA} 和 ${uuidB} 的信任出现裂缝`,
+        choiceEpoch: 2,
+      }],
+    };
+    const html = await renderPanel('clues', chat);
+
+    expect(html).toContain('1 个悬念');
+    expect(html).toContain('1 条线索');
+    expect(html).toContain('1 个风险');
+    expect(html).toContain('追踪：护士 为什么隐瞒停电记录？');
+    expect(html).toContain('最近线索：病历被撕掉一页');
+    expect(html).toContain('当前风险：暴露位置');
+    expect(html).toContain('选择影响');
+    expect(html).toContain('林医生 和 护士 的信任出现裂缝');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
   });

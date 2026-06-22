@@ -297,20 +297,41 @@ function StoryAssetList({ title, items, emptyText, tone = 'default' }: { title: 
   );
 }
 
+function mergeStoryAssetItems(...groups: Array<string[] | undefined>) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const group of groups) {
+    for (const raw of group || []) {
+      const value = raw.trim();
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      result.push(value);
+    }
+  }
+  return result;
+}
+
 function StoryCluePanel({ chat, members }: { chat: GroupChat; members: AICharacter[] }) {
   const state = chat.scenarioState || {};
   const formatItems = (items?: string[]) => (items || []).map((item) => formatNarrativeLineText(item, members));
-  const latestQuestion = formatItems(state.openQuestions).at(-1) || formatItems(state.chapterRecap?.unresolvedQuestions).at(-1) || '';
-  const latestClue = formatItems(state.clues).at(-1) || formatItems(state.chapterRecap?.discoveredClues).at(-1) || '';
-  const latestRisk = formatItems(state.stakes).at(-1) || formatItems(state.chapterRecap?.stakes).at(-1) || '';
+  const questions = mergeStoryAssetItems(state.openQuestions, state.chapterRecap?.unresolvedQuestions);
+  const clues = mergeStoryAssetItems(state.clues, state.chapterRecap?.discoveredClues);
+  const risks = mergeStoryAssetItems(state.stakes, state.chapterRecap?.stakes);
+  const choiceImpacts = mergeStoryAssetItems(
+    state.chapterRecap?.choiceImpacts,
+    (state.choiceHistory || []).map((choice) => choice.impact || '').filter(Boolean),
+  );
+  const latestQuestion = formatItems(questions).at(-1) || '';
+  const latestClue = formatItems(clues).at(-1) || '';
+  const latestRisk = formatItems(risks).at(-1) || '';
   const latestChoice = state.choiceHistory?.slice(-1)[0] || null;
   const recapClues = formatItems(state.chapterRecap?.discoveredClues);
   const recapQuestions = formatItems(state.chapterRecap?.unresolvedQuestions);
-  const recapImpacts = formatItems(state.chapterRecap?.choiceImpacts);
+  const recapImpacts = formatItems(choiceImpacts);
   const counts = [
-    `${state.openQuestions?.length || 0} 个悬念`,
-    `${state.clues?.length || 0} 条线索`,
-    `${state.stakes?.length || 0} 个风险`,
+    `${questions.length} 个悬念`,
+    `${clues.length} 条线索`,
+    `${risks.length} 个风险`,
   ];
   return (
     <Stack spacing={1.3}>
@@ -322,9 +343,10 @@ function StoryCluePanel({ chat, members }: { chat: GroupChat; members: AICharact
         {latestClue ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>最近线索：{latestClue}</Typography> : null}
         {latestRisk ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>当前风险：{latestRisk}</Typography> : null}
       </Box>
-      <StoryAssetList title="未解悬念" tone="question" items={formatItems(state.openQuestions)} emptyText="暂无明确未解悬念" />
-      <StoryAssetList title="已发现线索" tone="clue" items={formatItems(state.clues)} emptyText="暂无已沉淀线索" />
-      <StoryAssetList title="当前风险" tone="risk" items={formatItems(state.stakes)} emptyText="暂无明确风险" />
+      <StoryAssetList title="未解悬念" tone="question" items={formatItems(questions)} emptyText="暂无明确未解悬念" />
+      <StoryAssetList title="已发现线索" tone="clue" items={formatItems(clues)} emptyText="暂无已沉淀线索" />
+      <StoryAssetList title="当前风险" tone="risk" items={formatItems(risks)} emptyText="暂无明确风险" />
+      {choiceImpacts.length ? <StoryAssetList title="选择影响" items={formatItems(choiceImpacts)} emptyText="暂无选择影响" /> : null}
       {state.chapterRecap?.unresolvedQuestions?.length || state.chapterRecap?.discoveredClues?.length || latestChoice?.impact ? (
         <Box sx={{ px: 1, py: 0.85, borderRadius: 1.25, bgcolor: 'rgba(14,165,233,0.07)' }}>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.35, fontWeight: 700 }}>伏笔回看</Typography>
