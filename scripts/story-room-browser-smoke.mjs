@@ -58,6 +58,10 @@ class CdpClient {
   close() {
     this.ws.close();
   }
+
+  clearEvents() {
+    this.events = [];
+  }
 }
 
 function wait(ms) {
@@ -463,6 +467,39 @@ function assertCondition(condition, message, detail) {
   }
 }
 
+function stringifyConsoleArg(arg) {
+  if (!arg) return '';
+  if (typeof arg.value === 'string') return arg.value;
+  if (arg.value != null) {
+    try {
+      return JSON.stringify(arg.value);
+    } catch {
+      return String(arg.value);
+    }
+  }
+  return arg.description || '';
+}
+
+function findForbiddenNormalConsoleLeaks(events) {
+  const forbidden = [
+    /\[ai-raw-response\]/,
+    /\[ai-generation-failure/,
+    /\[dev:/,
+    /\[story-reader\]/,
+    /\[group-loop:/,
+    /story-protocol/,
+    /storyChoiceGate|choiceEpoch|storyEvents|storyChoices/,
+    /新的抉择点|前情：|取舍：/,
+  ];
+  return events
+    .filter((event) => event.method === 'Runtime.consoleAPICalled')
+    .map((event) => ({
+      type: event.params?.type,
+      text: (event.params?.args || []).map(stringifyConsoleArg).filter(Boolean).join(' '),
+    }))
+    .filter((entry) => forbidden.some((pattern) => pattern.test(entry.text)));
+}
+
 async function main() {
   const page = await getPage();
   const cdp = new CdpClient(page.webSocketDebuggerUrl);
@@ -516,6 +553,9 @@ async function main() {
     assertCondition(!before.hasProtocolDiagnosticPanel, 'Story protocol diagnostics leaked to normal story UI', before);
     assertCondition(!before.hasContinueButton, 'Story room exposed a continue button instead of auto-running', before);
     assertCondition(before.buttons.includes('让林医生追问护士昨晚去向'), 'Expected story choice button was missing', before.buttons);
+    const initialNormalConsoleLeaks = findForbiddenNormalConsoleLeaks(cdp.events);
+    assertCondition(initialNormalConsoleLeaks.length === 0, 'Developer-only story console logs leaked during normal story UI bootstrap', initialNormalConsoleLeaks);
+    cdp.clearEvents();
     await evaluate(cdp, `Promise.all([
       import('/src/stores/useSettingsStore.ts'),
       import('/src/stores/useUIStore.ts'),
@@ -571,6 +611,7 @@ async function main() {
       useUIStore.setState((state) => ({ ...state, rightPanelOpen: false, rightPanelTab: 'members' }));
       return 'developer-story-quality-disabled';
     })`, true);
+    cdp.clearEvents();
     await wait(500);
     const choiceSourceMetadata = JSON.parse(await evaluate(cdp, `import('/src/stores/useMessageStore.ts').then(({ useMessageStore }) => {
       const message = useMessageStore.getState().messages.find((item) => item.id === 'choice-source');
@@ -1050,6 +1091,9 @@ async function main() {
     assertCondition(customInputStore.branches?.some((branch) => branch.source === 'custom' && branch.status === 'chosen'), 'Custom story direction did not create a chosen custom branch', customInputStore);
     assertCondition(customInputStore.messages?.some((message) => message.storyChoiceSelection?.branchId === '__custom_story_branch'), 'Custom story direction was not persisted as a storyChoiceSelection message', customInputStore);
     assertCondition(!customInputStore.messages?.some((message) => message.type === 'god' && message.content.includes('让主角先反锁病房门')), 'Custom story direction leaked into ordinary director messages', customInputStore);
+
+    const normalConsoleLeaks = findForbiddenNormalConsoleLeaks(cdp.events);
+    assertCondition(normalConsoleLeaks.length === 0, 'Developer-only story console logs leaked in normal story UI flow', normalConsoleLeaks);
 
     const errors = cdp.events
       .filter((event) => event.method === 'Runtime.exceptionThrown' || event.method === 'Log.entryAdded')
