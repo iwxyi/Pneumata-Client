@@ -1,5 +1,5 @@
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import { Box, CircularProgress, Fab, Stack, Typography, keyframes } from '@mui/material';
+import { Box, Chip, CircularProgress, Fab, Stack, Typography, keyframes } from '@mui/material';
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Message, MessageAttachment, NarrativeBlock, NarrativeTurnMetadata } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -13,6 +13,7 @@ import type { ExpressionFeedbackKind } from '../../services/characterExpressionF
 import ImageLightbox from '../common/ImageLightbox';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
+import { buildStoryNodeProgress, type StoryNodeProgressChip } from '../../services/storyNodeProgress';
 
 const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
@@ -172,6 +173,39 @@ function StoryChoicePanel({ options, onChoose, showDeveloperDetails = false, sub
               </Stack>
             ) : null}
           </Box>
+        ))}
+      </Stack>
+    </Box>
+  );
+}
+
+function getStoryNodeProgressChipSx(tone: StoryNodeProgressChip['tone']) {
+  if (tone === 'choice') return { borderColor: 'rgba(99,102,241,0.34)', bgcolor: 'rgba(99,102,241,0.075)' };
+  if (tone === 'speech') return { borderColor: 'rgba(16,185,129,0.32)', bgcolor: 'rgba(16,185,129,0.07)' };
+  return { borderColor: 'rgba(14,165,233,0.32)', bgcolor: 'rgba(14,165,233,0.07)' };
+}
+
+function StoryNodeProgressBar({ message }: { message: Message }) {
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
+  const progress = buildStoryNodeProgress(message);
+  if (!progress) return null;
+  const maxContentWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
+  return (
+    <Box sx={{ px: { xs: 2, sm: 3 }, pt: 0.15, pb: 0.55, width: '100%' }}>
+      <Stack direction="row" spacing={0.55} useFlexGap sx={{ flexWrap: 'wrap', maxWidth: maxContentWidth, mx: 'auto', px: { xs: 0.5, sm: 1 } }}>
+        {progress.chips.map((chip) => (
+          <Chip
+            key={`${chip.tone}:${chip.label}`}
+            size="small"
+            label={chip.label}
+            variant="outlined"
+            sx={{
+              height: 22,
+              maxWidth: '100%',
+              ...getStoryNodeProgressChipSx(chip.tone),
+              '& .MuiChip-label': { px: 0.8, fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis' },
+            }}
+          />
         ))}
       </Stack>
     </Box>
@@ -443,6 +477,7 @@ export default function MessageList({
         }}
       >
         {renderedBlocks}
+        <StoryNodeProgressBar message={item.message} />
         {showStoryChoices ? (
           <Box data-scroll-anchor={`${item.message.id}:story-choice`} data-scroll-timestamp={item.message.timestamp}>
             <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
