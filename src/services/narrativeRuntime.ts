@@ -15,6 +15,13 @@ export interface StoryBeatPlan {
   reason: string;
 }
 
+export interface StoryContinuationState {
+  lastVisibleBeat: string;
+  lastSpokenLine: string;
+  entryInstruction: string;
+  rhythmNotes: string[];
+}
+
 export interface StoryAssetPatch {
   currentScene?: StoryCurrentSceneState | null;
   openQuestions: string[];
@@ -715,6 +722,101 @@ function getVisibleStoryText(message: Pick<Message, 'content' | 'metadata'>) {
     .filter(Boolean)
     .join(' ');
   return compactStoryAssetText(blockText || message.content || '', 360);
+}
+
+function getVisibleStoryBlocks(message: Pick<Message, 'content' | 'metadata' | 'type'>) {
+  const blocks = message.metadata?.narrativeTurn?.blocks || [];
+  const visibleBlocks = blocks
+    .filter((block) => block.displayMode !== 'hidden' && block.displayMode !== 'system_panel' && block.displayMode !== 'choice_card')
+    .map((block) => ({ text: compactText(block.text, 500), actorKind: block.actorKind, kind: block.kind }))
+    .filter((block) => block.text);
+  if (visibleBlocks.length) return visibleBlocks;
+  const content = compactText(message.content, 500);
+  return content && message.type === 'ai' ? [{ text: content, actorKind: 'narrator' as const, kind: 'prose' as const }] : [];
+}
+
+function getRecentVisibleStoryBlocks(messages: Array<Pick<Message, 'content' | 'metadata' | 'type'>>) {
+  return messages
+    .filter((message) => message.type === 'ai')
+    .flatMap(getVisibleStoryBlocks);
+}
+
+function getLastClause(text: string) {
+  const parts = (text.match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [text])
+    .map((part) => part.trim())
+    .filter(Boolean);
+  return compactStoryAssetText(parts.at(-1) || text, 120);
+}
+
+function getOpeningPhrase(text: string) {
+  const sentence = (text.match(/[^。！？!?；;\n]+/) || [text])[0] || text;
+  const phrase = sentence.split(/[，,、：:；;]/)[0] || sentence;
+  return compactStoryAssetText(phrase, 28);
+}
+
+function buildRhythmNotes(blockTexts: string[]) {
+  const openings = new Map<string, number>();
+  blockTexts.slice(-8).forEach((text) => {
+    const opening = getOpeningPhrase(text);
+    if (normalizeRepeatText(opening).length < 6) return;
+    openings.set(opening, (openings.get(opening) || 0) + 1);
+  });
+  const repeatedOpenings = Array.from(openings.entries())
+    .filter(([, count]) => count >= 2)
+    .map(([opening]) => opening)
+    .slice(0, 3);
+  const motifs = ['烛火', '沉默', '指尖', '呼吸', '目光', '铜镜', '门外', '脚步声', '袖口', '绷紧', '像一根', '像一粒'];
+  const repeatedMotifs = motifs
+    .map((motif) => ({ motif, count: blockTexts.slice(-10).filter((text) => text.includes(motif)).length }))
+    .filter((item) => item.count >= 2)
+    .map((item) => item.motif)
+    .slice(0, 6);
+  return [
+    repeatedOpenings.length ? `Recent openings already used: ${repeatedOpenings.join(' / ')}.` : '',
+    repeatedMotifs.length ? `Recent surface motifs are saturated: ${repeatedMotifs.join(' / ')}.` : '',
+  ].filter(Boolean);
+}
+
+export function buildStoryContinuationState(params: {
+  conversation: GroupChat;
+  messages?: Array<Pick<Message, 'content' | 'metadata' | 'type'>>;
+}): StoryContinuationState | null {
+  const blocks = getRecentVisibleStoryBlocks(params.messages || []);
+  const lastBlock = blocks.at(-1);
+  const lastVisibleBeat = compactStoryAssetText(lastBlock ? getLastClause(lastBlock.text) : params.conversation.scenarioState?.storySituation || '', 140);
+  const lastSpokenLine = compactStoryAssetText(blocks.slice().reverse().find((block) => block.kind === 'dialogue')?.text || '', 100);
+  const rhythmNotes = buildRhythmNotes(blocks.map((block) => block.text));
+  if (!lastVisibleBeat && !lastSpokenLine && !rhythmNotes.length) return null;
+  return {
+    lastVisibleBeat,
+    lastSpokenLine,
+    entryInstruction: lastVisibleBeat
+      ? `Begin from the last visible beat instead of resetting the scene: ${lastVisibleBeat}`
+      : 'Continue from the current scene state; do not summarize the premise again.',
+    rhythmNotes,
+  };
+}
+
+export function buildStoryContinuationPrompt(params: {
+  conversation: GroupChat;
+  messages?: Array<Pick<Message, 'content' | 'metadata' | 'type'>>;
+}) {
+  const state = buildStoryContinuationState(params);
+  const scene = params.conversation.scenarioState?.currentScene;
+  const sceneLine = scene ? [
+    scene.location ? `location=${scene.location}` : '',
+    scene.time ? `time=${scene.time}` : '',
+    scene.visibleThreat ? `visible pressure=${scene.visibleThreat}` : '',
+  ].filter(Boolean).join('; ') : '';
+  return [
+    'Novel-continuity mode: write this as the next page of one continuous novel, not as an isolated chat answer or a recap block.',
+    state?.entryInstruction || '',
+    state?.lastSpokenLine ? `Latest spoken line still in the air: ${state.lastSpokenLine}` : '',
+    sceneLine ? `Keep physical continuity unless the new beat visibly moves it: ${sceneLine}` : '',
+    'Do not restate the previous transcript, the selected option text, or the room premise. Start with the next observable action, reaction, consequence, or line that follows.',
+    'Rhythm awareness is not a banned-word list: avoid mechanically reusing the same opening frame, body gesture, metaphor, or sensory prop unless it now changes meaning.',
+    ...(state?.rhythmNotes || []),
+  ].filter(Boolean);
 }
 
 export function extractStoryAssets(params: {

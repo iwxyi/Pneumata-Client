@@ -781,6 +781,53 @@ describe('STORY_ENGINE', () => {
     ]));
   });
 
+  it('injects latest story-node continuity into narrator generation', () => {
+    const sceneChat = buildStoryChat();
+    sceneChat.scenarioState = {
+      ...(sceneChat.scenarioState || {}),
+      phase: 'scene',
+      currentScene: { location: '侯府新房', visibleThreat: '门外有人偷听' },
+    };
+    const prompt = STORY_ENGINE.buildGenerationPromptContext?.({
+      conversation: sceneChat,
+      characters: [],
+      messages: [{
+        id: 'node-1',
+        chatId: sceneChat.id,
+        type: 'ai',
+        senderId: 'narrator',
+        senderName: '旁白',
+        content: '',
+        timestamp: 1,
+        isDeleted: false,
+        emotion: 0,
+        metadata: {
+          narrativeTurn: {
+            turnId: 'node-1',
+            turnKind: 'narrative_beat',
+            povActorId: 'narrator',
+            blocks: [{
+              id: 'last',
+              actorId: 'narrator',
+              actorKind: 'narrator',
+              kind: 'prose',
+              displayMode: 'paragraph',
+              text: '月奴的手停在门闩上，门外那道影子终于从窗纸上退开。',
+            }],
+          },
+        },
+      }],
+      speaker: { id: 'narrator', name: '旁白' } as never,
+    });
+
+    expect(prompt?.additionalConstraints).toEqual(expect.arrayContaining([
+      expect.stringContaining('Novel-continuity mode'),
+      expect.stringContaining('Begin from the last visible beat'),
+      expect.stringContaining('门外那道影子终于从窗纸上退开'),
+      expect.stringContaining('location=侯府新房'),
+    ]));
+  });
+
   it('allows speaking when choice phase has no visible story choices', () => {
     const chat = buildStoryChat();
     chat.scenarioState = { phase: 'choice', choiceEpoch: 1, branches: [] };

@@ -7,6 +7,8 @@ import {
   buildNarrativeTurnFromStoryEvents,
   buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
+  buildStoryContinuationPrompt,
+  buildStoryContinuationState,
   buildStoryEventsVisibleText,
   buildStoryReadingPanelBlock,
   appendStoryReadingPanelBlock,
@@ -386,6 +388,75 @@ describe('narrativeRuntime', () => {
       { type: 'speech', characterId: 'nurse', speakerName: undefined, text: '小姐，那个人比我快。我还没看清他的脸，他已经拐过廊角了。' },
       { type: 'speech', characterId: 'nurse', speakerName: undefined, text: '奴婢遇见了人。那个人没有避开奴婢，奴婢也没有避开那个人。' },
     ]);
+  });
+
+  it('builds a novel-continuity writing state from the latest story node', () => {
+    const messages = [{
+      id: 'story-node-1',
+      chatId: 'story-1',
+      type: 'ai' as const,
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-1',
+          turnKind: 'narrative_beat' as const,
+          povActorId: 'narrator',
+          blocks: [
+            {
+              id: 'p1',
+              actorId: 'narrator',
+              actorKind: 'narrator' as const,
+              kind: 'prose' as const,
+              displayMode: 'paragraph' as const,
+              text: '烛火跳了一下，月奴的指尖在袖口里攥紧。她看向门外，像是在等那个人再敲第二声。',
+            },
+            {
+              id: 's1',
+              actorId: 'nurse',
+              actorKind: 'character' as const,
+              kind: 'dialogue' as const,
+              displayMode: 'bubble' as const,
+              characterId: 'nurse',
+              text: '小姐，奴婢不是不肯说，是不能在这里说。',
+            },
+            {
+              id: 'p2',
+              actorId: 'narrator',
+              actorKind: 'narrator' as const,
+              kind: 'prose' as const,
+              displayMode: 'paragraph' as const,
+              text: '烛火又跳了一下，门外那道影子终于从窗纸上退开。',
+            },
+          ],
+        },
+      },
+    }];
+    const conversation = normalizeConversation({
+      ...chat,
+      scenarioState: {
+        phase: 'scene',
+        currentScene: { location: '侯府新房', visibleThreat: '门外有人偷听', time: '新婚夜' },
+      },
+    });
+
+    const state = buildStoryContinuationState({ conversation, messages });
+    const prompt = buildStoryContinuationPrompt({ conversation, messages }).join('\n');
+
+    expect(state).toEqual(expect.objectContaining({
+      lastVisibleBeat: expect.stringContaining('门外那道影子终于从窗纸上退开'),
+      lastSpokenLine: '小姐，奴婢不是不肯说，是不能在这里说。',
+      rhythmNotes: expect.arrayContaining([expect.stringContaining('烛火')]),
+    }));
+    expect(prompt).toContain('next page of one continuous novel');
+    expect(prompt).toContain('Begin from the last visible beat');
+    expect(prompt).toContain('Latest spoken line still in the air');
+    expect(prompt).toContain('location=侯府新房');
+    expect(prompt).toContain('Do not restate the previous transcript');
   });
 
   it('plans story beats and normalizes choices as reusable narrative runtime state', () => {

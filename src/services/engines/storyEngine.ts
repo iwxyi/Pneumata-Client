@@ -6,6 +6,7 @@ import {
   buildChoicePolicyPrompt,
   buildSelectedChoiceConsequencePrompt,
   buildStoryAssetPrompt,
+  buildStoryContinuationPrompt,
   extractStoryAssets,
   getCurrentChoiceEpoch,
   getStoryChapterUpdateFromEvents,
@@ -77,7 +78,7 @@ function resolveTurnPolicy(params: { conversation: GroupChat; messages: Message[
   };
 }
 
-function buildGenerationPromptContext(params: { conversation: GroupChat }): SessionGenerationPromptContext {
+function buildGenerationPromptContext(params: { conversation: GroupChat; messages?: Message[] }): SessionGenerationPromptContext {
   const phase = params.conversation.scenarioState?.phase || 'scene';
   const beatPlan = resolveStoryBeatPlan(params.conversation);
   const background = params.conversation.scenarioState?.storyBackground ? `\nStory background: ${params.conversation.scenarioState.storyBackground}` : '';
@@ -99,6 +100,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat }): Sess
       'When opening, renaming, or settling a chapter, include one storyEvents.chapter_update event with a short concrete title. Do not use generic titles such as "阶段回顾".',
       ...buildChoicePolicyPrompt(beatPlan),
       ...buildStoryAssetPrompt(params.conversation),
+      ...buildStoryContinuationPrompt({ conversation: params.conversation, messages: params.messages }),
       ...buildSelectedChoiceConsequencePrompt(params.conversation),
       ...openingConstraints,
       ...(phase === 'branch'
