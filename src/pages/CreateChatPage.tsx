@@ -38,6 +38,7 @@ import GameplaySection from '../components/createChat/GameplaySection';
 import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
+import { buildIncludeUserAsMemberCopy } from '../services/createChatPresentation';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import AppSnackbar from '../components/common/AppSnackbar';
 import ExpandableFab from '../components/common/ExpandableFab';
@@ -431,6 +432,11 @@ export default function CreateChatPage() {
   const hasPresetCharacters = presetCharacters.length > 0;
   const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
   const selectedRoomTemplate = getRoomTemplate(roomTemplate);
+  const includeUserAsMemberCopy = buildIncludeUserAsMemberCopy({
+    isZh,
+    isStoryRoom: selectedRoomTemplate.sessionKind.scenarioId === 'story-reader',
+    includeUserAsMember,
+  });
   const getStyleLabel = (styleValue: ChatStyle) => t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
 
   useEffect(() => {
@@ -963,8 +969,8 @@ export default function CreateChatPage() {
               membersHintLabel={isGroupConversation ? t('chat.membersHint') : (isZh ? `${conversationNoun}中的AI角色` : `AI roles in this ${conversationNoun}`)}
               styleLabel={t('chat.style')}
               showRoleActionsLabel={i18n.language.startsWith('zh') ? '显示角色动作' : 'Show role actions'}
-              includeUserAsMemberLabel={i18n.language.startsWith('zh') ? '把我作为群成员' : 'Include me as a member'}
-              includeUserAsMemberHint={i18n.language.startsWith('zh') ? '开启后，用户普通发言按群成员语义进入关系、关注与世界事件链路。' : 'When enabled, normal user messages are treated as member participation for relationship, attention, and world-event runtime.'}
+              includeUserAsMemberLabel={includeUserAsMemberCopy.label}
+              includeUserAsMemberHint={includeUserAsMemberCopy.hint}
               operatorIdsLabel={i18n.language.startsWith('zh') ? '外部主持/机器人 ID（高级，可选）' : 'External host/bot IDs (advanced, optional)'}
               operatorIdsHint={i18n.language.startsWith('zh') ? '给不会显示在成员列表里的主持、旁白或自动机器人预留身份；普通群聊通常留空。多个 ID 用逗号分隔。' : 'Reserved identities for hosts, narrators, or automation bots that are not shown as members. Leave blank for normal chats. Separate multiple IDs with commas.'}
               openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
