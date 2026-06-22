@@ -79,6 +79,17 @@ function textSimilarity(left, right) {
   return overlap / Math.min(a.size, b.size);
 }
 
+function splitStorySentences(text) {
+  return (String(text || '').match(/[^。！？!?；;\n]+[。！？!?；;]?/g) || [String(text || '')])
+    .map((part) => normalizeWhitespace(part))
+    .filter(Boolean);
+}
+
+function getLastClause(text) {
+  const parts = splitStorySentences(text);
+  return clip(parts.at(-1) || text, 180);
+}
+
 function countMatches(text, pattern) {
   pattern.lastIndex = 0;
   return Array.from(String(text || '').matchAll(pattern)).length;
@@ -133,6 +144,31 @@ function hasAuthorNote(text) {
     /^(作者|编剧|导演|系统|旁白)(?:说明|提示|分析|安排|规划)/,
     /^(选择后|用户选择后)(?:剧情|故事|叙事|场景)?(?:会|将|应该|需要)/,
   ].some((pattern) => pattern.test(normalized));
+}
+
+function startsWithStoryRecap(text) {
+  const normalized = normalizeWhitespace(text);
+  return [
+    /^(前情|回顾|上回|上一节|此前|先前|前文|上一段|之前)(?:：|:|，|,|\s)/,
+    /^(故事|剧情|这一章|本章)(?:从|开始于|发生在|讲到|来到|回到)/,
+    /^(让我们|镜头|画面)(?:回到|来到|转向|重新)/,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function evaluateContinuity(events, previousText) {
+  const previousBeat = getLastClause(previousText);
+  if (!previousBeat) return { ok: true, gaps: [] };
+  const texts = events
+    .filter((event) => event.type === 'narration' || event.type === 'speech')
+    .map((event) => clip(event.text, 800))
+    .filter(Boolean);
+  if (!texts.length) return { ok: false, gaps: ['missing_visible_story_for_continuity'], previousBeat };
+  const gaps = [];
+  if (startsWithStoryRecap(texts[0])) gaps.push('starts_with_recap_or_reset');
+  const normalizedPrevious = normalizeRepeatText(previousBeat);
+  const normalizedCurrent = normalizeRepeatText(texts.join(''));
+  if (normalizedPrevious.length >= 18 && normalizedCurrent.includes(normalizedPrevious)) gaps.push('repeats_last_visible_beat');
+  return { ok: gaps.length === 0, gaps, previousBeat };
 }
 
 function selectedChoiceAnchors(choice) {
@@ -266,12 +302,16 @@ function buildSystemPrompt() {
 }
 
 function buildUserPrompt(turn, transcript, selectedChoice) {
+  const lastVisibleBeat = getLastClause(transcript.at(-1) || '');
   const base = [
     '故事：雨夜旧医院。目标：查清旧医院停电和失踪名单的真相。',
     '角色：lin=林医生，nurse=护士。',
     '已发生正文：',
     transcript.length ? transcript.slice(-4).map((item, index) => `${index + 1}. ${item}`).join('\n') : '无',
   ];
+  if (lastVisibleBeat) {
+    base.push(`小说连续性：上一节最后停在「${lastVisibleBeat}」。本轮必须从这个动作、反应、悬念或话音之后继续写，不要用“前情/回顾/上一节/镜头回到”重新开场，也不要复制这句作为本轮正文。`);
+  }
   if (selectedChoice) base.push(`用户刚才选择：${selectedChoice.label}。必须把这个选择当作正史兑现，不能写未选分支已经发生。`);
   base.push('连续性资产：当前地点=旧医院走廊；线索=新鲜血迹、铜钥匙、被雨水洇开的名单；压力=护士隐瞒停电时档案室有人进入；未解问题=失踪名单少了谁。');
   const policy = {
@@ -290,13 +330,16 @@ async function main() {
   const selectedChoices = [];
 
   async function runTurn(turn, selectedChoice = null, options = {}) {
+    const previousText = transcript.at(-1) || '';
     messages.push({ role: 'user', content: buildUserPrompt(turn, transcript, selectedChoice) });
     const events = await generateStoryEvents(messages);
     const text = visibleText(events);
     const quality = evaluateQuality(events);
+    const continuity = evaluateContinuity(events, previousText);
     const choices = events.flatMap((event) => event.type === 'choice_point' ? event.choices : []);
     assertCondition(quality.score >= (turn === 'decision' ? 82 : 72), `Quality score too low on ${turn}`, { quality, events });
     assertCondition(turn === 'decision' ? choices.length >= 2 : choices.length === 0, `Unexpected choice policy result on ${turn}`, { choiceCount: choices.length, events });
+    assertCondition(continuity.ok, `Story continuity failed on ${turn}`, { continuity, events, previousText });
     assertCondition(!hasAuthorNote(text), `Author note leaked into visible story text on ${turn}`, { text, events });
     assertCondition(choices.every((choice) => !isAbstractChoice(choice)), `Abstract story choice leaked on ${turn}`, { choices });
     for (const previous of transcript) {
@@ -304,7 +347,7 @@ async function main() {
     }
     transcript.push(text);
     messages.push({ role: 'assistant', content: JSON.stringify({ storyEvents: events }) });
-    summaries.push({ turn: options.name || turn, quality, choiceCount: choices.length, sample: text.slice(0, 120) });
+    summaries.push({ turn: options.name || turn, quality, continuityGaps: continuity.gaps, choiceCount: choices.length, sample: text.slice(0, 120) });
     return { events, text, quality, choices };
   }
 
