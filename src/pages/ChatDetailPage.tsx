@@ -58,6 +58,7 @@ import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelI
 import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
 import { buildStoryBranchOptions, getStoryChoiceGateState, normalizeStoryChoiceSuggestions, sanitizeStoryChoicePrompt } from '../services/storyChoices';
 import { messagesShareIdentity } from '../services/messageIdentity';
+import { buildStoryRoomOpeningPreview, type StoryRoomOpeningPreview } from '../services/storyRoomOpeningPreview';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -320,6 +321,67 @@ export function buildStoryReaderTextInputCapabilities<T extends { imageInput?: b
     multiImageInput: false,
     fileInput: false,
   };
+}
+
+function StoryRoomOpeningEmptyState({ preview }: { preview: StoryRoomOpeningPreview }) {
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
+  const maxContentWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
+  return (
+    <Box data-testid="story-room-opening-empty-state" sx={{ width: '100%', px: { xs: 2, sm: 3 }, py: { xs: 3, sm: 4 } }}>
+      <Box
+        sx={(theme) => ({
+          width: '100%',
+          maxWidth: maxContentWidth,
+          mx: 'auto',
+          borderRadius: 3,
+          border: '1px solid',
+          borderColor: theme.palette.mode === 'light' ? 'rgba(148,163,184,0.26)' : 'rgba(226,232,240,0.14)',
+          bgcolor: theme.palette.mode === 'light' ? 'rgba(255,255,255,0.78)' : 'rgba(15,23,42,0.58)',
+          boxShadow: theme.palette.mode === 'light' ? '0 16px 44px rgba(15,23,42,0.08)' : '0 18px 48px rgba(0,0,0,0.22)',
+          backdropFilter: 'blur(18px)',
+          p: { xs: 2, sm: 2.4 },
+        })}
+      >
+        <Stack spacing={1.5}>
+          <Box>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, mb: 0.5 }}>
+              故事即将开始
+            </Typography>
+            <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.35 }}>
+              {preview.title}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.4 }}>
+              当前目标
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.75 }}>
+              {preview.goal}
+            </Typography>
+          </Box>
+          <Box>
+            <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.4 }}>
+              开场处境
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.75 }}>
+              {preview.scene}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', pt: 0.25 }}>
+            {preview.items.map((item) => (
+              <Chip
+                key={`${item.label}:${item.text}`}
+                size="small"
+                label={`${item.label}：${item.text}`}
+                variant="outlined"
+                sx={{ maxWidth: '100%', '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }}
+              />
+            ))}
+          </Stack>
+        </Stack>
+      </Box>
+    </Box>
+  );
 }
 
 function ChatSharePanel({ chat }: { chat: GroupChat }) {
@@ -689,6 +751,10 @@ export default function ChatDetailPage() {
   });
   const sidebarTabValue = activeSidebarTab === 'actions' ? 'activities' : activeSidebarTab;
   const isStoryRoom = chat?.sessionKind?.scenarioId === 'story-reader';
+  const storyRoomOpeningPreview = useMemo(
+    () => buildStoryRoomOpeningPreview(chat, members),
+    [chat, members],
+  );
   const initialStoryReadingPosition = useMemo<MessageListScrollPosition | null>(() => {
     if (!isStoryRoom || !id) return null;
     const position = savedStoryReadingPositionForChat;
@@ -1982,6 +2048,7 @@ export default function ChatDetailPage() {
             topHint="没有更早的消息"
             topInset={isSplitDetailPane ? { xs: '76px', sm: '76px' } : { xs: 'calc(88px + env(safe-area-inset-top, 0px))', sm: '80px' }}
             bottomInset={messageListBottomInset}
+            emptyContent={isStoryRoom && storyRoomOpeningPreview ? <StoryRoomOpeningEmptyState preview={storyRoomOpeningPreview} /> : undefined}
             privateConversation={chat.type === 'direct' || chat.type === 'ai_direct'}
             tailContent={undefined}
             storyChoiceMessageId={displayedStoryChoiceMessageId}

@@ -64,6 +64,7 @@ interface MessageListProps {
   bottomInset?: ResponsiveInset;
   selfMemberId?: string | null;
   privateConversation?: boolean;
+  emptyContent?: ReactNode;
   tailContent?: ReactNode;
   storyChoiceMessageId?: string | null;
   storyChoiceOptions?: NarrativeStoryChoiceOption[];
@@ -284,6 +285,7 @@ export default function MessageList({
   bottomInset,
   selfMemberId = null,
   privateConversation = false,
+  emptyContent,
   tailContent,
   storyChoiceMessageId = null,
   storyChoiceOptions = [],
@@ -986,6 +988,7 @@ export default function MessageList({
       ) : null}
 
       <Box ref={contentRef}>
+        {messages.length === 0 && emptyContent ? emptyContent : null}
         {renderItems.map(renderMessageItem)}
         {isLoadingNewer ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', px: 2, py: 1, minHeight: 34 }}>
