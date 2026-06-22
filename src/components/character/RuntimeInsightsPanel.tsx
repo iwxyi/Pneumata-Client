@@ -295,6 +295,19 @@ function clipRuntimeText(text: string, max = 72) {
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
 }
 
+function hasHighRiskPrivateRuntimeText(text: string | undefined | null) {
+  return /(不要公开|不能公开|别公开|只告诉|秘密|暗号|住址|地址|电话|手机号|微信|QQ|私下称呼|私下约定|私密|隐私)/.test(text || '');
+}
+
+function safeRuntimePrivateText(text: string | undefined | null, fallback = '有一条私域内容已隐藏原文') {
+  const value = text || '';
+  return hasHighRiskPrivateRuntimeText(value) ? fallback : value;
+}
+
+function formatRuntimeEvidence(items: string[], fallback = '有一条私域证据已隐藏原文') {
+  return items.map((item) => safeRuntimePrivateText(item, fallback)).filter(Boolean).join(' / ');
+}
+
 function buildManualCompanionshipEventId(parts: Array<string | number | undefined>) {
   const now = Date.now();
   const source = parts.filter((item) => item !== undefined && item !== null && String(item).length > 0).join('|');
@@ -2773,7 +2786,7 @@ function CompanionshipDeveloperTracePanel({
                     {item.phase ? `${formatCompanionshipPhaseLabel(item.phase)} · ${item.style ? formatCompanionshipStyleLabel(item.style) : '自动风格'}` : '自动判断'}
                   </Typography>
                 </Box>
-                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {typeof item.confidence === 'number' || item.decisionSource ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
                     {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : ''].filter(Boolean).join(' · ')}
@@ -2781,7 +2794,7 @@ function CompanionshipDeveloperTracePanel({
                 ) : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -2813,7 +2826,7 @@ function CompanionshipDeveloperTracePanel({
                     {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : ''].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
-                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.45 }}>
                   {item.items.map((profileItem, index) => (
                     <Chip
@@ -2827,7 +2840,7 @@ function CompanionshipDeveloperTracePanel({
                 </Stack>
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -2892,10 +2905,10 @@ function CompanionshipDeveloperTracePanel({
                       ) : null}
                     </Stack>
                   ) : null}
-                  {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                  {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                   {item.evidence.length ? (
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                      证据：{item.evidence.join(' / ')}
+                      证据：{formatRuntimeEvidence(item.evidence)}
                     </Typography>
                   ) : null}
                   {item.sourceMessageIds?.length ? (
@@ -2926,7 +2939,7 @@ function CompanionshipDeveloperTracePanel({
         <StatChipRow items={policyItems} />
         {trace.boundaryReasons.length ? (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.65 }}>
-            克制：{trace.boundaryReasons.join(' / ')}
+            克制：{formatRuntimeEvidence(trace.boundaryReasons, '有一条私域克制原因已隐藏原文')}
           </Typography>
         ) : null}
       </Box>
@@ -2935,12 +2948,12 @@ function CompanionshipDeveloperTracePanel({
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.65 }}>未完成事项</Typography>
           {trace.pendingCareTopics.length ? (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              关心事项：{trace.pendingCareTopics.join(' / ')}
+              关心事项：{formatRuntimeEvidence(trace.pendingCareTopics, '有一条私域关心事项已隐藏原文')}
             </Typography>
           ) : null}
           {trace.pendingPromises.length ? (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-              约定：{trace.pendingPromises.join(' / ')}
+              约定：{formatRuntimeEvidence(trace.pendingPromises, '有一条私域约定已隐藏原文')}
             </Typography>
           ) : null}
         </Box>
@@ -2959,11 +2972,11 @@ function CompanionshipDeveloperTracePanel({
                     {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', item.dueAt ? `到期 ${new Date(item.dueAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
-                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.topicText}</Typography>
-                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.topicText, '有一条私域关心事项已隐藏原文')}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -2995,16 +3008,16 @@ function CompanionshipDeveloperTracePanel({
                     {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', item.dueAt ? `到期 ${new Date(item.dueAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
-                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.promiseText}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.promiseText, '有一条私域约定已隐藏原文')}</Typography>
                 {item.supersedesText ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                    替换旧约定：{item.supersedesText}
+                    替换旧约定：{safeRuntimePrivateText(item.supersedesText, '有一条私域旧约定已隐藏原文')}
                   </Typography>
                 ) : null}
-                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -3036,9 +3049,9 @@ function CompanionshipDeveloperTracePanel({
                     {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', typeof item.salience === 'number' ? `显著 ${Math.round(item.salience)}` : ''].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
-                {item.title ? <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 700, wordBreak: 'break-word' }}>{item.title}</Typography> : null}
-                <Typography variant="body2" sx={{ mt: item.title ? 0 : 0.25, wordBreak: 'break-word' }}>{item.text}</Typography>
-                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.title ? <Typography variant="body2" sx={{ mt: 0.25, fontWeight: 700, wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.title, '有一条私域共同锚点标题已隐藏原文')}</Typography> : null}
+                <Typography variant="body2" sx={{ mt: item.title ? 0 : 0.25, wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.text, '有一条私域共同锚点已隐藏原文')}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {item.mergedAnchorIds.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-all' }}>
                     合并/压制：{item.mergedAnchorIds.join(' / ')}
@@ -3046,7 +3059,7 @@ function CompanionshipDeveloperTracePanel({
                 ) : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -3078,11 +3091,11 @@ function CompanionshipDeveloperTracePanel({
                     {[item.consequenceKind ? formatSharedSecretConsequenceLabel(item.consequenceKind) : '', item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', typeof item.emotionalWeight === 'number' ? `权重 ${Math.round(item.emotionalWeight)}` : ''].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
-                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.publicMask}</Typography>
-                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.publicMask, '有一条小秘密公开遮罩已隐藏原文')}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -3114,16 +3127,16 @@ function CompanionshipDeveloperTracePanel({
                     {[item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : '', item.nextAvailableAt ? `下次 ${new Date(item.nextAvailableAt).toLocaleString()}` : ''].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
-                {item.content ? <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.content}</Typography> : null}
-                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.content ? <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.content, '有一条私域仪式内容已隐藏原文')}</Typography> : null}
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {item.evolution.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    演化：{item.evolution.join(' / ')}
+                    演化：{formatRuntimeEvidence(item.evolution, '有一条私域仪式演化已隐藏原文')}
                   </Typography>
                 ) : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -3155,11 +3168,11 @@ function CompanionshipDeveloperTracePanel({
                     {[item.visibility ? formatSharedPhraseVisibilityLabel(item.visibility) : '', item.decisionSource ? `来源 ${item.decisionSource}` : '', typeof item.confidence === 'number' ? `置信 ${Math.round(item.confidence <= 1 ? item.confidence * 100 : item.confidence)}%` : ''].filter(Boolean).join(' · ')}
                   </Typography>
                 </Box>
-                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{item.text}</Typography>
-                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{item.reason}</Typography> : null}
+                <Typography variant="body2" sx={{ mt: 0.25, wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.text, '有一句私域共同话语已隐藏原文')}</Typography>
+                {item.reason ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -3207,7 +3220,7 @@ function CompanionshipDeveloperTracePanel({
           </Stack>
           {trace.attachmentProfile.evidence.length ? (
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.65 }}>
-              证据：{trace.attachmentProfile.evidence.join(' / ')}
+              证据：{formatRuntimeEvidence(trace.attachmentProfile.evidence)}
             </Typography>
           ) : null}
         </Box>
@@ -3215,7 +3228,7 @@ function CompanionshipDeveloperTracePanel({
       {trace.intimateConflict ? (
         <Box sx={{ p: 1, borderRadius: 1, bgcolor: 'warning.main', color: 'warning.contrastText' }}>
           <Typography variant="caption" sx={{ display: 'block', opacity: 0.78 }}>亲密冲突/修复</Typography>
-          <Typography variant="body2">{trace.intimateConflict.summary}</Typography>
+          <Typography variant="body2">{safeRuntimePrivateText(trace.intimateConflict.summary, '有一条私域冲突摘要已隐藏原文')}</Typography>
           <Typography variant="caption" sx={{ display: 'block', opacity: 0.78 }}>
             {trace.intimateConflict.kind} · 强度 {trace.intimateConflict.severity} · 修复成熟度 {trace.intimateConflict.repairReadiness}
           </Typography>
@@ -3235,10 +3248,10 @@ function CompanionshipDeveloperTracePanel({
                     {item.severity}/{item.repairReadiness}
                   </Typography>
                 </Box>
-                <Typography variant="body2" sx={{ mt: 0.25 }}>{item.summary}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.25 }}>{safeRuntimePrivateText(item.summary, '有一条私域冲突摘要已隐藏原文')}</Typography>
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds.length ? (
@@ -3275,7 +3288,7 @@ function CompanionshipDeveloperTracePanel({
                     {item.inferredStyle ? formatAttachmentStyleLabel(item.inferredStyle) : '无类型'}
                   </Typography>
                 </Box>
-                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{item.reason}</Typography> : null}
+                {item.reason ? <Typography variant="body2" sx={{ mt: 0.25 }}>{safeRuntimePrivateText(item.reason)}</Typography> : null}
                 {onRestoreAttachment && item.inferredStyle ? (
                   <Button
                     size="small"
@@ -3291,7 +3304,7 @@ function CompanionshipDeveloperTracePanel({
                 </Typography>
                 {item.evidence.length ? (
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                    证据：{item.evidence.join(' / ')}
+                    证据：{formatRuntimeEvidence(item.evidence)}
                   </Typography>
                 ) : null}
                 {item.sourceMessageIds?.length ? (
@@ -3781,7 +3794,7 @@ function UserCompanionshipCard({
               {signature.unsentDraft ? '未发送的话' : signature.onlineReturn ? '上线回归' : '离线痕迹'}
             </Typography>
             <Typography variant="body2">
-              {signature.unsentDraft || signature.onlineReturn || signature.offlineTrace}
+              {safeRuntimePrivateText(signature.unsentDraft || signature.onlineReturn || signature.offlineTrace, '有一条私域状态痕迹已隐藏原文')}
             </Typography>
           </Box>
         ) : null}
@@ -3790,7 +3803,7 @@ function UserCompanionshipCard({
             <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="caption" sx={{ display: 'block', opacity: 0.82 }}>亲密冲突/修复</Typography>
-                <Typography variant="body2">{trace.intimateConflict.summary}</Typography>
+                <Typography variant="body2">{safeRuntimePrivateText(trace.intimateConflict.summary, '有一条私域冲突摘要已隐藏原文')}</Typography>
               </Box>
               <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', justifyContent: 'flex-end', flexShrink: 0 }}>
                 <Button size="small" variant="outlined" onClick={() => trace.intimateConflict && onResolveConflict(trace.intimateConflict)} sx={{ color: 'inherit', borderColor: 'currentColor' }}>
@@ -4169,11 +4182,11 @@ function UserCompanionshipCard({
                           </Box>
                         </Stack>
                       ) : (
-                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{item.text}</Typography>
+                        <Typography variant="body2" sx={{ wordBreak: 'break-word' }}>{safeRuntimePrivateText(item.text, '有一条私域画像线索已隐藏原文')}</Typography>
                       )}
                       {developerMode && item.evidence ? (
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', wordBreak: 'break-word' }}>
-                          证据：{clipRuntimeText(item.evidence, 96)}
+                          证据：{clipRuntimeText(safeRuntimePrivateText(item.evidence), 96)}
                         </Typography>
                       ) : null}
                     </Box>
@@ -4550,7 +4563,7 @@ function UserCompanionshipCard({
             <Box sx={{ display: 'grid', gap: 0.5 }}>
               {signature.debugLines.map((line) => (
                 <Typography key={line} variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace', wordBreak: 'break-word' }}>
-                  {line}
+                  {safeRuntimePrivateText(line, '有一条私域调试线索已隐藏原文')}
                 </Typography>
               ))}
             </Box>
