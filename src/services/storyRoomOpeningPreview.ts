@@ -11,6 +11,8 @@ export interface StoryRoomOpeningPreview {
   title: string;
   goal: string;
   scene: string;
+  firstChapterGoal: string;
+  readerPromise: string;
   items: StoryRoomOpeningPreviewItem[];
 }
 
@@ -49,12 +51,17 @@ export function buildStoryRoomOpeningPreview(chat: GroupChat | null | undefined,
   const title = sceneLabel || cleanText(chat.name, members, 28) || '故事开场';
   const goal = cleanText(state.storyGoal || state.storyDirection, members, 92);
   const scene = cleanText(state.currentScene?.summary || state.storySituation || state.storyBackground, members, 116);
+  const firstChapterGoal = cleanText(state.storyOutline?.split(/[；;]/)[0] || state.storyGoal || state.storyDirection, members, 86);
   const items: StoryRoomOpeningPreviewItem[] = [];
   pushItems(items, '悬念', state.openQuestions, members, 2);
   pushItems(items, '线索', state.clues, members, 2);
   pushItems(items, '风险', state.stakes, members, 1);
   pushItems(items, '关系', state.relationshipShifts, members, 1);
+  const trackedLabels = Array.from(new Set(items.map((item) => item.label))).slice(0, 3);
+  const readerPromise = trackedLabels.length
+    ? `你的选择会影响${trackedLabels.join('、')}，并沉淀到章节回看。`
+    : '';
 
-  if (!goal || !scene || items.length < 2) return null;
-  return { title, goal, scene, items };
+  if (!goal || !scene || !firstChapterGoal || !readerPromise || items.length < 2) return null;
+  return { title, goal, scene, firstChapterGoal, readerPromise, items };
 }

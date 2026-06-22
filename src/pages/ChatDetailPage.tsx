@@ -368,6 +368,24 @@ function StoryRoomOpeningEmptyState({ preview }: { preview: StoryRoomOpeningPrev
               {preview.scene}
             </Typography>
           </Box>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 1.2 }}>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.4 }}>
+                第一章目标
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.75 }}>
+                {preview.firstChapterGoal}
+              </Typography>
+            </Box>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 800, mb: 0.4 }}>
+                参与感
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.75 }}>
+                {preview.readerPromise}
+              </Typography>
+            </Box>
+          </Box>
           <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap', pt: 0.25 }}>
             {preview.items.map((item) => (
               <Chip

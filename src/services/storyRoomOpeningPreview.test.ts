@@ -44,6 +44,7 @@ function buildStoryChat(overrides: Partial<GroupChat> = {}): GroupChat {
     scenarioState: {
       phase: 'scene',
       storyGoal: '围绕失踪名单和停电记录推进，让用户在追问、搜证和保护之间做关键选择。',
+      storyOutline: '开场从旧医院失踪名单切入；第一轮让停电和脚步声形成压力。',
       storySituation: '旧医院停电后仍有一层楼亮着灯，失踪名单上多出一个不该存在的名字。',
       currentScene: {
         location: '旧医院',
@@ -68,6 +69,8 @@ describe('buildStoryRoomOpeningPreview', () => {
       title: '雨夜 · 旧医院',
       goal: expect.stringContaining('关键选择'),
       scene: expect.stringContaining('失踪名单'),
+      firstChapterGoal: expect.stringContaining('旧医院失踪名单'),
+      readerPromise: expect.stringMatching(/选择.*章节回看/),
     }));
     expect(preview?.items.map((item) => item.label)).toEqual(expect.arrayContaining(['悬念', '线索', '风险', '关系']));
   });
@@ -80,7 +83,13 @@ describe('buildStoryRoomOpeningPreview', () => {
 
   it('sanitizes member ids from visible relationship pressure', () => {
     const preview = buildStoryRoomOpeningPreview(buildStoryChat(), members);
-    const text = preview?.items.map((item) => item.text).join('\n') || '';
+    const text = [
+      preview?.goal,
+      preview?.scene,
+      preview?.firstChapterGoal,
+      preview?.readerPromise,
+      ...(preview?.items.map((item) => item.text) || []),
+    ].filter(Boolean).join('\n');
 
     expect(text).toContain('林医生');
     expect(text).toContain('护士');
