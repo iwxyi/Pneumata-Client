@@ -4,9 +4,10 @@ import type { Message } from '../types/message';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { retrieveRelevantMemories } from './memoryRetrieval';
 import { parseRuntimeEvent } from './runtimeEventFactory';
+import { safeRuntimePrivateText } from './runtimePrivateTextPrivacy';
 
-function cleanText(text: string | undefined | null, members: DisplayTextMember[] = []) {
-  return sanitizeUserFacingText(text || '', members).trim();
+function cleanText(text: string | undefined | null, members: DisplayTextMember[] = [], fallback = '有一条私域记忆线索已隐藏原文') {
+  return sanitizeUserFacingText(safeRuntimePrivateText(text, fallback), members).trim();
 }
 
 function memberName(id: string, members: AICharacter[]) {
@@ -155,7 +156,7 @@ function readReactivationMetrics(metrics: unknown) {
   };
 }
 
-export function projectMemoryReactivationItems(members: AICharacter[], messages: Message[]) {
+export function projectMemoryReactivationItems(members: AICharacter[], messages: Message[]): ProjectedMemoryReactivationItem[] {
   const memberById = new Map(members.map((member) => [member.id, member] as const));
   const eventItems = messages
     .filter((message) => !message.isDeleted && message.type === 'event')

@@ -39,6 +39,18 @@ describe('messageBubbleEventHelpers', () => {
     });
   });
 
+  it('redacts high-risk private memory distillation candidates', () => {
+    const meta = buildMemoryDistillationMeta({
+      metrics: {
+        ownerType: 'character',
+        candidateTexts: ['秘密暗号是雨夜便利店，不能公开说'],
+        mergeMode: 'append_new',
+        newEvidenceCount: 1,
+      },
+    });
+    expect(meta?.candidateTexts).toEqual(['有一条私域蒸馏候选已隐藏原文']);
+  });
+
   it('builds memory reactivation meta and sanitizes fields', () => {
     const meta = buildMemoryReactivationMeta({
       metrics: {
@@ -50,6 +62,25 @@ describe('messageBubbleEventHelpers', () => {
     });
     expect(meta?.matchedTokens).toEqual(['喜羊羊', '灰太狼']);
     expect(meta?.recalledMemories[0]?.summary).toContain('喜羊羊');
+  });
+
+  it('redacts high-risk private event and memory reactivation text', () => {
+    expect(buildEventDisplayText({
+      eventType: 'memory_reactivation',
+      summary: '秘密暗号是雨夜便利店，不能公开说',
+    })).toBe('有一条私域记忆回温已隐藏原文');
+
+    const meta = buildMemoryReactivationMeta({
+      metrics: {
+        matchedTokens: ['雨夜便利店暗号'],
+        recalledMemories: [
+          { summary: '手机号 13800000000 不要公开', matchedTokens: ['13800000000'] },
+        ],
+      },
+    });
+    expect(meta?.matchedTokens).toEqual(['有一条私域命中词已隐藏原文']);
+    expect(meta?.recalledMemories[0]?.summary).toBe('有一条私域回温记忆已隐藏原文');
+    expect(meta?.recalledMemories[0]?.matchedTokens).toEqual(['有一条私域命中词已隐藏原文']);
   });
 
   it('hides empty conflict events only when both summary and metrics are empty', () => {
@@ -81,4 +112,3 @@ describe('messageBubbleEventHelpers', () => {
     expect(meta).toBeTruthy();
   });
 });
-

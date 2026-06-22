@@ -132,6 +132,25 @@ describe('layeredMemoryPresentation', () => {
     ]);
   });
 
+  it('redacts high-risk private memory content and evidence', () => {
+    const projected = projectLayeredMemoryItem({
+      item: memory({
+        text: '秘密暗号是雨夜便利店，不能公开说',
+        evidenceText: '1. 用户说手机号 13800000000 不要公开。 2. 明天面试有点紧张。',
+      }),
+      includeDebugDetails: false,
+      language: 'zh-CN',
+    });
+
+    expect(projected.displayText).toBe('有一条私域记忆内容已隐藏原文');
+    expect(projected.evidenceItems.map((item) => item.text)).toEqual([
+      '有一条私域记忆证据已隐藏原文',
+      '明天面试有点紧张。',
+    ]);
+    expect(projected.evidenceTitle).not.toContain('雨夜便利店');
+    expect(projected.evidenceTitle).not.toContain('13800000000');
+  });
+
   it('marks recently reactivated memories before generic strength labels', () => {
     const now = 1_000_000;
     const reactivated = memory({

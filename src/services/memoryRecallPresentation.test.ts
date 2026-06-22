@@ -193,4 +193,57 @@ describe('memoryRecallPresentation', () => {
       reason: '当前发言重新提到了雨夜旧事',
     });
   });
+
+  it('redacts high-risk private archive recall and reactivation text', () => {
+    const chat = buildChat();
+    const members = [character('char-a', '甲'), character('char-b', '乙')];
+    const recallItems = projectMemoryRecallItems(chat, members, [
+      message('我记得。', {
+        metadata: {
+          runtimeDecision: {
+            memoryContext: {
+              recalledArchives: [{
+                id: 'archive-secret',
+                scope: 'relationship',
+                kind: 'bond',
+                layer: 'long_term',
+                summary: '秘密暗号是雨夜便利店，不能公开说',
+                recallReason: '用户私下约定不要公开这个暗号',
+                recallTokens: ['雨夜便利店暗号'],
+                recallScore: 0.92,
+              }],
+            },
+          },
+        },
+      }),
+    ]);
+    expect(recallItems[0]?.summary).toBe('有一条私域记忆线索已隐藏原文');
+    expect(recallItems[0]?.caption).toBe('有一条私域记忆线索已隐藏原文');
+    expect(recallItems[0]?.tokens).toEqual(['有一条私域记忆线索已隐藏原文']);
+    expect(recallItems[0]?.tooltip).not.toContain('雨夜便利店');
+
+    const content = buildRuntimeEventMessageContent({
+      eventType: 'memory_reactivation',
+      title: '旧记忆回温',
+      summary: '甲 的旧记忆被当前发言重新唤醒：秘密暗号是雨夜便利店',
+      metrics: {
+        characterId: 'char-a',
+        characterName: '甲',
+        matchedTokens: ['13800000000'],
+        recalledMemories: [{
+          id: 'archive-secret',
+          summary: '手机号 13800000000 不要公开',
+          recallReason: '用户说电话不能公开',
+          matchedTokens: ['13800000000'],
+        }],
+      },
+    });
+    const reactivationItems = projectMemoryReactivationItems([character('char-a', '甲')], [
+      message(content, { id: 'event-secret', type: 'event', senderId: 'system', senderName: '系统', content }),
+    ]);
+    expect(reactivationItems[0]?.summary).toBe('有一条私域记忆线索已隐藏原文');
+    expect(reactivationItems[0]?.reason).toBe('有一条私域记忆线索已隐藏原文');
+    expect(reactivationItems[0]?.matchedTokens).toEqual(['有一条私域记忆线索已隐藏原文']);
+    expect(reactivationItems[0]?.tooltip).not.toContain('13800000000');
+  });
 });

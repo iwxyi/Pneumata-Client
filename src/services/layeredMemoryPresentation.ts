@@ -3,6 +3,7 @@ import { getExperienceLensLabel } from './experienceChangePresentation';
 import { isRuntimeEvidenceMemory } from './memoryPresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { isMemoryAnchorCandidate } from './memoryLifecycle';
+import { safeRuntimePrivateText } from './runtimePrivateTextPrivacy';
 
 export type LayeredMemoryFilterKey = 'all' | 'anchors' | 'longTerm' | 'episodic' | 'working' | 'relationship' | 'self' | 'conversation' | 'expressionFeedback' | 'archived';
 
@@ -166,6 +167,10 @@ function normalizeComparableText(text: string) {
   return text.replace(/\s+/g, '').trim();
 }
 
+function cleanMemoryPresentationText(text: string | undefined | null, members: DisplayTextMember[] = [], fallback = '有一条私域记忆内容已隐藏原文') {
+  return sanitizeUserFacingText(safeRuntimePrivateText(text, fallback), members);
+}
+
 function buildEvidenceItems(params: {
   item: MemoryItem;
   displayText: string;
@@ -181,7 +186,7 @@ function buildEvidenceItems(params: {
   const displayComparable = normalizeComparableText(displayText);
   const seen = new Set<string>();
   return sourceEntries.flatMap((entry) => splitEvidenceText(entry.text).map((line): PresentedLayeredMemoryEvidence | null => {
-    const cleaned = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(line, item) : line, members);
+    const cleaned = cleanMemoryPresentationText(formatMemoryText ? formatMemoryText(line, item) : line, members, '有一条私域记忆证据已隐藏原文');
     const key = normalizeComparableText(cleaned);
     if (!cleaned || !key || key === displayComparable || seen.has(key)) return null;
     seen.add(key);
@@ -210,7 +215,7 @@ export function projectLayeredMemoryItem(params: {
 }): PresentedLayeredMemoryItem {
   const { item, includeDebugDetails, language, formatMemoryText, members = [] } = params;
   const sourceText = item.summary || item.text;
-  const displayText = sanitizeUserFacingText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText, members);
+  const displayText = cleanMemoryPresentationText(formatMemoryText ? formatMemoryText(sourceText, item) : sourceText, members);
   const evidenceItems = buildEvidenceItems({ item, displayText, formatMemoryText, members });
   const evidenceTitle = evidenceItems.map((entry) => entry.text).join('\n');
   const metaItems = [getMemoryStrengthLabel(item, language, params.now), ...buildMemoryMetaItems(item, includeDebugDetails, language)].filter(Boolean) as string[];

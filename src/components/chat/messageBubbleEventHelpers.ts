@@ -1,9 +1,14 @@
 import { formatConflictMetricsForDisplay, formatRuntimeEventText } from '../../services/runtimeEventFactory';
 import { sanitizeDistillationTexts } from '../../services/distillationText';
 import { sanitizeUserFacingText, type DisplayTextMember } from '../../services/displayTextSanitizer';
+import { safeRuntimePrivateText } from '../../services/runtimePrivateTextPrivacy';
 
-function dedupeDisplayText(text: string, members: DisplayTextMember[] = []) {
-  return sanitizeUserFacingText(text.replace(/^房间态势更新：/g, '').trim(), members);
+function cleanEventText(text: string | undefined | null, members: DisplayTextMember[] = [], fallback = '有一条私域事件内容已隐藏原文') {
+  return sanitizeUserFacingText(safeRuntimePrivateText(text, fallback), members);
+}
+
+function dedupeDisplayText(text: string, members: DisplayTextMember[] = [], fallback = '有一条私域事件内容已隐藏原文') {
+  return cleanEventText(text.replace(/^房间态势更新：/g, '').trim(), members, fallback);
 }
 
 function readMetrics(metrics: unknown) {
@@ -51,7 +56,7 @@ function formatMemoryDistillationMergeLabel(value: unknown, members: DisplayText
 export function buildEventDisplayText(payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown }, members: DisplayTextMember[] = []) {
   if (payload.eventType === 'room_state_snapshot_v2') return dedupeDisplayText(payload.summary || '', members);
   if (payload.eventType === 'conflict_axis_shift') return dedupeDisplayText(payload.summary || '', members);
-  if (payload.eventType === 'memory_reactivation') return dedupeDisplayText(payload.summary || payload.title || '旧记忆回温', members);
+  if (payload.eventType === 'memory_reactivation') return dedupeDisplayText(payload.summary || payload.title || '旧记忆回温', members, '有一条私域记忆回温已隐藏原文');
   if (payload.eventType === 'memory_distillation') {
     const metrics = readMetrics(payload.metrics);
     const ownerLabel = typeof metrics?.ownerLabel === 'string' ? metrics.ownerLabel : '';
@@ -76,7 +81,7 @@ export function buildMemoryDistillationMeta(payload: { metrics?: unknown }, memb
   const candidateTexts = Array.isArray(metrics.candidateTexts)
     ? sanitizeDistillationTexts(metrics.candidateTexts
       .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-      .map((text) => sanitizeUserFacingText(text, members))).slice(0, 2)
+      .map((text) => cleanEventText(text, members, '有一条私域蒸馏候选已隐藏原文'))).slice(0, 2)
       .filter(Boolean)
     : [];
   return {
@@ -92,7 +97,7 @@ export function buildMemoryReactivationMeta(payload: { metrics?: unknown }, memb
   const matchedTokens = Array.isArray(metrics.matchedTokens)
     ? metrics.matchedTokens
       .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-      .map((value) => sanitizeUserFacingText(value, members))
+      .map((value) => cleanEventText(value, members, '有一条私域命中词已隐藏原文'))
       .filter(Boolean)
       .slice(0, 8)
     : [];
@@ -100,11 +105,11 @@ export function buildMemoryReactivationMeta(payload: { metrics?: unknown }, memb
     ? metrics.recalledMemories
       .filter((value): value is Record<string, unknown> => typeof value === 'object' && value !== null)
       .map((item) => ({
-        summary: sanitizeUserFacingText(String(item.summary || ''), members),
+        summary: cleanEventText(String(item.summary || ''), members, '有一条私域回温记忆已隐藏原文'),
         matchedTokens: Array.isArray(item.matchedTokens)
           ? item.matchedTokens
             .filter((value): value is string => typeof value === 'string' && Boolean(value.trim()))
-            .map((value) => sanitizeUserFacingText(value, members))
+            .map((value) => cleanEventText(value, members, '有一条私域命中词已隐藏原文'))
             .filter(Boolean)
             .slice(0, 4)
           : [],
