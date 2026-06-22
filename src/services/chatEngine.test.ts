@@ -1756,6 +1756,56 @@ describe('chatEngine streaming preview', () => {
     });
   });
 
+  it('treats direct user messages as companionship context instead of topic guidance', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '我记得你明天面试会紧张。先别急，我们一点点把最难的部分拆开。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊', {
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户说过明天面试会紧张。'],
+      },
+    });
+    const directChat = buildChat({
+      type: 'direct',
+      memberIds: ['mei'],
+      relationshipLedger: [{
+        pairKey: 'mei->user',
+        actorId: 'mei',
+        targetId: 'user',
+        current: { warmth: 18, trust: 12, competence: 4, threat: 0 },
+        trend: 'up',
+        recentEvents: [],
+        lastUpdatedAt: 100,
+      }],
+    });
+
+    const message = await generateSpeakerMessage({
+      chat: directChat,
+      speaker: mei,
+      characters: [mei],
+      messages: [buildUserMessage('明天面试有点紧张。', 200)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.metadata?.runtimeDecision?.directorIntent?.userGuidance).toBeFalsy();
+    expect(message.metadata?.runtimeDecision?.guidanceExecution).toBeUndefined();
+    expect(message.metadata?.runtimeDecision?.companionshipContext).toMatchObject({
+      currentAddress: '你',
+    });
+    expect(message.metadata?.runtimeDecision?.companionshipContext?.pendingCareTopics.join(' / ')).toContain('明天面试');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('## Companionship Context');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('明天面试');
+  });
+
   it('does not retry plain topic shifts as persistent guidance tasks', async () => {
     generateResponseMock.mockReset();
     generateResponseMock
