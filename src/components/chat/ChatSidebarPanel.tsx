@@ -111,7 +111,30 @@ function PanelFallback() {
   return null;
 }
 
-function StoryChapterPanel({ chat, onStoryChapterClick }: { chat: GroupChat; onStoryChapterClick?: (chapter: StoryChapterState) => void }) {
+type StoryChoiceHistoryItem = NonNullable<NonNullable<GroupChat['scenarioState']>['choiceHistory']>[number];
+
+function normalizeChoiceLabel(value: string, members: AICharacter[]) {
+  return formatNarrativeLineText(value, members)
+    .replace(/\s+/g, '')
+    .replace(/[，。！？、,.!?；;：:（）()【】\[\]「」“”"']/g, '')
+    .trim();
+}
+
+function getChapterChoiceReviews(chapter: StoryChapterState, chat: GroupChat, members: AICharacter[]) {
+  const history = chat.scenarioState?.choiceHistory || [];
+  const chapterChoiceLabels = chapter.keyChoices || [];
+  if (!history.length || !chapterChoiceLabels.length) return [];
+  const wanted = new Set(chapterChoiceLabels.map((item) => normalizeChoiceLabel(item, members)).filter(Boolean));
+  const reviews: StoryChoiceHistoryItem[] = [];
+  for (const choice of history) {
+    const normalized = normalizeChoiceLabel(choice.label || '', members);
+    if (!normalized || !wanted.has(normalized)) continue;
+    reviews.push(choice);
+  }
+  return reviews.slice(-3);
+}
+
+function StoryChapterPanel({ chat, members, onStoryChapterClick }: { chat: GroupChat; members: AICharacter[]; onStoryChapterClick?: (chapter: StoryChapterState) => void }) {
   const chapters = chat.scenarioState?.storyChapters || [];
   if (!chapters.length) {
     return (
@@ -124,6 +147,7 @@ function StoryChapterPanel({ chat, onStoryChapterClick }: { chat: GroupChat; onS
     <Stack spacing={1}>
       {chapters.map((chapter) => {
         const hasTitle = Boolean(chapter.title?.trim());
+        const choiceReviews = getChapterChoiceReviews(chapter, chat, members);
         return (
           <Box
             key={chapter.id}
@@ -157,13 +181,34 @@ function StoryChapterPanel({ chat, onStoryChapterClick }: { chat: GroupChat; onS
               )}
               {chapter.summary ? (
                 <Typography variant="body2" color="text.secondary">
-                  {chapter.summary}
+                  {formatNarrativeLineText(chapter.summary, members)}
                 </Typography>
               ) : null}
               {chapter.keyChoices?.length ? (
                 <Typography variant="caption" color="text.secondary">
-                  {`关键选择：${chapter.keyChoices.slice(0, 3).join(' / ')}`}
+                  {`关键选择：${chapter.keyChoices.slice(0, 3).map((item) => formatNarrativeLineText(item, members)).join(' / ')}`}
                 </Typography>
+              ) : null}
+              {choiceReviews.length ? (
+                <Stack spacing={0.35}>
+                  {choiceReviews.map((choice) => (
+                    <Box key={`${chapter.id}:${choice.branchId || choice.label}:review`} sx={{ px: 0.8, py: 0.65, borderRadius: 1.1, bgcolor: 'rgba(99,102,241,0.07)' }}>
+                      <Typography variant="caption" sx={{ display: 'block', lineHeight: 1.55, fontWeight: 700 }}>
+                        已选：{formatNarrativeLineText(choice.label, members)}
+                      </Typography>
+                      {choice.outcome ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>
+                          结果：{formatNarrativeLineText(choice.outcome, members)}
+                        </Typography>
+                      ) : null}
+                      {choice.impact ? (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.55 }}>
+                          影响：{formatNarrativeLineText(choice.impact, members)}
+                        </Typography>
+                      ) : null}
+                    </Box>
+                  ))}
+                </Stack>
               ) : null}
             </Stack>
           </Box>
@@ -397,7 +442,7 @@ export default function ChatSidebarPanel({
         ) : null}
 
         {activePanelTab === 'chapters' && showRuntimeTab ? (
-          <StoryChapterPanel chat={chat} onStoryChapterClick={onStoryChapterClick} />
+          <StoryChapterPanel chat={chat} members={members} onStoryChapterClick={onStoryChapterClick} />
         ) : null}
 
         {activePanelTab === 'clues' && showRuntimeTab ? (

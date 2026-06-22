@@ -140,6 +140,13 @@ function buildStoryChat(): GroupChat {
       clues: ['病历被撕掉一页'],
       stakes: ['暴露位置'],
       relationshipShifts: [`${uuidA} 开始怀疑 ${uuidB}`],
+      choiceHistory: [{
+        branchId: 'ask-nurse',
+        label: `${uuidA} 追问护士`,
+        outcome: `${uuidB} 承认停电时有人进入档案室`,
+        impact: `${uuidA} 和 ${uuidB} 的信任出现裂缝`,
+        choiceEpoch: 2,
+      }],
       roleAssignments: [
         { actorId: uuidA, roleId: 'protagonist' },
         { actorId: uuidB, roleId: 'suspect' },
@@ -217,6 +224,18 @@ describe('ChatSidebarPanel story room panels', () => {
     expect(html).toContain('追踪：护士 为什么隐瞒停电记录？');
     expect(html).toContain('最近线索：病历被撕掉一页');
     expect(html).toContain('当前风险：暴露位置');
+    expect(html).not.toContain(uuidA);
+    expect(html).not.toContain(uuidB);
+  });
+
+  it('renders chapter choice outcomes as replayable story consequences', async () => {
+    const html = await renderPanel('chapters');
+
+    expect(html).toContain('第 1 章 · 血迹名单');
+    expect(html).toContain('关键选择：林医生 追问护士');
+    expect(html).toContain('已选：林医生 追问护士');
+    expect(html).toContain('结果：护士 承认停电时有人进入档案室');
+    expect(html).toContain('影响：林医生 和 护士 的信任出现裂缝');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
   });
