@@ -9,7 +9,7 @@ import {
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { MemoryItem } from './memoryTypes';
-import { buildChatMessages, buildPromptMemoryTrace, buildSystemPromptWithContext } from './promptBuilder';
+import { buildChatMessages, buildCrossModeMemoryPrompt, buildPromptMemoryTrace, buildSystemPromptWithContext } from './promptBuilder';
 
 function buildCharacter(overrides: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -444,6 +444,50 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('## Companionship Context');
     expect(prompt).toContain('The user is a room participant');
     expect(prompt).toContain('Private relationship stance toward the user');
+    expect(prompt).toContain('Do not reveal private user facts');
+    expect(prompt).not.toContain('用户下周要面试');
+    expect(prompt).not.toContain('希望别被公开点名');
+  });
+
+  it('injects public-safe companionship continuity in cross-mode prompts', () => {
+    const character = buildCharacter({
+      memory: {
+        shortTermSummary: '',
+        longTerm: [],
+        secrets: [],
+        obsessions: [],
+        tabooTopics: [],
+        userMemories: ['用户下周要面试，希望别被公开点名。'],
+      },
+    });
+    const groupWithUser = {
+      ...buildChat(),
+      memberIds: ['char-a', 'user'],
+      relationshipLedger: [{
+        pairKey: 'char-a->user',
+        actorId: 'char-a',
+        targetId: 'user',
+        current: { warmth: 36, competence: 0, trust: 30, threat: 4 },
+        derived: {
+          semantic: {
+            stage: '熟悉陪伴',
+            labels: ['牵挂'],
+            summary: '熟悉陪伴：有牵挂但需要克制公开表达',
+            intensity: 54,
+          },
+        },
+        trend: 'flat' as const,
+        recentEvents: [],
+        lastUpdatedAt: 20,
+      }],
+    };
+
+    const prompt = buildCrossModeMemoryPrompt(character, groupWithUser, [
+      buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '我也在旁边听。' }),
+    ], new Map([[character.id, character]]));
+
+    expect(prompt).toContain('## Companionship Context');
+    expect(prompt).toContain('The user is a room participant');
     expect(prompt).toContain('Do not reveal private user facts');
     expect(prompt).not.toContain('用户下周要面试');
     expect(prompt).not.toContain('希望别被公开点名');
