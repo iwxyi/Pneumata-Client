@@ -5,7 +5,7 @@ import { formatBeatType, formatKnownReason } from './runtimeInsightPresentation'
 import { formatGuidanceExecutionReasonLabel, formatGuidanceExecutionStatusLabel, formatGuidanceKindLabel } from './guidancePresentation';
 import { classifyActorKindLabel } from './actorRefPresentation';
 import { formatFeedbackStatusLabel, formatGuidanceInputStatusLabel, resolveGuidanceExecutionStatus } from './runtimeStatusPresentation';
-import { hasPrivateRelationshipSemanticRisk } from './relationshipSemanticPrivacy';
+import { hasHighRiskPrivateRuntimeText, safeRuntimePrivateText, sanitizeRuntimePrivateItems } from './runtimePrivateTextPrivacy';
 
 export interface MessageRuntimeClueSection {
   key: 'memory' | 'companionship' | 'inner' | 'surface' | 'director' | 'guidance' | 'guidance_execution' | 'world_influence' | 'narrative' | 'feedback' | 'generation_runtime';
@@ -66,18 +66,6 @@ function asStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 }
 
-function hasHighRiskPrivateRuntimeClue(text: string | undefined | null) {
-  return /(不要公开|不能公开|别公开|只告诉|秘密|暗号|住址|地址|电话|手机号|微信|QQ|私下称呼|私下约定|私密|隐私)/.test(text || '');
-}
-
-function sanitizeCompanionshipRuntimeClues(items: string[], replacement: string) {
-  return items.map((item) => {
-    if (!hasPrivateRelationshipSemanticRisk(item) && !hasHighRiskPrivateRuntimeClue(item)) return item;
-    if (hasHighRiskPrivateRuntimeClue(item)) return replacement;
-    return item;
-  });
-}
-
 export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | null | undefined, members: DisplayTextMember[] = []): MessageRuntimeClueSection[] {
   const decision = message?.metadata?.runtimeDecision;
   if (!decision) return [];
@@ -98,12 +86,12 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       : '本轮 prompt 已按这个对象检索关系和记忆；如果没有命中旧档，只表示目标解析已生效。',
     items: [
       memoryTargetName ? `召回对象：${memoryTargetName}` : '',
-      decision.memoryContext?.targetReason ? `对象依据：${decision.memoryContext.targetReason}` : '',
+      decision.memoryContext?.targetReason ? `对象依据：${safeRuntimePrivateText(decision.memoryContext.targetReason, '有一条私域召回依据已隐藏原文')}` : '',
       ...recalled.flatMap((item) => [
-      item.summary ? `旧档注入：${item.summary}` : '',
-      item.recallReason ? `原因：${item.recallReason}` : '',
+      item.summary ? `旧档注入：${safeRuntimePrivateText(item.summary, '有一条私域旧档摘要已隐藏原文')}` : '',
+      item.recallReason ? `原因：${safeRuntimePrivateText(item.recallReason, '有一条私域召回原因已隐藏原文')}` : '',
       ]),
-      ...sharedSecretGuards.map((item) => `秘密边界：${item}`),
+      ...sharedSecretGuards.map((item) => `秘密边界：${safeRuntimePrivateText(item, '有一条私域秘密边界已隐藏原文')}`),
     ],
     maxItems: 10,
   }, members);
@@ -118,14 +106,14 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
   const diagnostics = asStringArray(companionship?.diagnostics);
   const evidence = asStringArray(companionship?.evidence);
   const attachmentAdaptations = asStringArray(companionship?.attachmentProfile?.adaptations);
-  const safeSharedAnchors = sanitizeCompanionshipRuntimeClues(sharedAnchors, '有一条私域共同经历已隐藏原文');
-  const safeSharedPhrases = sanitizeCompanionshipRuntimeClues(sharedPhrases, '有一句私域共同话语已隐藏原文');
-  const safePendingPromises = sanitizeCompanionshipRuntimeClues(pendingPromises, '有一条私域约定已隐藏原文');
-  const safeBoundaries = sanitizeCompanionshipRuntimeClues(boundaries, '有一条私域边界已隐藏原文');
-  const safeBoundaryReasons = sanitizeCompanionshipRuntimeClues(boundaryReasons, '有一条私域克制原因已隐藏原文');
-  const safeEvidence = sanitizeCompanionshipRuntimeClues(evidence, '有一条私域证据已隐藏原文');
+  const safeSharedAnchors = sanitizeRuntimePrivateItems(sharedAnchors, '有一条私域共同经历已隐藏原文');
+  const safeSharedPhrases = sanitizeRuntimePrivateItems(sharedPhrases, '有一句私域共同话语已隐藏原文');
+  const safePendingPromises = sanitizeRuntimePrivateItems(pendingPromises, '有一条私域约定已隐藏原文');
+  const safeBoundaries = sanitizeRuntimePrivateItems(boundaries, '有一条私域边界已隐藏原文');
+  const safeBoundaryReasons = sanitizeRuntimePrivateItems(boundaryReasons, '有一条私域克制原因已隐藏原文');
+  const safeEvidence = sanitizeRuntimePrivateItems(evidence, '有一条私域证据已隐藏原文');
   const intimateConflictSummary = companionship?.intimateConflict?.summary || '';
-  const safeIntimateConflictSummary = hasHighRiskPrivateRuntimeClue(intimateConflictSummary) ? '有一条私域冲突摘要已隐藏原文' : intimateConflictSummary;
+  const safeIntimateConflictSummary = safeRuntimePrivateText(intimateConflictSummary, '有一条私域冲突摘要已隐藏原文');
   pushSection(sections, {
     key: 'companionship',
     label: '陪伴',
@@ -161,7 +149,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     items: decision.innerLife ? [
       decision.innerLife.tone ? `语气倾向：${formatInnerToneLabel(decision.innerLife.tone)}` : '',
       decision.innerLife.impulse ? `表达冲动：${formatInnerImpulseLabel(decision.innerLife.impulse)}` : '',
-      decision.innerLife.reason ? `内在原因：${decision.innerLife.reason}` : '',
+      decision.innerLife.reason ? `内在原因：${safeRuntimePrivateText(decision.innerLife.reason, '有一条私域内心原因已隐藏原文')}` : '',
     ] : [],
   }, members);
   pushSection(sections, {
@@ -226,12 +214,12 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     statusHint: '用于解释用户输入如何影响本轮发言者、话题焦点和媒体生成。',
     items: guidance ? [
       guidance.kind ? `类型：${formatGuidanceKindLabel(guidance.kind)}` : '',
-      guidance.rawText ? `用户要求：${guidance.rawText}` : '',
+      guidance.rawText ? `用户要求：${safeRuntimePrivateText(guidance.rawText, '有一条私域用户引导已隐藏原文')}` : '',
       guidance.actorIds?.length ? `执行角色：${formatMemberNames(guidance.actorIds, members)}` : '',
       guidance.actorIds?.length ? `执行身份：${formatActorKinds(guidance.actorIds, members)}` : '',
       guidance.mediaRequest?.subjectActorIds?.length ? `图片对象：${formatMemberNames(guidance.mediaRequest.subjectActorIds, members)}` : '',
-      guidance.mediaRequest?.subjectText && !guidance.mediaRequest.subjectActorIds?.length ? `图片对象：${guidance.mediaRequest.subjectText}` : '',
-      guidance.mediaRequest?.actionText ? `图片动作：${guidance.mediaRequest.actionText}` : '',
+      guidance.mediaRequest?.subjectText && !guidance.mediaRequest.subjectActorIds?.length ? `图片对象：${safeRuntimePrivateText(guidance.mediaRequest.subjectText, '有一条私域图片对象已隐藏原文')}` : '',
+      guidance.mediaRequest?.actionText ? `图片动作：${safeRuntimePrivateText(guidance.mediaRequest.actionText, '有一条私域图片动作已隐藏原文')}` : '',
     ] : [],
     maxItems: 8,
   }, members);
@@ -266,7 +254,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     items: worldInfluence ? [
       typeof worldInfluence.attentionScore === 'number' ? `关注强度：${Math.round(worldInfluence.attentionScore * 100)}%` : '',
       typeof worldInfluence.attentionRestraint === 'number' ? `克制强度：${Math.round(worldInfluence.attentionRestraint * 100)}%` : '',
-      ...(worldInfluence.activeRuleTexts || []).map((text) => `规则：${text}`),
+      ...(worldInfluence.activeRuleTexts || []).map((text) => `规则：${safeRuntimePrivateText(text, '有一条私域世界规则已隐藏原文')}`),
     ] : [],
     maxItems: 10,
   }, members);
@@ -277,7 +265,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     statusKind: 'debug_explanation',
     statusLabel: '调试解释',
     statusHint: '用于解释本轮关注了哪些线索，不代表剧情已经确定。',
-    items: (decision.narrativeLines || []).map((item) => item.title),
+    items: (decision.narrativeLines || []).map((item) => safeRuntimePrivateText(item.title, '有一条私域叙事线索已隐藏原文')),
   }, members);
   const feedback = decision.expressionFeedback || [];
   const feedbackApplied = feedback.some((item) => item.applied);
@@ -290,7 +278,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
     statusHint: feedbackApplied
       ? '这些用户表达反馈已经影响本轮提示词或表达约束。'
       : '这些用户表达反馈只是被检索到，属于软信号，不一定影响本轮。',
-    items: feedback.map((item) => item.label || item.text),
+    items: feedback.map((item) => safeRuntimePrivateText(item.label || item.text, '有一条私域表达反馈已隐藏原文')),
   }, members);
 
   return sections;

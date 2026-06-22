@@ -4,6 +4,7 @@ import { formatExpressionLengthLabel, formatInnerImpulseLabel, formatInnerToneLa
 import { formatBeatType, formatDirectorSource, formatKnownReason, formatNarrativeLineType } from './runtimeInsightPresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 import { formatFeedbackStatusLabel } from './runtimeStatusPresentation';
+import { safeRuntimePrivateText } from './runtimePrivateTextPrivacy';
 
 type RuntimeDecisionDirectorIntentMeta = NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['directorIntent'];
 type RuntimeDecisionLineMeta = {
@@ -60,6 +61,10 @@ function cleanTraceText(value: string | undefined | null, members: DisplayTextMe
   return sanitizeUserFacingText(value || '', members);
 }
 
+function cleanPrivateTraceText(value: string | undefined | null, members: DisplayTextMember[] = [], fallback = '有一条私域内容已隐藏原文') {
+  return cleanTraceText(safeRuntimePrivateText(value, fallback), members);
+}
+
 function formatPressure(value?: number) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '0.00';
 }
@@ -73,7 +78,7 @@ function formatDirectorLabel(intent: RuntimeDecisionDirectorIntentMeta) {
 
 function formatPrimaryLineLabel(line: RuntimeDecisionLineMeta, members: DisplayTextMember[] = []) {
   const type = typeof line.type === 'string' ? formatNarrativeLineType(line.type as never) : '线索';
-  return `${type} · ${cleanTraceText(line.title, members) || '未命名线索'} · 显著 ${formatPressure(line.salience)}`;
+  return `${type} · ${cleanPrivateTraceText(line.title, members, '有一条私域叙事线索已隐藏原文') || '未命名线索'} · 显著 ${formatPressure(line.salience)}`;
 }
 
 function formatDirectorReason(reason: string | undefined) {
@@ -129,7 +134,7 @@ function formatGuidanceTraceHint(
     actorNames.length ? `actors=${actorNames.join(',')}` : '',
     mentionedNames.length ? `mentioned=${mentionedNames.join(',')}` : '',
     mediaRequest?.kind ? `media=${cleanTraceText(mediaRequest.kind, members)}` : '',
-    subjectNames.length ? `subjects=${subjectNames.join(',')}` : mediaRequest?.subjectText ? `subject=${cleanTraceText(mediaRequest.subjectText, members)}` : '',
+    subjectNames.length ? `subjects=${subjectNames.join(',')}` : mediaRequest?.subjectText ? `subject=${cleanPrivateTraceText(mediaRequest.subjectText, members, '有一条私域图片对象已隐藏原文')}` : '',
   ].filter(Boolean).join(' ');
 }
 
@@ -219,13 +224,13 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
     .slice(0, limit)
     .map((message) => {
       const decision = message.metadata?.runtimeDecision;
-      const directorReason = cleanTraceText(decision?.directorIntent?.reason, members);
+      const directorReason = cleanPrivateTraceText(decision?.directorIntent?.reason, members, '有一条私域调度原因已隐藏原文');
       const director = decision?.directorIntent
         ? `${decision.directorIntent.source}/${decision.directorIntent.beatType} · ${formatPressure(decision.directorIntent.pressure)} · ${clip(directorReason)}`
         : 'none';
       const directorLabel = formatDirectorLabel(decision?.directorIntent);
       const primaryLine = decision?.narrativeLines?.[0]
-        ? `${decision.narrativeLines[0].type}:${cleanTraceText(decision.narrativeLines[0].title, members) || '未命名线索'} · 显著 ${formatPressure(decision.narrativeLines[0].salience)}`
+        ? `${decision.narrativeLines[0].type}:${cleanPrivateTraceText(decision.narrativeLines[0].title, members, '有一条私域叙事线索已隐藏原文') || '未命名线索'} · 显著 ${formatPressure(decision.narrativeLines[0].salience)}`
         : null;
       const primaryLineLabel = decision?.narrativeLines?.[0] ? formatPrimaryLineLabel(decision.narrativeLines[0], members) : null;
       const score = decision?.speakerScore
@@ -251,11 +256,11 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
         : null;
       const expression = buildExpressionTrace(innerLife, surface);
       const executionRelation = buildExecutionRelation(message.senderId, message.senderName, decision, members);
-      const readableDirectorReason = cleanTraceText(formatDirectorReason(decision?.directorIntent?.reason) || directorReason, members);
+      const readableDirectorReason = cleanPrivateTraceText(formatDirectorReason(decision?.directorIntent?.reason) || directorReason, members, '有一条私域调度原因已隐藏原文');
       const debugDetailLabel = [
         directorLabel !== '无调度意图' ? `调度：${directorLabel}${readableDirectorReason ? ` · ${readableDirectorReason}` : ''}` : '',
         executionRelation.label ? `执行/发言：${executionRelation.label}` : '',
-        decision?.directorIntent?.userGuidance?.rawText ? `用户引导：${cleanTraceText(decision.directorIntent.userGuidance.rawText, members)}` : '',
+        decision?.directorIntent?.userGuidance?.rawText ? `用户引导：${cleanPrivateTraceText(decision.directorIntent.userGuidance.rawText, members, '有一条私域用户引导已隐藏原文')}` : '',
         primaryLineLabel ? `线索：${primaryLineLabel}` : '',
         surfaceLabel ? `表达：${surfaceLabel}` : '',
         expression.label ? `节奏：${expression.label}` : '',
@@ -276,8 +281,8 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
       const expressionFeedbackRetrievedReasons = expressionFeedback
         .map((item) => {
           const label = typeof item.label === 'string' ? item.label : '表达反馈';
-          const text = cleanTraceText(typeof item.text === 'string' ? item.text : '', members);
-          const evidence = cleanTraceText(typeof item.evidence === 'string' ? item.evidence : '', members);
+          const text = cleanPrivateTraceText(typeof item.text === 'string' ? item.text : '', members, '有一条私域表达反馈已隐藏原文');
+          const evidence = cleanPrivateTraceText(typeof item.evidence === 'string' ? item.evidence : '', members, '有一条私域表达反馈证据已隐藏原文');
           const confidence = typeof item.confidence === 'number' ? `强度 ${(item.confidence * 100).toFixed(0)}%` : '';
           const count = typeof item.count === 'number' ? `次数 ${item.count}` : '';
           const positiveCount = typeof item.positiveCount === 'number' && item.positiveCount > 0 ? `正向 ${item.positiveCount}` : '';
@@ -292,7 +297,7 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
         .map((item) => {
           const label = typeof item.label === 'string' ? item.label : '表达反馈';
           const effects = Array.isArray(item.effects) ? item.effects.filter((effect): effect is string => typeof effect === 'string') : [];
-          const text = cleanTraceText(typeof item.text === 'string' ? item.text : '', members);
+          const text = cleanPrivateTraceText(typeof item.text === 'string' ? item.text : '', members, '有一条私域表达反馈已隐藏原文');
           return [formatFeedbackStatusLabel(true), label, effects.length ? `影响：${effects.join('、')}` : '', text].filter(Boolean).join(' · ');
         })
         .filter(Boolean);
@@ -312,8 +317,8 @@ export function projectRuntimeDecisionTrace(messages: Message[], limit = 6, memb
         reasonLabels,
         rawReasons: reasons,
         innerLifeLabel,
-        innerLifeReason: typeof innerLife?.reason === 'string' ? cleanTraceText(innerLife.reason, members) : null,
-        innerLifeEvidence: Array.isArray(innerLife?.evidence) ? innerLife.evidence.filter((item): item is string => typeof item === 'string').map((item) => cleanTraceText(item, members)) : [],
+        innerLifeReason: typeof innerLife?.reason === 'string' ? cleanPrivateTraceText(innerLife.reason, members, '有一条私域内心原因已隐藏原文') : null,
+        innerLifeEvidence: Array.isArray(innerLife?.evidence) ? innerLife.evidence.filter((item): item is string => typeof item === 'string').map((item) => cleanPrivateTraceText(item, members, '有一条私域内心证据已隐藏原文')) : [],
         innerLifeState: innerLife?.state || null,
         expressionLabel: expression.label,
         expressionReasons: expression.reasons,

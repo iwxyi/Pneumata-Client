@@ -122,8 +122,9 @@ describe('messageRuntimeClues', () => {
     expect(sections.find((section) => section.key === 'memory')?.items).toEqual([
       '召回对象：灰太狼',
       '对象依据：来自最近 AI 发言者',
-      '秘密边界：群聊避嫌：一个只有熟人懂的暗号 · sealed',
+      '秘密边界：有一条私域秘密边界已隐藏原文',
     ]);
+    expect(sections.find((section) => section.key === 'memory')?.items.join(' / ')).not.toContain('只有熟人懂的暗号');
   });
 
   it('projects companionship runtime trace as developer-visible clues', () => {
@@ -256,6 +257,59 @@ describe('messageRuntimeClues', () => {
     expect(prompt).toContain('明天面试有点紧张');
     expect(prompt).not.toContain('雨夜便利店');
     expect(prompt).not.toContain('不能公开说');
+  });
+
+  it('redacts high-risk private memory and guidance clues from display and analysis prompts', () => {
+    const message: Pick<Message, 'metadata'> = {
+      metadata: {
+        runtimeDecision: {
+          memoryContext: {
+            recalledArchives: [{
+              id: 'archive-secret',
+              scope: 'relationship',
+              kind: 'bond',
+              layer: 'long_term',
+              summary: '秘密暗号是雨夜便利店，不能公开说',
+              recallReason: '用户私下约定不要公开这个暗号',
+            }],
+            sharedSecretGuards: ['不要公开手机号 13800000000'],
+          },
+          innerLife: {
+            impulse: 'repair',
+            tone: 'gentle',
+            reason: '想起用户明天面试，也想起秘密暗号是雨夜便利店',
+            pressure: 0.6,
+          },
+          directorIntent: {
+            source: 'user_guidance',
+            beatType: 'answer',
+            pressure: 0.7,
+            reason: '按用户要求',
+            userGuidance: {
+              kind: 'direct_reply',
+              rawText: '别公开我们的秘密暗号：雨夜便利店',
+              actorIds: ['mei'],
+            },
+          },
+          narrativeLines: [{ id: 'line-1', type: 'bond', title: '秘密暗号是雨夜便利店', salience: 0.8, tension: 0.1, status: 'active' }],
+          expressionFeedback: [{ id: 'fb-1', label: '秘密反馈：不要公开手机号', text: '手机号 13800000000', confidence: 0.8, applied: true }],
+        },
+      },
+    };
+
+    const text = projectMessageRuntimeClues(message, [{ id: 'mei', name: '美羊羊' }])
+      .flatMap((section) => section.items)
+      .join(' / ');
+    expect(text).toContain('有一条私域旧档摘要已隐藏原文');
+    expect(text).toContain('有一条私域用户引导已隐藏原文');
+    expect(text).toContain('有一条私域叙事线索已隐藏原文');
+    expect(text).toContain('有一条私域表达反馈已隐藏原文');
+    expect(text).not.toContain('雨夜便利店');
+    expect(text).not.toContain('13800000000');
+
+    const prompt = formatMessageRuntimeCluesForPrompt(message, [{ id: 'mei', name: '美羊羊' }]);
+    expect(prompt).not.toContain('雨夜便利店');
+    expect(prompt).not.toContain('13800000000');
   });
 
   it('tolerates partial companionship context from older message metadata', () => {

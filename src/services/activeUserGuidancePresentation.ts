@@ -10,6 +10,7 @@ import { formatGuidanceKindLabel } from './guidancePresentation';
 import { formatGuidanceInputStatusLabel } from './runtimeStatusPresentation';
 import { formatSystemAgentSubtypeLabel, inferSystemAgentSubtypeFromId } from './actorRefPresentation';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
+import { safeRuntimePrivateText } from './runtimePrivateTextPrivacy';
 
 export interface ActiveUserGuidanceProjection {
   title: string;
@@ -257,15 +258,16 @@ export function projectActiveUserGuidance(params: {
   });
   const focusText = guidance.focusText || guidance.rawText;
   const sanitize = (text: string) => sanitizeGuidanceText(text, params.members);
+  const sanitizePrivate = (text: string, fallback = '有一条私域话题引导已隐藏原文') => sanitize(safeRuntimePrivateText(text, fallback));
 
   return {
-    title: sanitize(title),
-    rawText: sanitize(guidance.rawText),
-    effectText: sanitize(effectText),
+    title: sanitizePrivate(title),
+    rawText: sanitizePrivate(guidance.rawText),
+    effectText: sanitizePrivate(effectText),
     sourceLabel: latestHumanGuidanceSource(params.chat, params.messages, guidance.rawText),
     statusLabel: guidance.kind === 'topic_shift' ? '生效中' : formatGuidanceInputStatusLabel(guidance.kind),
     statusHint: sanitize('这条引导优先于叙事线、矛盾线、关系压力和最近接梗；点名执行者时，调度会先锁定尚未回应的目标角色。'),
-    emphasisLabel: sanitize(buildGuidanceEmphasis({
+    emphasisLabel: sanitizePrivate(buildGuidanceEmphasis({
       kind: guidance.kind,
       activeTargetNames,
       subjectNames,
@@ -284,9 +286,9 @@ export function projectActiveUserGuidance(params: {
     }).map((row) => ({
       ...row,
       label: sanitize(row.label),
-      value: sanitize(row.value),
+      value: sanitizePrivate(row.value),
     })),
-    chips: chips.map((chip) => sanitize(chip)),
+    chips: chips.map((chip) => sanitizePrivate(chip)),
     debugChips: [
       `动作 ${formatBeatType(guidance.beatType as never)}`,
       `压力 ${(guidance.pressure * 100).toFixed(0)}%`,

@@ -214,6 +214,47 @@ describe('ChatPrivateInfoCard', () => {
     expect(html).not.toContain('phase=curious');
   });
 
+  it('redacts high-risk private text in status, memory and companionship diagnostics', () => {
+    mockSettingsState.developerMode = true;
+    mockSettingsState.developerUI.showMemoryDebug = true;
+    mockSettingsState.developerUI.showCompanionshipDebug = true;
+
+    const html = renderToStaticMarkup(
+      <ChatPrivateInfoCard
+        chat={buildChat('direct')}
+        members={[buildCharacter('mei', '美羊羊')]}
+        directMemoryContext={{
+          targetSummary: '召回秘密暗号：雨夜便利店',
+          memoryVisibility: '仅开发者可见',
+          recentRelationshipChanges: [{ type: 'bond', text: '关系里有秘密暗号：雨夜便利店', createdAt: 1 }],
+          recentMemoryWrites: [{ id: 'm1', text: '手机号 13800000000 不要公开', layer: 'character', scope: 'global' }],
+          targetResolution: '目标识别来自秘密暗号：雨夜便利店',
+          companionshipStatus: {
+            text: '悄悄记着秘密暗号：雨夜便利店',
+            tone: 'warm',
+            chips: ['有私域线索'],
+            debugLines: ['shared_secret=雨夜便利店 不能公开', 'care=明天面试有点紧张'],
+            updatedAt: 1,
+          },
+        }}
+      />,
+    );
+
+    expect(html).toContain('有一条私域状态痕迹已隐藏原文');
+    expect(html).toContain('有一条私域关系变化已隐藏原文');
+    expect(html).toContain('有一条私域记忆已隐藏原文');
+    expect(html).toContain('有一条私域记忆主轴已隐藏原文');
+    expect(html).toContain('有一条私域目标识别已隐藏原文');
+    expect(html).toContain('陪伴：有一条私域调试线索已隐藏原文');
+    expect(html).toContain('陪伴：care=明天面试有点紧张');
+    expect(html).not.toContain('雨夜便利店');
+    expect(html).not.toContain('13800000000');
+
+    mockSettingsState.developerMode = false;
+    mockSettingsState.developerUI.showMemoryDebug = false;
+    mockSettingsState.developerUI.showCompanionshipDebug = false;
+  });
+
   it('hides ordinary companionship status hints while keeping developer diagnostics available', () => {
     mockSettingsState.developerMode = true;
     mockSettingsState.companionship.showStatusHints = false;

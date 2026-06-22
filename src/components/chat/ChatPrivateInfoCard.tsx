@@ -4,6 +4,7 @@ import type { GroupChat } from '../../types/chat';
 import type { CompanionshipStatusSignature } from '../../types/companionship';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { safeRuntimePrivateText } from '../../services/runtimePrivateTextPrivacy';
 import { shouldShowCompanionshipStatusHints } from '../../services/companionshipStatusVisibility';
 import { compactPillChipSx } from '../../styles/interaction';
 
@@ -55,6 +56,10 @@ function buildStatusSx(tone: CompanionshipStatusSignature['tone']) {
   };
 }
 
+function cleanPrivateInfoText(text: string | undefined | null, members: AICharacter[], fallback = '有一条私域内容已隐藏原文') {
+  return sanitizeUserFacingText(safeRuntimePrivateText(text, fallback), members);
+}
+
 export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: ChatPrivateInfoCardProps) {
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
@@ -77,8 +82,8 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
       (character.relationships || []).length ? '会参考关系线索' : '',
       (character.runtimeTimeline || []).length ? '会参考最近变化' : '',
     ].filter(Boolean);
-  const recentRelationshipText = directMemoryContext?.recentRelationshipChanges?.slice(-2).map((item) => sanitizeUserFacingText(item.text, members)).filter(Boolean).join(' / ');
-  const recentMemoryText = directMemoryContext?.recentMemoryWrites?.slice(0, 2).map((item) => sanitizeUserFacingText(item.text, members)).filter(Boolean).join(' / ');
+  const recentRelationshipText = directMemoryContext?.recentRelationshipChanges?.slice(-2).map((item) => cleanPrivateInfoText(item.text, members, '有一条私域关系变化已隐藏原文')).filter(Boolean).join(' / ');
+  const recentMemoryText = directMemoryContext?.recentMemoryWrites?.slice(0, 2).map((item) => cleanPrivateInfoText(item.text, members, '有一条私域记忆已隐藏原文')).filter(Boolean).join(' / ');
   const companionshipStatus = directMemoryContext?.companionshipStatus;
   return (
     <Box sx={buildCardSx()}>
@@ -88,7 +93,7 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
         {showCompanionshipStatusHints && companionshipStatus ? (
           <Box sx={buildStatusSx(companionshipStatus.tone)}>
             <Typography variant="body2" sx={{ fontWeight: 600, mb: companionshipStatus.chips.length ? 0.75 : 0 }}>
-              {sanitizeUserFacingText(companionshipStatus.text, members)}
+              {cleanPrivateInfoText(companionshipStatus.text, members, '有一条私域状态痕迹已隐藏原文')}
             </Typography>
             {companionshipStatus.chips.length ? (
               <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
@@ -102,7 +107,7 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
             {memoryChips.map((chip) => <Chip key={chip} size="small" label={chip} sx={compactPillChipSx} />)}
           </Box>
         ) : null}
-        {directMemoryContext?.targetSummary ? <Typography variant="caption" color="text.secondary">{sanitizeUserFacingText(directMemoryContext.targetSummary, members)}</Typography> : null}
+        {directMemoryContext?.targetSummary ? <Typography variant="caption" color="text.secondary">{cleanPrivateInfoText(directMemoryContext.targetSummary, members, '有一条私域记忆主轴已隐藏原文')}</Typography> : null}
         {recentRelationshipText ? (
           <Typography variant="caption" color="text.secondary">最近关系变化：{recentRelationshipText}</Typography>
         ) : null}
@@ -110,11 +115,11 @@ export function ChatPrivateInfoCard({ chat, members, directMemoryContext }: Chat
         {showMemoryDetails && directMemoryContext?.memoryVisibility ? <Typography variant="caption" color="text.secondary">{directMemoryContext.memoryVisibility}</Typography> : null}
         {showMemoryDetails && directMemoryContext?.sourceTagSummary ? <Typography variant="caption" color="text.secondary">来源：{directMemoryContext.sourceTagSummary}</Typography> : null}
         {showMemoryDetails && directMemoryContext?.targetResolutionLabel ? <Typography variant="caption" color="text.secondary">判断方式：{directMemoryContext.targetResolutionLabel}</Typography> : null}
-        {showMemoryDetails && directMemoryContext?.targetResolution ? <Typography variant="caption" color="text.secondary">目标识别：{sanitizeUserFacingText(directMemoryContext.targetResolution, members)}</Typography> : null}
+        {showMemoryDetails && directMemoryContext?.targetResolution ? <Typography variant="caption" color="text.secondary">目标识别：{cleanPrivateInfoText(directMemoryContext.targetResolution, members, '有一条私域目标识别已隐藏原文')}</Typography> : null}
         {showCompanionshipDetails && companionshipStatus?.debugLines.length ? (
           <Stack spacing={0.25}>
             {companionshipStatus.debugLines.slice(0, 5).map((line) => (
-              <Typography key={line} variant="caption" color="text.secondary">陪伴：{sanitizeUserFacingText(line, members)}</Typography>
+              <Typography key={line} variant="caption" color="text.secondary">陪伴：{cleanPrivateInfoText(line, members, '有一条私域调试线索已隐藏原文')}</Typography>
             ))}
           </Stack>
         ) : null}

@@ -265,4 +265,70 @@ describe('runtimeDecisionTrace', () => {
     expect(trace.rawDebugHint).toContain('actors=乙');
     expect(trace.rawDebugHint).not.toContain(memberId);
   });
+
+  it('redacts high-risk private runtime trace text without hiding low-risk care evidence', () => {
+    const [trace] = projectRuntimeDecisionTrace([
+      buildMessage({
+        id: 'm7',
+        timestamp: 7,
+        senderId: 'a',
+        senderName: '甲',
+        metadata: {
+          runtimeDecision: {
+            directorIntent: {
+              source: 'user_guidance',
+              beatType: 'answer',
+              pressure: 0.7,
+              reason: '想接住用户明天面试，也记得秘密暗号是雨夜便利店',
+              userGuidance: {
+                kind: 'direct_reply',
+                rawText: '别公开我们的秘密暗号：雨夜便利店',
+                actorIds: ['a'],
+                beatType: 'answer',
+                pressure: 0.7,
+              },
+            },
+            narrativeLines: [{ id: 'line-secret', type: 'bond', title: '秘密暗号是雨夜便利店', salience: 0.9, tension: 0.1, status: 'active' }],
+            speakerScore: { actorId: 'a', finalScore: 0.8, reasons: ['pending_reply'] },
+            innerLife: {
+              impulse: 'comfort',
+              tone: 'gentle',
+              reason: '关心明天面试，但不能公开秘密暗号',
+              evidence: ['用户明天面试有点紧张', '秘密暗号是雨夜便利店'],
+              pressure: 0.6,
+            },
+            expressionFeedback: [{
+              id: 'fb-secret',
+              label: '别公开手机号',
+              text: '手机号 13800000000',
+              evidence: '用户说电话不能公开',
+              confidence: 0.8,
+              applied: true,
+            }],
+          },
+        },
+      }),
+    ], 1, [{ id: 'a', name: '甲' }]);
+
+    const text = [
+      trace.rawDirector,
+      trace.primaryLine,
+      trace.primaryLineLabel,
+      trace.debugDetailLabel,
+      trace.rawDebugHint,
+      trace.innerLifeReason,
+      ...trace.innerLifeEvidence,
+      ...trace.expressionFeedbackRetrievedReasons,
+      ...trace.expressionFeedbackAppliedReasons,
+    ].filter(Boolean).join(' / ');
+
+    expect(text).toContain('明天面试');
+    expect(text).toContain('有一条私域用户引导已隐藏原文');
+    expect(text).toContain('有一条私域叙事线索已隐藏原文');
+    expect(text).toContain('有一条私域内心原因已隐藏原文');
+    expect(text).toContain('有一条私域内心证据已隐藏原文');
+    expect(text).toContain('有一条私域表达反馈已隐藏原文');
+    expect(text).not.toContain('雨夜便利店');
+    expect(text).not.toContain('13800000000');
+  });
 });

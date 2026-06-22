@@ -28,6 +28,7 @@ import {
 import { summarizeExpressionFeedbackInfluence } from '../../services/expressionFeedbackInfluence';
 import { buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { safeRuntimePrivateText } from '../../services/runtimePrivateTextPrivacy';
 import { formatInnerImpulseLabel } from '../../services/runtimeDecisionLabels';
 import { buildCharacterCompanionshipStates, buildCompanionshipRuntimeTrace, buildCompanionshipStatusSignature, buildRitualRegistry, buildSharedMemoryAnchors, buildSharedPhrases, buildSharedSecrets, buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import { buildCompanionshipPrivateThreadScheduleDiagnostics } from '../../services/companionshipPrivateThreadSchedule';
@@ -293,15 +294,6 @@ function SoulStatePanel({ character, developerMode }: { character: Partial<AICha
 function clipRuntimeText(text: string, max = 72) {
   const normalized = text.replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
-}
-
-function hasHighRiskPrivateRuntimeText(text: string | undefined | null) {
-  return /(不要公开|不能公开|别公开|只告诉|秘密|暗号|住址|地址|电话|手机号|微信|QQ|私下称呼|私下约定|私密|隐私)/.test(text || '');
-}
-
-function safeRuntimePrivateText(text: string | undefined | null, fallback = '有一条私域内容已隐藏原文') {
-  const value = text || '';
-  return hasHighRiskPrivateRuntimeText(value) ? fallback : value;
 }
 
 function formatRuntimeEvidence(items: string[], fallback = '有一条私域证据已隐藏原文') {

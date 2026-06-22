@@ -328,4 +328,26 @@ describe('activeUserGuidancePresentation', () => {
     expect((projection?.chips || []).join(' / ')).not.toContain(uuid);
     expect((projection?.detailRows || []).map((row) => row.value).join(' / ')).not.toContain(uuid);
   });
+
+  it('redacts high-risk private guidance text from active guidance projection', () => {
+    const projection = projectActiveUserGuidance({
+      chat: buildChat(),
+      members,
+      messages: [buildMessage({ type: 'god', senderName: '开发者', content: '别公开我们的秘密暗号：雨夜便利店，让美羊羊回应', timestamp: 80 })],
+      aiProfiles: [],
+      now: 90,
+    });
+
+    const text = [
+      projection?.title,
+      projection?.rawText,
+      projection?.effectText,
+      projection?.emphasisLabel,
+      ...(projection?.chips || []),
+      ...(projection?.detailRows || []).map((row) => row.value),
+    ].filter(Boolean).join(' / ');
+
+    expect(text).toContain('有一条私域话题引导已隐藏原文');
+    expect(text).not.toContain('雨夜便利店');
+  });
 });
