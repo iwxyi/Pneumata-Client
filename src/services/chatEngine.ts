@@ -441,16 +441,6 @@ function normalizeStoryNarrativeBlocks(params: {
   }));
 }
 
-function normalizeStoryEventChoices(events: unknown): MessageMetadata['storyChoices'] | null {
-  if (!Array.isArray(events)) return null;
-  const choices = events.flatMap((event) => {
-    if (!event || typeof event !== 'object') return [];
-    const raw = event as { type?: unknown; choices?: unknown };
-    return raw.type === 'choice_point' ? raw.choices : [];
-  });
-  return normalizeStoryChoiceSuggestions(choices);
-}
-
 function normalizeExtraMessages(params: {
   content: string;
   extraMessages: unknown;
@@ -1906,6 +1896,7 @@ function buildMessageMetadata(params: {
   content: string;
   runtimeDecision?: MessageMetadata['runtimeDecision'];
   storyEvents?: MessageMetadata['storyEvents'] | null;
+  storyEventsNormalized?: boolean;
   storyQuality?: MessageMetadata['storyQuality'] | null;
   narrativeTurn?: MessageMetadata['narrativeTurn'] | null;
   storyChoices?: MessageMetadata['storyChoices'] | null;
@@ -1914,7 +1905,7 @@ function buildMessageMetadata(params: {
 }): MessageMetadata | undefined {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
-  const storyEvents = normalizeStoryEvents(params.storyEvents);
+  const storyEvents = params.storyEventsNormalized ? (params.storyEvents || []) : normalizeStoryEvents(params.storyEvents);
   const storyQuality = params.storyQuality || (storyEvents.length ? evaluateStoryEventQuality(storyEvents) : null);
   if (!decision && !params.runtimeDecision && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
@@ -2207,7 +2198,7 @@ async function generateWithPrompt(params: {
     turnPlan: params.turnPlan,
   });
   const fullResponse = buildFullTurnResponse(finalResponse, extraMessages);
-  const eventStoryChoices = normalizeStoryEventChoices(parsedEnvelope?.storyEvents);
+  const eventStoryChoices = getStoryChoicesFromEvents(storyEvents);
   const storyChoices = eventStoryChoices?.length ? eventStoryChoices : normalizeStoryChoiceSuggestions(parsedEnvelope?.storyChoices);
   const fullNarrativeResponse = narrativeBlocks.map((block) => block.text).join('\n\n') || finalizedNarrativeText;
   streamBridge.flush(fullNarrativeResponse || finalResponse);
@@ -2726,7 +2717,7 @@ Current speaking intent:
       forcedMediaQueued,
     } satisfies GuidanceExecutionTrace
     : undefined;
-  const storyEvents = normalizeStoryEvents(generated.storyEvents, { previousMessages: activeMessages });
+  const storyEvents = generated.storyEvents || [];
   const storyChoicesFromEvents = getStoryChoicesFromEvents(storyEvents);
   const legacyStoryChoices = normalizeStoryChoiceSuggestions(generated.parsedEnvelope?.storyChoices || null);
   const storyChoices = storyChoicesFromEvents.length ? storyChoicesFromEvents : legacyStoryChoices;
@@ -2764,6 +2755,7 @@ Current speaking intent:
 	      content: generatedStoryResponse,
         surface: responseSurface,
         storyEvents,
+        storyEventsNormalized: true,
         narrativeTurn,
         storyChoices,
 	      runtimeDecision: buildRuntimeDecisionMetadata({
