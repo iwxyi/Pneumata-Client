@@ -517,7 +517,10 @@ describe('chatEngine streaming preview', () => {
       }),
       speaker: narrator,
       characters: [lin],
-      messages: [buildUserMessage('开始故事', 1)],
+      messages: [
+        buildAiMessage('narrator', '旁白', '旧楼尽头的灯忽明忽暗。', 1),
+        buildUserMessage('开始故事', 2),
+      ],
       apiConfig: buildProfiles(),
     });
 
@@ -531,6 +534,11 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).not.toContain('Response surface:');
     expect(prompt).not.toContain('mediaDecision');
     expect(generateResponseMock.mock.calls[0]?.[4]).toEqual(expect.objectContaining({ responseFormat: 'json' }));
+    const chatMessages = (generateResponseMock.mock.calls[0]?.[2] || []) as Array<{ role: string; content: string }>;
+    expect(chatMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: 'user', content: expect.stringContaining('旁白: 旧楼尽头的灯忽明忽暗。') }),
+    ]));
+    expect(chatMessages.some((item) => item.role === 'assistant')).toBe(false);
 
     expect(message.senderId).toBe('narrator');
     expect(message.content).toContain('雨水顺着医院旧楼的铁门往下流');
