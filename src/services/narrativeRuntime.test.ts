@@ -454,10 +454,13 @@ describe('narrativeRuntime', () => {
       rhythmNotes: expect.arrayContaining([expect.stringContaining('烛火')]),
     }));
     expect(prompt).toContain('next page of one continuous novel');
-    expect(prompt).toContain('Previous visible beat ended at');
-    expect(prompt).toContain('Start after this moment');
+    expect(prompt).toContain('The previous visible beat is already in the transcript');
+    expect(prompt).toContain('Start after that final moment');
+    expect(prompt).not.toContain('Previous visible beat ended at');
+    expect(prompt).not.toContain('门外那道影子终于从窗纸上退开');
     expect(prompt).not.toContain('Begin from the last visible beat');
-    expect(prompt).toContain('Latest spoken line still in the air');
+    expect(prompt).toContain('The latest spoken line is already in the transcript');
+    expect(prompt).not.toContain('小姐，奴婢不是不肯说');
     expect(prompt).toContain('location=侯府新房');
     expect(prompt).toContain('Do not restate the previous transcript');
   });

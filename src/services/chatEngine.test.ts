@@ -631,7 +631,9 @@ describe('chatEngine streaming preview', () => {
     const retryPrompt = String(generateResponseMock.mock.calls[1]?.[1] || '');
     expect(retryPrompt).toContain('故事房下一节没有按小说连续阅读接续');
     expect(retryPrompt).toContain('Story continuity retry');
-    expect(retryPrompt).toContain('Start after that moment');
+    expect(retryPrompt).toContain('Start after the final visible moment');
+    expect(retryPrompt).not.toContain('Previous visible beat ended at');
+    expect(retryPrompt).not.toContain('门外那道影子终于从窗纸上退开');
     expect(retryPrompt).not.toContain('Rejected draft:');
     expect(message.content).toContain('影子退开后');
     expect(message.content).not.toContain('前情');
@@ -1240,6 +1242,9 @@ describe('chatEngine streaming preview', () => {
     expect(retryPrompt).toContain('Story continuity retry');
     expect(retryPrompt).toContain('repeats_internal_story_beat');
     expect(retryPrompt).not.toContain('Rejected draft:');
+    expect(retryPrompt).not.toContain('Previous visible beat ended at');
+    expect(retryPrompt).not.toContain('月奴说完这句话');
+    expect(retryPrompt).not.toContain('奴婢认得那道刻痕');
     expect(retryPrompt).not.toContain('白色粉末痕迹');
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: expect.stringContaining('沈清婉把梳子放回妆台，屋里安静得只剩烛芯轻响。') }),

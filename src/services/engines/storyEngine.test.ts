@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { normalizeConversation } from '../../types/chat';
 import { runOneRound } from '../chatEngine';
+import { generateResponse } from '../aiClient';
 import { runSessionActionExecutor } from '../sessionActionExecutors/sessionActionExecutorRegistry';
 import { STORY_ENGINE } from './storyEngine';
 
@@ -9,7 +10,7 @@ vi.mock('../aiClient', () => ({
     content: '',
     extraMessages: null,
     storyEvents: [
-      { type: 'narration', text: '旁白正文推进到新的线索。' },
+      { type: 'narration', text: '旁白正文推进到新的线索。雨声顺着侯府后檐往下落，偏院门口的青苔被踩出一道深色的痕。她没有立刻往前，而是先把灯笼举高，让光从门缝里探进去；那点光没有照见人，只照见地上拖过的水印，像有人刚从后院井边回来。风从廊下穿过，带出一股潮湿的药味，和袖口残留的艾草味搅在一起。她想起方才窗纸上那道影子退开时的停顿，忽然明白对方不是逃走，而是在等她做出判断。门内又响了一声，很轻，像指甲碰到木盒边缘。她的手指压住门环，没有推开，只让铁环在掌心里冷下去。这个停顿让院子里的每一处声音都变得清楚：远处巡夜人的梆子、墙根积水里落下的瓦灰、还有屋里某个人刻意压低的呼吸。等到那呼吸终于乱了一拍，她才知道自己已经逼近了答案。她往后退了半步，故意让鞋底擦过碎瓦，给门里的人一个可以误判的声音。屋内果然有布料掠过桌角的窸窣，随后是一件硬物被仓促放回盒中的轻响。她没有急着拆穿，只把灯笼移向门轴，照见那里新蹭掉的一点漆皮；漆皮下面的木色很浅，说明这扇门刚被人从里面用力抵过。她伸手摸了摸门框，指腹沾到一点细粉，凉而干，不像墙灰，更像药柜里磨碎后没来得及收净的石灰。院外的梆子敲到第三下时，她终于把这些零散的线索拼在一起：屋里那个人不是被困住的受害者，而是在销毁某件能指向后院井口的东西。她把灯笼挂到门侧铁钩上，空出右手去按袖中的短刀。刀柄被雨气浸得发冷，她握住它时，才发现掌心也全是冷汗。' },
     ],
   })),
 }));
@@ -826,13 +827,15 @@ describe('STORY_ENGINE', () => {
       speaker: { id: 'narrator', name: '旁白' } as never,
     });
 
+    const continuityPrompt = prompt?.additionalConstraints?.join('\n') || '';
     expect(prompt?.additionalConstraints).toEqual(expect.arrayContaining([
       expect.stringContaining('Novel-continuity mode'),
-      expect.stringContaining('Previous visible beat ended at'),
-      expect.stringContaining('Start after this moment'),
-      expect.stringContaining('门外那道影子终于从窗纸上退开'),
+      expect.stringContaining('The previous visible beat is already in the transcript'),
+      expect.stringContaining('Start after that final moment'),
       expect.stringContaining('location=侯府新房'),
     ]));
+    expect(continuityPrompt).not.toContain('Previous visible beat ended at');
+    expect(continuityPrompt).not.toContain('门外那道影子终于从窗纸上退开');
   });
 
   it('allows speaking when choice phase has no visible story choices', () => {
@@ -897,6 +900,42 @@ describe('STORY_ENGINE', () => {
       },
       [],
     );
+    expect(selected).toEqual([{ id: 'narrator', name: '旁白' }]);
+  });
+
+  it('does not rotate story-reader generation from narrator to a character after protocol failure', async () => {
+    vi.mocked(generateResponse).mockResolvedValue('这是一段没有 storyEvents 的普通正文。');
+    const character = {
+      id: 'a',
+      name: '角色A',
+      avatar: '',
+      personality: { openness: 50, extroversion: 50, agreeableness: 50, neuroticism: 50, humor: 50, creativity: 50, assertiveness: 50, empathy: 50 },
+      behavior: { proactivity: 50, aggressiveness: 50, humorIntensity: 50, empathyLevel: 50, summarizing: 50, offTopic: 50 },
+      expertise: [],
+      speakingStyle: '',
+      background: '',
+      relationships: [],
+      memory: { longTerm: [], shortTermSummary: '', secrets: [], obsessions: [], tabooTopics: [], userMemories: [] },
+      intervention: { allowSpeakAs: true, allowDirectorPrompt: true, allowPrivateThread: true },
+      isPreset: false,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    const selected: Array<{ id: string; name: string }> = [];
+    await runOneRound(
+      buildStoryChat(),
+      [character],
+      [{ id: 'msg-1', chatId: 'story-1', type: 'user', senderId: 'user', senderName: '我', content: '继续', timestamp: Date.now(), isDeleted: false, emotion: 0, metadata: {} }],
+      { provider: 'openai', apiKey: 'test', baseUrl: 'https://example.invalid', model: 'test' },
+      {
+        onMessageChunk: () => {},
+        onMessageComplete: async () => {},
+        onSpeakerSelected: (speakerId, speaker) => selected.push({ id: speakerId, name: speaker?.name || '' }),
+        onError: () => {},
+      },
+      [],
+    );
+
     expect(selected).toEqual([{ id: 'narrator', name: '旁白' }]);
   });
 

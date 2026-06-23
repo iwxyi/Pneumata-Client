@@ -893,7 +893,7 @@ export function buildStoryContinuationState(params: {
     lastVisibleBeat,
     lastSpokenLine,
     entryInstruction: lastVisibleBeat
-      ? `Previous visible beat ended at: ${lastVisibleBeat}. Start after this moment with the next observable action, reaction, consequence, or spoken line; do not quote or restate that sentence.`
+      ? 'The previous visible beat is already in the transcript. Start after that final moment with the next observable action, reaction, consequence, or spoken line; do not quote or restate the final sentence.'
       : 'Continue from the current scene state; do not summarize the premise again.',
     rhythmNotes,
   };
@@ -913,7 +913,7 @@ export function buildStoryContinuationPrompt(params: {
   return [
     'Novel-continuity mode: write this as the next page of one continuous novel, not as an isolated chat answer or a recap block.',
     state?.entryInstruction || '',
-    state?.lastSpokenLine ? `Latest spoken line still in the air: ${state.lastSpokenLine}` : '',
+    state?.lastSpokenLine ? 'The latest spoken line is already in the transcript and still needs a response; answer its pressure without repeating the line.' : '',
     sceneLine ? `Keep physical continuity unless the new beat visibly moves it: ${sceneLine}` : '',
     'Do not restate the previous transcript, the selected option text, or the room premise. Start with the next observable action, reaction, consequence, or line that follows.',
     'Rhythm awareness is not a banned-word list: avoid mechanically reusing the same opening frame, body gesture, metaphor, or sensory prop unless it now changes meaning.',

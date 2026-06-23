@@ -565,14 +565,14 @@ Story protocol retry:
 - Rejected draft: ${priorAttempt.slice(0, 240)}`;
 }
 
-function buildStoryProtocolQualityRetryPrompt(basePrompt: string, priorAttempt: string, reason: string) {
+function buildStoryProtocolQualityRetryPrompt(basePrompt: string, reason: string) {
   return `${buildStoryProtocolPrompt(basePrompt)}
 
 Story protocol retry:
 - The previous draft was rejected because it violated the storyEvents contract: ${reason}
 - Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
 - Output one committed, complete novel-like section only. Expand the actual current beat with concrete action, consequence, pressure, clue movement, sensory detail, and useful dialogue; do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
-- Rejected draft: ${priorAttempt.slice(0, 360)}`;
+- Do not reuse any wording, paragraph, opening frame, final image, or dialogue from the rejected draft.`;
 }
 
 function buildStoryContinuityQualityRetryPrompt(
@@ -584,10 +584,9 @@ function buildStoryContinuityQualityRetryPrompt(
 
 Story continuity retry:
 - The previous draft was rejected because it did not continue as the next page of the same novel: ${reason}
-- Do not quote, paraphrase, or restate the previous visible beat. Treat it only as the point immediately before this beat.
-${state?.lastVisibleBeat ? `- Previous visible beat ended at: ${state.lastVisibleBeat}` : ''}
-${state?.lastSpokenLine ? `- Latest spoken line still in the air: ${state.lastSpokenLine}` : ''}
-- Start after that moment with the next observable action, reaction, consequence, or spoken line.
+- Do not quote, paraphrase, or restate the previous visible beat. Treat it only as the point immediately before this beat; the exact text is already in the transcript and must not be copied.
+${state?.lastSpokenLine ? '- The latest spoken line is already in the transcript and still needs a response; answer its pressure without repeating the line.' : ''}
+- Start after the final visible moment with the next observable action, reaction, consequence, or spoken line.
 - Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
 - Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.`;
 }
@@ -2286,7 +2285,7 @@ async function generateNonDuplicateResponse(params: {
         });
         prompt = storyProtocolIssue.code === 'story_continuity_invalid'
           ? buildStoryContinuityQualityRetryPrompt(params.systemPrompt, storyProtocolIssue.message, storyContinuationState)
-          : buildStoryProtocolQualityRetryPrompt(params.systemPrompt, draft, storyProtocolIssue.message);
+          : buildStoryProtocolQualityRetryPrompt(params.systemPrompt, storyProtocolIssue.message);
         continue;
       }
       logAiGenerationFailure({
@@ -2983,6 +2982,7 @@ export const runOneRound = async (
         });
         error.localInterceptionReported = true;
       }
+      if (chat.sessionKind?.scenarioId === 'story-reader') throw error;
       if (lockedGuidanceSpeaker && activeSpeaker.id === lockedGuidanceSpeaker.id) throw error;
       const rotated = resolveSpeakerFromCandidates(chatMembers, candidates.filter((candidate) => candidate.characterId !== activeSpeaker.id));
       if (!rotated) {
