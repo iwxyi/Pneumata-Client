@@ -1,11 +1,6 @@
-import type { ChatStyle } from '../types/chat';
+import { CHAT_STYLE_DEFINITIONS } from './chatStyles';
 
-export const CHAT_STYLE_OPTIONS: { value: ChatStyle; icon: string }[] = [
-  { value: 'free', icon: '💬' },
-  { value: 'debate', icon: '⚔️' },
-  { value: 'brainstorm', icon: '💡' },
-  { value: 'roleplay', icon: '🎭' },
-];
+export const CHAT_STYLE_OPTIONS = CHAT_STYLE_DEFINITIONS.map(({ value, icon }) => ({ value, icon }));
 
 export const MIN_MEMBERS = 2;
 export const MAX_MEMBERS = 10;

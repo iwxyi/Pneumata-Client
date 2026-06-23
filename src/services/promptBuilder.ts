@@ -1,5 +1,5 @@
 import type { AICharacter } from '../types/character';
-import type { GroupChat, ChatStyle } from '../types/chat';
+import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import { buildMessageStyleRules, buildRelationshipPrompt as buildSocialPromptContext } from './socialPromptContext';
 import { getMemoryContext } from './layeredMemoryEngine';
@@ -17,13 +17,7 @@ import { userProfileMemoryPayloadOf } from './directUserProfileMemory';
 import type { SharedMemoryAnchor, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
 import type { RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import { buildPublicSafeRelationshipSemanticSummary } from './relationshipSemanticPrivacy';
-
-const styleDescriptions: Record<ChatStyle, string> = {
-  free: 'This is a free-form discussion. Participants can talk about anything related to the topic. Be natural and conversational.',
-  debate: 'This is a formal debate. Take clear positions, provide evidence, and respectfully challenge others\' arguments. Be structured and logical.',
-  brainstorm: 'This is a brainstorming session. Generate creative ideas freely. Build on others\' ideas. No idea is too wild. Be enthusiastic and generative.',
-  roleplay: 'This is a role-playing scenario. Stay in character at all times. React to the situation as your character would. Be immersive and creative.',
-};
+import { CHAT_STYLE_PROMPT_DESCRIPTIONS } from '../constants/chatStyles';
 
 const COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG = 'companionship_shared_anchor';
 const COMPANIONSHIP_USER_PROFILE_SOURCE_TAG = 'companionship_user_profile';
@@ -734,7 +728,7 @@ export function buildCrossModeMemoryPrompt(character: AICharacter, chat: GroupCh
 function buildTopicSection(chat: GroupChat) {
   const lines = [
     `- Topic: ${chat.topic || 'Open conversation'}`,
-    `- Style: ${styleDescriptions[chat.style]}`,
+    `- Style: ${CHAT_STYLE_PROMPT_DESCRIPTIONS[chat.style]}`,
   ];
   if (chat.worldState.mood) lines.push(`- Room mood: ${chat.worldState.mood}`);
   if (chat.worldState.focus) lines.push(`- Current focus: ${chat.worldState.focus}`);

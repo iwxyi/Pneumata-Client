@@ -22,6 +22,7 @@ import {
   Typography,
 } from '@mui/material';
 import { CHAT_STYLE_OPTIONS, MAX_MEMBERS } from '../../constants/defaults';
+import { getChatStyleOption } from '../../constants/chatStyles';
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
 import { isImageAvatar } from '../../utils/avatar';
@@ -181,17 +182,63 @@ export default function ChatConfigSection(props: ChatConfigSectionProps) {
           <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
             {props.styleLabel}
           </Typography>
-          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-            {CHAT_STYLE_OPTIONS.map((opt) => (
-              <Button
-                key={opt.value}
-                variant={props.style === opt.value ? 'contained' : 'outlined'}
-                onClick={() => props.onStyleChange(opt.value)}
-                sx={{ borderRadius: 999 }}
-              >
-                {props.getStyleLabel(opt.value)}
-              </Button>
-            ))}
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 1 }}>
+            {CHAT_STYLE_OPTIONS.map((opt) => {
+              const styleOption = getChatStyleOption(opt.value);
+              const selected = props.style === opt.value;
+              const description = isZh ? styleOption.description.zh : styleOption.description.en;
+              return (
+                <Button
+                  key={opt.value}
+                  variant={selected ? 'contained' : 'outlined'}
+                  onClick={() => props.onStyleChange(opt.value)}
+                  sx={{
+                    minHeight: 92,
+                    borderRadius: 2,
+                    alignItems: 'stretch',
+                    justifyContent: 'flex-start',
+                    p: 1.5,
+                    textAlign: 'left',
+                    textTransform: 'none',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', gap: 1.25, width: '100%', alignItems: 'flex-start' }}>
+                    <Box
+                      aria-hidden="true"
+                      sx={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 1.5,
+                        display: 'grid',
+                        placeItems: 'center',
+                        flexShrink: 0,
+                        fontWeight: 800,
+                        bgcolor: selected ? 'rgba(255,255,255,0.18)' : 'action.hover',
+                      }}
+                    >
+                      {opt.icon}
+                    </Box>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="subtitle2" component="div" sx={{ fontWeight: 800, lineHeight: 1.25 }}>
+                        {props.getStyleLabel(opt.value)}
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        component="div"
+                        sx={{
+                          mt: 0.5,
+                          display: 'block',
+                          lineHeight: 1.45,
+                          color: selected ? 'primary.contrastText' : 'text.secondary',
+                        }}
+                      >
+                        {description}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Button>
+              );
+            })}
           </Box>
       </SurfaceCard>
 

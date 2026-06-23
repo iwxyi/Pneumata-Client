@@ -31,6 +31,7 @@ import {
 } from '../services/chatDraftBuilder';
 import { api as apiClient } from '../services/api';
 import { MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
+import { getChatStyleOption } from '../constants/chatStyles';
 import { storageKey } from '../constants/brand';
 import DirectorControlsSection from '../components/createChat/DirectorControlsSection';
 import ChatConfigSection from '../components/createChat/ChatConfigSection';
@@ -437,7 +438,10 @@ export default function CreateChatPage() {
     isStoryRoom: selectedRoomTemplate.sessionKind.scenarioId === 'story-reader',
     includeUserAsMember,
   });
-  const getStyleLabel = (styleValue: ChatStyle) => t(`chat.style${styleValue.charAt(0).toUpperCase() + styleValue.slice(1)}`);
+  const getStyleLabel = (styleValue: ChatStyle) => {
+    const option = getChatStyleOption(styleValue);
+    return isZh ? option.label.zh : option.label.en;
+  };
 
   useEffect(() => {
     const defaults = selectedRoomTemplate.defaults || {};
