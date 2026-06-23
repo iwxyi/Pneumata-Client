@@ -1,7 +1,7 @@
 import type { GroupChat, StoryBeatKind, StoryChoicePolicy, StoryCurrentSceneState } from '../types/chat';
 import type { AICharacter } from '../types/character';
 import type { Message, NarrativeBlock, NarrativeTurnMetadata, StoryChoiceSuggestion, StoryEvent } from '../types/message';
-import { isDeveloperDiagnosticsEnabled } from './developerDiagnostics';
+import { logDeveloperDiagnostic } from './developerDiagnostics';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
 
 const MAX_CHOICES = 4;
@@ -347,14 +347,12 @@ function resolveStoryEventSpeaker(event: StoryEvent, characters: AICharacter[]) 
   const character = characters.find((item) => item.id === characterId)
     || characters.find((item) => candidates.includes(normalizeStoryActorName(item.name)));
   if (character) return character;
-  if (isDeveloperDiagnosticsEnabled() && typeof console !== 'undefined' && typeof console.warn === 'function') {
-    console.warn('[story-reader] Unknown storyEvent speech actor; downgraded to narrator prose.', {
-      actorId: characterId,
-      actorName: speakerName,
-      text: event.text,
-      knownCharacters: characters.map((item) => ({ id: item.id, name: item.name })),
-    });
-  }
+  logDeveloperDiagnostic('story-reader:unknown-speech-actor', {
+    actorId: characterId || null,
+    actorName: speakerName || null,
+    textLength: event.text?.length || 0,
+    knownCharacterCount: characters.length,
+  }, 'warn');
   return null;
 }
 
@@ -451,6 +449,46 @@ function repeatsLastVisibleBeat(visibleTexts: string[], state: StoryContinuation
   return first.length >= 24 && textSimilarity(first, lastBeat) >= 0.9;
 }
 
+function repeatsInternalStoryBeat(visibleTexts: string[]) {
+  const previousTexts: string[] = [];
+  const previousFragments: string[] = [];
+  for (const text of visibleTexts) {
+    const normalized = normalizeContinuityText(text);
+    if (normalized.length >= 24 && previousTexts.some((previous) => (
+      previous.includes(normalized)
+      || normalized.includes(previous)
+      || (textSimilarity(normalized, previous) >= 0.72 && sharesDistinctiveStoryFragment(normalized, previous))
+    ))) {
+      return true;
+    }
+    const fragments = splitDistinctiveStoryFragments(text)
+      .map((fragment) => normalizeContinuityText(fragment))
+      .filter((fragment) => fragment.length >= 16);
+    const localFragments: string[] = [];
+    if (fragments.some((fragment) => {
+      const repeated = localFragments.some((previous) => (
+        previous.includes(fragment)
+        || fragment.includes(previous)
+        || textSimilarity(fragment, previous) >= 0.94
+      ));
+      localFragments.push(fragment);
+      return repeated;
+    })) {
+      return true;
+    }
+    if (fragments.some((fragment) => previousFragments.some((previous) => (
+      previous.includes(fragment)
+      || fragment.includes(previous)
+      || textSimilarity(fragment, previous) >= 0.94
+    )))) {
+      return true;
+    }
+    if (normalized) previousTexts.push(normalized);
+    previousFragments.push(...fragments);
+  }
+  return false;
+}
+
 export function evaluateStoryContinuationQuality(events: StoryEvent[], state?: StoryContinuationState | null): StoryContinuationQuality {
   if (!state?.lastVisibleBeat && !state?.lastSpokenLine) {
     return { ok: true, labels: ['continuity_not_required'], gaps: [] };
@@ -464,8 +502,10 @@ export function evaluateStoryContinuationQuality(events: StoryEvent[], state?: S
   const gaps: string[] = [];
   if (!startsWithStoryRecap(firstText)) labels.push('starts_in_scene');
   if (state.lastVisibleBeat && !repeatsLastVisibleBeat(visibleTexts, state)) labels.push('does_not_repeat_last_beat');
+  if (!repeatsInternalStoryBeat(visibleTexts)) labels.push('does_not_repeat_internal_beat');
   if (startsWithStoryRecap(firstText)) gaps.push('starts_with_recap_or_reset');
   if (repeatsLastVisibleBeat(visibleTexts, state)) gaps.push('repeats_last_visible_beat');
+  if (repeatsInternalStoryBeat(visibleTexts)) gaps.push('repeats_internal_story_beat');
   const ok = gaps.length === 0;
   return {
     ok,

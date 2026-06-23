@@ -93,6 +93,15 @@ function removeHydratedCacheDuplicates(cachedMessages: Message[], activeMessages
   });
 }
 
+function sharesIdentityWithAnyActiveMessage(message: Message, activeMessages: Message[]) {
+  const keys = buildMessageIdentityKeys(message);
+  if (!keys.length) return false;
+  return activeMessages.some((active) => {
+    const activeKeys = new Set(buildMessageIdentityKeys(active));
+    return keys.some((key) => activeKeys.has(key));
+  });
+}
+
 export function projectCurrentChatMessages(params: {
   chatId: string;
   activeMessages: Message[];
@@ -107,6 +116,7 @@ export function projectCurrentChatMessages(params: {
   const cachedMessages = removeHydratedCacheDuplicates(
     (params.cachedWindow?.messages || [])
       .filter((message) => message.chatId === params.chatId)
+      .filter((message) => !activeMessages.length || sharesIdentityWithAnyActiveMessage(message, activeMessages))
       .slice(-40),
     activeMessages,
   );

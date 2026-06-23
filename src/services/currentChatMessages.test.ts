@@ -33,20 +33,21 @@ describe('projectCurrentChatMessages', () => {
     expect(projected[0]?.content).toBe('我刚发的消息');
   });
 
-  it('merges active streaming messages with cached messages for the same chat', () => {
+  it('uses the active window as the visible source when active messages exist', () => {
     const projected = projectCurrentChatMessages({
       chatId: 'chat-1',
       activeMessages: [
+        message({ id: 'active-user-1', type: 'user', senderId: 'user', senderName: 'User', content: '先说一句', timestamp: 1 }),
         message({ id: 'stream-1', content: '正在说', timestamp: 2, isStreaming: true }),
       ],
       cachedWindow: {
         messages: [
-          message({ id: 'user-1', type: 'user', senderId: 'user', senderName: 'User', content: '先说一句', timestamp: 1 }),
+          message({ id: 'cached-tail-1', content: '缓存尾部不应混入历史窗口', timestamp: 1000 }),
         ],
       },
     });
 
-    expect(projected.map((item) => item.id)).toEqual(['user-1', 'stream-1']);
+    expect(projected.map((item) => item.id)).toEqual(['active-user-1', 'stream-1']);
   });
 
   it('keeps committed streamed content when a delayed streaming frame arrives', () => {
@@ -132,8 +133,8 @@ describe('projectCurrentChatMessages', () => {
       },
     });
 
-    expect(projected.map((item) => item.id)).toEqual(['previous-1', 'stream-2']);
-    expect(projected.map((item) => item.isStreaming)).toEqual([false, true]);
+    expect(projected.map((item) => item.id)).toEqual(['stream-2']);
+    expect(projected.map((item) => item.isStreaming)).toEqual([true]);
   });
 
   it('keeps repeated committed same-speaker content as separate projected messages', () => {
@@ -159,7 +160,7 @@ describe('projectCurrentChatMessages', () => {
       },
     });
 
-    expect(projected.map((item) => item.id)).toEqual(['repeat-1', 'repeat-2']);
+    expect(projected.map((item) => item.id)).toEqual(['repeat-2']);
   });
 
   it('removes hydrated cache duplicates even when active messages use different ids', () => {
@@ -178,6 +179,24 @@ describe('projectCurrentChatMessages', () => {
     });
 
     expect(projected.map((item) => item.id)).toEqual(['active-user-1', 'active-ai-1']);
+  });
+
+  it('does not append cached tail messages to a historical active window', () => {
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      activeMessages: [
+        message({ id: 'history-481', content: '历史窗口开头', timestamp: 481 }),
+        message({ id: 'history-520', content: '历史窗口结尾', timestamp: 520 }),
+      ],
+      cachedWindow: {
+        messages: [
+          message({ id: 'tail-999', content: '缓存尾部一', timestamp: 999 }),
+          message({ id: 'tail-1000', content: '缓存尾部二', timestamp: 1000 }),
+        ],
+      },
+    });
+
+    expect(projected.map((item) => item.id)).toEqual(['history-481', 'history-520']);
   });
 
   it('ignores messages from other chats', () => {

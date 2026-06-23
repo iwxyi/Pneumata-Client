@@ -318,7 +318,7 @@ export function calculateWeights(
         relationshipPressure += emotionalReplyBias;
         const repliedRecentlyToSameSpeaker = recentAiMessages.slice(-4, -1).some((message) => message.senderId === char.id) && recentAiMessages.slice(-4, -1).some((message) => message.senderId === lastAiMessage.senderId);
         if (repliedRecentlyToSameSpeaker) weight += 0.04;
-        const dramaBoost = Boolean((globalThis as { __MIRAGETEA_DRAMA_BOOST__?: boolean }).__MIRAGETEA_DRAMA_BOOST__);
+        const dramaBoost = Boolean((globalThis as { __PNEUMATA_DRAMA_BOOST__?: boolean }).__PNEUMATA_DRAMA_BOOST__);
         if (Math.abs(safeRelationWeight) >= (dramaBoost ? 0.12 : 0.2)) {
           const relationDramaBoost = safeRelationWeight > 0 ? 0.12 : (dramaBoost ? 0.24 : 0.16);
           weight += relationDramaBoost;

@@ -1128,23 +1128,17 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.contextText).toContain('走廊尽头的灯忽明忽暗');
   });
 
-  it('rejects overlong storyEvents that look like multiple alternate continuations', async () => {
+  it('retries internally repetitive storyEvents without feeding the rejected draft back into the prompt', async () => {
     generateResponseMock.mockReset();
-    const alternateNarrations = [
-      '沈清婉把梳子放回妆台，铜镜里映出月奴骤然绷紧的肩线，屋里静得像有人按住了烛火。',
-      '门外忽然传来管事婆子的咳嗽声，月奴借着那一点响动垂下眼，好像终于找到了退路。',
-      '红帐边缘垂下一粒松动的金珠，落在锦被上没有声音，却让沈清婉想起枕下那截冰冷剑柄。',
-      '月奴的袖口微微鼓起一角，像藏着一张被揉皱的纸条，又像只是昨夜来不及收好的帕子。',
-      '窗纸被晨风吹得轻轻发颤，铜台上的烛泪已经凝住，像两座刚刚冷下来的小山。',
-      '沈清婉没有立刻问剑，她先问早膳，语气平常得让月奴反而露出了一瞬来不及遮掩的慌乱。',
-      '廊下脚步声由远及近，又在门前三步外停住，仿佛有人一直等着屋里这句话落地。',
-      '那枚军器监的烙印还贴着沈清婉的掌心，边缘硌得发疼，提醒她这不是一场普通的新婚试探。',
-    ];
     generateResponseMock
       .mockResolvedValueOnce(JSON.stringify({
         narrativeText: null,
         storyEvents: [
-          ...alternateNarrations.map((text) => ({ type: 'narration', actorId: 'narrator', text })),
+          {
+            type: 'narration',
+            actorId: 'narrator',
+            text: '沈清婉没有立刻接话，只把铜钱推到烛火边缘。月奴的目光从铜钱上移开，落在自己裙摆上那道白色粉末痕迹上。月奴的目光从铜钱上移开，落在自己裙摆上那道白色粉末痕迹上，像是又把半截话咽了回去。',
+          },
         ],
         narrativeBlocks: null,
         content: '',
@@ -1170,6 +1164,45 @@ describe('chatEngine streaming preview', () => {
       }));
     const narrator = buildCharacter('narrator', '旁白');
     const mei = buildCharacter('mei', '阿梅');
+    const previousBeat: Message = {
+      id: 'prev-story-repetition',
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '',
+      emotion: 0,
+      timestamp: 2,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-prev-repetition',
+          turnKind: 'narrative_beat',
+          sceneId: 'main',
+          phase: 'scene',
+          povActorId: 'narrator',
+          blocks: [
+            {
+              id: 'p1',
+              actorId: 'narrator',
+              actorKind: 'narrator',
+              kind: 'prose',
+              displayMode: 'paragraph',
+              text: '月奴说完这句话，终于抬起眼看向沈清婉。',
+            },
+            {
+              id: 's1',
+              actorId: 'mei',
+              actorKind: 'character',
+              kind: 'dialogue',
+              displayMode: 'bubble',
+              characterId: 'mei',
+              text: '奴婢认得那道刻痕。',
+            },
+          ],
+        },
+      },
+    };
 
     const message = await generateSpeakerMessage({
       chat: buildChat({
@@ -1180,16 +1213,55 @@ describe('chatEngine streaming preview', () => {
       }),
       speaker: narrator,
       characters: [narrator, mei],
-      messages: [buildUserMessage('我选择：追问月奴', 1)],
+      messages: [buildUserMessage('我选择：追问月奴', 1), previousBeat],
       apiConfig: buildProfiles(),
     });
 
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('Output one committed beat only');
+    const retryPrompt = String(generateResponseMock.mock.calls[1]?.[1] || '');
+    expect(retryPrompt).toContain('Story continuity retry');
+    expect(retryPrompt).toContain('repeats_internal_story_beat');
+    expect(retryPrompt).not.toContain('Rejected draft:');
+    expect(retryPrompt).not.toContain('白色粉末痕迹');
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: '沈清婉把梳子放回妆台，屋里安静得只剩烛芯轻响。' }),
       expect.objectContaining({ actorId: 'mei', actorName: '阿梅', displayMode: 'bubble', text: '别靠太近。' }),
     ]);
+  });
+
+  it('accepts a longer story section when every event advances the same committed beat', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValueOnce(JSON.stringify({
+      narrativeText: null,
+      storyEvents: Array.from({ length: 12 }, (_, index) => index % 3 === 1
+        ? { type: 'speech', actorId: 'mei', actorName: '阿梅', text: `第${index + 1}句对白交代新的线索位置，没有复用前文动作。` }
+        : { type: 'narration', actorId: 'narrator', text: `第${index + 1}段叙事推进到侯府第${index + 1}处新变化，场面继续向同一条主线收束。` }),
+      narrativeBlocks: null,
+      content: '',
+      extraMessages: null,
+      storyChoices: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'],
+        mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+      }),
+      speaker: narrator,
+      characters: [narrator, mei],
+      messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(message.metadata?.narrativeTurn?.blocks).toHaveLength(12);
   });
 
   it('rejects story-reader JSON that puts visible story only in content', async () => {

@@ -499,6 +499,26 @@ describe('narrativeRuntime', () => {
     expect(advanced.ok).toBe(true);
   });
 
+  it('flags story continuations that repeat the same beat inside one generated section', () => {
+    const state = {
+      lastVisibleBeat: '月奴说完这句话，终于抬起眼看向沈清婉。',
+      lastSpokenLine: '奴婢认得那道刻痕。',
+      entryInstruction: '',
+      rhythmNotes: [],
+    };
+
+    const repeated = evaluateStoryContinuationQuality([
+      {
+        type: 'narration',
+        text: '沈清婉没有立刻接话，只把铜钱推到烛火边缘。月奴的目光从铜钱上移开，落在自己裙摆上那道白色粉末痕迹上。月奴的目光从铜钱上移开，落在自己裙摆上那道白色粉末痕迹上，像是又把半截话咽了回去。',
+      },
+      { type: 'speech', characterId: 'nurse', text: '小姐，那枚木牌是侯爷随身带的东西。' },
+    ], state);
+
+    expect(repeated.ok).toBe(false);
+    expect(repeated.gaps).toContain('repeats_internal_story_beat');
+  });
+
   it('plans story beats and normalizes choices as reusable narrative runtime state', () => {
     const decisionChat = normalizeConversation({
       ...chat,

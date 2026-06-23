@@ -176,9 +176,9 @@ function getBrowserRuntimeCounters() {
 
 function installBrowserRuntimeInstrumentation() {
   if (typeof window === 'undefined') return;
-  const win = window as Window & { __MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__?: boolean };
-  if (win.__MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__) return;
-  win.__MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__ = true;
+  const win = window as Window & { __PNEUMATA_BROWSER_RUNTIME_INSTRUMENTED__?: boolean };
+  if (win.__PNEUMATA_BROWSER_RUNTIME_INSTRUMENTED__) return;
+  win.__PNEUMATA_BROWSER_RUNTIME_INSTRUMENTED__ = true;
 
   const originalSetTimeout = win.setTimeout.bind(win) as Window['setTimeout'];
   const originalClearTimeout = win.clearTimeout.bind(win) as Window['clearTimeout'];
@@ -274,11 +274,11 @@ function installBrowserRuntimeInstrumentation() {
 }
 
 function isBrowserRuntimeInstrumentationInstalled() {
-  return Boolean((window as Window & { __MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__?: boolean }).__MIRAGETEA_BROWSER_RUNTIME_INSTRUMENTED__);
+  return Boolean((window as Window & { __PNEUMATA_BROWSER_RUNTIME_INSTRUMENTED__?: boolean }).__PNEUMATA_BROWSER_RUNTIME_INSTRUMENTED__);
 }
 
 function getGlobalFlag() {
-  return Boolean((globalThis as { __MIRAGETEA_MEMORY_MONITOR_ENABLED__?: boolean }).__MIRAGETEA_MEMORY_MONITOR_ENABLED__);
+  return Boolean((globalThis as { __PNEUMATA_MEMORY_MONITOR_ENABLED__?: boolean }).__PNEUMATA_MEMORY_MONITOR_ENABLED__);
 }
 
 export function isRuntimeMemoryMonitorEnabled() {
@@ -291,7 +291,7 @@ export function isRuntimeMemoryMonitorEnabled() {
 }
 
 function setRuntimeMemoryMonitorEnabled(enabled: boolean) {
-  (globalThis as { __MIRAGETEA_MEMORY_MONITOR_ENABLED__?: boolean }).__MIRAGETEA_MEMORY_MONITOR_ENABLED__ = enabled;
+  (globalThis as { __PNEUMATA_MEMORY_MONITOR_ENABLED__?: boolean }).__PNEUMATA_MEMORY_MONITOR_ENABLED__ = enabled;
   if (typeof localStorage === 'undefined') return;
   try {
     if (enabled) localStorage.setItem(STORAGE_KEY, '1');
@@ -934,11 +934,11 @@ function buildMonitorApi(): RuntimeMemoryMonitorApi {
 
 declare global {
   interface Window {
-    __MIRAGETEA_MEMORY_MONITOR__?: RuntimeMemoryMonitorApi;
+    __PNEUMATA_MEMORY_MONITOR__?: RuntimeMemoryMonitorApi;
     gc?: () => void;
   }
 }
 
 if (typeof window !== 'undefined') {
-  window.__MIRAGETEA_MEMORY_MONITOR__ = window.__MIRAGETEA_MEMORY_MONITOR__ || buildMonitorApi();
+  window.__PNEUMATA_MEMORY_MONITOR__ = window.__PNEUMATA_MEMORY_MONITOR__ || buildMonitorApi();
 }

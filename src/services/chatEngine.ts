@@ -98,10 +98,6 @@ type GenerationWithGuidanceTrace = {
 };
 
 const MAX_EXTRA_MESSAGES = 4;
-const MAX_STORY_VISIBLE_EVENTS_PER_TURN = 7;
-const MAX_STORY_NARRATION_EVENTS_PER_TURN = 4;
-const MAX_STORY_SPEECH_EVENTS_PER_TURN = 5;
-const MAX_STORY_VISIBLE_CHARS_PER_TURN = 2200;
 const emotionMap: Record<string, number> = {};
 
 class EmptyGeneratedResponseError extends Error {
@@ -574,7 +570,6 @@ Story protocol retry:
 - The previous draft was rejected because it violated the storyEvents contract: ${reason}
 - Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
 - Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
-- Keep this beat concise enough for live chat reading: use at most ${MAX_STORY_VISIBLE_EVENTS_PER_TURN} visible narration/speech events and keep the total visible story under ${MAX_STORY_VISIBLE_CHARS_PER_TURN} Chinese characters.
 - Rejected draft: ${priorAttempt.slice(0, 360)}`;
 }
 
@@ -592,8 +587,7 @@ ${state?.lastVisibleBeat ? `- Previous visible beat ended at: ${state.lastVisibl
 ${state?.lastSpokenLine ? `- Latest spoken line still in the air: ${state.lastSpokenLine}` : ''}
 - Start after that moment with the next observable action, reaction, consequence, or spoken line.
 - Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
-- Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
-- Keep this beat concise enough for live chat reading: use at most ${MAX_STORY_VISIBLE_EVENTS_PER_TURN} visible narration/speech events and keep the total visible story under ${MAX_STORY_VISIBLE_CHARS_PER_TURN} Chinese characters.`;
+- Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.`;
 }
 
 function hasLegacyNarrativeBlocks(value: unknown) {
@@ -650,26 +644,6 @@ function validateStoryReaderGeneration(params: {
     return {
       code: 'story_events_missing',
       message: '故事房生成结果缺少可见 storyEvents narration/speech。',
-    };
-  }
-  const narrationCount = visibleEvents.filter((event) => event.type === 'narration').length;
-  const speechCount = visibleEvents.filter((event) => event.type === 'speech').length;
-  if (visibleEvents.length > MAX_STORY_VISIBLE_EVENTS_PER_TURN) {
-    return {
-      code: 'story_events_too_many',
-      message: `单轮故事正文包含 ${visibleEvents.length} 个可见事件，超过 ${MAX_STORY_VISIBLE_EVENTS_PER_TURN} 个，疑似把多个改写版本或多个后续一次性提交。`,
-    };
-  }
-  if (narrationCount > MAX_STORY_NARRATION_EVENTS_PER_TURN || speechCount > MAX_STORY_SPEECH_EVENTS_PER_TURN) {
-    return {
-      code: 'story_events_unbalanced',
-      message: `单轮故事正文旁白/对白数量过多：narration=${narrationCount}, speech=${speechCount}。`,
-    };
-  }
-  if (visibleText.length > MAX_STORY_VISIBLE_CHARS_PER_TURN) {
-    return {
-      code: 'story_events_too_long',
-      message: `单轮故事正文 ${visibleText.length} 字，超过 ${MAX_STORY_VISIBLE_CHARS_PER_TURN} 字，疑似包含前文复述或多个候选后续。`,
     };
   }
   const continuationQuality = evaluateStoryContinuationQuality(storyEvents, params.continuationState);

@@ -3,6 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { MemoryCandidate, MemoryItem } from './memoryTypes';
 import { sanitizeMemoryTexts } from './distillationText';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
+import { logDeveloperDiagnostic } from './developerDiagnostics';
 import { isRuntimeEvidenceMemory } from './memoryPresentation';
 
 export const DISTILLATION_VERSION = 'v1';
@@ -383,9 +384,9 @@ export function debugCharacterMemoryDistillation(character: AICharacter, turnCou
 
 export function logMemoryDistillationTriggered(info: MemoryDistillationDebugInfo) {
   if (!info.triggered) return;
-  if (!(globalThis as { __MIRAGETEA_DEBUG_MEMORY_DISTILLATION__?: boolean }).__MIRAGETEA_DEBUG_MEMORY_DISTILLATION__) return;
-  console.info('[memory-distillation]', {
+  if (!(globalThis as { __PNEUMATA_DEBUG_MEMORY_DISTILLATION__?: boolean }).__PNEUMATA_DEBUG_MEMORY_DISTILLATION__) return;
+  logDeveloperDiagnostic('memory-distillation', {
     ...info,
     candidateTexts: sanitizeMemoryTexts(info.candidateTexts || []).map((text) => text.slice(0, 120)),
-  });
+  }, 'info');
 }
