@@ -14,8 +14,8 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { getPreferredAIProfile } from '../types/settings';
-import type { ChatStyle, RuntimeEvolutionIntensity } from '../types/chat';
-import { ROOM_TEMPLATES, getRoomTemplate, getRoomTemplateKeyBySessionKind, type RoomTemplateKey } from '../services/roomTemplates';
+import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity } from '../types/chat';
+import { ROOM_TEMPLATES, getRoomTemplate, getRoomTemplateKernel, getRoomTemplateKeyBySessionKind, type RoomTemplateKey } from '../services/roomTemplates';
 import {
   DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
   DEFAULT_CONVERSATION_DRAMA_RULES,
@@ -49,6 +49,25 @@ import { buildInteractiveSurfaceSx } from '../styles/interaction';
 const HotTopicDialogContainer = lazy(() => import('../components/createChat/HotTopicDialogContainer'));
 const CHAT_DRAFT_KEY = storageKey('create-chat-draft');
 const RuntimeSeedSection = lazy(() => import('../components/createChat/RuntimeSeedSection'));
+
+function hasGameplayRuntimeData(chat: GroupChat) {
+  const scenario = chat.scenarioState;
+  return Boolean(
+    (chat.runtimeTimeline || []).length
+    || (chat.runtimeEventsV2 || []).length
+    || (chat.relationshipLedger || []).length
+    || (chat.layeredMemories || []).length
+    || (chat.growthSnapshots || []).length
+    || (chat.roleMemorySummaries || []).some((item) => item.summary?.trim())
+    || (scenario?.choiceHistory || []).length
+    || scenario?.selectedChoice
+    || (scenario?.storyChapters || []).length
+    || (scenario?.storyProtocolDiagnostics || []).length
+    || Number(scenario?.sceneBeatCount || 0) > 0
+    || Number(scenario?.choiceEpoch || 0) > 0
+    || Number(scenario?.selectedChoiceEpoch || 0) > 0
+  );
+}
 
 export default function CreateChatPage() {
   const { t, i18n } = useTranslation();
@@ -108,6 +127,7 @@ export default function CreateChatPage() {
   const [allowMute, setAllowMute] = useState(true);
   const [allowPrivateThreads, setAllowPrivateThreads] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveAsChatSaving, setSaveAsChatSaving] = useState(false);
   const [aiAutofilling, setAiAutofilling] = useState(false);
   const [hotTopicOpenSignal, setHotTopicOpenSignal] = useState(0);
   const [hotTopicDialogEnabled, setHotTopicDialogEnabled] = useState(false);
@@ -437,6 +457,7 @@ export default function CreateChatPage() {
   const hasPresetCharacters = presetCharacters.length > 0;
   const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
   const selectedRoomTemplate = getRoomTemplate(roomTemplate);
+  const gameplayRuntimeLocked = Boolean(editingChat && hasGameplayRuntimeData(editingChat));
   const includeUserAsMemberCopy = buildIncludeUserAsMemberCopy({
     isZh,
     isStoryRoom: selectedRoomTemplate.sessionKind.scenarioId === 'story-reader',
@@ -485,6 +506,22 @@ export default function CreateChatPage() {
     if (defaults.deductionFactionCount !== undefined) setDeductionFactionCount(defaults.deductionFactionCount);
     if (defaults.mysteryClueCount !== undefined) setMysteryClueCount(defaults.mysteryClueCount);
   }, [chatDraftDefaults.showRoleActions]);
+
+  const handleRoomTemplateChange = useCallback((templateKey: RoomTemplateKey) => {
+    if (editingChat) {
+      const currentKernelKey = getRoomTemplateKernel(selectedRoomTemplate).key;
+      const nextKernelKey = getRoomTemplateKernel(templateKey).key;
+      if (nextKernelKey !== currentKernelKey) {
+        showError(isZh ? '已有房间不能切换玩法内核，只能修改当前玩法的表单和参数。' : 'Existing rooms cannot switch gameplay core; edit the current gameplay settings instead.');
+        return;
+      }
+      if (gameplayRuntimeLocked && templateKey !== roomTemplate) {
+        showError(isZh ? '已有运行数据后不能切换预设，请手动修改下方表单参数。' : 'Rooms with runtime data cannot switch presets; edit the form settings below.');
+        return;
+      }
+    }
+    applyRoomTemplate(templateKey);
+  }, [applyRoomTemplate, editingChat, gameplayRuntimeLocked, isZh, roomTemplate, selectedRoomTemplate]);
 
   const isStoryRoomTemplate = selectedRoomTemplate.sessionKind.scenarioId === 'story-reader';
   const topicPlaceholder = selectedRoomTemplate.topicPlaceholder;
@@ -772,35 +809,145 @@ export default function CreateChatPage() {
   void goBack;
   void t;
 
+  const buildCurrentGroupChatDraft = (
+    draftName: string,
+    memberIds: string[],
+    normalizedOperatorIds: string[],
+    normalizedOwnerCharacterId: string | null,
+    normalizedAdminCharacterIds: string[],
+  ) => buildGroupChatDraft({
+    type: 'group',
+    name: draftName,
+    topic,
+    style,
+    runtimeEvolutionIntensity,
+    sessionKind: selectedRoomTemplate.sessionKind,
+    discussionRoundsTarget,
+    storyBranchMode,
+    storyBackground,
+    storyDirection,
+    storyOutline,
+    studyGoalLabel,
+    agentGoalLabel,
+    boardColumns,
+    boardRows,
+    deductionFactionCount,
+    werewolfRoleConfig,
+    werewolfPostGameMode,
+    mysteryClueCount,
+    mysteryScript,
+    mysteryRoleMappingMode,
+    memberIds,
+    operatorIds: normalizedOperatorIds,
+    showRoleActions,
+    seedMemoryText,
+    seedArtifactText,
+    ownerCharacterId: normalizedOwnerCharacterId,
+    adminCharacterIds: normalizedAdminCharacterIds,
+    autoModeration,
+    allowMute,
+    allowPrivateThreads,
+    allowCliques,
+    allowMockery,
+    mood,
+    focus,
+    recentEvent,
+    allowSpeakAs,
+    allowDirectorMode,
+    allowEventInjection,
+    allowForcedReply,
+  });
+
+  const buildValidatedDraftContext = () => {
+    const validMemberIds = Array.from(new Set(selectedMembers.filter(Boolean)));
+    const normalizedOperatorIds = normalizeOperatorIdsInput(operatorIdsText, validMemberIds).effectiveIds;
+    const nextMemberIds = composeGroupMemberIds(validMemberIds, includeUserAsMember);
+    const normalizedOwnerCharacterId = ownerCharacterId && validMemberIds.includes(ownerCharacterId) ? ownerCharacterId : null;
+    const normalizedAdminCharacterIds = Array.from(new Set(adminCharacterIds.filter((memberId) => validMemberIds.includes(memberId) && memberId !== normalizedOwnerCharacterId)));
+    return {
+      validMemberIds,
+      normalizedOperatorIds,
+      nextMemberIds,
+      normalizedOwnerCharacterId,
+      normalizedAdminCharacterIds,
+    };
+  };
+
+  const handleSaveAsChat = async () => {
+    if (!editingChat) return;
+    if (saving || saveAsChatSaving) {
+      showError(i18n.language.startsWith('zh') ? '正在处理中，请稍候' : 'Already processing, please wait');
+      return;
+    }
+    const draftContext = buildValidatedDraftContext();
+    if (!name.trim()) {
+      showError(i18n.language.startsWith('zh') ? '请填写群聊名称' : 'Please enter a chat name');
+      return;
+    }
+    if (draftContext.validMemberIds.length < minRequiredMembers) {
+      showError(isZh ? `当前${conversationNoun}至少需要${minRequiredMembers}个AI角色` : `This ${conversationNoun} needs at least ${minRequiredMembers} AI role(s)`);
+      return;
+    }
+    if (selectedMembers.length !== draftContext.validMemberIds.length) {
+      showError(i18n.language.startsWith('zh') ? '部分成员无效，请重新选择后再试' : 'Some selected members are invalid. Please reselect and try again');
+      return;
+    }
+    if (ownerCharacterId && !draftContext.normalizedOwnerCharacterId) {
+      showError(i18n.language.startsWith('zh') ? '群主必须是当前群成员' : 'The owner must be one of the selected members');
+      return;
+    }
+    if (adminCharacterIds.length !== draftContext.normalizedAdminCharacterIds.length) {
+      showError(i18n.language.startsWith('zh') ? '管理员必须来自当前群成员，且不能与群主重复' : 'Admins must be selected members and cannot duplicate the owner');
+      return;
+    }
+
+    setSaveAsChatSaving(true);
+    try {
+      const chat = await addChat(buildCurrentGroupChatDraft(
+        `${(editingChat.name || name).trim()}（1）`,
+        draftContext.nextMemberIds,
+        draftContext.normalizedOperatorIds,
+        draftContext.normalizedOwnerCharacterId,
+        draftContext.normalizedAdminCharacterIds,
+      ));
+      setChatDraftDefaults({ style, showRoleActions, runtimeEvolutionIntensity });
+      navigate(`/chats/${chat.id}/edit`);
+    } catch (error) {
+      showError(getActionErrorMessage(error, i18n.language.startsWith('zh') ? '另存为群聊失败' : 'Failed to save as chat'));
+    } finally {
+      setSaveAsChatSaving(false);
+    }
+  };
+
+  const handleSaveAsChatAction = () => {
+    void handleSaveAsChat();
+  };
+
   const handleCreate = async () => {
     if (saving) {
       showError(i18n.language.startsWith('zh') ? '正在处理中，请稍候' : 'Already processing, please wait');
       return;
     }
 
-    const validMemberIds = Array.from(new Set(selectedMembers.filter(Boolean)));
-    const operatorIds = normalizeOperatorIdsInput(operatorIdsText, validMemberIds).effectiveIds;
-    const nextMemberIds = composeGroupMemberIds(validMemberIds, includeUserAsMember);
-    const normalizedOwnerCharacterId = ownerCharacterId && validMemberIds.includes(ownerCharacterId) ? ownerCharacterId : null;
-    const normalizedAdminCharacterIds = Array.from(new Set(adminCharacterIds.filter((memberId) => validMemberIds.includes(memberId) && memberId !== normalizedOwnerCharacterId)));
+    const draftContext = buildValidatedDraftContext();
 
     if (!name.trim()) {
       showError(i18n.language.startsWith('zh') ? '请填写群聊名称' : 'Please enter a chat name');
       return;
     }
-    if (validMemberIds.length < minRequiredMembers) {
+    if (draftContext.validMemberIds.length < minRequiredMembers) {
       showError(isZh ? `当前${conversationNoun}至少需要${minRequiredMembers}个AI角色` : `This ${conversationNoun} needs at least ${minRequiredMembers} AI role(s)`);
       return;
     }
-    if (selectedMembers.length !== validMemberIds.length) {
+    if (selectedMembers.length !== draftContext.validMemberIds.length) {
       showError(i18n.language.startsWith('zh') ? '部分成员无效，请重新选择后再试' : 'Some selected members are invalid. Please reselect and try again');
       return;
     }
-    if (ownerCharacterId && !normalizedOwnerCharacterId) {
+    if (ownerCharacterId && !draftContext.normalizedOwnerCharacterId) {
       showError(i18n.language.startsWith('zh') ? '群主必须是当前群成员' : 'The owner must be one of the selected members');
       return;
     }
-    if (adminCharacterIds.length !== normalizedAdminCharacterIds.length) {
+    if (adminCharacterIds.length !== draftContext.normalizedAdminCharacterIds.length) {
       showError(i18n.language.startsWith('zh') ? '管理员必须来自当前群成员，且不能与群主重复' : 'Admins must be selected members and cannot duplicate the owner');
       return;
     }
@@ -808,48 +955,13 @@ export default function CreateChatPage() {
     setSaving(true);
     try {
       if (editingChat) {
-        const nextDraft = buildGroupChatDraft({
-          type: 'group',
+        const nextDraft = buildCurrentGroupChatDraft(
           name,
-          topic,
-          style,
-          runtimeEvolutionIntensity,
-          sessionKind: selectedRoomTemplate.sessionKind,
-          discussionRoundsTarget,
-          storyBranchMode,
-          storyBackground,
-          storyDirection,
-          storyOutline,
-          studyGoalLabel,
-          agentGoalLabel,
-          boardColumns,
-          boardRows,
-          deductionFactionCount,
-          werewolfRoleConfig,
-          werewolfPostGameMode,
-          mysteryClueCount,
-          mysteryScript,
-          mysteryRoleMappingMode,
-          memberIds: nextMemberIds,
-          operatorIds,
-          showRoleActions,
-          seedMemoryText,
-          seedArtifactText,
-          ownerCharacterId: normalizedOwnerCharacterId,
-          adminCharacterIds: normalizedAdminCharacterIds,
-          autoModeration,
-          allowMute,
-          allowPrivateThreads,
-          allowCliques,
-          allowMockery,
-          mood,
-          focus,
-          recentEvent,
-          allowSpeakAs,
-          allowDirectorMode,
-          allowEventInjection,
-          allowForcedReply,
-        });
+          draftContext.nextMemberIds,
+          draftContext.normalizedOperatorIds,
+          draftContext.normalizedOwnerCharacterId,
+          draftContext.normalizedAdminCharacterIds,
+        );
         await updateChat(editingChat.id, {
           ...nextDraft,
           runtimeTimeline: editingChat.runtimeTimeline || nextDraft.runtimeTimeline || [],
@@ -867,50 +979,15 @@ export default function CreateChatPage() {
         return;
       }
 
-      const chat = await addChat(buildGroupChatDraft({
-        type: 'group',
+      const chat = await addChat(buildCurrentGroupChatDraft(
         name,
-        topic,
-        style,
-        runtimeEvolutionIntensity,
-        sessionKind: selectedRoomTemplate.sessionKind,
-        discussionRoundsTarget,
-        storyBranchMode,
-        storyBackground,
-        storyDirection,
-        storyOutline,
-        studyGoalLabel,
-        agentGoalLabel,
-        boardColumns,
-        boardRows,
-        deductionFactionCount,
-        werewolfRoleConfig,
-        werewolfPostGameMode,
-        mysteryClueCount,
-        mysteryScript,
-        mysteryRoleMappingMode,
-        memberIds: nextMemberIds,
-        operatorIds,
-        showRoleActions,
-        seedMemoryText,
-        seedArtifactText,
-        ownerCharacterId: normalizedOwnerCharacterId,
-        adminCharacterIds: normalizedAdminCharacterIds,
-        autoModeration,
-        allowMute,
-        allowPrivateThreads,
-        allowCliques,
-        allowMockery,
-        mood,
-        focus,
-        recentEvent,
-        allowSpeakAs,
-        allowDirectorMode,
-        allowEventInjection,
-        allowForcedReply,
-      }));
-      if (nextMemberIds.length) {
-        const memberNames = nextMemberIds.map((memberId) => characters.find((char) => char.id === memberId)?.name || memberId);
+        draftContext.nextMemberIds,
+        draftContext.normalizedOperatorIds,
+        draftContext.normalizedOwnerCharacterId,
+        draftContext.normalizedAdminCharacterIds,
+      ));
+      if (draftContext.nextMemberIds.length) {
+        const memberNames = draftContext.nextMemberIds.map((memberId) => characters.find((char) => char.id === memberId)?.name || memberId);
         await useMessageStore.getState().addMessage({
           chatId: chat.id,
           type: 'system',
@@ -1043,7 +1120,11 @@ export default function CreateChatPage() {
             language={i18n.language}
             roomTemplate={roomTemplate}
             roomTemplates={ROOM_TEMPLATES}
-            onRoomTemplateChange={applyRoomTemplate}
+            onRoomTemplateChange={handleRoomTemplateChange}
+            lockGameplayKernelSelection={Boolean(editingChat)}
+            lockPresetSelection={gameplayRuntimeLocked}
+            onSaveAsChat={editingChat ? handleSaveAsChatAction : undefined}
+            saveAsChatDisabled={saving || saveAsChatSaving}
             runtimeEvolutionIntensity={runtimeEvolutionIntensity}
             onRuntimeEvolutionIntensityChange={setRuntimeEvolutionIntensity}
             topic={topic}
@@ -1174,6 +1255,8 @@ export default function CreateChatPage() {
             setAllowCliques={setAllowCliques}
             allowMockery={allowMockery}
             setAllowMockery={setAllowMockery}
+            onSaveAsChat={editingChat ? handleSaveAsChatAction : undefined}
+            saveAsChatDisabled={saving || saveAsChatSaving}
           />
         ) : null}
 
@@ -1182,7 +1265,7 @@ export default function CreateChatPage() {
           label={saving ? t('common.loading') : startChatLabel}
           ariaLabel={saving ? t('common.loading') : startChatLabel}
           onClick={handleCreateAction}
-          disabled={saving}
+          disabled={saving || saveAsChatSaving}
           sx={{
             position: 'fixed',
             right: { xs: 20, sm: 28, md: 36 },

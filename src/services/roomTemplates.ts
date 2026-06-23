@@ -175,7 +175,7 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     label: '普通互动房',
     description: '开放聊天、陪伴闲聊、伴看吐槽等通用多角色互动。',
     presetLabel: '自定义',
-    presetDescription: '不套用固定预设，只保留普通互动房的基础规则。',
+    presetDescription: '不套用固定氛围，按你填写的话题和角色自然互动。',
     structure: 'conversation',
     category: 'social',
     categoryLabel: '社交互动',

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Accordion, AccordionDetails, AccordionSummary, Box, Button, Chip, Divider, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
@@ -45,6 +46,10 @@ interface GameplaySectionProps {
   roomTemplate: RoomTemplateKey;
   roomTemplates: RoomTemplateDefinition[];
   onRoomTemplateChange: (value: RoomTemplateKey) => void;
+  lockGameplayKernelSelection?: boolean;
+  lockPresetSelection?: boolean;
+  onSaveAsChat?: () => void;
+  saveAsChatDisabled?: boolean;
   runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast';
   onRuntimeEvolutionIntensityChange: (value: 'slow' | 'balanced' | 'fast') => void;
   topic: string;
@@ -164,7 +169,13 @@ function renderField(field: RoomTemplateFieldDefinition, props: GameplaySectionP
   );
 }
 
-function renderConfigGroup(group: RoomTemplateConfigGroup, props: GameplaySectionProps, isZh: boolean) {
+function renderConfigGroup(
+  group: RoomTemplateConfigGroup,
+  props: GameplaySectionProps,
+  isZh: boolean,
+  expandedAdvancedGroups: Record<string, boolean>,
+  setAdvancedGroupExpanded: (groupKey: string, expanded: boolean) => void,
+) {
   const requiredFields = group.fields.filter((field) => !field.advanced);
   const advancedFields = group.fields.filter((field) => field.advanced);
   return (
@@ -174,7 +185,13 @@ function renderConfigGroup(group: RoomTemplateConfigGroup, props: GameplaySectio
       <Stack spacing={1.25}>
         {requiredFields.map((field) => renderField(field, props, isZh))}
         {advancedFields.length ? (
-          <Accordion disableGutters elevation={0} sx={{ borderRadius: 2, bgcolor: 'transparent', border: '1px solid', borderColor: 'divider', '&:before': { display: 'none' } }}>
+          <Accordion
+            disableGutters
+            elevation={0}
+            expanded={Boolean(expandedAdvancedGroups[group.key])}
+            onChange={(_, expanded) => setAdvancedGroupExpanded(group.key, expanded)}
+            sx={{ borderRadius: 2, bgcolor: 'transparent', border: '1px solid', borderColor: 'divider', '&:before': { display: 'none' } }}
+          >
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{isZh ? '高级设定（可选）' : 'Advanced settings (optional)'}</Typography>
             </AccordionSummary>
@@ -189,6 +206,7 @@ function renderConfigGroup(group: RoomTemplateConfigGroup, props: GameplaySectio
 }
 
 export default function GameplaySection(props: GameplaySectionProps) {
+  const [expandedAdvancedGroups, setExpandedAdvancedGroups] = useState<Record<string, boolean>>({});
   const isZh = props.language.startsWith('zh');
   const selectedTemplate = props.roomTemplates.find((item) => item.key === props.roomTemplate) || props.roomTemplates[0];
   const selectedKernel = getRoomTemplateKernel(selectedTemplate);
@@ -213,7 +231,11 @@ export default function GameplaySection(props: GameplaySectionProps) {
   });
 
   const handleStructureChange = (structure: RoomTemplateStructure) => {
+    if (props.lockGameplayKernelSelection) return;
     props.onRoomTemplateChange(pickFirstTemplateKey(structure, props.roomTemplate));
+  };
+  const setAdvancedGroupExpanded = (groupKey: string, expanded: boolean) => {
+    setExpandedAdvancedGroups((prev) => ({ ...prev, [groupKey]: expanded }));
   };
 
   return (
@@ -224,11 +246,11 @@ export default function GameplaySection(props: GameplaySectionProps) {
           return (
             <Chip
               key={item.value}
-              clickable
+              clickable={!props.lockGameplayKernelSelection}
               label={item.label}
               color={selected ? 'primary' : 'default'}
               variant={selected ? 'filled' : 'outlined'}
-              onClick={() => handleStructureChange(item.value as RoomTemplateStructure)}
+              onClick={props.lockGameplayKernelSelection ? undefined : () => handleStructureChange(item.value as RoomTemplateStructure)}
               sx={{
                 height: 34,
                 borderRadius: 999,
@@ -242,6 +264,27 @@ export default function GameplaySection(props: GameplaySectionProps) {
 
       <SurfaceCard>
         <Stack spacing={2}>
+          {props.lockGameplayKernelSelection ? (
+            <Box sx={{ border: 1, borderColor: 'primary.light', borderRadius: 2, p: 1.25, bgcolor: 'action.selected' }}>
+              <Typography variant="body2" color="text.secondary">
+                {props.lockPresetSelection
+                  ? (isZh ? '此房间已开始运行，不能切换玩法内核或预设。' : 'This room has runtime data, so gameplay core and preset cannot be switched.')
+                  : (isZh ? '编辑已有房间时不能切换玩法内核。' : 'Existing rooms cannot switch gameplay core.')}
+                {props.onSaveAsChat ? (
+                  <Button
+                    variant="text"
+                    color="primary"
+                    onClick={props.onSaveAsChat}
+                    disabled={props.saveAsChatDisabled}
+                    sx={{ ml: 0.5, minWidth: 0, px: 0.5, verticalAlign: 'baseline', fontWeight: 700 }}
+                  >
+                    {isZh ? '另存为群聊' : 'Save as chat'}
+                  </Button>
+                ) : null}
+                {props.onSaveAsChat ? (isZh ? '后可修改玩法。' : 'to change gameplay.') : null}
+              </Typography>
+            </Box>
+          ) : null}
           <Box>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isZh ? '玩法类型' : 'Gameplay type'}</Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 0.9, alignItems: 'start' }}>
@@ -252,6 +295,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
                     key={template.key}
                     variant="text"
                     color={selected ? 'primary' : 'inherit'}
+                    disabled={props.lockGameplayKernelSelection}
                     onClick={() => props.onRoomTemplateChange(template.key)}
                     sx={{
                       justifyContent: 'flex-start',
@@ -268,6 +312,10 @@ export default function GameplaySection(props: GameplaySectionProps) {
                       '&:hover': {
                         bgcolor: selected ? 'action.selected' : 'action.hover',
                         borderColor: selected ? 'primary.main' : 'text.secondary',
+                      },
+                      '&.Mui-disabled': {
+                        color: 'text.primary',
+                        opacity: selected ? 1 : 0.48,
                       },
                     }}
                   >
@@ -288,6 +336,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
                 label={isZh ? '预设模板' : 'Preset'}
                 value={props.roomTemplate}
                 onChange={(event) => props.onRoomTemplateChange(event.target.value as RoomTemplateKey)}
+                disabled={props.lockPresetSelection}
                 fullWidth
               >
                 {presetMenuItems}
@@ -299,6 +348,15 @@ export default function GameplaySection(props: GameplaySectionProps) {
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
                   {getRoomTemplatePresetDescription(selectedPreset)}
                 </Typography>
+                {props.lockPresetSelection ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    {isZh ? '已有运行数据后只能修改下方参数，不能切换预设。' : 'Rooms with runtime data can edit settings below, but cannot switch presets.'}
+                  </Typography>
+                ) : props.lockGameplayKernelSelection ? (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    {isZh ? '编辑已有房间时不能切换玩法内核；未产生运行数据前仍可切换同玩法预设。' : 'Existing rooms cannot switch gameplay core; presets remain editable until runtime data exists.'}
+                  </Typography>
+                ) : null}
                 {selectedPreset.sellingPoints?.length ? (
                   <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.75 }}>
                     {selectedPreset.sellingPoints.slice(0, 3).map((point) => (
@@ -357,7 +415,13 @@ export default function GameplaySection(props: GameplaySectionProps) {
                   : (isZh ? '请先到“设定”页填写群名下方的话题/目标。' : 'Fill the topic/goal field in the Config tab first.'))}
               </Typography>
             </Box>
-            {(selectedTemplate.configGroups || []).map((group) => renderConfigGroup(group, props, isZh))}
+            {(selectedTemplate.configGroups || []).map((group) => renderConfigGroup(
+              group,
+              props,
+              isZh,
+              expandedAdvancedGroups,
+              setAdvancedGroupExpanded,
+            ))}
           </Stack>
         </Box>
       </SurfaceCard>
