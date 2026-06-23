@@ -69,6 +69,22 @@ function hasGameplayRuntimeData(chat: GroupChat) {
   );
 }
 
+function buildSaveAsChatName(sourceName: string, existingNames: string[]) {
+  const fallbackName = sourceName.trim() || '未命名群聊';
+  let baseName = fallbackName;
+  while (/（\d+）$/.test(baseName)) {
+    baseName = baseName.replace(/（\d+）$/, '').trim();
+  }
+  if (!baseName) baseName = fallbackName;
+  const suffixPattern = new RegExp(`^${baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}（(\\d+)）$`);
+  const maxIndex = existingNames.reduce((max, item) => {
+    const match = item.trim().match(suffixPattern);
+    if (!match) return max;
+    return Math.max(max, Number(match[1]) || 0);
+  }, 0);
+  return `${baseName}（${maxIndex + 1}）`;
+}
+
 export default function CreateChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
@@ -903,8 +919,9 @@ export default function CreateChatPage() {
 
     setSaveAsChatSaving(true);
     try {
+      const saveAsName = buildSaveAsChatName(editingChat.name || name, chats.map((chat) => chat.name));
       const chat = await addChat(buildCurrentGroupChatDraft(
-        `${(editingChat.name || name).trim()}（1）`,
+        saveAsName,
         draftContext.nextMemberIds,
         draftContext.normalizedOperatorIds,
         draftContext.normalizedOwnerCharacterId,
