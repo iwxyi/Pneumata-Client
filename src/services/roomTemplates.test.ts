@@ -12,7 +12,9 @@ import {
 } from './roomTemplates';
 import type { RoomTemplateKey } from './roomTemplates';
 
-const storyTemplateKeys = listRoomTemplatePresets('story_reader').map((template) => template.key);
+const storyPresetTemplateKeys = listRoomTemplatePresets('story_reader')
+  .map((template) => template.key)
+  .filter((key) => key !== 'story_reader');
 
 function buildStoryDraft(key: RoomTemplateKey, topic: string, memberIds = ['lin', 'nurse']) {
   const template = getRoomTemplate(key);
@@ -68,6 +70,7 @@ describe('roomTemplates story seeds', () => {
     expect(socialKernels).toEqual(['open_chat']);
     expect(listRoomTemplatePresets('story_reader').map((template) => template.key)).toEqual([
       'story_reader',
+      'default_mystery_story',
       'campus_story',
       'romance_story',
       'palace_intrigue_story',
@@ -77,9 +80,10 @@ describe('roomTemplates story seeds', () => {
       'xianxia_trial_story',
       'apocalypse_road_story',
     ]);
-    expect(getRoomTemplatePresetLabel(getRoomTemplate('story_reader'))).toBe('默认悬疑');
+    expect(getRoomTemplatePresetLabel(getRoomTemplate('story_reader'))).toBe('自定义');
     expect(listRoomTemplatePresets('open_chat').map((template) => template.key)).toEqual([
       'open_chat',
+      'free_chat_preset',
       'companion_hangout',
       'fandom_watch_party',
       'tea_roast_lounge',
@@ -92,8 +96,15 @@ describe('roomTemplates story seeds', () => {
     expect(listTemplateStructures().find((item) => item.value === 'conversation')?.label).toBe('互动房间');
   });
 
+  it('keeps custom presets empty instead of applying a default topic package', () => {
+    expect(getRoomTemplatePresetLabel(getRoomTemplate('open_chat'))).toBe('自定义');
+    expect(getRoomTemplate('story_reader').defaults?.storyBackground).toBeUndefined();
+    expect(getRoomTemplate('story_reader').defaults?.storyDirection).toBeUndefined();
+    expect(getRoomTemplate('story_reader').defaults?.storyOutline).toBeUndefined();
+  });
+
   it('provides editable story seeds for every story-room template', () => {
-    for (const key of storyTemplateKeys) {
+    for (const key of storyPresetTemplateKeys) {
       const template = getRoomTemplate(key);
       expect(template.sessionKind.scenarioId).toBe('story-reader');
       expect(template.sellingPoints?.length).toBeGreaterThanOrEqual(3);
@@ -105,7 +116,7 @@ describe('roomTemplates story seeds', () => {
   });
 
   it('builds a compact first-impression preview for every story template', () => {
-    for (const key of storyTemplateKeys) {
+    for (const key of storyPresetTemplateKeys) {
       const template = getRoomTemplate(key);
       const preview = buildRoomTemplatePreview(template);
 
@@ -131,7 +142,7 @@ describe('roomTemplates story seeds', () => {
   });
 
   it('turns every story template into a concrete opening with pressure, clues, and hooks', () => {
-    for (const key of storyTemplateKeys) {
+    for (const key of storyPresetTemplateKeys) {
       const template = getRoomTemplate(key);
       const draft = buildStoryDraft(key, template.topicPlaceholder.replace(/^例如：/, '').split('、')[0] || template.label);
       const state = draft.scenarioState;
@@ -165,7 +176,7 @@ describe('roomTemplates story seeds', () => {
   });
 
   it('feeds every story template into an opening prompt that starts in-scene instead of summarizing settings', () => {
-    for (const key of storyTemplateKeys) {
+    for (const key of storyPresetTemplateKeys) {
       const template = getRoomTemplate(key);
       const draft = buildStoryDraft(key, template.topicPlaceholder.replace(/^例如：/, '').split('、')[0] || template.label);
       const prompt = STORY_ENGINE.buildGenerationPromptContext?.({
@@ -192,7 +203,7 @@ describe('roomTemplates story seeds', () => {
   });
 
   it('turns the default story seed into initial narrative assets', () => {
-    const draft = buildStoryDraft('story_reader', '雨夜旧医院');
+    const draft = buildStoryDraft('default_mystery_story', '雨夜旧医院');
 
     expect(draft.scenarioState?.storyGoal).toContain('雨夜旧医院');
     expect(draft.scenarioState?.storySituation).toContain('旧医院');

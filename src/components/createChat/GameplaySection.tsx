@@ -1,5 +1,5 @@
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { Accordion, AccordionDetails, AccordionSummary, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material';
+import { Accordion, AccordionDetails, AccordionSummary, Box, Button, Chip, Divider, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import type { RoomTemplateConfigGroup, RoomTemplateDefinition, RoomTemplateFieldDefinition, RoomTemplateKey, RoomTemplateStructure } from '../../services/roomTemplates';
 import {
@@ -200,6 +200,17 @@ export default function GameplaySection(props: GameplaySectionProps) {
   const structureKernels = listRoomTemplateKernelsByStructure(selectedStructure);
   const selectedPresets = listRoomTemplatePresets(selectedKernel.key);
   const selectedPreset = selectedPresets.find((preset) => preset.key === props.roomTemplate) || selectedPresets[0];
+  const presetMenuItems = selectedPresets.flatMap((preset, index) => {
+    const items = [
+      <MenuItem key={preset.key} value={preset.key}>
+        {getRoomTemplatePresetLabel(preset)}
+      </MenuItem>,
+    ];
+    if (index === 0 && selectedPresets.length > 1) {
+      items.push(<Divider key={`${preset.key}-divider`} />);
+    }
+    return items;
+  });
 
   const handleStructureChange = (structure: RoomTemplateStructure) => {
     props.onRoomTemplateChange(pickFirstTemplateKey(structure, props.roomTemplate));
@@ -279,11 +290,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
                 onChange={(event) => props.onRoomTemplateChange(event.target.value as RoomTemplateKey)}
                 fullWidth
               >
-                {selectedPresets.map((preset) => (
-                  <MenuItem key={preset.key} value={preset.key}>
-                    {getRoomTemplatePresetLabel(preset)}
-                  </MenuItem>
-                ))}
+                {presetMenuItems}
               </TextField>
               <Box sx={{ mt: 1, px: 0.25 }}>
                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
@@ -340,10 +347,14 @@ export default function GameplaySection(props: GameplaySectionProps) {
             </TextField>
             <Box sx={{ px: 0.25 }}>
               <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                {isZh ? '当前议题 / 目标（来自“设定”页）' : 'Current topic / goal (from Config tab)'}
+                {selectedTemplate.sessionKind.scenarioId === 'story-reader'
+                  ? (isZh ? '开场提示（来自“设定”页）' : 'Opening prompt (from Config tab)')
+                  : (isZh ? '当前议题 / 目标（来自“设定”页）' : 'Current topic / goal (from Config tab)')}
               </Typography>
               <Typography variant="body2">
-                {props.topic.trim() || (isZh ? '请先到“设定”页填写群名下方的话题/目标。' : 'Fill the topic/goal field in the Config tab first.')}
+                {props.topic.trim() || (selectedTemplate.sessionKind.scenarioId === 'story-reader'
+                  ? (isZh ? '可在“设定”页填写一句开局灵感；完整故事设定在这里编辑。' : 'Add a short opening seed in Config; edit full story settings here.')
+                  : (isZh ? '请先到“设定”页填写群名下方的话题/目标。' : 'Fill the topic/goal field in the Config tab first.'))}
               </Typography>
             </Box>
             {(selectedTemplate.configGroups || []).map((group) => renderConfigGroup(group, props, isZh))}

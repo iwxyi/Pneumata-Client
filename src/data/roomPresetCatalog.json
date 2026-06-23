@@ -1,5 +1,19 @@
 [
   {
+    "key": "free_chat_preset",
+    "parentTemplateKey": "open_chat",
+    "label": "自由群聊",
+    "description": "开放聊天、关系推进、自由互动。",
+    "style": "free",
+    "runtimeEvolutionIntensity": "balanced",
+    "topicPlaceholder": "输入一个话题，让角色开始自由互动",
+    "defaults": {
+      "allowPrivateThreads": true,
+      "allowCliques": true,
+      "allowMockery": true
+    }
+  },
+  {
     "key": "companion_hangout",
     "parentTemplateKey": "open_chat",
     "label": "陪伴闲聊",
@@ -53,6 +67,25 @@
       "allowPrivateThreads": true,
       "allowCliques": false,
       "allowMockery": false
+    }
+  },
+  {
+    "key": "default_mystery_story",
+    "parentTemplateKey": "story_reader",
+    "label": "默认悬疑",
+    "description": "雨夜旧医院、失踪名单和停电脚步声构成的悬疑开局。",
+    "sellingPoints": ["关键选择留后果", "线索账本", "章节回看"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "例如：雨夜旧医院、失踪名单、枕下长剑",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": false,
+      "allowMockery": false,
+      "storyBackground": "雨夜，旧医院停电后仍有一层楼亮着灯。三名角色为了各自的秘密来到这里，失踪名单上却多出一个不该存在的名字。",
+      "storyDirection": "悬疑推进：围绕失踪名单、停电记录和角色隐瞒展开，让用户在追问、搜证、保护或冒险之间做关键选择。",
+      "storyOutline": "开场建立旧医院和失踪名单；第一轮制造停电与脚步声压力；随后让用户选择追问知情者、检查血迹或进入档案室。"
     }
   },
   {

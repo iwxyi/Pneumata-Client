@@ -19,6 +19,7 @@ const TEMPLATE_SUMMARY = ROOM_TEMPLATES.map((item) => {
     description: getRoomTemplatePresetDescription(item),
     gameplay: kernel.label,
     category: kernel.categoryLabel,
+    kind: item.parentTemplateKey ? 'preset' : 'custom',
   };
 });
 
@@ -68,6 +69,7 @@ Rules:
 - Use only character ids from the provided roster.
 - Keep user-provided information aligned; fill the missing parts instead of contradicting the input.
 - Choose a topic and member combination that would produce an interesting conversation.
+- Choose suggestedRoomTemplate from validRoomTemplates. Items with kind="custom" mean the user will write their own setup for that gameplay type; choose a concrete preset only when the user's intent clearly matches that preset.
 - Keep the title and topic concise and usable.
 - Never invent ids, fields, or explanations.
 - Output valid JSON only.`;

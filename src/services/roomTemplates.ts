@@ -19,6 +19,7 @@ export type RoomTemplateCategory =
 
 export type RoomTemplateKey =
   | 'open_chat'
+  | 'free_chat_preset'
   | 'companion_hangout'
   | 'fandom_watch_party'
   | 'tea_roast_lounge'
@@ -29,6 +30,7 @@ export type RoomTemplateKey =
   | 'brainstorm_workshop'
   | 'retrospective_room'
   | 'story_reader'
+  | 'default_mystery_story'
   | 'campus_story'
   | 'romance_story'
   | 'palace_intrigue_story'
@@ -172,8 +174,8 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     key: 'open_chat',
     label: '普通互动房',
     description: '开放聊天、陪伴闲聊、伴看吐槽等通用多角色互动。',
-    presetLabel: '自由群聊',
-    presetDescription: '开放聊天、关系推进、自由互动。',
+    presetLabel: '自定义',
+    presetDescription: '不套用固定预设，只保留普通互动房的基础规则。',
     structure: 'conversation',
     category: 'social',
     categoryLabel: '社交互动',
@@ -198,9 +200,8 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     key: 'story_reader',
     label: '故事房',
     description: '用选项和角色反应推动故事分支。',
-    presetLabel: '默认悬疑',
-    presetDescription: '雨夜旧医院、失踪名单和停电脚步声构成的悬疑开局。',
-    sellingPoints: ['关键选择留后果', '线索账本', '章节回看'],
+    presetLabel: '自定义',
+    presetDescription: '从空白故事设定开始，自行填写背景、方向和提纲。',
     structure: 'conversation',
     category: 'story',
     categoryLabel: '互动故事',
@@ -215,9 +216,6 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
       allowPrivateThreads: false,
       allowCliques: false,
       allowMockery: false,
-      storyBackground: '雨夜，旧医院停电后仍有一层楼亮着灯。三名角色为了各自的秘密来到这里，失踪名单上却多出一个不该存在的名字。',
-      storyDirection: '悬疑推进：围绕失踪名单、停电记录和角色隐瞒展开，让用户在追问、搜证、保护或冒险之间做关键选择。',
-      storyOutline: '开场建立旧医院和失踪名单；第一轮制造停电与脚步声压力；随后让用户选择追问知情者、检查血迹或进入档案室。',
     },
     configGroups: [
       {

@@ -468,6 +468,11 @@ export default function CreateChatPage() {
     setAllowPrivateThreads(defaults.allowPrivateThreads ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
     setAllowCliques(defaults.allowCliques ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
     setAllowMockery(defaults.allowMockery ?? (template.sessionKind.family === 'conversation'));
+    if (template.sessionKind.scenarioId === 'story-reader' && !template.parentTemplateKey) {
+      setStoryBackground('');
+      setStoryDirection('');
+      setStoryOutline('');
+    }
     if (defaults.discussionRoundsTarget !== undefined) setDiscussionRoundsTarget(defaults.discussionRoundsTarget);
     if (defaults.storyBranchMode !== undefined) setStoryBranchMode(defaults.storyBranchMode);
     if (defaults.studyGoalLabel !== undefined) setStudyGoalLabel(defaults.studyGoalLabel);
@@ -481,7 +486,11 @@ export default function CreateChatPage() {
     if (defaults.mysteryClueCount !== undefined) setMysteryClueCount(defaults.mysteryClueCount);
   }, [chatDraftDefaults.showRoleActions]);
 
+  const isStoryRoomTemplate = selectedRoomTemplate.sessionKind.scenarioId === 'story-reader';
   const topicPlaceholder = selectedRoomTemplate.topicPlaceholder;
+  const topicLabel = isStoryRoomTemplate
+    ? (isZh ? '开场提示' : 'Opening prompt')
+    : t('chat.topic');
 
   const handleAutofill = useCallback(async () => {
     const profile = getPreferredAIProfile(aiProfiles, 'text') || api;
@@ -510,6 +519,7 @@ export default function CreateChatPage() {
       const appliedStyle = style === chatDraftDefaults.style && suggestion.suggestedStyle;
       const appliedRoleActions = showRoleActions === chatDraftDefaults.showRoleActions && suggestion.suggestedShowRoleActions !== undefined;
       const appliedRoomTemplate = roomTemplate === 'open_chat' && suggestion.suggestedRoomTemplate && suggestion.suggestedRoomTemplate !== roomTemplate;
+      const appliedMembers = !selectedMembers.length && suggestion.suggestedMemberIds?.length && suggestion.suggestedMemberIds.length >= minRequiredMembers;
 
       if (appliedName) setName(suggestion.suggestedName!);
       if (appliedTopic) setTopic(suggestion.suggestedTopic!);
@@ -519,13 +529,11 @@ export default function CreateChatPage() {
       }
       if (appliedRoleActions) setShowRoleActions(suggestion.suggestedShowRoleActions!);
       if (appliedRoomTemplate) applyRoomTemplate(suggestion.suggestedRoomTemplate!);
-      if (!appliedName && !appliedTopic && !appliedStyle && !appliedRoleActions) {
+      if (appliedMembers) setSelectedMembers(suggestion.suggestedMemberIds!);
+      if (!appliedName && !appliedTopic && !appliedStyle && !appliedRoleActions && !appliedRoomTemplate && !appliedMembers) {
         throw new Error(i18n.language.startsWith('zh') ? 'AI 没有返回可用建议' : 'AI did not return usable suggestions');
       }
-      if (!selectedMembers.length && suggestion.suggestedMemberIds?.length && suggestion.suggestedMemberIds.length < MIN_MEMBERS) {
-        throw new Error(i18n.language.startsWith('zh') ? 'AI 没有返回可用建议' : 'AI did not return usable suggestions');
-      }
-      if (!selectedMembers.length && suggestion.suggestedMemberIds?.length && suggestion.suggestedMemberIds.length < MIN_MEMBERS) {
+      if (!selectedMembers.length && suggestion.suggestedMemberIds?.length && suggestion.suggestedMemberIds.length < minRequiredMembers) {
         throw new Error(i18n.language.startsWith('zh') ? 'AI 推荐的成员不足，无法自动补全' : 'Suggested members are insufficient for autofill');
       }
 
@@ -543,6 +551,7 @@ export default function CreateChatPage() {
     chatDraftDefaults.showRoleActions,
     chatDraftDefaults.style,
     i18n.language,
+    minRequiredMembers,
     name,
     roomTemplate,
     selectedMembers,
@@ -935,8 +944,8 @@ export default function CreateChatPage() {
             value={configTab}
             onChange={(value) => handleTabChange(null, value)}
             items={[
-              { value: 0, label: i18n.language.startsWith('zh') ? '设定' : 'Config' },
               ...(showGameplayTab ? [{ value: gameplayTabIndex, label: i18n.language.startsWith('zh') ? '玩法' : 'Gameplay' }] : []),
+              { value: 0, label: i18n.language.startsWith('zh') ? '设定' : 'Config' },
               ...(showManagementTab ? [{ value: managementTabIndex, label: i18n.language.startsWith('zh') ? '管理' : 'Management' }] : []),
               ...(showRuntimeTab ? [{ value: runtimeTabIndex, label: i18n.language.startsWith('zh') ? '记忆' : 'Memory' }] : []),
               ...(showDirectorTab ? [{ value: directorTabIndex, label: i18n.language.startsWith('zh') ? '导演控制' : 'Director' }] : []),
@@ -993,7 +1002,7 @@ export default function CreateChatPage() {
               onToggleMember={toggleMember}
               nameLabel={t('chat.name')}
               namePlaceholder={t('chat.namePlaceholder')}
-              topicLabel={t('chat.topic')}
+              topicLabel={topicLabel}
               selectMembersLabel={isGroupConversation ? t('chat.selectMembers') : (isZh ? '选择角色' : 'Select role')}
               membersHintLabel={isGroupConversation ? t('chat.membersHint') : (isZh ? `${conversationNoun}中的AI角色` : `AI roles in this ${conversationNoun}`)}
               styleLabel={t('chat.style')}
