@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { buildGroupChatDraft } from './chatDraftBuilder';
 import { STORY_ENGINE } from './engines/storyEngine';
-import { buildRoomTemplatePreview, getRoomTemplate } from './roomTemplates';
+import {
+  buildRoomTemplatePreview,
+  getRoomTemplate,
+  listRoomTemplatePresets,
+  listTemplateStructures,
+  listTemplatesByStructureAndCategory,
+} from './roomTemplates';
 import type { RoomTemplateKey } from './roomTemplates';
 
 const storyTemplateKeys: RoomTemplateKey[] = ['story_reader', 'campus_story', 'romance_story', 'palace_intrigue_story'];
@@ -52,6 +58,26 @@ function materializeDraft(draft: ReturnType<typeof buildStoryDraft>) {
 }
 
 describe('roomTemplates story seeds', () => {
+  it('keeps gameplay kernels separate from presets', () => {
+    const conversationStoryKernels = listTemplatesByStructureAndCategory('conversation', 'story').map((template) => template.key);
+    const socialKernels = listTemplatesByStructureAndCategory('conversation', 'social').map((template) => template.key);
+
+    expect(conversationStoryKernels).toEqual(['story_reader']);
+    expect(socialKernels).toEqual(['open_chat']);
+    expect(listRoomTemplatePresets('story_reader').map((template) => template.key)).toEqual([
+      'story_reader',
+      'campus_story',
+      'romance_story',
+      'palace_intrigue_story',
+    ]);
+    expect(listRoomTemplatePresets('open_chat').map((template) => template.key)).toEqual([
+      'open_chat',
+      'companion_hangout',
+      'fandom_watch_party',
+    ]);
+    expect(listTemplateStructures().find((item) => item.value === 'conversation')?.label).toBe('互动房间');
+  });
+
   it('provides editable story seeds for every story-room template', () => {
     for (const key of storyTemplateKeys) {
       const template = getRoomTemplate(key);

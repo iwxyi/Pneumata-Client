@@ -91,6 +91,9 @@ export interface RoomTemplateDefinition {
   key: RoomTemplateKey;
   label: string;
   description: string;
+  parentTemplateKey?: RoomTemplateKey;
+  presetLabel?: string;
+  presetDescription?: string;
   sellingPoints?: string[];
   structure: RoomTemplateStructure;
   category: RoomTemplateCategory;
@@ -111,6 +114,17 @@ export interface RoomTemplatePreview {
   trackedAssets: string[];
 }
 
+const ROOM_TEMPLATE_STRUCTURE_LABELS: Record<RoomTemplateStructure, string> = {
+  conversation: '互动房间',
+  analysis: '讨论协作',
+  study: '学习训练',
+  agent: 'Agent工作流',
+  deduction: '推理游戏',
+  mystery: '剧本案件',
+  board_game: '棋盘策略',
+  simulation: '世界模拟',
+};
+
 function createTemplateSessionKind(type: GroupChat['type'], mode: GroupChat['mode'], patch: Partial<SessionKind>): SessionKind {
   return {
     ...createDefaultSessionKind(type, mode),
@@ -125,8 +139,10 @@ function createTemplate(definition: RoomTemplateDefinition): RoomTemplateDefinit
 export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
   createTemplate({
     key: 'open_chat',
-    label: '自由群聊',
-    description: '开放聊天、关系推进、自由互动。',
+    label: '普通互动房',
+    description: '开放聊天、陪伴闲聊、伴看吐槽等通用多角色互动。',
+    presetLabel: '自由群聊',
+    presetDescription: '开放聊天、关系推进、自由互动。',
     structure: 'conversation',
     category: 'social',
     categoryLabel: '社交互动',
@@ -151,6 +167,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'companion_hangout',
     label: '陪伴闲聊',
     description: '更轻松、偏陪伴和日常生活感。',
+    parentTemplateKey: 'open_chat',
     structure: 'conversation',
     category: 'social',
     categoryLabel: '社交互动',
@@ -175,6 +192,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'fandom_watch_party',
     label: '追剧追番房',
     description: '适合边看边聊、角色实时评论和站队。',
+    parentTemplateKey: 'open_chat',
     structure: 'conversation',
     category: 'social',
     categoryLabel: '社交互动',
@@ -240,6 +258,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'campus_story',
     label: '校园群像',
     description: '适合校园、宿舍、社团群像互动。',
+    parentTemplateKey: 'story_reader',
     sellingPoints: ['友情裂缝', '匿名线索', '站队变化'],
     structure: 'conversation',
     category: 'story',
@@ -279,6 +298,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'romance_story',
     label: '恋爱剧情',
     description: '适合暧昧、恋爱、修罗场和关系推进剧情。',
+    parentTemplateKey: 'story_reader',
     sellingPoints: ['关系拉扯', '选择影响信任', '修罗场回看'],
     structure: 'conversation',
     category: 'story',
@@ -318,6 +338,7 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'palace_intrigue_story',
     label: '权谋宅斗',
     description: '适合侯府、宫廷、家族秘密和多方试探。',
+    parentTemplateKey: 'story_reader',
     sellingPoints: ['太后试探', '侯府旧账', '名声代价'],
     structure: 'conversation',
     category: 'story',
@@ -894,23 +915,49 @@ export function getRoomTemplate(key: RoomTemplateKey) {
   return ROOM_TEMPLATES.find((item) => item.key === key) || ROOM_TEMPLATES[0];
 }
 
+export function isRoomTemplatePreset(template: RoomTemplateDefinition) {
+  return Boolean(template.parentTemplateKey);
+}
+
+export function getRoomTemplateKernel(templateOrKey: RoomTemplateDefinition | RoomTemplateKey) {
+  const template = typeof templateOrKey === 'string' ? getRoomTemplate(templateOrKey) : templateOrKey;
+  return template.parentTemplateKey ? getRoomTemplate(template.parentTemplateKey) : template;
+}
+
+export function getRoomTemplatePresetLabel(template: RoomTemplateDefinition) {
+  return template.presetLabel || template.label;
+}
+
+export function getRoomTemplatePresetDescription(template: RoomTemplateDefinition) {
+  return template.presetDescription || template.description;
+}
+
+export function listRoomTemplateKernels() {
+  return ROOM_TEMPLATES.filter((item) => !isRoomTemplatePreset(item));
+}
+
+export function listRoomTemplatePresets(kernelKey: RoomTemplateKey) {
+  const kernel = getRoomTemplate(kernelKey);
+  return [kernel, ...ROOM_TEMPLATES.filter((item) => item.parentTemplateKey === kernel.key)];
+}
+
 export function listTemplateStructures() {
-  return Array.from(new Map(ROOM_TEMPLATES.map((item) => [item.structure, item])).values()).map((item) => ({
+  return Array.from(new Map(listRoomTemplateKernels().map((item) => [item.structure, item])).values()).map((item) => ({
     value: item.structure,
-    label: item.categoryLabel,
+    label: ROOM_TEMPLATE_STRUCTURE_LABELS[item.structure] || item.categoryLabel,
     family: item.sessionKind.family,
   }));
 }
 
 export function listTemplateCategories(structure: RoomTemplateStructure) {
-  return Array.from(new Map(ROOM_TEMPLATES.filter((item) => item.structure === structure).map((item) => [item.category, item])).values()).map((item) => ({
+  return Array.from(new Map(listRoomTemplateKernels().filter((item) => item.structure === structure).map((item) => [item.category, item])).values()).map((item) => ({
     value: item.category,
     label: item.categoryLabel,
   }));
 }
 
 export function listTemplatesByStructureAndCategory(structure: RoomTemplateStructure, category: RoomTemplateCategory) {
-  return ROOM_TEMPLATES.filter((item) => item.structure === structure && item.category === category);
+  return listRoomTemplateKernels().filter((item) => item.structure === structure && item.category === category);
 }
 
 export function findRoomTemplateBySessionKind(sessionKind: Pick<SessionKind, 'scenarioId' | 'family'>) {

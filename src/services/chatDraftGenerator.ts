@@ -3,9 +3,24 @@ import type { APIConfig } from '../types/settings';
 import type { AICharacter } from '../types/character';
 import type { ChatStyle } from '../types/chat';
 import { CHAT_STYLE_OPTIONS, MAX_MEMBERS } from '../constants/defaults';
-import { ROOM_TEMPLATES, type RoomTemplateKey } from './roomTemplates';
+import {
+  ROOM_TEMPLATES,
+  getRoomTemplateKernel,
+  getRoomTemplatePresetDescription,
+  getRoomTemplatePresetLabel,
+  type RoomTemplateKey,
+} from './roomTemplates';
 const VALID_TEMPLATE_KEYS = new Set<RoomTemplateKey>(ROOM_TEMPLATES.map((item) => item.key));
-const TEMPLATE_SUMMARY = ROOM_TEMPLATES.map((item) => ({ key: item.key, label: item.label, description: item.description, category: item.categoryLabel }));
+const TEMPLATE_SUMMARY = ROOM_TEMPLATES.map((item) => {
+  const kernel = getRoomTemplateKernel(item);
+  return {
+    key: item.key,
+    label: getRoomTemplatePresetLabel(item),
+    description: getRoomTemplatePresetDescription(item),
+    gameplay: kernel.label,
+    category: kernel.categoryLabel,
+  };
+});
 
 const VALID_STYLES = new Set<ChatStyle>(CHAT_STYLE_OPTIONS.map((item) => item.value));
 

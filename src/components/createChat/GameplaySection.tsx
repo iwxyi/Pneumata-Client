@@ -2,7 +2,15 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Accordion, AccordionDetails, AccordionSummary, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import type { RoomTemplateCategory, RoomTemplateConfigGroup, RoomTemplateDefinition, RoomTemplateFieldDefinition, RoomTemplateKey, RoomTemplateStructure } from '../../services/roomTemplates';
-import { listTemplateCategories, listTemplateStructures, listTemplatesByStructureAndCategory } from '../../services/roomTemplates';
+import {
+  getRoomTemplateKernel,
+  getRoomTemplatePresetDescription,
+  getRoomTemplatePresetLabel,
+  listRoomTemplatePresets,
+  listTemplateCategories,
+  listTemplateStructures,
+  listTemplatesByStructureAndCategory,
+} from '../../services/roomTemplates';
 
 const STRUCTURE_LABELS: Record<string, string> = {
   conversation: '互动结构',
@@ -188,14 +196,15 @@ function renderConfigGroup(group: RoomTemplateConfigGroup, props: GameplaySectio
 export default function GameplaySection(props: GameplaySectionProps) {
   const isZh = props.language.startsWith('zh');
   const selectedTemplate = props.roomTemplates.find((item) => item.key === props.roomTemplate) || props.roomTemplates[0];
-  const selectedStructure = inferSelectedStructure(selectedTemplate);
-  const selectedCategory = inferSelectedCategory(selectedTemplate);
-  const selectedFamily = selectedTemplate.sessionKind.family;
+  const selectedKernel = getRoomTemplateKernel(selectedTemplate);
+  const selectedStructure = inferSelectedStructure(selectedKernel);
+  const selectedCategory = inferSelectedCategory(selectedKernel);
+  const selectedFamily = selectedKernel.sessionKind.family;
   const structureLabel = STRUCTURE_LABELS[selectedStructure] || selectedStructure;
   const familyLabel = FAMILY_LABELS[selectedFamily] || selectedFamily;
   const structures = listTemplateStructures();
   const categories = listTemplateCategories(selectedStructure);
-  const categoryTemplates = listTemplatesByStructureAndCategory(selectedStructure, selectedCategory);
+  const selectedPresets = listRoomTemplatePresets(selectedKernel.key);
 
   const handleStructureChange = (structure: RoomTemplateStructure) => {
     const nextCategory = listTemplateCategories(structure)[0]?.value as RoomTemplateCategory | undefined;
@@ -240,7 +249,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
                   <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{item.label}</Typography>
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 0.9, alignItems: 'start' }}>
                     {templates.map((template) => {
-                      const selected = template.key === props.roomTemplate;
+                      const selected = template.key === selectedKernel.key;
                       return (
                         <Button
                           key={template.key}
@@ -300,6 +309,70 @@ export default function GameplaySection(props: GameplaySectionProps) {
               );
             })}
           </Stack>
+
+          {selectedPresets.length > 1 ? (
+            <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 3, p: 1.5 }}>
+              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isZh ? '预设模板' : 'Preset'}</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 0.9, alignItems: 'start' }}>
+                {selectedPresets.map((preset) => {
+                  const selected = preset.key === props.roomTemplate;
+                  return (
+                    <Button
+                      key={preset.key}
+                      variant="text"
+                      color={selected ? 'primary' : 'inherit'}
+                      onClick={() => props.onRoomTemplateChange(preset.key)}
+                      sx={{
+                        justifyContent: 'flex-start',
+                        alignItems: 'stretch',
+                        textTransform: 'none',
+                        borderRadius: 3,
+                        px: 1.35,
+                        py: 1.1,
+                        border: '1px solid',
+                        borderColor: selected ? 'primary.main' : 'divider',
+                        bgcolor: selected ? 'action.selected' : 'background.paper',
+                        boxShadow: 'none',
+                        transition: 'border-color 160ms ease, background-color 160ms ease',
+                        '&:hover': {
+                          bgcolor: selected ? 'action.selected' : 'action.hover',
+                          borderColor: selected ? 'primary.main' : 'text.secondary',
+                        },
+                      }}
+                    >
+                      <Box sx={{ textAlign: 'left', width: '100%', display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{getRoomTemplatePresetLabel(preset)}</Typography>
+                        <Typography variant="caption" color="text.secondary">{getRoomTemplatePresetDescription(preset)}</Typography>
+                        {preset.sellingPoints?.length ? (
+                          <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.15 }}>
+                            {preset.sellingPoints.slice(0, 3).map((point) => (
+                              <Chip
+                                key={point}
+                                size="small"
+                                label={point}
+                                variant="outlined"
+                                sx={{
+                                  height: 20,
+                                  maxWidth: '100%',
+                                  '& .MuiChip-label': {
+                                    px: 0.75,
+                                    fontSize: 11,
+                                    maxWidth: 120,
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                  },
+                                }}
+                              />
+                            ))}
+                          </Stack>
+                        ) : null}
+                      </Box>
+                    </Button>
+                  );
+                })}
+              </Box>
+            </Box>
+          ) : null}
         </Stack>
       </SurfaceCard>
 
