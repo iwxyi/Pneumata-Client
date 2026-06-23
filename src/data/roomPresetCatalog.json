@@ -1,0 +1,210 @@
+[
+  {
+    "key": "companion_hangout",
+    "parentTemplateKey": "open_chat",
+    "label": "陪伴闲聊",
+    "description": "更轻松、偏陪伴和日常生活感。",
+    "style": "free",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "输入今天发生的事、心情或想一起聊的话题",
+    "defaults": {
+      "allowPrivateThreads": true,
+      "allowCliques": false,
+      "allowMockery": false
+    }
+  },
+  {
+    "key": "fandom_watch_party",
+    "parentTemplateKey": "open_chat",
+    "label": "追剧追番房",
+    "description": "适合边看边聊、角色实时评论和站队。",
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "balanced",
+    "topicPlaceholder": "输入你们正在追的剧、番或节目",
+    "defaults": {
+      "allowPrivateThreads": true,
+      "allowCliques": true,
+      "allowMockery": true
+    }
+  },
+  {
+    "key": "tea_roast_lounge",
+    "parentTemplateKey": "open_chat",
+    "label": "吐槽茶话会",
+    "description": "适合轻松吐槽、站队玩梗和关系碰撞。",
+    "style": "free",
+    "runtimeEvolutionIntensity": "fast",
+    "topicPlaceholder": "输入想吐槽的事件、热梗、作品或日常烦恼",
+    "defaults": {
+      "allowPrivateThreads": true,
+      "allowCliques": true,
+      "allowMockery": true
+    }
+  },
+  {
+    "key": "slice_of_life_room",
+    "parentTemplateKey": "open_chat",
+    "label": "日常小剧场",
+    "description": "让角色围绕日常琐事自然互动，适合轻剧情陪伴。",
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "例如：雨天宅家、深夜便利店、周末做饭",
+    "defaults": {
+      "allowPrivateThreads": true,
+      "allowCliques": false,
+      "allowMockery": false
+    }
+  },
+  {
+    "key": "campus_story",
+    "parentTemplateKey": "story_reader",
+    "label": "校园群像",
+    "description": "适合校园、宿舍、社团群像互动。",
+    "sellingPoints": ["友情裂缝", "匿名线索", "站队变化"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "例如：社团招新夜、宿舍停电、匿名告白墙",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": true,
+      "allowMockery": false,
+      "storyBackground": "开学周的夜晚，社团招新名单被人调换，宿舍群里突然出现一张匿名照片。几名学生都在照片角落里留下了无法解释的痕迹。",
+      "storyDirection": "校园群像推进：围绕社团竞争、友情裂缝和匿名照片展开，让用户在维护关系、追查真相和公开质问之间做选择。",
+      "storyOutline": "开场从招新名单异常切入；让角色在宿舍、社团办公室和告白墙之间移动；每个选择都影响信任、站队和秘密暴露。"
+    }
+  },
+  {
+    "key": "romance_story",
+    "parentTemplateKey": "story_reader",
+    "label": "恋爱剧情",
+    "description": "适合暧昧、恋爱、修罗场和关系推进剧情。",
+    "sellingPoints": ["关系拉扯", "选择影响信任", "修罗场回看"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "例如：重逢晚宴、误发语音、雨夜送伞",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": false,
+      "allowMockery": false,
+      "storyBackground": "一场临时取消的订婚宴后，旧情人和现任同时出现在同一间包厢。桌上的手机亮起，误发的语音把三年前的分手真相重新推到所有人面前。",
+      "storyDirection": "情感拉扯推进：围绕误会、旧账、吃醋和保护欲展开，让用户在坦白、试探、回避或当众追问之间做选择。",
+      "storyOutline": "开场建立包厢重逢和误发语音；第一轮让沉默变成压力；后续选择影响信任、占有欲和关系走向。"
+    }
+  },
+  {
+    "key": "palace_intrigue_story",
+    "parentTemplateKey": "story_reader",
+    "label": "权谋宅斗",
+    "description": "适合侯府、宫廷、家族秘密和多方试探。",
+    "sellingPoints": ["太后试探", "侯府旧账", "名声代价"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "例如：新婚夜、太后密诏、侯府旧账",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": true,
+      "allowMockery": false,
+      "storyBackground": "新婚夜的侯府喜帐还未撤下，枕下却藏着一把淬毒短剑。太后密诏、军器监烙印和顾家旧账同时浮出水面，每个来请安的人都像是在替不同势力探口风。",
+      "storyDirection": "权谋宅斗推进：围绕太后试探、侯府旧账、枕下毒剑和贴身丫鬟的隐瞒展开，让用户在示弱、逼问、结盟、反试探和保全名声之间做关键选择。",
+      "storyOutline": "开场从新婚房中的毒剑和军器监烙印切入；第一轮让贴身丫鬟、婆母和太后口信形成三方压力；后续选择影响顾家信任、宫中态度和女主能否掌握主动权。"
+    }
+  },
+  {
+    "key": "detective_case_story",
+    "parentTemplateKey": "story_reader",
+    "label": "本格推理",
+    "description": "适合密室、时间线、证词矛盾和线索拼图。",
+    "sellingPoints": ["线索证词", "密室时间线", "真凶误导"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "例如：雪夜山庄、停摆时钟、消失的钥匙",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": false,
+      "allowMockery": false,
+      "storyBackground": "暴雪封住山庄后，收藏家死在反锁的书房里。墙上的旧钟停在十一点十七分，桌面却摆着一杯仍然温热的红茶，每位客人都有一段无法完全对上的时间线，也都隐瞒着一条不能公开的秘密线索。",
+      "storyDirection": "本格推理推进：围绕密室、停摆时钟、证词矛盾、遗失钥匙和隐藏线索展开，让用户在盘问、复核时间线、检查物证和试探嫌疑人之间做选择。",
+      "storyOutline": "开场建立雪夜封闭环境和反锁书房；第一轮收集各角色时间线；随后让用户选择优先查证物证、证词或隐藏关系。"
+    }
+  },
+  {
+    "key": "urban_secret_story",
+    "parentTemplateKey": "story_reader",
+    "label": "都市秘密",
+    "description": "适合公司、邻里、旧友重逢和现实悬疑。",
+    "sellingPoints": ["职场旧账", "匿名爆料", "现实代价"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "balanced",
+    "topicPlaceholder": "例如：深夜公司群、匿名邮件、旧友重逢",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": true,
+      "allowMockery": false,
+      "storyBackground": "上市前夜，公司内部群突然流出一封匿名邮件，指向三年前被压下的事故。几个旧同事被迫在会议室重聚，每个人都知道邮件里漏掉了最关键的一段录音。",
+      "storyDirection": "都市现实悬疑推进：围绕匿名邮件、事故旧账、职场利益和旧友关系展开，让用户在保全现实利益、追查真相和试探盟友之间做选择。",
+      "storyOutline": "开场从匿名邮件和上市前夜切入；第一轮让会议室里的旧同事互相试探；后续选择影响信任、证据流向和现实代价。"
+    }
+  },
+  {
+    "key": "entertainment_circle_story",
+    "parentTemplateKey": "story_reader",
+    "label": "娱乐圈风波",
+    "description": "适合塌房危机、热搜反转、经纪人与对家博弈。",
+    "sellingPoints": ["热搜线索", "对家下场", "名誉代价"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "balanced",
+    "topicPlaceholder": "例如：颁奖夜、爆料长文、偷拍视频",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": true,
+      "allowMockery": false,
+      "storyBackground": "颁奖礼后台，影后奖杯还没递出去，一段偷拍视频已经冲上热搜。经纪人、对家团队和多年旧友同时出现在休息室门口，每个人都握着一部分能改写舆论的秘密线索。",
+      "storyDirection": "娱乐圈危机推进：围绕偷拍视频、热搜线索、对家博弈和旧友背刺展开，让用户在公关、反击、沉默和当面摊牌之间做关键选择。",
+      "storyOutline": "开场建立颁奖夜和热视频危机；第一轮让各方递出条件或威胁；后续选择影响公众舆论、角色关系和事业走向。"
+    }
+  },
+  {
+    "key": "xianxia_trial_story",
+    "parentTemplateKey": "story_reader",
+    "label": "仙侠试炼",
+    "description": "适合宗门秘境、师徒牵连、灵脉争夺和天命反转。",
+    "sellingPoints": ["宗门试探", "灵脉秘密", "选择代价"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "slow",
+    "topicPlaceholder": "例如：秘境试炼、断剑认主、灵脉异动",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": true,
+      "allowMockery": false,
+      "storyBackground": "宗门秘境开启当夜，封印多年的断剑忽然认主，却指向一个本该没有灵根的外门弟子。长老们各自封锁消息，秘境深处的灵脉也在同一刻开始逆流，旧卷轴上还露出一条被抹去的秘密线索。",
+      "storyDirection": "仙侠试炼推进：围绕断剑认主、灵脉秘密、师徒牵连和宗门暗线展开，让用户在隐瞒、求援、试探长老和深入秘境之间做选择。",
+      "storyOutline": "开场从秘境和断剑异动切入；第一轮制造宗门各方压力；后续选择影响师门信任、灵脉归属和天命走向。"
+    }
+  },
+  {
+    "key": "apocalypse_road_story",
+    "parentTemplateKey": "story_reader",
+    "label": "末日公路",
+    "description": "适合资源短缺、车队猜忌、庇护所谎言和生存选择。",
+    "sellingPoints": ["资源取舍", "车队背叛", "庇护所线索"],
+    "style": "roleplay",
+    "runtimeEvolutionIntensity": "balanced",
+    "topicPlaceholder": "例如：废弃服务区、最后一桶油、无线电求救",
+    "defaults": {
+      "storyBranchMode": "guided",
+      "allowPrivateThreads": false,
+      "allowCliques": true,
+      "allowMockery": false,
+      "storyBackground": "车队抵达废弃服务区时，最后一桶油不翼而飞。无线电里传来附近庇护所的求救声，但地图上那个位置三天前刚被标成污染区，车厢里还留下一张被撕碎的秘密线索路线图。",
+      "storyDirection": "末日生存推进：围绕燃油失踪、无线电求救、车队猜忌、秘密线索路线图和庇护所谎言展开，让用户在救人、查内鬼、保资源和冒险绕路之间做选择。",
+      "storyOutline": "开场建立服务区和燃油危机；第一轮让车队成员暴露不同立场；后续选择影响资源、生存概率和队伍信任。"
+    }
+  }
+]

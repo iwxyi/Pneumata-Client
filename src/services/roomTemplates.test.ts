@@ -12,7 +12,7 @@ import {
 } from './roomTemplates';
 import type { RoomTemplateKey } from './roomTemplates';
 
-const storyTemplateKeys: RoomTemplateKey[] = ['story_reader', 'campus_story', 'romance_story', 'palace_intrigue_story'];
+const storyTemplateKeys = listRoomTemplatePresets('story_reader').map((template) => template.key);
 
 function buildStoryDraft(key: RoomTemplateKey, topic: string, memberIds = ['lin', 'nurse']) {
   const template = getRoomTemplate(key);
@@ -71,12 +71,19 @@ describe('roomTemplates story seeds', () => {
       'campus_story',
       'romance_story',
       'palace_intrigue_story',
+      'detective_case_story',
+      'urban_secret_story',
+      'entertainment_circle_story',
+      'xianxia_trial_story',
+      'apocalypse_road_story',
     ]);
     expect(getRoomTemplatePresetLabel(getRoomTemplate('story_reader'))).toBe('默认悬疑');
     expect(listRoomTemplatePresets('open_chat').map((template) => template.key)).toEqual([
       'open_chat',
       'companion_hangout',
       'fandom_watch_party',
+      'tea_roast_lounge',
+      'slice_of_life_room',
     ]);
     expect(listRoomTemplateKernelsByStructure('conversation').map((template) => template.key)).toEqual([
       'open_chat',

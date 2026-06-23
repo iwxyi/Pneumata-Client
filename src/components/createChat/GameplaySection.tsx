@@ -199,6 +199,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
   const structures = listTemplateStructures();
   const structureKernels = listRoomTemplateKernelsByStructure(selectedStructure);
   const selectedPresets = listRoomTemplatePresets(selectedKernel.key);
+  const selectedPreset = selectedPresets.find((preset) => preset.key === props.roomTemplate) || selectedPresets[0];
 
   const handleStructureChange = (structure: RoomTemplateStructure) => {
     props.onRoomTemplateChange(pickFirstTemplateKey(structure, props.roomTemplate));
@@ -270,64 +271,50 @@ export default function GameplaySection(props: GameplaySectionProps) {
 
           {selectedPresets.length > 1 ? (
             <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.25, bgcolor: 'action.hover' }}>
-              <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isZh ? '预设模板' : 'Preset'}</Typography>
-              <Stack spacing={0.75}>
-                {selectedPresets.map((preset) => {
-                  const selected = preset.key === props.roomTemplate;
-                  return (
-                    <Button
-                      key={preset.key}
-                      variant="text"
-                      color={selected ? 'primary' : 'inherit'}
-                      onClick={() => props.onRoomTemplateChange(preset.key)}
-                      sx={{
-                        justifyContent: 'flex-start',
-                        alignItems: 'stretch',
-                        textTransform: 'none',
-                        borderRadius: 1.5,
-                        px: 1.35,
-                        py: 1,
-                        borderLeft: '3px solid',
-                        borderLeftColor: selected ? 'primary.main' : 'transparent',
-                        bgcolor: selected ? 'background.paper' : 'transparent',
-                        boxShadow: 'none',
-                        transition: 'border-left-color 160ms ease, background-color 160ms ease',
-                        '&:hover': {
-                          bgcolor: 'background.paper',
-                        },
-                      }}
-                    >
-                      <Box sx={{ textAlign: 'left', width: '100%', display: 'flex', flexDirection: 'column', gap: 0.4 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{getRoomTemplatePresetLabel(preset)}</Typography>
-                        <Typography variant="caption" color="text.secondary">{getRoomTemplatePresetDescription(preset)}</Typography>
-                        {preset.sellingPoints?.length ? (
-                          <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.15 }}>
-                            {preset.sellingPoints.slice(0, 3).map((point) => (
-                              <Chip
-                                key={point}
-                                size="small"
-                                label={point}
-                                variant="outlined"
-                                sx={{
-                                  height: 20,
-                                  maxWidth: '100%',
-                                  '& .MuiChip-label': {
-                                    px: 0.75,
-                                    fontSize: 11,
-                                    maxWidth: 120,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                  },
-                                }}
-                              />
-                            ))}
-                          </Stack>
-                        ) : null}
-                      </Box>
-                    </Button>
-                  );
-                })}
-              </Stack>
+              <TextField
+                select
+                label={isZh ? '预设模板' : 'Preset'}
+                value={props.roomTemplate}
+                onChange={(event) => props.onRoomTemplateChange(event.target.value as RoomTemplateKey)}
+                fullWidth
+              >
+                {selectedPresets.map((preset) => (
+                  <MenuItem key={preset.key} value={preset.key}>
+                    {getRoomTemplatePresetLabel(preset)}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Box sx={{ mt: 1, px: 0.25 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  {getRoomTemplatePresetLabel(selectedPreset)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>
+                  {getRoomTemplatePresetDescription(selectedPreset)}
+                </Typography>
+                {selectedPreset.sellingPoints?.length ? (
+                  <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.75 }}>
+                    {selectedPreset.sellingPoints.slice(0, 3).map((point) => (
+                      <Chip
+                        key={point}
+                        size="small"
+                        label={point}
+                        variant="outlined"
+                        sx={{
+                          height: 20,
+                          maxWidth: '100%',
+                          '& .MuiChip-label': {
+                            px: 0.75,
+                            fontSize: 11,
+                            maxWidth: 140,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          },
+                        }}
+                      />
+                    ))}
+                  </Stack>
+                ) : null}
+              </Box>
             </Box>
           ) : null}
         </Stack>

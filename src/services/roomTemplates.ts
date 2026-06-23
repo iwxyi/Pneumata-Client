@@ -1,5 +1,6 @@
 import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity, SessionKind } from '../types/chat';
 import { createDefaultSessionKind } from '../types/chat';
+import roomPresetCatalog from '../data/roomPresetCatalog.json';
 
 export type RoomTemplateStructure = 'conversation' | 'analysis' | 'study' | 'agent' | 'deduction' | 'mystery' | 'board_game' | 'simulation';
 export type RoomTemplateCategory =
@@ -20,6 +21,8 @@ export type RoomTemplateKey =
   | 'open_chat'
   | 'companion_hangout'
   | 'fandom_watch_party'
+  | 'tea_roast_lounge'
+  | 'slice_of_life_room'
   | 'group_discussion'
   | 'roundtable_discussion'
   | 'debate_arena'
@@ -29,6 +32,11 @@ export type RoomTemplateKey =
   | 'campus_story'
   | 'romance_story'
   | 'palace_intrigue_story'
+  | 'detective_case_story'
+  | 'urban_secret_story'
+  | 'entertainment_circle_story'
+  | 'xianxia_trial_story'
+  | 'apocalypse_road_story'
   | 'ielts_coach'
   | 'interview_prep'
   | 'writing_coach'
@@ -136,7 +144,30 @@ function createTemplate(definition: RoomTemplateDefinition): RoomTemplateDefinit
   return definition;
 }
 
-export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
+type RoomTemplatePresetRecord = Omit<RoomTemplateDefinition, 'structure' | 'category' | 'categoryLabel' | 'sessionKind' | 'configGroups'> & {
+  parentTemplateKey: RoomTemplateKey;
+};
+
+function createPresetTemplates(kernels: RoomTemplateDefinition[]) {
+  return (roomPresetCatalog as RoomTemplatePresetRecord[]).map((preset) => {
+    const parent = kernels.find((item) => item.key === preset.parentTemplateKey);
+    if (!parent) throw new Error(`Room preset ${preset.key} references missing parent ${preset.parentTemplateKey}`);
+    return createTemplate({
+      ...preset,
+      structure: parent.structure,
+      category: parent.category,
+      categoryLabel: parent.categoryLabel,
+      sessionKind: parent.sessionKind,
+      style: preset.style || parent.style,
+      runtimeEvolutionIntensity: preset.runtimeEvolutionIntensity || parent.runtimeEvolutionIntensity,
+      topicPlaceholder: preset.topicPlaceholder || parent.topicPlaceholder,
+      defaults: { ...(parent.defaults || {}), ...(preset.defaults || {}) },
+      configGroups: parent.configGroups,
+    });
+  });
+}
+
+const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
   createTemplate({
     key: 'open_chat',
     label: '普通互动房',
@@ -159,56 +190,6 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
           { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
           { key: 'allowCliques', label: '允许小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
           { key: 'allowMockery', label: '允许冲突和嘲讽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
-        ],
-      },
-    ],
-  }),
-  createTemplate({
-    key: 'companion_hangout',
-    label: '陪伴闲聊',
-    description: '更轻松、偏陪伴和日常生活感。',
-    parentTemplateKey: 'open_chat',
-    structure: 'conversation',
-    category: 'social',
-    categoryLabel: '社交互动',
-    sessionKind: createTemplateSessionKind('group', 'open_chat', { family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text', topology: 'group' }),
-    style: 'free',
-    runtimeEvolutionIntensity: 'slow',
-    topicPlaceholder: '输入今天发生的事、心情或想一起聊的话题',
-    defaults: { allowPrivateThreads: true, allowCliques: false, allowMockery: false },
-    configGroups: [
-      {
-        key: 'companion-advanced',
-        label: '陪伴互动规则',
-        fields: [
-          { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
-          { key: 'allowCliques', label: '允许小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
-          { key: 'allowMockery', label: '允许尖锐表达', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
-        ],
-      },
-    ],
-  }),
-  createTemplate({
-    key: 'fandom_watch_party',
-    label: '追剧追番房',
-    description: '适合边看边聊、角色实时评论和站队。',
-    parentTemplateKey: 'open_chat',
-    structure: 'conversation',
-    category: 'social',
-    categoryLabel: '社交互动',
-    sessionKind: createTemplateSessionKind('group', 'open_chat', { family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text', topology: 'group' }),
-    style: 'roleplay',
-    runtimeEvolutionIntensity: 'balanced',
-    topicPlaceholder: '输入你们正在追的剧、番或节目',
-    defaults: { allowPrivateThreads: true, allowCliques: true, allowMockery: true },
-    configGroups: [
-      {
-        key: 'watch-party-advanced',
-        label: '伴看互动规则',
-        fields: [
-          { key: 'allowPrivateThreads', label: '允许私下吐槽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
-          { key: 'allowCliques', label: '允许站队小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
-          { key: 'allowMockery', label: '允许犀利吐槽', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
         ],
       },
     ],
@@ -252,126 +233,6 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
         label: '补充设定',
         fields: [
           { key: 'storyOutline', label: '剧情提纲', kind: 'textarea', placeholder: '可选：写下你已有的大纲、伏笔或关键转折' },
-        ],
-      },
-    ],
-  }),
-  createTemplate({
-    key: 'campus_story',
-    label: '校园群像',
-    description: '适合校园、宿舍、社团群像互动。',
-    parentTemplateKey: 'story_reader',
-    sellingPoints: ['友情裂缝', '匿名线索', '站队变化'],
-    structure: 'conversation',
-    category: 'story',
-    categoryLabel: '互动故事',
-    sessionKind: createTemplateSessionKind('group', 'scripted_play', { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' }),
-    style: 'roleplay',
-    runtimeEvolutionIntensity: 'slow',
-    topicPlaceholder: '例如：社团招新夜、宿舍停电、匿名告白墙',
-    defaults: {
-      storyBranchMode: 'guided',
-      allowPrivateThreads: false,
-      allowCliques: true,
-      allowMockery: false,
-      storyBackground: '开学周的夜晚，社团招新名单被人调换，宿舍群里突然出现一张匿名照片。几名学生都在照片角落里留下了无法解释的痕迹。',
-      storyDirection: '校园群像推进：围绕社团竞争、友情裂缝和匿名照片展开，让用户在维护关系、追查真相和公开质问之间做选择。',
-      storyOutline: '开场从招新名单异常切入；让角色在宿舍、社团办公室和告白墙之间移动；每个选择都影响信任、站队和秘密暴露。',
-    },
-    configGroups: [
-      {
-        key: 'campus-story-required',
-        label: '校园主设定',
-        fields: [
-          { key: 'storyBackground', label: '校园背景', kind: 'textarea', required: true, placeholder: '学校、宿舍、社团、人物关系' },
-          { key: 'storyDirection', label: '剧情方向', kind: 'textarea', required: true, placeholder: '成长、群像、社团竞争、友情或恋爱' },
-        ],
-      },
-      {
-        key: 'campus-story-optional',
-        label: '可选补充',
-        fields: [
-          { key: 'storyOutline', label: '事件提纲', kind: 'textarea', placeholder: '例如：开学周、社团招新、晚自习冲突' },
-        ],
-      },
-    ],
-  }),
-  createTemplate({
-    key: 'romance_story',
-    label: '恋爱剧情',
-    description: '适合暧昧、恋爱、修罗场和关系推进剧情。',
-    parentTemplateKey: 'story_reader',
-    sellingPoints: ['关系拉扯', '选择影响信任', '修罗场回看'],
-    structure: 'conversation',
-    category: 'story',
-    categoryLabel: '互动故事',
-    sessionKind: createTemplateSessionKind('group', 'scripted_play', { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' }),
-    style: 'roleplay',
-    runtimeEvolutionIntensity: 'slow',
-    topicPlaceholder: '例如：重逢晚宴、误发语音、雨夜送伞',
-    defaults: {
-      storyBranchMode: 'guided',
-      allowPrivateThreads: false,
-      allowCliques: false,
-      allowMockery: false,
-      storyBackground: '一场临时取消的订婚宴后，旧情人和现任同时出现在同一间包厢。桌上的手机亮起，误发的语音把三年前的分手真相重新推到所有人面前。',
-      storyDirection: '情感拉扯推进：围绕误会、旧账、吃醋和保护欲展开，让用户在坦白、试探、回避或当众追问之间做选择。',
-      storyOutline: '开场建立包厢重逢和误发语音；第一轮让沉默变成压力；后续选择影响信任、占有欲和关系走向。',
-    },
-    configGroups: [
-      {
-        key: 'romance-story-required',
-        label: '关系主设定',
-        fields: [
-          { key: 'storyBackground', label: '关系背景', kind: 'textarea', required: true, placeholder: '人物关系、相识过程、当前气氛' },
-          { key: 'storyDirection', label: '情感方向', kind: 'textarea', required: true, placeholder: '暧昧、拉扯、修罗场、破镜重圆等' },
-        ],
-      },
-      {
-        key: 'romance-story-optional',
-        label: '可选补充',
-        fields: [
-          { key: 'storyOutline', label: '关键节点', kind: 'textarea', placeholder: '例如：表白、误会、吃醋、和好' },
-        ],
-      },
-    ],
-  }),
-  createTemplate({
-    key: 'palace_intrigue_story',
-    label: '权谋宅斗',
-    description: '适合侯府、宫廷、家族秘密和多方试探。',
-    parentTemplateKey: 'story_reader',
-    sellingPoints: ['太后试探', '侯府旧账', '名声代价'],
-    structure: 'conversation',
-    category: 'story',
-    categoryLabel: '互动故事',
-    sessionKind: createTemplateSessionKind('group', 'scripted_play', { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' }),
-    style: 'roleplay',
-    runtimeEvolutionIntensity: 'slow',
-    topicPlaceholder: '例如：新婚夜、太后密诏、侯府旧账',
-    defaults: {
-      storyBranchMode: 'guided',
-      allowPrivateThreads: false,
-      allowCliques: true,
-      allowMockery: false,
-      storyBackground: '新婚夜的侯府喜帐还未撤下，枕下却藏着一把淬毒短剑。太后密诏、军器监烙印和顾家旧账同时浮出水面，每个来请安的人都像是在替不同势力探口风。',
-      storyDirection: '权谋宅斗推进：围绕太后试探、侯府旧账、枕下毒剑和贴身丫鬟的隐瞒展开，让用户在示弱、逼问、结盟、反试探和保全名声之间做关键选择。',
-      storyOutline: '开场从新婚房中的毒剑和军器监烙印切入；第一轮让贴身丫鬟、婆母和太后口信形成三方压力；后续选择影响顾家信任、宫中态度和女主能否掌握主动权。',
-    },
-    configGroups: [
-      {
-        key: 'palace-intrigue-required',
-        label: '权谋主设定',
-        fields: [
-          { key: 'storyBackground', label: '局势背景', kind: 'textarea', required: true, placeholder: '侯府、宫廷、婚事、家族旧账或势力关系' },
-          { key: 'storyDirection', label: '博弈方向', kind: 'textarea', required: true, placeholder: '宅斗、权谋、宫廷试探、家族秘密、名声危机等' },
-        ],
-      },
-      {
-        key: 'palace-intrigue-optional',
-        label: '可选补充',
-        fields: [
-          { key: 'storyOutline', label: '关键伏笔', kind: 'textarea', placeholder: '例如：太后密诏、嫁妆账册、毒物来源、旧案翻出' },
         ],
       },
     ],
@@ -911,6 +772,11 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
       },
     ],
   }),
+];
+
+export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
+  ...ROOM_TEMPLATE_KERNELS,
+  ...createPresetTemplates(ROOM_TEMPLATE_KERNELS),
 ];
 
 export function getRoomTemplate(key: RoomTemplateKey) {
