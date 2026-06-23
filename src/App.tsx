@@ -24,6 +24,7 @@ import AdminAuditPage from './pages/admin/AdminAuditPage';
 import AdminNotificationsPage from './pages/admin/AdminNotificationsPage';
 import { useAdminAuthStore } from './stores/useAdminAuthStore';
 import { ADMIN_LOGIN_EVENT } from './services/adminApi';
+import { AUTH_SESSION_EXPIRED_EVENT, type AuthSessionExpiredDetail } from './services/authSession';
 import DevUpdatePrompt from './components/common/DevUpdatePrompt';
 import PwaUpdatePrompt from './components/common/PwaUpdatePrompt';
 import './i18n';
@@ -166,6 +167,29 @@ function AdminAuthRedirectHandler() {
   return null;
 }
 
+function AuthSessionRedirectHandler() {
+  const expireCloudSession = useAuthStore((s) => s.expireCloudSession);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<AuthSessionExpiredDetail>).detail || {};
+      expireCloudSession();
+      navigate('/login', {
+        replace: true,
+        state: {
+          from: detail.from,
+          reason: 'expired',
+        },
+      });
+    };
+    window.addEventListener(AUTH_SESSION_EXPIRED_EVENT, handler);
+    return () => window.removeEventListener(AUTH_SESSION_EXPIRED_EVENT, handler);
+  }, [expireCloudSession, navigate]);
+
+  return null;
+}
+
 function DataLoader({ children }: { children: React.ReactNode }) {
   const isLoggedIn = useAuthStore((s) => s.isLoggedIn);
   const authMode = useAuthStore((s) => s.authMode);
@@ -283,6 +307,7 @@ export default function App() {
       <PwaUpdatePrompt />
       {settingsHydrated ? (
         <BrowserRouter>
+          <AuthSessionRedirectHandler />
           <AdminAuthRedirectHandler />
           <DataLoader>
             <RoutedApp />

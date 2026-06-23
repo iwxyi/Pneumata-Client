@@ -4,6 +4,7 @@ import type { BubbleStyleDefinition } from '../types/bubbleStyle';
 import type { AICharacter, CharacterVisualIdentity, CharacterVisualReferenceImage } from '../types/character';
 import type { Message } from '../types/message';
 import { storageKey } from '../constants/brand';
+import { dispatchAuthSessionExpired } from './authSession';
 
 const API_BASE = '/api';
 
@@ -173,6 +174,9 @@ class ApiClient {
     if (!response.ok) {
       const error = await response.json().catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
       const detail = typeof error.detail === 'string' && error.detail ? ` (${error.detail})` : '';
+      if (response.status === 401 || response.status === 403) {
+        dispatchAuthSessionExpired({ status: response.status, path });
+      }
       throw new ApiError(`${error.error || `HTTP ${response.status}`}${detail}`, { code: error.code, status: response.status });
     }
 

@@ -12,21 +12,38 @@ import {
 import PhoneIcon from '@mui/icons-material/Phone';
 import LockIcon from '@mui/icons-material/Lock';
 import { useAuthStore } from '../stores/useAuthStore';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { getLastCloudPhone } from '../services/authSession';
+
+type LoginLocationState = {
+  from?: string | { pathname?: string; search?: string; hash?: string } | null;
+  reason?: string;
+} | null;
+
+function resolveLoginRedirect(state: LoginLocationState) {
+  const from = state?.from;
+  if (typeof from === 'string') return from.startsWith('/login') ? '/' : from;
+  const pathname = from?.pathname || '/';
+  if (pathname.startsWith('/login')) return '/';
+  return `${pathname}${from?.search || ''}${from?.hash || ''}`;
+}
 
 export default function LoginPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { login, sendCode, enterLocalMode, isLoggedIn, isLoading } = useAuthStore();
 
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(() => getLastCloudPhone());
   const [code, setCode] = useState('');
   const [codeSent, setCodeSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState('');
   const [mockCode, setMockCode] = useState('');
   const [sendingCode, setSendingCode] = useState(false);
+  const locationState = location.state as LoginLocationState;
+  const loginReason = locationState?.reason;
 
   // Redirect if already logged in
   useEffect(() => {
@@ -76,11 +93,11 @@ export default function LoginPage() {
     setError('');
     try {
       await login(phone, code);
-      navigate('/', { replace: true });
+      navigate(resolveLoginRedirect(locationState), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败');
     }
-  }, [phone, code, login, navigate]);
+  }, [phone, code, locationState, login, navigate]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -135,6 +152,12 @@ export default function LoginPage() {
             {error}
           </Alert>
         )}
+
+        {loginReason === 'expired' && !error ? (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            登录已过期，请重新获取验证码登录。
+          </Alert>
+        ) : null}
 
         {mockCode && (
           <Alert severity="info" sx={{ mb: 2 }}>

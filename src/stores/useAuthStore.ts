@@ -10,6 +10,7 @@ import { storageKey } from '../constants/brand';
 import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot, hasBootstrapEntityData } from '../services/localToCloudBootstrap';
 import { reportRecoverableError } from '../services/diagnostics';
 import { rememberCloudUserId } from '../services/authStorageScope';
+import { rememberLastCloudPhone } from '../services/authSession';
 import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
 import { setCloudSyncEnabled } from '../services/cloudSyncPreference';
 
@@ -35,6 +36,7 @@ interface AuthStore {
   login: (phone: string, code: string) => Promise<void>;
   enterLocalMode: () => void;
   logout: () => void;
+  expireCloudSession: () => void;
   checkAuth: () => Promise<boolean>;
   setUser: (user: User) => void;
   updateProfile: (updates: Partial<User>) => Promise<void>;
@@ -91,6 +93,7 @@ function setAuthToken(token: string) {
 function setAuthUser(user: User) {
   if (typeof localStorage !== 'undefined') localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
   rememberCloudUserId(user);
+  rememberLastCloudPhone(user.phone);
 }
 
 function applyCloudSyncEntitlement(user: User | null) {
@@ -206,6 +209,20 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     });
   },
 
+  expireCloudSession: () => {
+    const phone = get().user?.phone;
+    if (phone) rememberLastCloudPhone(phone);
+    clearAuthTokenAndUser();
+    setAuthMode('cloud');
+    set({
+      token: null,
+      user: null,
+      isLoggedIn: false,
+      isLoading: false,
+      authMode: 'cloud',
+    });
+  },
+
   checkAuth: async () => {
     const token = get().token;
     if (!token) return false;
@@ -219,11 +236,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       return true;
     } catch (error) {
       if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-        console.warn('[cloud-sync] token rejected; falling back to local mode', { error });
-        resetLocalWorkspaceStoresForAccountBoundary();
-        clearAuthTokenAndUser();
-        setAuthMode('local');
-        set({ token: null, user: null, isLoggedIn: false, authMode: 'local' });
+        get().expireCloudSession();
         return false;
       }
       console.warn('[cloud-sync] auth check unavailable; keeping cloud-local cache active', { error });
