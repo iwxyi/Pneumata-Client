@@ -1,15 +1,14 @@
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Accordion, AccordionDetails, AccordionSummary, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
-import type { RoomTemplateCategory, RoomTemplateConfigGroup, RoomTemplateDefinition, RoomTemplateFieldDefinition, RoomTemplateKey, RoomTemplateStructure } from '../../services/roomTemplates';
+import type { RoomTemplateConfigGroup, RoomTemplateDefinition, RoomTemplateFieldDefinition, RoomTemplateKey, RoomTemplateStructure } from '../../services/roomTemplates';
 import {
   getRoomTemplateKernel,
   getRoomTemplatePresetDescription,
   getRoomTemplatePresetLabel,
+  listRoomTemplateKernelsByStructure,
   listRoomTemplatePresets,
-  listTemplateCategories,
   listTemplateStructures,
-  listTemplatesByStructureAndCategory,
 } from '../../services/roomTemplates';
 
 const STRUCTURE_LABELS: Record<string, string> = {
@@ -91,12 +90,8 @@ function inferSelectedStructure(template: RoomTemplateDefinition): RoomTemplateS
   return template.structure;
 }
 
-function inferSelectedCategory(template: RoomTemplateDefinition): RoomTemplateCategory {
-  return template.category;
-}
-
-function pickFirstTemplateKey(structure: RoomTemplateStructure, category: RoomTemplateCategory, fallback: RoomTemplateKey): RoomTemplateKey {
-  return listTemplatesByStructureAndCategory(structure, category)[0]?.key || fallback;
+function pickFirstTemplateKey(structure: RoomTemplateStructure, fallback: RoomTemplateKey): RoomTemplateKey {
+  return listRoomTemplateKernelsByStructure(structure)[0]?.key || fallback;
 }
 
 function getFieldValue(field: RoomTemplateFieldDefinition, props: GameplaySectionProps) {
@@ -198,22 +193,15 @@ export default function GameplaySection(props: GameplaySectionProps) {
   const selectedTemplate = props.roomTemplates.find((item) => item.key === props.roomTemplate) || props.roomTemplates[0];
   const selectedKernel = getRoomTemplateKernel(selectedTemplate);
   const selectedStructure = inferSelectedStructure(selectedKernel);
-  const selectedCategory = inferSelectedCategory(selectedKernel);
   const selectedFamily = selectedKernel.sessionKind.family;
   const structureLabel = STRUCTURE_LABELS[selectedStructure] || selectedStructure;
   const familyLabel = FAMILY_LABELS[selectedFamily] || selectedFamily;
   const structures = listTemplateStructures();
-  const categories = listTemplateCategories(selectedStructure);
+  const structureKernels = listRoomTemplateKernelsByStructure(selectedStructure);
   const selectedPresets = listRoomTemplatePresets(selectedKernel.key);
 
   const handleStructureChange = (structure: RoomTemplateStructure) => {
-    const nextCategory = listTemplateCategories(structure)[0]?.value as RoomTemplateCategory | undefined;
-    if (!nextCategory) return;
-    props.onRoomTemplateChange(pickFirstTemplateKey(structure, nextCategory, props.roomTemplate));
-  };
-
-  const handleCategoryChange = (category: RoomTemplateCategory) => {
-    props.onRoomTemplateChange(pickFirstTemplateKey(selectedStructure, category, props.roomTemplate));
+    props.onRoomTemplateChange(pickFirstTemplateKey(structure, props.roomTemplate));
   };
 
   return (
@@ -241,74 +229,67 @@ export default function GameplaySection(props: GameplaySectionProps) {
             </Box>
           </Box>
 
-          <Stack spacing={1.5}>
-            {categories.map((item) => {
-              const templates = listTemplatesByStructureAndCategory(selectedStructure, item.value as RoomTemplateCategory);
-              return (
-                <Box key={item.value} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, p: 1.5 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{item.label}</Typography>
-                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 0.9, alignItems: 'start' }}>
-                    {templates.map((template) => {
-                      const selected = template.key === selectedKernel.key;
-                      return (
-                        <Button
-                          key={template.key}
-                          variant="text"
-                          color={selected ? 'primary' : 'inherit'}
-                          onClick={() => props.onRoomTemplateChange(template.key)}
-                          sx={{
-                            justifyContent: 'flex-start',
-                            alignItems: 'stretch',
-                            textTransform: 'none',
-                            borderRadius: 3,
-                            px: 1.35,
-                            py: 1.1,
-                            border: '1px solid',
-                            borderColor: selected ? 'primary.main' : 'divider',
-                            bgcolor: selected ? 'action.selected' : 'background.paper',
-                            boxShadow: 'none',
-                            transition: 'border-color 160ms ease, background-color 160ms ease',
-                            '&:hover': {
-                              bgcolor: selected ? 'action.selected' : 'action.hover',
-                              borderColor: selected ? 'primary.main' : 'text.secondary',
-                            },
-                          }}
-                        >
-                          <Box sx={{ textAlign: 'left', width: '100%', display: 'flex', flexDirection: 'column', gap: 0.4 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 700 }}>{template.label}</Typography>
-                            <Typography variant="caption" color="text.secondary">{template.description}</Typography>
-                            {template.sellingPoints?.length ? (
-                              <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.15 }}>
-                                {template.sellingPoints.slice(0, 3).map((point) => (
-                                  <Chip
-                                    key={point}
-                                    size="small"
-                                    label={point}
-                                    variant="outlined"
-                                    sx={{
-                                      height: 20,
-                                      maxWidth: '100%',
-                                      '& .MuiChip-label': {
-                                        px: 0.75,
-                                        fontSize: 11,
-                                        maxWidth: 120,
-                                        overflow: 'hidden',
-                                        textOverflow: 'ellipsis',
-                                      },
-                                    }}
-                                  />
-                                ))}
-                              </Stack>
-                            ) : null}
-                          </Box>
-                        </Button>
-                      );
-                    })}
-                  </Box>
-                </Box>
-              );
-            })}
-          </Stack>
+          <Box>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isZh ? '玩法类型' : 'Gameplay type'}</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 0.9, alignItems: 'start' }}>
+              {structureKernels.map((template) => {
+                const selected = template.key === selectedKernel.key;
+                return (
+                  <Button
+                    key={template.key}
+                    variant="text"
+                    color={selected ? 'primary' : 'inherit'}
+                    onClick={() => props.onRoomTemplateChange(template.key)}
+                    sx={{
+                      justifyContent: 'flex-start',
+                      alignItems: 'stretch',
+                      textTransform: 'none',
+                      borderRadius: 3,
+                      px: 1.35,
+                      py: 1.1,
+                      border: '1px solid',
+                      borderColor: selected ? 'primary.main' : 'divider',
+                      bgcolor: selected ? 'action.selected' : 'background.paper',
+                      boxShadow: 'none',
+                      transition: 'border-color 160ms ease, background-color 160ms ease',
+                      '&:hover': {
+                        bgcolor: selected ? 'action.selected' : 'action.hover',
+                        borderColor: selected ? 'primary.main' : 'text.secondary',
+                      },
+                    }}
+                  >
+                    <Box sx={{ textAlign: 'left', width: '100%', display: 'flex', flexDirection: 'column', gap: 0.4 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>{template.label}</Typography>
+                      <Typography variant="caption" color="text.secondary">{template.description}</Typography>
+                      {template.sellingPoints?.length ? (
+                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.15 }}>
+                          {template.sellingPoints.slice(0, 3).map((point) => (
+                            <Chip
+                              key={point}
+                              size="small"
+                              label={point}
+                              variant="outlined"
+                              sx={{
+                                height: 20,
+                                maxWidth: '100%',
+                                '& .MuiChip-label': {
+                                  px: 0.75,
+                                  fontSize: 11,
+                                  maxWidth: 120,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                },
+                              }}
+                            />
+                          ))}
+                        </Stack>
+                      ) : null}
+                    </Box>
+                  </Button>
+                );
+              })}
+            </Box>
+          </Box>
 
           {selectedPresets.length > 1 ? (
             <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 3, p: 1.5 }}>

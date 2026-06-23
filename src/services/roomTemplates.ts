@@ -936,6 +936,10 @@ export function listRoomTemplateKernels() {
   return ROOM_TEMPLATES.filter((item) => !isRoomTemplatePreset(item));
 }
 
+export function listRoomTemplateKernelsByStructure(structure: RoomTemplateStructure) {
+  return listRoomTemplateKernels().filter((item) => item.structure === structure);
+}
+
 export function listRoomTemplatePresets(kernelKey: RoomTemplateKey) {
   const kernel = getRoomTemplate(kernelKey);
   return [kernel, ...ROOM_TEMPLATES.filter((item) => item.parentTemplateKey === kernel.key)];

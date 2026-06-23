@@ -4,6 +4,7 @@ import { STORY_ENGINE } from './engines/storyEngine';
 import {
   buildRoomTemplatePreview,
   getRoomTemplate,
+  listRoomTemplateKernelsByStructure,
   listRoomTemplatePresets,
   listTemplateStructures,
   listTemplatesByStructureAndCategory,
@@ -74,6 +75,10 @@ describe('roomTemplates story seeds', () => {
       'open_chat',
       'companion_hangout',
       'fandom_watch_party',
+    ]);
+    expect(listRoomTemplateKernelsByStructure('conversation').map((template) => template.key)).toEqual([
+      'open_chat',
+      'story_reader',
     ]);
     expect(listTemplateStructures().find((item) => item.value === 'conversation')?.label).toBe('互动房间');
   });
