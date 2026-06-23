@@ -545,7 +545,7 @@ function buildStoryProtocolPrompt(basePrompt: string) {
 
 Final story-reader output requirements:
 - Return exactly one valid JSON object, with no markdown and no prose outside JSON.
-- storyEvents is mandatory and must contain at least one narration, speech, or choice_point event. It may also include a chapter_update event for structured chapter indexing.
+- storyEvents is mandatory and must contain at least one visible narration or speech event. It may also include a choice_point event for a real decision pause and a chapter_update event for structured chapter indexing.
 - Use as many narration and speech events as the current story beat needs. Do not follow a fixed event count, and do not stop early just to be concise.
 - Keep content="", extraMessages=null, narrativeText=null, and narrativeBlocks=null for normal story turns.
 - Do not put the visible story in content, narrativeText, markdown, or plain prose.

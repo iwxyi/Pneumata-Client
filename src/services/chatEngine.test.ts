@@ -412,9 +412,13 @@ describe('chatEngine streaming preview', () => {
       recentMessages: [],
     });
 
+    expect(contract).toContain('This is the required shape for story-reader turns');
+    expect(contract).toContain('"content": ""');
+    expect(contract).toContain('"extraMessages": null');
     expect(contract).toContain('"narrativeText": null');
     expect(contract).toContain('"storyEvents": [');
     expect(contract).toContain('Do not copy the JSON shape with storyEvents=null');
+    expect(contract).toContain('must include at least one visible narration or speech event');
     expect(contract).toContain('"narrativeBlocks": null');
     expect(contract).toContain('Story-reader turns must use storyEvents as the authoritative visible story body');
     expect(contract).toContain('"type":"choice_point"');
@@ -428,6 +432,9 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('Keep content="" and extraMessages=null; do not use them as the visible story body');
     expect(contract).toContain('storyEvents.choice_point is the source of truth');
     expect(contract).toContain('Do not output top-level storyChoices for the primary path');
+    expect(contract).not.toContain('按当前请求自然作答');
+    expect(contract).not.toContain('content is the first visible chat bubble');
+    expect(contract).not.toContain('extraMessages is optional. Use null for one bubble');
     expect(contract).not.toContain('"storyChoices": null');
     expect(contract).not.toContain('storyChoices drives the UI');
   });
