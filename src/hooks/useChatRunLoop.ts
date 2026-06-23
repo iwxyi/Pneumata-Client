@@ -102,6 +102,7 @@ export function useChatRunLoop(params: {
   const runLoopRef = useRef<((loopId: string) => Promise<void>) | null>(null);
   const lastPauseGateLogKeyRef = useRef<string | null>(null);
   const ignoreReaderPositionLoopTokenRef = useRef<string | null>(null);
+  const pendingStartChatByLoopTokenRef = useRef<Map<string, GroupChat>>(new Map());
   const activeAbortControllerRef = useRef<AbortController | null>(null);
 
   paramsRef.current = params;
@@ -114,21 +115,29 @@ export function useChatRunLoop(params: {
 
   const runLoop = useCallback(async (loopId: string) => {
     const current = paramsRef.current;
-    if (!current.chat || !current.chatId) return;
-    if (activeRunLoopTokenRef.current === loopId) return;
+    const startedChat = pendingStartChatByLoopTokenRef.current.get(loopId);
+    const loopChat = startedChat || current.chat;
+    if (!loopChat || !current.chatId) {
+      pendingStartChatByLoopTokenRef.current.delete(loopId);
+      return;
+    }
+    if (activeRunLoopTokenRef.current === loopId) {
+      pendingStartChatByLoopTokenRef.current.delete(loopId);
+      return;
+    }
     activeRunLoopTokenRef.current = loopId;
     const [{ runChatLoop }, { resolveSessionEngine }] = await Promise.all([
       import('../services/chatLoopRunner'),
       import('../services/sessionEngineRegistry'),
     ]);
-    const sessionEngine = resolveSessionEngine(current.chat);
+    const sessionEngine = resolveSessionEngine(loopChat);
     const abortController = new AbortController();
     activeAbortControllerRef.current = abortController;
     try {
       await runChatLoop({
         loopId,
         chatId: current.chatId,
-        chat: current.chat,
+        chat: loopChat,
         characters: current.activeMembers,
         api: current.aiProfiles,
         getCurrentMessages: () => projectCurrentChatMessages({
@@ -203,7 +212,7 @@ export function useChatRunLoop(params: {
           pendingTurnWorkCountRef.current = Math.max(0, pendingTurnWorkCountRef.current - 1);
         },
         onSpeakerSelected: (charId: string, speaker?: AICharacter) => {
-          if (!shouldCreateSpeakerStreamingPlaceholder(current.chat)) {
+          if (!shouldCreateSpeakerStreamingPlaceholder(loopChat)) {
             setRunLoopError(null);
             setThinkingId(null);
             current.setCurrentSpeaker(null);
@@ -212,7 +221,7 @@ export function useChatRunLoop(params: {
               loopId,
               speakerId: charId,
               speakerName: speaker?.name || null,
-              phase: current.chat?.scenarioState?.phase || null,
+              phase: loopChat.scenarioState?.phase || null,
             }, 'info');
             return;
           }
@@ -332,6 +341,7 @@ export function useChatRunLoop(params: {
     } finally {
       if (activeAbortControllerRef.current === abortController) activeAbortControllerRef.current = null;
       if (ignoreReaderPositionLoopTokenRef.current === loopId) ignoreReaderPositionLoopTokenRef.current = null;
+      pendingStartChatByLoopTokenRef.current.delete(loopId);
       if (activeRunLoopTokenRef.current === loopId) activeRunLoopTokenRef.current = null;
     }
   }, [isCommitSettled]);
@@ -372,6 +382,7 @@ export function useChatRunLoop(params: {
     current.resetAllCooldowns();
     const newLoopToken = `${conversationChat.id}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     if (options.ignoreReaderPositionOnce) ignoreReaderPositionLoopTokenRef.current = newLoopToken;
+    pendingStartChatByLoopTokenRef.current.set(newLoopToken, conversationChat);
     current.loopTokenRef.current = newLoopToken;
     current.activeChatIdRef.current = conversationChat.id;
     current.isRunningRef.current = true;
@@ -407,6 +418,7 @@ export function useChatRunLoop(params: {
     }, 'info');
     activeAbortControllerRef.current?.abort();
     activeRunLoopTokenRef.current = null;
+    if (loopToken) pendingStartChatByLoopTokenRef.current.delete(loopToken);
     current.loopTokenRef.current = null;
     current.isRunningRef.current = false;
     current.isPausedRef.current = true;
@@ -422,6 +434,7 @@ export function useChatRunLoop(params: {
     activeAbortControllerRef.current?.abort();
     activeAbortControllerRef.current = null;
     activeRunLoopTokenRef.current = null;
+    pendingStartChatByLoopTokenRef.current.clear();
     setThinkingId(null);
     setChatError(null);
     setRunLoopError(null);

@@ -1437,9 +1437,6 @@ export default function ChatDetailPage() {
       } : chat;
       await updateChat(id, actionResult?.chatPatch || {});
       setIsStoryGenerationCancelled(false);
-      isStoryReaderAtTailRef.current = true;
-      setIsStoryReaderAtTail(true);
-      setHasStoryReaderReachedTailIntent(true);
       const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true, immediate: true });
       if (startBlockReason) {
         logDeveloperDiagnostic('story-choice:start-blocked-after-select', {
@@ -1526,9 +1523,6 @@ export default function ChatDetailPage() {
         } : chat;
         await updateChat(id, actionResult?.chatPatch || {});
         setIsStoryGenerationCancelled(false);
-        isStoryReaderAtTailRef.current = true;
-        setIsStoryReaderAtTail(true);
-        setHasStoryReaderReachedTailIntent(true);
         const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true, immediate: true });
         if (startBlockReason) {
           logDeveloperDiagnostic('story-choice:start-blocked-after-custom-direction', {
@@ -1560,9 +1554,6 @@ export default function ChatDetailPage() {
   const handleContinueStoryGeneration = useCallback(() => {
     if (!chat || !id) return;
     setIsStoryGenerationCancelled(false);
-    isStoryReaderAtTailRef.current = true;
-    setIsStoryReaderAtTail(true);
-    setHasStoryReaderReachedTailIntent(true);
     resume();
     const startBlockReason = startConversationLoopIfNeeded(chat, { ignoreReaderPositionOnce: true, immediate: true });
     if (startBlockReason) {
