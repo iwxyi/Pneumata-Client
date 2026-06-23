@@ -57,6 +57,7 @@ import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
 import { buildStoryBranchOptions, getStoryChoiceGateState, normalizeStoryChoiceSuggestions, resolveStoryReaderRole, sanitizeStoryChoicePrompt } from '../services/storyChoices';
+import { resolveSessionScrollCapabilities } from '../services/sessionScrollCapabilities';
 import { messagesShareIdentity } from '../services/messageIdentity';
 import { buildStoryRoomOpeningPreview, type StoryRoomOpeningPreview } from '../services/storyRoomOpeningPreview';
 import type { StoryReaderRole } from '../types/chat';
@@ -236,7 +237,7 @@ export function shouldAutoStartStoryRoom(params: {
   isStoryChoiceSubmitting: boolean;
   hasUserDraft?: boolean;
   hasRunLoopError: boolean;
-  isAutoStickToBottomSuspended?: boolean;
+  canAutoContinueFromTail?: boolean;
 }) {
   return params.hasChat
     && params.hasChatId
@@ -249,7 +250,7 @@ export function shouldAutoStartStoryRoom(params: {
     && !params.isStoryChoiceSubmitting
     && !params.hasUserDraft
     && !params.hasRunLoopError
-    && !params.isAutoStickToBottomSuspended;
+    && params.canAutoContinueFromTail !== false;
 }
 
 export function resolveEffectiveStoryReaderAtTail(params: {
@@ -566,7 +567,7 @@ export default function ChatDetailPage() {
   const [hasStoryReaderReachedTailIntent, setHasStoryReaderReachedTailIntent] = useState(false);
   const [hasStoryUserDraft, setHasStoryUserDraft] = useState(false);
   const [isStoryGenerationCancelled, setIsStoryGenerationCancelled] = useState(false);
-  const [isStoryAutoStickToBottomSuspended, setIsStoryAutoStickToBottomSuspended] = useState(false);
+  const [isExplicitContinuationScrollFollowSuspended, setIsExplicitContinuationScrollFollowSuspended] = useState(false);
   const [narrativeRevealMessageKeys, setNarrativeRevealMessageKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [chatPageSettingsOpen, setChatPageSettingsOpen] = useState(false);
 
@@ -785,6 +786,13 @@ export default function ChatDetailPage() {
   const storyRoomOpeningPreview = useMemo(
     () => buildStoryRoomOpeningPreview(chat, members),
     [chat, members],
+  );
+  const sessionScrollCapabilities = useMemo(
+    () => resolveSessionScrollCapabilities({
+      sessionKind: chat?.sessionKind,
+      explicitContinuationPending: isExplicitContinuationScrollFollowSuspended,
+    }),
+    [chat?.sessionKind, isExplicitContinuationScrollFollowSuspended],
   );
   const initialStoryReadingPosition = useMemo<MessageListScrollPosition | null>(() => {
     if (!isStoryRoom || !id) return null;
@@ -1164,7 +1172,7 @@ export default function ChatDetailPage() {
     userDraftActivityRef.current = null;
     setHasStoryUserDraft(false);
     setIsStoryGenerationCancelled(false);
-    setIsStoryAutoStickToBottomSuspended(false);
+    setIsExplicitContinuationScrollFollowSuspended(false);
   }, [id, isStoryRoom]);
 
   useEffect(() => {
@@ -1371,7 +1379,7 @@ export default function ChatDetailPage() {
     if (pendingStoryChoiceRef.current === choiceKey) return;
     pendingStoryChoiceRef.current = choiceKey;
     setPendingStoryChoiceKey(choiceKey);
-    setIsStoryAutoStickToBottomSuspended(true);
+    setIsExplicitContinuationScrollFollowSuspended(true);
     if (pendingStoryChoiceVisualTimerRef.current) clearTimeout(pendingStoryChoiceVisualTimerRef.current);
     if (storyChoiceSourceMessage?.id) {
       setPendingStoryChoiceVisual({
@@ -1478,7 +1486,7 @@ export default function ChatDetailPage() {
       if (pendingStoryChoiceRef.current === choiceKey) return;
       pendingStoryChoiceRef.current = choiceKey;
       setPendingStoryChoiceKey(choiceKey);
-      setIsStoryAutoStickToBottomSuspended(true);
+      setIsExplicitContinuationScrollFollowSuspended(true);
       let actionSucceeded = false;
       try {
         const choiceMessage = await addMessageStable({
@@ -1560,7 +1568,7 @@ export default function ChatDetailPage() {
   const handleContinueStoryGeneration = useCallback(() => {
     if (!chat || !id) return;
     setIsStoryGenerationCancelled(false);
-    setIsStoryAutoStickToBottomSuspended(true);
+    setIsExplicitContinuationScrollFollowSuspended(true);
     resume();
     const startBlockReason = startConversationLoopIfNeeded(chat, { ignoreReaderPositionOnce: true, immediate: true });
     if (startBlockReason) {
@@ -1776,7 +1784,7 @@ export default function ChatDetailPage() {
     isStoryReaderAtTailRef.current = true;
     setIsStoryReaderAtTail(true);
     setHasStoryReaderReachedTailIntent(true);
-    setIsStoryAutoStickToBottomSuspended(false);
+    setIsExplicitContinuationScrollFollowSuspended(false);
   }, []);
 
   const handleStoryReadingPositionChange = useCallback((position: MessageListScrollPosition) => {
@@ -1820,7 +1828,7 @@ export default function ChatDetailPage() {
       isStoryChoiceSubmitting: isCurrentStoryChoiceSubmitting,
       hasUserDraft: hasStoryUserDraft,
       hasRunLoopError: Boolean(chatError || runLoopError),
-      isAutoStickToBottomSuspended: isStoryAutoStickToBottomSuspended,
+      canAutoContinueFromTail: sessionScrollCapabilities.autoContinueFromTail,
     })) return;
     if (!chat || !id) return;
     setIsStoryGenerationCancelled(false);
@@ -1832,7 +1840,8 @@ export default function ChatDetailPage() {
       hasSavedNonTailStoryReadingPosition,
       hasStoryReaderReachedTailIntent,
       hasUserDraft: hasStoryUserDraft,
-      isAutoStickToBottomSuspended: isStoryAutoStickToBottomSuspended,
+      autoStickToBottom: sessionScrollCapabilities.autoStickToBottom,
+      autoContinueFromTail: sessionScrollCapabilities.autoContinueFromTail,
       storyChoiceGate,
     }, 'info');
     resume();
@@ -1845,7 +1854,7 @@ export default function ChatDetailPage() {
         storyChoiceGate,
       }, startBlockReason === 'waiting_story_choice' ? 'info' : 'warn');
     }
-  }, [canAutoRunConversation, chat, chatError, hasSavedNonTailStoryReadingPosition, hasStoryReaderReachedTailIntent, hasStoryUserDraft, id, isCurrentStoryChoiceSubmitting, isPaused, isRunning, isStoryAutoStickToBottomSuspended, isStoryReaderAtTail, isStoryRoom, isStoryWaitingForChoice, resume, runLoopError, startConversationLoopIfNeeded, storyChoiceGate]);
+  }, [canAutoRunConversation, chat, chatError, hasSavedNonTailStoryReadingPosition, hasStoryReaderReachedTailIntent, hasStoryUserDraft, id, isCurrentStoryChoiceSubmitting, isPaused, isRunning, isStoryReaderAtTail, isStoryRoom, isStoryWaitingForChoice, resume, runLoopError, sessionScrollCapabilities.autoContinueFromTail, sessionScrollCapabilities.autoStickToBottom, startConversationLoopIfNeeded, storyChoiceGate]);
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
@@ -2098,7 +2107,7 @@ export default function ChatDetailPage() {
             onScrollPositionChange={isStoryRoom ? handleStoryReadingPositionChange : undefined}
             narrativeRevealMessageKeys={narrativeRevealMessageKeys}
             onNarrativeRevealComplete={clearNarrativeRevealMessage}
-            disableAutoStickToBottom={Boolean(isStoryRoom && isStoryAutoStickToBottomSuspended)}
+            autoStickToBottom={sessionScrollCapabilities.autoStickToBottom}
           />
         </Box>
         {isRemoteDeletedChat ? null : <Box

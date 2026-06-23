@@ -79,7 +79,7 @@ interface MessageListProps {
   onScrollPositionChange?: (position: MessageListScrollPosition) => void;
   narrativeRevealMessageKeys?: ReadonlySet<string>;
   onNarrativeRevealComplete?: (message: Message) => void;
-  disableAutoStickToBottom?: boolean;
+  autoStickToBottom?: boolean;
 }
 
 function ChoiceMeta({ label, value }: { label: string; value: string }) {
@@ -333,7 +333,7 @@ export default function MessageList({
   onScrollPositionChange,
   narrativeRevealMessageKeys,
   onNarrativeRevealComplete,
-  disableAutoStickToBottom = false,
+  autoStickToBottom = true,
 }: MessageListProps) {
   const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const developerMode = useSettingsStore((state) => state.developerMode);
@@ -749,7 +749,7 @@ export default function MessageList({
   useEffect(() => stopFollowScrollAnimation, [stopFollowScrollAnimation]);
 
   useEffect(() => {
-    if (!disableAutoStickToBottom) return;
+    if (autoStickToBottom) return;
     stopFollowScrollAnimation();
     const snapshot = latestScrollAnchorRef.current || captureScrollAnchor();
     latestScrollAnchorRef.current = snapshot;
@@ -760,7 +760,7 @@ export default function MessageList({
       lastReportedBottomPinnedRef.current = false;
       onBottomPinnedChange?.(false);
     }
-  }, [captureScrollAnchor, disableAutoStickToBottom, onBottomPinnedChange, shouldShowJumpToBottomButton, stopFollowScrollAnimation]);
+  }, [autoStickToBottom, captureScrollAnchor, onBottomPinnedChange, shouldShowJumpToBottomButton, stopFollowScrollAnimation]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -771,7 +771,7 @@ export default function MessageList({
       if (frame != null) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = null;
-        if (shouldStickToBottomRef.current && !disableAutoStickToBottom) {
+        if (shouldStickToBottomRef.current && autoStickToBottom) {
           followScrollToBottom();
           return;
         }
@@ -786,7 +786,7 @@ export default function MessageList({
       observer.disconnect();
       if (frame != null) window.cancelAnimationFrame(frame);
     };
-  }, [disableAutoStickToBottom, followScrollToBottom, restoreScrollAnchor]);
+  }, [autoStickToBottom, followScrollToBottom, restoreScrollAnchor]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -934,7 +934,7 @@ export default function MessageList({
     previousRenderMetricsRef.current = currentMetrics;
 
     if (!hasJumpedToBottomRef.current) return;
-    if (disableAutoStickToBottom) {
+    if (!autoStickToBottom) {
       const snapshot = latestScrollAnchorRef.current;
       if (snapshot) {
         restoreScrollAnchor(snapshot);
@@ -954,17 +954,17 @@ export default function MessageList({
     }
 
     followScrollToBottom();
-  }, [disableAutoStickToBottom, followScrollToBottom, renderItems, restoreScrollAnchor, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
+  }, [autoStickToBottom, followScrollToBottom, renderItems, restoreScrollAnchor, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
 
   useLayoutEffect(() => {
     const previousValue = previousStoryChoiceSubmittingValueRef.current;
     previousStoryChoiceSubmittingValueRef.current = storyChoiceSubmittingValue;
     if (!storyChoiceSubmittingValue || previousValue === storyChoiceSubmittingValue) return;
-    if (disableAutoStickToBottom) return;
+    if (!autoStickToBottom) return;
     if (!hasJumpedToBottomRef.current) return;
     shouldStickToBottomRef.current = true;
     followScrollToBottom();
-  }, [disableAutoStickToBottom, followScrollToBottom, storyChoiceSubmittingValue]);
+  }, [autoStickToBottom, followScrollToBottom, storyChoiceSubmittingValue]);
 
   useEffect(() => {
     if (!isLoadingOlder) {
@@ -1016,7 +1016,7 @@ export default function MessageList({
         const isScrollingDown = container.scrollTop > previousScrollTop + 2;
         updateAdaptiveBottomPrefetch(container, isScrollingDown);
         lastScrollTopRef.current = container.scrollTop;
-        if (disableAutoStickToBottom && !hasUserScrollIntentRef.current) {
+        if (!autoStickToBottom && !hasUserScrollIntentRef.current) {
           shouldStickToBottomRef.current = false;
           setShowJumpToBottom(shouldShowJumpToBottomButton(container));
           if (lastReportedBottomPinnedRef.current !== false) {
@@ -1041,7 +1041,7 @@ export default function MessageList({
         scheduleRememberScrollAnchor();
 
         const distanceFromBottom = getDistanceFromBottom(container);
-        if (!disableAutoStickToBottom && distanceFromBottom < getAdaptiveBottomThreshold(container)) {
+        if (autoStickToBottom && distanceFromBottom < getAdaptiveBottomThreshold(container)) {
           triggerReachBottom();
         } else {
           bottomLoadTriggeredRef.current = false;
