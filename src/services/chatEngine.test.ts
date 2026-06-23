@@ -1145,6 +1145,7 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
     expect(generateResponseMock.mock.calls[1]?.[1]).toContain('old top-level body container');
     expect(generateResponseMock.mock.calls[1]?.[1]).not.toContain('narrativeText');
+    expect(generateResponseMock.mock.calls[1]?.[1]).not.toContain('legacy narrativeBlocks');
     expect(message.content).toBe('');
     expect(message.extraMessages).toBeNull();
     expect(message.metadata?.narrativeTurn?.blocks[0]?.text).toContain('走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。');
@@ -1442,7 +1443,10 @@ describe('chatEngine streaming preview', () => {
     });
 
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('Story protocol retry');
+    const retryPrompt = String(generateResponseMock.mock.calls[1]?.[1] || '');
+    expect(retryPrompt).toContain('Story protocol retry');
+    expect(retryPrompt).toContain('old top-level body container');
+    expect(retryPrompt).not.toContain('legacy narrativeBlocks');
     expect(message.content).toBe('');
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
       expect.objectContaining({ actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: expect.stringContaining('雨滴砸在青石阶上。') }),

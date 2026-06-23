@@ -628,7 +628,7 @@ function validateStoryReaderGeneration(params: {
     extraMessages?: unknown;
   }) | null;
   if (!visibleEvents.length) {
-    if (hasLegacyNarrativeBlocks(parsed?.narrativeBlocks) || params.narrativeBlocks?.length) {
+    if (hasLegacyNarrativeBlocks(parsed?.narrativeBlocks)) {
       return {
         code: 'legacy_narrative_blocks',
         message: '故事房生成结果使用了 legacy narrativeBlocks 作为正文，必须改为 storyEvents。',
@@ -644,6 +644,12 @@ function validateStoryReaderGeneration(params: {
       return {
         code: 'legacy_content_body',
         message: '故事房生成结果使用了 content 作为正文，必须改为 storyEvents。',
+      };
+    }
+    if (!parsed && ((params.rawContent || '').trim() || (params.finalResponse || '').trim())) {
+      return {
+        code: 'plain_text_body',
+        message: '故事房生成结果使用了纯文本正文，必须改为 storyEvents。',
       };
     }
     return {
@@ -687,6 +693,7 @@ function toModelSafeStoryProtocolReason(issue: NonNullable<ReturnType<typeof val
     case 'legacy_narrative_blocks':
     case 'legacy_narrative_text':
     case 'legacy_content_body':
+    case 'plain_text_body':
       return 'visible story text was placed in an old top-level body container instead of storyEvents';
     case 'story_events_missing':
       return 'the response did not include a visible storyEvents narration or speech event';
@@ -2185,21 +2192,18 @@ async function generateWithPrompt(params: {
   const rawNarrativeText = typeof parsedEnvelope?.narrativeText === 'string' ? parsedEnvelope.narrativeText : '';
   const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, Boolean(parsedEnvelope?.intentionalRepeat), params.surface);
   const finalizedNarrativeText = rawNarrativeText ? trimHumanChatStyle(rawNarrativeText, true) : '';
-  const allowPlainNarratorFallback = params.chat.sessionKind?.scenarioId === 'story-reader'
-    && !parsedEnvelope
-    && params.speaker.id === 'narrator'
-    && !params.chat.memberIds.includes(params.speaker.id);
+  const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const narrativeBlocks = normalizeStoryNarrativeBlocks({
     blocks: parsedEnvelope?.narrativeBlocks,
     events: parsedEnvelope?.storyEvents,
     characters: params.characters,
-    fallbackNarrativeText: finalizedNarrativeText || (allowPlainNarratorFallback ? finalizedResponse : ''),
+    fallbackNarrativeText: isStoryReader ? '' : finalizedNarrativeText,
   });
-  const keepStoryEventsAsContent = params.chat.sessionKind?.scenarioId === 'story-reader'
+  const keepStoryEventsAsContent = isStoryReader
     && storyEvents.length > 0
     && !params.chat.memberIds.includes(params.speaker.id);
   const finalResponse = narrativeBlocks.length && !keepStoryEventsAsContent ? '' : finalizedResponse;
-  const extraMessages = params.chat.sessionKind?.scenarioId === 'story-reader' ? null : normalizeExtraMessages({
+  const extraMessages = isStoryReader ? null : normalizeExtraMessages({
     content: finalResponse,
     extraMessages: parsedEnvelope?.extraMessages,
     intent: params.intent,
