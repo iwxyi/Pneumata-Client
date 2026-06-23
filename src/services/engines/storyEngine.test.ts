@@ -828,7 +828,8 @@ describe('STORY_ENGINE', () => {
 
     expect(prompt?.additionalConstraints).toEqual(expect.arrayContaining([
       expect.stringContaining('Novel-continuity mode'),
-      expect.stringContaining('Begin from the last visible beat'),
+      expect.stringContaining('Previous visible beat ended at'),
+      expect.stringContaining('Start after this moment'),
       expect.stringContaining('门外那道影子终于从窗纸上退开'),
       expect.stringContaining('location=侯府新房'),
     ]));

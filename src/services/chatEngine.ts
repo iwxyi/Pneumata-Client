@@ -41,7 +41,7 @@ import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanne
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
-import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryContinuationState, buildStoryEventsVisibleText, evaluateStoryContinuationQuality, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
+import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryContinuationState, buildStoryEventsVisibleText, evaluateStoryContinuationQuality, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents, type StoryContinuationState } from './narrativeRuntime';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
@@ -580,6 +580,24 @@ Story protocol retry:
 - Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
 - Keep this beat concise enough for live chat reading: use at most ${MAX_STORY_VISIBLE_EVENTS_PER_TURN} visible narration/speech events and keep the total visible story under ${MAX_STORY_VISIBLE_CHARS_PER_TURN} Chinese characters.
 - Rejected draft: ${priorAttempt.slice(0, 360)}`;
+}
+
+function buildStoryContinuityQualityRetryPrompt(
+  basePrompt: string,
+  reason: string,
+  state?: StoryContinuationState | null,
+) {
+  return `${buildStoryProtocolPrompt(basePrompt)}
+
+Story continuity retry:
+- The previous draft was rejected because it did not continue as the next page of the same novel: ${reason}
+- Do not quote, paraphrase, or restate the previous visible beat. Treat it only as the point immediately before this beat.
+${state?.lastVisibleBeat ? `- Previous visible beat ended at: ${state.lastVisibleBeat}` : ''}
+${state?.lastSpokenLine ? `- Latest spoken line still in the air: ${state.lastSpokenLine}` : ''}
+- Start after that moment with the next observable action, reaction, consequence, or spoken line.
+- Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
+- Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
+- Keep this beat concise enough for live chat reading: use at most ${MAX_STORY_VISIBLE_EVENTS_PER_TURN} visible narration/speech events and keep the total visible story under ${MAX_STORY_VISIBLE_CHARS_PER_TURN} Chinese characters.`;
 }
 
 function hasLegacyNarrativeBlocks(value: unknown) {
@@ -2264,7 +2282,9 @@ async function generateNonDuplicateResponse(params: {
             ...('details' in storyProtocolIssue ? storyProtocolIssue.details : {}),
           },
         });
-        prompt = buildStoryProtocolQualityRetryPrompt(params.systemPrompt, draft, storyProtocolIssue.message);
+        prompt = storyProtocolIssue.code === 'story_continuity_invalid'
+          ? buildStoryContinuityQualityRetryPrompt(params.systemPrompt, storyProtocolIssue.message, storyContinuationState)
+          : buildStoryProtocolQualityRetryPrompt(params.systemPrompt, draft, storyProtocolIssue.message);
         continue;
       }
       logAiGenerationFailure({

@@ -614,7 +614,11 @@ describe('chatEngine streaming preview', () => {
     });
 
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('故事房下一节没有按小说连续阅读接续');
+    const retryPrompt = String(generateResponseMock.mock.calls[1]?.[1] || '');
+    expect(retryPrompt).toContain('故事房下一节没有按小说连续阅读接续');
+    expect(retryPrompt).toContain('Story continuity retry');
+    expect(retryPrompt).toContain('Start after that moment');
+    expect(retryPrompt).not.toContain('Rejected draft:');
     expect(message.content).toContain('影子退开后');
     expect(message.content).not.toContain('前情');
   });

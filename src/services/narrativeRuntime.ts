@@ -853,7 +853,7 @@ export function buildStoryContinuationState(params: {
     lastVisibleBeat,
     lastSpokenLine,
     entryInstruction: lastVisibleBeat
-      ? `Begin from the last visible beat instead of resetting the scene: ${lastVisibleBeat}`
+      ? `Previous visible beat ended at: ${lastVisibleBeat}. Start after this moment with the next observable action, reaction, consequence, or spoken line; do not quote or restate that sentence.`
       : 'Continue from the current scene state; do not summarize the premise again.',
     rhythmNotes,
   };
