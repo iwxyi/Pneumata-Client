@@ -530,6 +530,7 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).not.toContain('Hard constraints for this reply');
     expect(prompt).not.toContain('Response surface:');
     expect(prompt).not.toContain('mediaDecision');
+    expect(generateResponseMock.mock.calls[0]?.[4]).toEqual(expect.objectContaining({ responseFormat: 'json' }));
 
     expect(message.senderId).toBe('narrator');
     expect(message.content).toContain('雨水顺着医院旧楼的铁门往下流');

@@ -2219,7 +2219,10 @@ async function generateWithPrompt(params: {
           streamBridge.push(raw);
       }
       : undefined,
-    { signal: params.signal },
+    {
+      signal: params.signal,
+      responseFormat: params.chat.sessionKind?.scenarioId === 'story-reader' ? 'json' : 'text',
+    },
   );
   logRawAiResponse({ chat: params.chat, speaker: params.speaker, attempt: params.attempt, response });
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
