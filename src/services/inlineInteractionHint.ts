@@ -182,12 +182,13 @@ export function buildInlineInteractionContract(params: {
     audio: boolean;
   };
 }) {
+  const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const transcriptScope = buildRecentTranscriptScope(params.recentMessages);
   const recentSocialEvents = buildRecentSocialEventContext(params.chat)
     .map((event) => `- ${event.eventKind}${event.title ? ` / ${event.title}` : ''}${event.activityType ? ` / ${event.activityType}` : ''}: ${event.summary}`)
     .join('\n');
 
-  const mediaExample = params.mediaCapabilities?.image || params.mediaCapabilities?.audio
+  const mediaExample = !isStoryReader && (params.mediaCapabilities?.image || params.mediaCapabilities?.audio)
     ? `,\n  "mediaDecision": {${params.mediaCapabilities.image ? `\n    "image": {\n      "shouldGenerate": false,\n      "reason": "只有当这条消息确实需要视觉补充时才为 true",\n      "prompt": null,\n      "altText": null\n    }` : ''}${params.mediaCapabilities.image && params.mediaCapabilities.audio ? ',' : ''}${params.mediaCapabilities.audio ? `\n    "audio": {\n      "shouldGenerate": false,\n      "reason": "只有当这条消息特别适合语音播放时才为 true",\n      "text": null,\n      "voiceProfileId": null\n    }` : ''}\n  }`
     : '';
 
@@ -197,7 +198,7 @@ export function buildInlineInteractionContract(params: {
 3. intentionalRepeat=true is not limited to exact same text. It can cover deliberate repeated tone, keyword, rhythm, format, or call-and-response structure.
 4. Do not use intentionalRepeat=true for accidental template drift. If you are merely falling back into the same opener, explanation scaffold, punctuation habit, or generic answer shape, set false and rewrite with a different discourse move.`;
 
-  const mediaRules = (params.mediaCapabilities?.image || params.mediaCapabilities?.audio
+  const mediaRules = (!isStoryReader && (params.mediaCapabilities?.image || params.mediaCapabilities?.audio)
     ? `\n\nRules for mediaDecision:\n1. mediaDecision is required when a media capability is available. If no media is needed, set shouldGenerate=false for each available media type.\n${params.mediaCapabilities.image ? '2. For image, set image.shouldGenerate=true when the user asks to see, view, receive, test, or be shown a picture/photo/screenshot/selfie, or when your content says or implies that you are showing/sending an image. If true, write prompt and altText based on the speaker identity, personality, behavior, current line, and recent context.\n3. Do not pretend the user can see a picture in content unless image.shouldGenerate=true. If you choose not to generate an image, explain briefly in character instead of saying “you see/look at this/just sent”.\n4. image.prompt must be a complete image-generation prompt, not a short label. Include the visual subject, scene/location, action or moment, mood, composition, lighting, and concrete details that are justified by the speaker and recent context.\n5. Treat the requested image type as the center of the prompt. A selfie should detail the person; a milk tea or food image should detail the drink/food, packaging, table, lighting, hand/props, and why this character would frame it that way; a sports/activity image should detail motion, gear, posture, sweat/weather, location, and social energy; an object/product/environment image should detail material, scale, use context, and surrounding clues.\n6. Make every image feel like it belongs to the speaker and current conversation, not like a generic stock image. Use the character identity, personality, habits, hobbies, social role, taste level, likely budget, environment, behavior, and relationships to choose concrete visual details, while keeping them temporary and context-dependent.\n7. Prefer believable chat-photo realism when the message implies a photo/snapshot: natural phone camera perspective, plausible lens and distance, ordinary indoor/outdoor lighting, mild motion blur or imperfect framing when appropriate, real material texture, background clutter, and small lived-in details. Avoid glossy stock-photo polish, plastic skin, over-symmetry, impossible hands, unreadable text, extra limbs, duplicated faces, watermark-like marks, and text overlays.\n8. For a recurring character appearing in the image, keep stable identity anchors across images when known or reasonably inferred: age range, face shape, hair length/color/style, usual vibe, body type, signature accessories, and baseline fashion taste. Vary temporary clothes, pose, lighting, location, expression, and activity according to the current scene.\n9. For group photos or activity photos, describe every visible participant separately with stable identity anchors, relative positions, interactions, scale, and the shared environment. Do not collapse multiple characters into generic people.\n10. If the conversation says the character is eating hotpot, hiking, at work, in a rural home, taking a group photo, or showing a product/food/object, reflect that current scene. If no scene is established, choose a natural in-character setting for this specific image type instead of a generic portrait.\n11. The prompt should describe the artifact to generate, not the chat UI. Avoid unrelated generic portraits, watermarks, captions, UI screenshots, URLs, or text-heavy images.\n12. altText should be concise but specific enough for future AI context.\n' : ''}${params.mediaCapabilities.audio ? '13. For audio, only set shouldGenerate=true when this exact text benefits from voice playback. audio.text must be the spoken version of content and must not add new facts.\n' : ''}14. Never output URLs, base64, markdown image links, or binary data.`
     : '') + intentionalRepeatRules;
 
@@ -207,7 +208,7 @@ export function buildInlineInteractionContract(params: {
   const aiDirectInteractionRules = params.chat.type === 'ai_direct'
     ? '\n8. In AI direct chats, target the other participant when the turn clearly supports, challenges, probes, defends, mocks, or dismisses them; do not target the speaker or the user unless the user is an actual participant.'
     : '';
-  const storyNarrativeRules = params.chat.sessionKind?.scenarioId === 'story-reader'
+  const storyNarrativeRules = isStoryReader
     ? `\n\nRules for story event DSL:
 1. Story-reader turns must use storyEvents as the authoritative visible story body. Do not copy the JSON shape with storyEvents=null for a normal story turn.
 2. storyEvents must be an ordered array for every normal story-reader turn and must include at least one visible narration or speech event. Do not set storyEvents=null; even a single spoken line must be represented as a speech event. Use as many narration and speech events as the current story beat needs; do not pad, truncate, or stop early just to fit a fixed count. Each event is one of:
@@ -223,15 +224,13 @@ export function buildInlineInteractionContract(params: {
 8. Put each narration and each character line in its own event, preserving story order. Do not merge narration and speech into one event.
 9. Do not output alternate rewrites of the same moment. If you revise a narration or spoken line, keep only the final version; do not include both drafts in storyEvents.
 10. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
-11. Put user decision pauses in a choice_point event. Do not render choices inside content, extraMessages, or a separate visible prose block.
+11. Put user decision pauses in a choice_point event. Do not render choices in any top-level field outside storyEvents or in a separate visible prose block.
 12. Write visible scene execution, not author notes, beat analysis, future outline, or summaries like "接下来剧情将". If the user just chose a branch, first show what immediately changes on screen: a cost, clue, relationship shift, danger, or opportunity.
 13. For non-choice beats, write a satisfying readable section rather than a minimal stub. Let the scene breathe with consequences, sensory detail, movement, and dialogue when useful. Stop only when the beat naturally lands on a hook or a genuine choice point.
-14. narrativeBlocks is a legacy fallback. Keep it null when storyEvents is present.
-15. content and extraMessages are legacy chat fields in story-reader turns. Keep content="" and extraMessages=null; do not use them as the visible story body.
-16. narrativeText is optional legacy context text; if present it must match only the prose portions. Do not rely on it for visible story rendering.
-17. chapter_update is structured metadata for the chapter sidebar. It is not visible body text. Use it when opening a new chapter, renaming the current chapter, or settling a chapter; do not invent a generic title such as "阶段回顾".`
+14. chapter_update is structured metadata for the chapter sidebar. It is not visible body text. Use it when opening a new chapter, renaming the current chapter, or settling a chapter; do not invent a generic title such as "阶段回顾".
+15. Do not put visible story prose or dialogue in any top-level field outside storyEvents.`
     : '';
-  const storyChoiceRules = params.chat.sessionKind?.scenarioId === 'story-reader'
+  const storyChoiceRules = isStoryReader
     ? `\n\nRules for story choice points:
 1. Most turns should not contain a choice_point; keep the story moving normally unless the scene has reached a real fork.
 2. Add exactly one storyEvents choice_point with 2-4 options only when user participation would improve the story.
@@ -241,14 +240,10 @@ export function buildInlineInteractionContract(params: {
 6. Each choice_point option must be shaped as {"label":"让某人做具体动作","prompt":"选择后要推进的具体后果","intent":"选择的戏剧功能","risk":"可能代价","reward":"可能收益"}.
 7. Do not output top-level storyChoices for the primary path. storyEvents.choice_point is the source of truth. If a legacy storyChoices field is emitted for compatibility, it must exactly mirror the choice_point options and will have lower priority than storyEvents.`
     : '';
-  if (params.chat.sessionKind?.scenarioId === 'story-reader') {
+  if (isStoryReader) {
     return `\n\nOutput contract:
 Return one valid JSON object only. This is the required shape for story-reader turns:
 {
-  "content": "",
-  "extraMessages": null,
-  "narrativeText": null,
-  "narrativeBlocks": null,
   "storyEvents": [
     { "type": "chapter_update", "title": "短章节名", "summary": "可选章节摘要", "status": "active" },
     { "type": "narration", "actorId": "narrator", "text": "写一段当前场景中可见的动作或后果。" },
@@ -270,11 +265,9 @@ JSON validity rules:
 
 Story-reader visible body rule:
 1. storyEvents is the only visible story body.
-2. content must be exactly "".
-3. extraMessages, narrativeText, and narrativeBlocks must be null.
-4. Never put story prose or dialogue in content, extraMessages, narrativeText, narrativeBlocks, markdown, or plain text outside JSON.
-5. Every normal story turn needs at least one storyEvents narration or speech event, even if it also contains a chapter_update or choice_point.
-6. interactionHints, conflictFocus, and socialEventHints are optional diagnostics; keep them null unless the current story event itself provides specific evidence.
+2. Never put story prose or dialogue in markdown, plain text outside JSON, or any top-level field outside storyEvents.
+3. Every normal story turn needs at least one storyEvents narration or speech event, even if it also contains a chapter_update or choice_point.
+4. interactionHints, conflictFocus, and socialEventHints are optional diagnostics; keep them null unless the current story event itself provides specific evidence.
 
 Recent transcript scope:
 ${transcriptScope}${recentSocialEvents ? `\n\nRecent social events to avoid duplicating:\n${recentSocialEvents}` : ''}`;

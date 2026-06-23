@@ -548,8 +548,7 @@ Final story-reader output requirements:
 - storyEvents is mandatory and must contain at least one visible narration or speech event. It may also include a choice_point event for a real decision pause and a chapter_update event for structured chapter indexing.
 - Write a complete novel-like section, not a stub. Aim for roughly 900-1600 Chinese characters for ordinary story beats, and 1200-2200 Chinese characters for consequence, reveal, danger, or chapter-climax beats when the scene needs room.
 - Use as many narration and speech events as the current story beat needs. Do not follow a fixed event count, do not pad with filler, and do not stop early just to be concise.
-- Keep content="", extraMessages=null, narrativeText=null, and narrativeBlocks=null for normal story turns.
-- Do not put the visible story in content, narrativeText, markdown, or plain prose.
+- Put all visible story text inside storyEvents only. Do not write story prose as markdown, plain text, or any separate top-level prose container.
 - If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.
 - If you output a choice_point, each choice should include label, prompt, intent, risk, and reward.
 - Before a choice_point, first write enough visible story for the reader to feel the pressure, cost, clue, or relationship shift on screen. Do not stop after only a few setup paragraphs just to ask for input.
@@ -557,20 +556,12 @@ Final story-reader output requirements:
 - When opening or settling a chapter, add one chapter_update event with title and optional summary/status; do not put chapter metadata in visible prose.`;
 }
 
-function buildStoryProtocolRetryPrompt(basePrompt: string, priorAttempt: string) {
-  return `${buildStoryProtocolPrompt(basePrompt)}
-
-Story protocol retry:
-- The previous draft was rejected because it did not provide a structured story body.
-- Rejected draft: ${priorAttempt.slice(0, 240)}`;
-}
-
 function buildStoryProtocolQualityRetryPrompt(basePrompt: string, reason: string) {
   return `${buildStoryProtocolPrompt(basePrompt)}
 
 Story protocol retry:
 - The previous draft was rejected because it violated the storyEvents contract: ${reason}
-- Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
+- Return storyEvents as the only visible story body.
 - Output one committed, complete novel-like section only. Expand the actual current beat with concrete action, consequence, pressure, clue movement, sensory detail, and useful dialogue; do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
 - Do not reuse any wording, paragraph, opening frame, final image, or dialogue from the rejected draft.`;
 }
@@ -587,7 +578,7 @@ Story continuity retry:
 - Do not quote, paraphrase, or restate the previous visible beat. Treat it only as the point immediately before this beat; the exact text is already in the transcript and must not be copied.
 ${state?.lastSpokenLine ? '- The latest spoken line is already in the transcript and still needs a response; answer its pressure without repeating the line.' : ''}
 - Start after the final visible moment with the next observable action, reaction, consequence, or spoken line.
-- Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
+- Return storyEvents as the only visible story body.
 - Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.`;
 }
 
@@ -689,6 +680,23 @@ function validateStoryReaderGeneration(params: {
     };
   }
   return null;
+}
+
+function toModelSafeStoryProtocolReason(issue: NonNullable<ReturnType<typeof validateStoryReaderGeneration>>) {
+  switch (issue.code) {
+    case 'legacy_narrative_blocks':
+    case 'legacy_narrative_text':
+    case 'legacy_content_body':
+      return 'visible story text was placed in an old top-level body container instead of storyEvents';
+    case 'story_events_missing':
+      return 'the response did not include a visible storyEvents narration or speech event';
+    case 'story_continuity_invalid':
+      return issue.message;
+    case 'story_section_too_short':
+      return 'the visible story section was too short to read as a complete novel beat';
+    default:
+      return 'the response did not satisfy the storyEvents contract';
+  }
 }
 
 function cleanJsonLikeText(value: string) {
@@ -2285,7 +2293,7 @@ async function generateNonDuplicateResponse(params: {
         });
         prompt = storyProtocolIssue.code === 'story_continuity_invalid'
           ? buildStoryContinuityQualityRetryPrompt(params.systemPrompt, storyProtocolIssue.message, storyContinuationState)
-          : buildStoryProtocolQualityRetryPrompt(params.systemPrompt, storyProtocolIssue.message);
+          : buildStoryProtocolQualityRetryPrompt(params.systemPrompt, toModelSafeStoryProtocolReason(storyProtocolIssue));
         continue;
       }
       logAiGenerationFailure({

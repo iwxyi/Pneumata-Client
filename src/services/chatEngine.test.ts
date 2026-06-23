@@ -417,13 +417,9 @@ describe('chatEngine streaming preview', () => {
     });
 
     expect(contract).toContain('This is the required shape for story-reader turns');
-    expect(contract).toContain('"content": ""');
-    expect(contract).toContain('"extraMessages": null');
-    expect(contract).toContain('"narrativeText": null');
     expect(contract).toContain('"storyEvents": [');
     expect(contract).toContain('Do not copy the JSON shape with storyEvents=null');
     expect(contract).toContain('must include at least one visible narration or speech event');
-    expect(contract).toContain('"narrativeBlocks": null');
     expect(contract).toContain('Story-reader turns must use storyEvents as the authoritative visible story body');
     expect(contract).toContain('"type":"choice_point"');
     expect(contract).toContain('Speech text must be chat-like');
@@ -432,10 +428,14 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('keep only the final version; do not include both drafts in storyEvents');
     expect(contract).toContain('Write visible scene execution, not author notes');
     expect(contract).toContain('If the user just chose a branch, first show what immediately changes on screen');
-    expect(contract).toContain('content and extraMessages are legacy chat fields in story-reader turns');
-    expect(contract).toContain('Keep content="" and extraMessages=null; do not use them as the visible story body');
     expect(contract).toContain('storyEvents.choice_point is the source of truth');
     expect(contract).toContain('Do not output top-level storyChoices for the primary path');
+    expect(contract).not.toContain('"content": ""');
+    expect(contract).not.toContain('"extraMessages": null');
+    expect(contract).not.toContain('"narrativeText": null');
+    expect(contract).not.toContain('"narrativeBlocks": null');
+    expect(contract).not.toContain('narrativeBlocks');
+    expect(contract).not.toContain('narrativeText');
     expect(contract).not.toContain('按当前请求自然作答');
     expect(contract).not.toContain('content is the first visible chat bubble');
     expect(contract).not.toContain('extraMessages is optional. Use null for one bubble');
@@ -843,7 +843,9 @@ describe('chatEngine streaming preview', () => {
     });
 
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('legacy narrativeBlocks');
+    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('old top-level body container');
+    expect(generateResponseMock.mock.calls[1]?.[1]).not.toContain('legacy narrativeBlocks');
+    expect(generateResponseMock.mock.calls[1]?.[1]).not.toContain('narrativeBlocks=null');
     expect(message.content).toBe('');
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
       expect.objectContaining({ actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: expect.stringContaining('雨水从旧宅檐角连成一线。') }),
@@ -1141,7 +1143,8 @@ describe('chatEngine streaming preview', () => {
     });
 
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('narrativeText');
+    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('old top-level body container');
+    expect(generateResponseMock.mock.calls[1]?.[1]).not.toContain('narrativeText');
     expect(message.content).toBe('');
     expect(message.extraMessages).toBeNull();
     expect(message.metadata?.narrativeTurn?.blocks[0]?.text).toContain('走廊尽头的灯忽明忽暗，潮湿墙面渗出旧照片一样的阴影。');
@@ -1301,8 +1304,10 @@ describe('chatEngine streaming preview', () => {
 
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
     const retryPrompt = String(generateResponseMock.mock.calls[1]?.[1] || '');
-    expect(retryPrompt).toContain('故事房生成结果太短');
+    expect(retryPrompt).toContain('visible story section was too short');
     expect(retryPrompt).toContain('complete novel-like section');
+    expect(retryPrompt).not.toContain('mediaDecision');
+    expect(retryPrompt).not.toContain('content says or implies');
     expect(message.metadata?.narrativeTurn?.blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: expect.stringContaining('门锁响了一下。') }),
       expect.objectContaining({ actorId: 'mei', actorName: '阿梅', displayMode: 'bubble', text: '有人在里面。' }),
