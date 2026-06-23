@@ -2,7 +2,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { Accordion, AccordionDetails, AccordionSummary, Box, Button, Chip, MenuItem, Stack, TextField, Typography } from '@mui/material';
 import SurfaceCard from '../common/SurfaceCard';
 import type { RoomTemplateCategory, RoomTemplateConfigGroup, RoomTemplateDefinition, RoomTemplateFieldDefinition, RoomTemplateKey, RoomTemplateStructure } from '../../services/roomTemplates';
-import { buildRoomTemplatePreview, listTemplateCategories, listTemplateStructures, listTemplatesByStructureAndCategory } from '../../services/roomTemplates';
+import { listTemplateCategories, listTemplateStructures, listTemplatesByStructureAndCategory } from '../../services/roomTemplates';
 
 const STRUCTURE_LABELS: Record<string, string> = {
   conversation: '互动结构',
@@ -196,7 +196,6 @@ export default function GameplaySection(props: GameplaySectionProps) {
   const structures = listTemplateStructures();
   const categories = listTemplateCategories(selectedStructure);
   const categoryTemplates = listTemplatesByStructureAndCategory(selectedStructure, selectedCategory);
-  const selectedTemplatePreview = buildRoomTemplatePreview(selectedTemplate);
 
   const handleStructureChange = (structure: RoomTemplateStructure) => {
     const nextCategory = listTemplateCategories(structure)[0]?.value as RoomTemplateCategory | undefined;
@@ -301,80 +300,6 @@ export default function GameplaySection(props: GameplaySectionProps) {
               );
             })}
           </Stack>
-
-          {selectedTemplatePreview ? (
-            <Box
-              sx={{
-                border: '1px solid',
-                borderColor: 'primary.main',
-                bgcolor: 'primary.main',
-                color: 'primary.contrastText',
-                borderRadius: 3,
-                p: { xs: 1.5, sm: 1.75 },
-              }}
-            >
-              <Stack spacing={1.25}>
-                <Box>
-                  <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.3 }}>
-                    {isZh ? '选中模板' : 'Selected template'}
-                  </Typography>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                    {selectedTemplate.label}
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 1fr) minmax(0, 1fr)' }, gap: 1.25 }}>
-                  <Box>
-                    <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.35 }}>
-                      {isZh ? '开局钩子' : 'Opening hook'}
-                    </Typography>
-                    <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
-                      {selectedTemplatePreview.hook}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.35 }}>
-                      {isZh ? '玩法重点' : 'Story focus'}
-                    </Typography>
-                    <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
-                      {selectedTemplatePreview.direction}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.35 }}>
-                      {isZh ? '第一章目标' : 'First chapter'}
-                    </Typography>
-                    <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
-                      {selectedTemplatePreview.firstChapterGoal}
-                    </Typography>
-                  </Box>
-                  <Box>
-                    <Typography variant="caption" sx={{ display: 'block', opacity: 0.78, mb: 0.35 }}>
-                      {isZh ? '参与感' : 'Reader promise'}
-                    </Typography>
-                    <Typography variant="body2" sx={{ lineHeight: 1.7 }}>
-                      {selectedTemplatePreview.readerPromise}
-                    </Typography>
-                  </Box>
-                </Box>
-                <Stack direction="row" spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
-                  {selectedTemplatePreview.trackedAssets.map((item) => (
-                    <Chip
-                      key={item}
-                      size="small"
-                      label={item}
-                      sx={{
-                        color: 'primary.contrastText',
-                        borderColor: 'rgba(255,255,255,0.52)',
-                        bgcolor: 'rgba(255,255,255,0.12)',
-                        '& .MuiChip-label': { maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' },
-                      }}
-                      variant="outlined"
-                    />
-                  ))}
-                </Stack>
-              </Stack>
-            </Box>
-          ) : null}
         </Stack>
       </SurfaceCard>
 
