@@ -49,6 +49,10 @@ export function shouldStartConversationLoop(params: {
   return getConversationLoopStartBlockReason(params) === null;
 }
 
+export function shouldCreateSpeakerStreamingPlaceholder(chat?: Pick<GroupChat, 'sessionKind'> | null) {
+  return chat?.sessionKind?.scenarioId !== 'story-reader';
+}
+
 export function useChatRunLoop(params: {
   chat: GroupChat | undefined;
   chatId: string | undefined;
@@ -194,6 +198,19 @@ export function useChatRunLoop(params: {
           pendingTurnWorkCountRef.current = Math.max(0, pendingTurnWorkCountRef.current - 1);
         },
         onSpeakerSelected: (charId: string, speaker?: AICharacter) => {
+          if (!shouldCreateSpeakerStreamingPlaceholder(current.chat)) {
+            setRunLoopError(null);
+            setThinkingId(null);
+            current.setCurrentSpeaker(null);
+            logDeveloperDiagnostic('story-run:generation-pending', {
+              chatId: current.chatId,
+              loopId,
+              speakerId: charId,
+              speakerName: speaker?.name || null,
+              phase: current.chat?.scenarioState?.phase || null,
+            }, 'info');
+            return;
+          }
           const activeSpeaker = speaker || current.activeMembers.find((member) => member.id === charId);
           const streamingMessage = createStreamingLocalMessage({
             chatId: current.chatId!,

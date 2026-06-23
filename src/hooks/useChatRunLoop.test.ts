@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getConversationLoopStartBlockReason, shouldSkipConversationLoopStart, shouldStartConversationLoop } from './useChatRunLoop';
+import { getConversationLoopStartBlockReason, shouldCreateSpeakerStreamingPlaceholder, shouldSkipConversationLoopStart, shouldStartConversationLoop } from './useChatRunLoop';
 
 describe('useChatRunLoop start guard', () => {
   it('reports the root reason that blocks loop start', () => {
@@ -90,5 +90,17 @@ describe('useChatRunLoop start guard', () => {
       isStoryChoiceBlocked: false,
       hasActiveLoop: false,
     })).toBe(true);
+  });
+
+  it('does not use ordinary speaker typing placeholders for story-reader generation', () => {
+    expect(shouldCreateSpeakerStreamingPlaceholder({
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid' },
+    })).toBe(false);
+
+    expect(shouldCreateSpeakerStreamingPlaceholder({
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' },
+    })).toBe(true);
+
+    expect(shouldCreateSpeakerStreamingPlaceholder(null)).toBe(true);
   });
 });
