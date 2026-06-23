@@ -2497,4 +2497,14 @@ describe('chatEngine streaming preview', () => {
     expect(slow).toBeGreaterThan(fast);
     expect(slow).toBeLessThanOrEqual(2600);
   });
+
+  it('skips ordinary inner-life typing delay for story-reader generation', () => {
+    expect(__chatEngineTestUtils.shouldApplyInnerLifeTypingDelay({
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid' },
+    } as never)).toBe(false);
+
+    expect(__chatEngineTestUtils.shouldApplyInnerLifeTypingDelay({
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' },
+    } as never)).toBe(true);
+  });
 });

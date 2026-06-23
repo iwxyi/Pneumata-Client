@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getConversationLoopStartBlockReason, shouldCreateSpeakerStreamingPlaceholder, shouldSkipConversationLoopStart, shouldStartConversationLoop } from './useChatRunLoop';
+import { getConversationLoopStartBlockReason, resolveConversationLoopStartDelayMs, shouldCreateSpeakerStreamingPlaceholder, shouldSkipConversationLoopStart, shouldStartConversationLoop } from './useChatRunLoop';
 
 describe('useChatRunLoop start guard', () => {
   it('reports the root reason that blocks loop start', () => {
@@ -102,5 +102,12 @@ describe('useChatRunLoop start guard', () => {
     })).toBe(true);
 
     expect(shouldCreateSpeakerStreamingPlaceholder(null)).toBe(true);
+  });
+
+  it('can bypass the loop start timer for explicit user-triggered generation', () => {
+    expect(resolveConversationLoopStartDelayMs()).toBe(100);
+    expect(resolveConversationLoopStartDelayMs({ immediate: false })).toBe(100);
+    expect(resolveConversationLoopStartDelayMs({ immediate: true })).toBe(0);
+    expect(resolveConversationLoopStartDelayMs({ immediate: true, ignoreReaderPositionOnce: true })).toBe(0);
   });
 });

@@ -264,7 +264,12 @@ function resolveInnerLifeTypingDelayMs(projection: InnerLifeProjection, chat: Gr
   return Math.round(Math.max(250, Math.min(2600, (baseDelay + (impulseExtra[projection.impulse] || 0) + residueExtra) / speed)));
 }
 
+function shouldApplyInnerLifeTypingDelay(chat: GroupChat) {
+  return chat.sessionKind?.scenarioId !== 'story-reader';
+}
+
 async function waitForInnerLifeTypingDelay(projection: InnerLifeProjection, chat: GroupChat, delay?: (ms: number) => Promise<void>) {
+  if (!shouldApplyInnerLifeTypingDelay(chat)) return 0;
   const ms = resolveInnerLifeTypingDelayMs(projection, chat);
   if (isTestRuntime() || ms <= 0) return ms;
   await (delay || sleep)(ms);
@@ -3032,6 +3037,7 @@ export const __chatEngineTestUtils = {
   isPendingJsonEnvelopeChunk,
   finalizeResponse,
   resolveInnerLifeTypingDelayMs,
+  shouldApplyInnerLifeTypingDelay,
   resolveMediaProfiles,
   evaluateHiddenEchoDraft,
   buildWorldEventContextPrompt,

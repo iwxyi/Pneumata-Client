@@ -1440,7 +1440,7 @@ export default function ChatDetailPage() {
       isStoryReaderAtTailRef.current = true;
       setIsStoryReaderAtTail(true);
       setHasStoryReaderReachedTailIntent(true);
-      const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true });
+      const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true, immediate: true });
       if (startBlockReason) {
         logDeveloperDiagnostic('story-choice:start-blocked-after-select', {
           chatId: id,
@@ -1529,7 +1529,7 @@ export default function ChatDetailPage() {
         isStoryReaderAtTailRef.current = true;
         setIsStoryReaderAtTail(true);
         setHasStoryReaderReachedTailIntent(true);
-        const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true });
+        const startBlockReason = startConversationLoopIfNeeded(nextChat, { ignoreReaderPositionOnce: true, immediate: true });
         if (startBlockReason) {
           logDeveloperDiagnostic('story-choice:start-blocked-after-custom-direction', {
             chatId: id,
@@ -1564,7 +1564,7 @@ export default function ChatDetailPage() {
     setIsStoryReaderAtTail(true);
     setHasStoryReaderReachedTailIntent(true);
     resume();
-    const startBlockReason = startConversationLoopIfNeeded(chat, { ignoreReaderPositionOnce: true });
+    const startBlockReason = startConversationLoopIfNeeded(chat, { ignoreReaderPositionOnce: true, immediate: true });
     if (startBlockReason) {
       logDeveloperDiagnostic('story-run:continue-blocked-after-cancel', {
         chatId: id,

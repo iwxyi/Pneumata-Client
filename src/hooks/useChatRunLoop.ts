@@ -15,7 +15,8 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
 
 export type ConversationLoopStartBlockReason = 'direct_chat' | 'waiting_story_choice' | 'already_active';
-type ConversationLoopStartOptions = { ignoreReaderPositionOnce?: boolean };
+type ConversationLoopStartOptions = { ignoreReaderPositionOnce?: boolean; immediate?: boolean };
+const DEFAULT_CONVERSATION_LOOP_START_DELAY_MS = 100;
 
 export function getConversationLoopStartBlockReason(params: {
   conversationType?: GroupChat['type'] | null;
@@ -51,6 +52,10 @@ export function shouldStartConversationLoop(params: {
 
 export function shouldCreateSpeakerStreamingPlaceholder(chat?: Pick<GroupChat, 'sessionKind'> | null) {
   return chat?.sessionKind?.scenarioId !== 'story-reader';
+}
+
+export function resolveConversationLoopStartDelayMs(options: ConversationLoopStartOptions = {}) {
+  return options.immediate ? 0 : DEFAULT_CONVERSATION_LOOP_START_DELAY_MS;
 }
 
 export function useChatRunLoop(params: {
@@ -379,7 +384,12 @@ export function useChatRunLoop(params: {
       phase: conversationChat.scenarioState?.phase || null,
       ignoreReaderPositionOnce: Boolean(options.ignoreReaderPositionOnce),
     }, 'info');
-    window.setTimeout(() => void run(newLoopToken), 100);
+    const startDelayMs = resolveConversationLoopStartDelayMs(options);
+    if (startDelayMs <= 0) {
+      void run(newLoopToken);
+    } else {
+      window.setTimeout(() => void run(newLoopToken), startDelayMs);
+    }
     return null;
   }, []);
 
