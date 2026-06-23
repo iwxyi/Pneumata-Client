@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getConversationLoopStartBlockReason, resolveConversationLoopStartDelayMs, shouldCreateSpeakerStreamingPlaceholder, shouldSkipConversationLoopStart, shouldStartConversationLoop } from './useChatRunLoop';
+import { getConversationLoopStartBlockReason, resolveConversationLoopStartDelayMs, shouldCreateSpeakerStreamingPlaceholder, shouldSkipConversationLoopStart, shouldStartConversationLoop, shouldTreatActiveLoopAsSuccessfulStart } from './useChatRunLoop';
 
 describe('useChatRunLoop start guard', () => {
   it('reports the root reason that blocks loop start', () => {
@@ -109,5 +109,22 @@ describe('useChatRunLoop start guard', () => {
     expect(resolveConversationLoopStartDelayMs({ immediate: false })).toBe(100);
     expect(resolveConversationLoopStartDelayMs({ immediate: true })).toBe(0);
     expect(resolveConversationLoopStartDelayMs({ immediate: true, ignoreReaderPositionOnce: true })).toBe(0);
+  });
+
+  it('treats an existing active loop as a successful explicit start', () => {
+    expect(shouldTreatActiveLoopAsSuccessfulStart({
+      blockReason: 'already_active',
+      hasActiveLoop: true,
+    })).toBe(true);
+
+    expect(shouldTreatActiveLoopAsSuccessfulStart({
+      blockReason: 'already_active',
+      hasActiveLoop: false,
+    })).toBe(false);
+
+    expect(shouldTreatActiveLoopAsSuccessfulStart({
+      blockReason: 'waiting_story_choice',
+      hasActiveLoop: true,
+    })).toBe(false);
   });
 });

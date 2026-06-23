@@ -58,6 +58,13 @@ export function resolveConversationLoopStartDelayMs(options: ConversationLoopSta
   return options.immediate ? 0 : DEFAULT_CONVERSATION_LOOP_START_DELAY_MS;
 }
 
+export function shouldTreatActiveLoopAsSuccessfulStart(params: {
+  blockReason: ConversationLoopStartBlockReason | null;
+  hasActiveLoop: boolean;
+}) {
+  return params.blockReason === 'already_active' && params.hasActiveLoop;
+}
+
 export function useChatRunLoop(params: {
   chat: GroupChat | undefined;
   chatId: string | undefined;
@@ -376,6 +383,18 @@ export function useChatRunLoop(params: {
       blockReason,
       storyChoiceGate,
     }, blockReason ? 'warn' : 'info');
+    if (shouldTreatActiveLoopAsSuccessfulStart({ blockReason, hasActiveLoop })) {
+      if (options.ignoreReaderPositionOnce && activeRunLoopTokenRef.current) {
+        ignoreReaderPositionLoopTokenRef.current = activeRunLoopTokenRef.current;
+      }
+      logDeveloperDiagnostic('story-run:reuse-active-loop', {
+        chatId: conversationChat.id,
+        phase: conversationChat.scenarioState?.phase || null,
+        activeRunLoopToken: activeRunLoopTokenRef.current,
+        ignoreReaderPositionOnce: Boolean(options.ignoreReaderPositionOnce),
+      }, 'info');
+      return null;
+    }
     if (blockReason) return blockReason;
     const run = runLoopRef.current;
     if (!run) return null;
