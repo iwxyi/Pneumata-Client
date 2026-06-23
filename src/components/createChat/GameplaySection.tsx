@@ -207,29 +207,30 @@ export default function GameplaySection(props: GameplaySectionProps) {
 
   return (
     <Stack spacing={2}>
+      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+        {structures.map((item) => {
+          const selected = item.value === selectedStructure;
+          return (
+            <Chip
+              key={item.value}
+              clickable
+              label={item.label}
+              color={selected ? 'primary' : 'default'}
+              variant={selected ? 'filled' : 'outlined'}
+              onClick={() => handleStructureChange(item.value as RoomTemplateStructure)}
+              sx={{
+                height: 34,
+                borderRadius: 999,
+                fontWeight: selected ? 700 : 500,
+                '& .MuiChip-label': { px: 1.25 },
+              }}
+            />
+          );
+        })}
+      </Box>
+
       <SurfaceCard>
         <Stack spacing={2}>
-          <Box>
-            <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1.5 }}>
-              {isZh ? '玩法分类' : 'Gameplay category'}
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
-              {structures.map((item) => {
-                const selected = item.value === selectedStructure;
-                return (
-                  <Chip
-                    key={item.value}
-                    clickable
-                    label={item.label}
-                    color={selected ? 'primary' : 'default'}
-                    variant={selected ? 'filled' : 'outlined'}
-                    onClick={() => handleStructureChange(item.value as RoomTemplateStructure)}
-                  />
-                );
-              })}
-            </Box>
-          </Box>
-
           <Box>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isZh ? '玩法类型' : 'Gameplay type'}</Typography>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 0.9, alignItems: 'start' }}>
