@@ -113,6 +113,7 @@ export default function CreateChatPage() {
   const [hotTopicDialogEnabled, setHotTopicDialogEnabled] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({ open: false, message: '', severity: 'success' });
   const memberPressTimerRef = useRef<number | null>(null);
+  const styleOverriddenRef = useRef(false);
 
   const showRuntimeTab = Boolean(editingChat);
   const isZh = i18n.language.startsWith('zh');
@@ -175,6 +176,7 @@ export default function CreateChatPage() {
       setName(editingChat.name || '');
       setTopic(editingChat.topic || '');
       setStyle(editingChat.style);
+      styleOverriddenRef.current = true;
       const matchedTemplateKey = editingChat.sessionKind ? getRoomTemplateKeyBySessionKind(editingChat.sessionKind) : null;
       setRoomTemplate(matchedTemplateKey || 'open_chat');
       setSelectedMembers(stripUserMemberId(editingChat.memberIds || []));
@@ -217,6 +219,7 @@ export default function CreateChatPage() {
     }
 
     setStyle(chatDraftDefaults.style);
+    styleOverriddenRef.current = false;
     setRoomTemplate('open_chat');
     setShowRoleActions(chatDraftDefaults.showRoleActions);
     setIncludeUserAsMember(true);
@@ -313,6 +316,7 @@ export default function CreateChatPage() {
       setName(String(draft.name || ''));
       setTopic(String(draft.topic || ''));
       setStyle((draft.style as ChatStyle) || chatDraftDefaults.style);
+      styleOverriddenRef.current = Boolean(draft.style);
       setRoomTemplate((draft.roomTemplate as RoomTemplateKey) || 'open_chat');
       setSelectedMembers(stripUserMemberId(Array.isArray(draft.selectedMembers) ? draft.selectedMembers as string[] : []));
       setOwnerCharacterId(String(draft.ownerCharacterId || ''));
@@ -442,6 +446,10 @@ export default function CreateChatPage() {
     const option = getChatStyleOption(styleValue);
     return isZh ? option.label.zh : option.label.en;
   };
+  const handleStyleChange = useCallback((styleValue: ChatStyle) => {
+    styleOverriddenRef.current = true;
+    setStyle(styleValue);
+  }, []);
 
   useEffect(() => {
     const defaults = selectedRoomTemplate.defaults || {};
@@ -454,7 +462,7 @@ export default function CreateChatPage() {
     const template = getRoomTemplate(templateKey);
     const defaults = template.defaults || {};
     setRoomTemplate(template.key);
-    setStyle(template.style);
+    if (!styleOverriddenRef.current) setStyle(template.style);
     setRuntimeEvolutionIntensity(template.runtimeEvolutionIntensity);
     setShowRoleActions(template.sessionKind.scenarioId === 'story-reader' ? false : chatDraftDefaults.showRoleActions);
     setAllowPrivateThreads(defaults.allowPrivateThreads ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
@@ -505,7 +513,10 @@ export default function CreateChatPage() {
 
       if (appliedName) setName(suggestion.suggestedName!);
       if (appliedTopic) setTopic(suggestion.suggestedTopic!);
-      if (appliedStyle) setStyle(suggestion.suggestedStyle!);
+      if (appliedStyle) {
+        styleOverriddenRef.current = true;
+        setStyle(suggestion.suggestedStyle!);
+      }
       if (appliedRoleActions) setShowRoleActions(suggestion.suggestedShowRoleActions!);
       if (appliedRoomTemplate) applyRoomTemplate(suggestion.suggestedRoomTemplate!);
       if (!appliedName && !appliedTopic && !appliedStyle && !appliedRoleActions) {
@@ -524,7 +535,21 @@ export default function CreateChatPage() {
     } finally {
       setAiAutofilling(false);
     }
-  }, [aiProfiles, api, i18n.language, name, topic, selectedMembers, showRoleActions, characters, t]);
+  }, [
+    aiProfiles,
+    api,
+    applyRoomTemplate,
+    characters,
+    chatDraftDefaults.showRoleActions,
+    chatDraftDefaults.style,
+    i18n.language,
+    name,
+    roomTemplate,
+    selectedMembers,
+    showRoleActions,
+    style,
+    t,
+  ]);
 
   const handleDelete = useCallback(async () => {
     if (!editingChat) return;
@@ -953,7 +978,7 @@ export default function CreateChatPage() {
               getStyleLabel={getStyleLabel}
               onNameChange={setName}
               onTopicChange={setTopic}
-              onStyleChange={setStyle}
+              onStyleChange={handleStyleChange}
               onShowRoleActionsChange={setShowRoleActions}
               onIncludeUserAsMemberChange={setIncludeUserAsMember}
               onOperatorIdsTextChange={setOperatorIdsText}
@@ -1242,7 +1267,7 @@ export default function CreateChatPage() {
             topic={topic}
             setName={setName}
             setTopic={setTopic}
-            setStyle={setStyle}
+            setStyle={handleStyleChange}
             setSelectedMembers={setSelectedMembers}
             addCharacters={addCharacters}
             maxMembers={MAX_MEMBERS}
