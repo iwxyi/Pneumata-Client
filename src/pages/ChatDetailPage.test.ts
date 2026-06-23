@@ -200,6 +200,7 @@ describe('ChatDetailPage pause/resume behavior', () => {
     expect(shouldAutoStartStoryRoom({ ...base, isRunning: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, hasUserDraft: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, hasRunLoopError: true })).toBe(false);
+    expect(shouldAutoStartStoryRoom({ ...base, isAutoStickToBottomSuspended: true })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, isStoryRoom: false })).toBe(false);
     expect(shouldAutoStartStoryRoom({ ...base, canAutoRunConversation: false })).toBe(false);
   });
