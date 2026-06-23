@@ -546,11 +546,13 @@ function buildStoryProtocolPrompt(basePrompt: string) {
 Final story-reader output requirements:
 - Return exactly one valid JSON object, with no markdown and no prose outside JSON.
 - storyEvents is mandatory and must contain at least one visible narration or speech event. It may also include a choice_point event for a real decision pause and a chapter_update event for structured chapter indexing.
-- Use as many narration and speech events as the current story beat needs. Do not follow a fixed event count, and do not stop early just to be concise.
+- Write a complete novel-like section, not a stub. Aim for roughly 900-1600 Chinese characters for ordinary story beats, and 1200-2200 Chinese characters for consequence, reveal, danger, or chapter-climax beats when the scene needs room.
+- Use as many narration and speech events as the current story beat needs. Do not follow a fixed event count, do not pad with filler, and do not stop early just to be concise.
 - Keep content="", extraMessages=null, narrativeText=null, and narrativeBlocks=null for normal story turns.
 - Do not put the visible story in content, narrativeText, markdown, or plain prose.
 - If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.
 - If you output a choice_point, each choice should include label, prompt, intent, risk, and reward.
+- Before a choice_point, first write enough visible story for the reader to feel the pressure, cost, clue, or relationship shift on screen. Do not stop after only a few setup paragraphs just to ask for input.
 - For non-choice beats, write a complete readable section that lands on a hook, pressure, consequence, or scene movement. Stop for the user only at a genuine choice_point.
 - When opening or settling a chapter, add one chapter_update event with title and optional summary/status; do not put chapter metadata in visible prose.`;
 }
@@ -569,7 +571,7 @@ function buildStoryProtocolQualityRetryPrompt(basePrompt: string, priorAttempt: 
 Story protocol retry:
 - The previous draft was rejected because it violated the storyEvents contract: ${reason}
 - Return storyEvents as the only visible story body. Keep content="", narrativeText=null, narrativeBlocks=null, and extraMessages=null.
-- Output one committed beat only. Do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
+- Output one committed, complete novel-like section only. Expand the actual current beat with concrete action, consequence, pressure, clue movement, sensory detail, and useful dialogue; do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
 - Rejected draft: ${priorAttempt.slice(0, 360)}`;
 }
 
@@ -604,7 +606,20 @@ function storyEventVisibleText(event: StoryEvent) {
   return (event.text || '').trim();
 }
 
+function countStoryVisibleCharacters(value: string) {
+  return value.replace(/\s+/g, '').length;
+}
+
+function getMinimumStoryVisibleCharacters(chat: GroupChat) {
+  const phase = chat.scenarioState?.phase;
+  const beatKind = chat.scenarioState?.storyBeatKind;
+  if (phase === 'branch' || beatKind === 'consequence') return 560;
+  if (beatKind === 'decision' || chat.scenarioState?.storyChoicePolicy === 'require') return 520;
+  return 560;
+}
+
 function validateStoryReaderGeneration(params: {
+  chat: GroupChat;
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
   storyEvents?: StoryEvent[] | null;
   narrativeText?: string | null;
@@ -656,6 +671,21 @@ function validateStoryReaderGeneration(params: {
         gaps: continuationQuality.gaps,
         lastVisibleBeat: params.continuationState?.lastVisibleBeat || '',
         lastSpokenLine: params.continuationState?.lastSpokenLine || '',
+      },
+    };
+  }
+  const visibleCharacterCount = countStoryVisibleCharacters(visibleText);
+  const minimumVisibleCharacters = getMinimumStoryVisibleCharacters(params.chat);
+  if (visibleCharacterCount < minimumVisibleCharacters) {
+    return {
+      code: 'story_section_too_short',
+      message: `故事房生成结果太短，当前可见正文约 ${visibleCharacterCount} 字，至少需要 ${minimumVisibleCharacters} 字来形成完整小说小节。`,
+      details: {
+        visibleCharacterCount,
+        minimumVisibleCharacters,
+        visibleEvents: visibleEvents.length,
+        phase: params.chat.scenarioState?.phase || null,
+        beatKind: params.chat.scenarioState?.storyBeatKind || null,
       },
     };
   }
@@ -2227,6 +2257,7 @@ async function generateNonDuplicateResponse(params: {
     lastStoryEvents = generated.storyEvents || null;
     lastStoryChoices = generated.storyChoices || null;
     const storyProtocolIssue = isStoryReader ? validateStoryReaderGeneration({
+      chat: params.chat,
       parsedEnvelope: generated.parsedEnvelope,
       storyEvents: generated.storyEvents || null,
       narrativeText: generated.narrativeText,
