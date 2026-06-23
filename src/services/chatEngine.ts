@@ -145,6 +145,43 @@ function buildSessionSystemPrompt(args: {
   });
 }
 
+function buildStoryReaderSystemPrompt(params: {
+  chat: GroupChat;
+  speaker: AICharacter;
+  characters: AICharacter[];
+  activeMessages: Message[];
+  promptPrefix: string;
+  additionalConstraints: string;
+  promptSuffix: string;
+}) {
+  const characterLines = params.characters
+    .map((character) => `- id=${character.id}; name=${character.name}`)
+    .join('\n') || '- No named characters available.';
+  const latestChapter = params.chat.scenarioState?.storyChapters?.at(-1);
+  const chapterTitle = params.chat.scenarioState?.chapterRecap?.title || latestChapter?.title || '未命名';
+  return `${params.promptPrefix}You are the story-reader narrative engine for this room.
+- Write the next committed page of the same continuous novel.
+- The active generator is narrator/旁白. Characters appear only through storyEvents.speech.
+- Do not answer as an ordinary chat participant.
+- Do not output plain prose, markdown, analysis, recap, candidate drafts, or chat bubbles outside JSON.
+- Return exactly one valid JSON object whose visible story body is storyEvents.
+
+Story room:
+- room=${params.chat.name || params.chat.topic || params.chat.id}
+- phase=${params.chat.scenarioState?.phase || 'scene'}
+- chapter=${chapterTitle}
+
+Available story actors:
+${characterLines}
+${params.additionalConstraints}
+${buildInlineInteractionContract({
+  chat: params.chat,
+  speaker: params.speaker,
+  characters: params.characters,
+  recentMessages: params.activeMessages,
+})}${params.promptSuffix}`;
+}
+
 function mergePromptContexts(base: SessionGenerationPromptContext | null | undefined, extra: SessionGenerationPromptContext | null | undefined) {
   if (!extra) return base || null;
   if (!base) return extra;
@@ -2645,14 +2682,25 @@ export async function generateSpeakerMessage(params: {
     speaker: params.speaker,
     members: effectiveMembers,
   });
-	  const systemPrompt = `${promptPrefix}${buildSpeakerSystemPrompt({
-	    speaker: params.speaker,
-	    chat: params.chat,
-	    emotion,
-	    activeMessages,
-	    characterMap,
-	    preferEnginePromptAdapter: !enginePromptContext,
-	  })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}${buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers })}${worldInfluenceSnapshot.prompt}
+  const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
+  const systemPrompt = isStoryReader
+    ? buildStoryReaderSystemPrompt({
+      chat: params.chat,
+      speaker: params.speaker,
+      characters: effectiveMembers,
+      activeMessages,
+      promptPrefix,
+      additionalConstraints,
+      promptSuffix,
+    })
+    : `${promptPrefix}${buildSpeakerSystemPrompt({
+      speaker: params.speaker,
+      chat: params.chat,
+      emotion,
+      activeMessages,
+      characterMap,
+      preferEnginePromptAdapter: !enginePromptContext,
+    })}${buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance)}${buildInnerLifePromptBlock(innerLife)}${pendingReplyPrompt}${buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities)}${buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers })}${worldInfluenceSnapshot.prompt}
 
 Current director intent:
 - ${effectiveDirectorIntent ? describeDirectorIntent(effectiveDirectorIntent) : 'none'}

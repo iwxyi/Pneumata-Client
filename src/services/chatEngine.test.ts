@@ -521,6 +521,16 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+    expect(prompt).toContain('You are the story-reader narrative engine');
+    expect(prompt).toContain('Return exactly one valid JSON object');
+    expect(prompt).toContain('"storyEvents": [');
+    expect(prompt).not.toContain('Reply as a chat message');
+    expect(prompt).not.toContain('Current speaking intent');
+    expect(prompt).not.toContain('Hard constraints for this reply');
+    expect(prompt).not.toContain('Response surface:');
+    expect(prompt).not.toContain('mediaDecision');
+
     expect(message.senderId).toBe('narrator');
     expect(message.content).toContain('雨水顺着医院旧楼的铁门往下流');
     expect(message.content).toContain('林医生：“不要开那扇门。”');
