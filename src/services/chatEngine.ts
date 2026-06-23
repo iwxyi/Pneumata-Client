@@ -16,6 +16,7 @@ import { resolveSessionDefinition } from '../types/sessionEngine';
 import { resolveSessionEngine } from './sessionEngineRegistry';
 import { getStyleProfile, resolveDefaultStyleProfile } from './styleProfileRegistry';
 import { getChannelSemantics } from './channelSemanticsRegistry';
+import { logDeveloperDiagnostic } from './developerDiagnostics';
 
 function getSessionEngine(chat: Pick<GroupChat, 'mode' | 'sessionKind'>) {
   return resolveSessionEngine(chat);
@@ -2926,8 +2927,7 @@ export const runOneRound = async (
 	      directorIntent,
 	      narrativeLines,
 	    };
-    console.log('[group-loop:selection]', selectionDebug);
-    console.log('[group-loop:selection:json]', JSON.stringify(selectionDebug));
+    logDeveloperDiagnostic('group-loop:selection', selectionDebug);
   }
   if (!speakerSelection.speakerId) {
     if (speakerSelection.reason) callbacks.onIdle?.(speakerSelection.reason);
