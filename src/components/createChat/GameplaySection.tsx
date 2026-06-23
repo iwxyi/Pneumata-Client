@@ -261,29 +261,6 @@ export default function GameplaySection(props: GameplaySectionProps) {
                     <Box sx={{ textAlign: 'left', width: '100%', display: 'flex', flexDirection: 'column', gap: 0.4 }}>
                       <Typography variant="body2" sx={{ fontWeight: 700 }}>{template.label}</Typography>
                       <Typography variant="caption" color="text.secondary">{template.description}</Typography>
-                      {template.sellingPoints?.length ? (
-                        <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.15 }}>
-                          {template.sellingPoints.slice(0, 3).map((point) => (
-                            <Chip
-                              key={point}
-                              size="small"
-                              label={point}
-                              variant="outlined"
-                              sx={{
-                                height: 20,
-                                maxWidth: '100%',
-                                '& .MuiChip-label': {
-                                  px: 0.75,
-                                  fontSize: 11,
-                                  maxWidth: 120,
-                                  overflow: 'hidden',
-                                  textOverflow: 'ellipsis',
-                                },
-                              }}
-                            />
-                          ))}
-                        </Stack>
-                      ) : null}
                     </Box>
                   </Button>
                 );
@@ -292,9 +269,9 @@ export default function GameplaySection(props: GameplaySectionProps) {
           </Box>
 
           {selectedPresets.length > 1 ? (
-            <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 3, p: 1.5 }}>
+            <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.25, bgcolor: 'action.hover' }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>{isZh ? '预设模板' : 'Preset'}</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))' }, gap: 0.9, alignItems: 'start' }}>
+              <Stack spacing={0.75}>
                 {selectedPresets.map((preset) => {
                   const selected = preset.key === props.roomTemplate;
                   return (
@@ -307,17 +284,16 @@ export default function GameplaySection(props: GameplaySectionProps) {
                         justifyContent: 'flex-start',
                         alignItems: 'stretch',
                         textTransform: 'none',
-                        borderRadius: 3,
+                        borderRadius: 1.5,
                         px: 1.35,
-                        py: 1.1,
-                        border: '1px solid',
-                        borderColor: selected ? 'primary.main' : 'divider',
-                        bgcolor: selected ? 'action.selected' : 'background.paper',
+                        py: 1,
+                        borderLeft: '3px solid',
+                        borderLeftColor: selected ? 'primary.main' : 'transparent',
+                        bgcolor: selected ? 'background.paper' : 'transparent',
                         boxShadow: 'none',
-                        transition: 'border-color 160ms ease, background-color 160ms ease',
+                        transition: 'border-left-color 160ms ease, background-color 160ms ease',
                         '&:hover': {
-                          bgcolor: selected ? 'action.selected' : 'action.hover',
-                          borderColor: selected ? 'primary.main' : 'text.secondary',
+                          bgcolor: 'background.paper',
                         },
                       }}
                     >
@@ -351,7 +327,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
                     </Button>
                   );
                 })}
-              </Box>
+              </Stack>
             </Box>
           ) : null}
         </Stack>

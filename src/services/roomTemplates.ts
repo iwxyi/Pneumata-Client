@@ -217,6 +217,8 @@ export const ROOM_TEMPLATES: RoomTemplateDefinition[] = [
     key: 'story_reader',
     label: '故事房',
     description: '用选项和角色反应推动故事分支。',
+    presetLabel: '默认悬疑',
+    presetDescription: '雨夜旧医院、失踪名单和停电脚步声构成的悬疑开局。',
     sellingPoints: ['关键选择留后果', '线索账本', '章节回看'],
     structure: 'conversation',
     category: 'story',

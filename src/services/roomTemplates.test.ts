@@ -4,6 +4,7 @@ import { STORY_ENGINE } from './engines/storyEngine';
 import {
   buildRoomTemplatePreview,
   getRoomTemplate,
+  getRoomTemplatePresetLabel,
   listRoomTemplateKernelsByStructure,
   listRoomTemplatePresets,
   listTemplateStructures,
@@ -71,6 +72,7 @@ describe('roomTemplates story seeds', () => {
       'romance_story',
       'palace_intrigue_story',
     ]);
+    expect(getRoomTemplatePresetLabel(getRoomTemplate('story_reader'))).toBe('默认悬疑');
     expect(listRoomTemplatePresets('open_chat').map((template) => template.key)).toEqual([
       'open_chat',
       'companion_hangout',
