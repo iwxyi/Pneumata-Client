@@ -352,10 +352,6 @@ export default function GameplaySection(props: GameplaySectionProps) {
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
                     {isZh ? '已有运行数据后只能修改下方参数，不能切换预设。' : 'Rooms with runtime data can edit settings below, but cannot switch presets.'}
                   </Typography>
-                ) : props.lockGameplayKernelSelection ? (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    {isZh ? '编辑已有房间时不能切换玩法内核；未产生运行数据前仍可切换同玩法预设。' : 'Existing rooms cannot switch gameplay core; presets remain editable until runtime data exists.'}
-                  </Typography>
                 ) : null}
                 {selectedPreset.sellingPoints?.length ? (
                   <Stack direction="row" spacing={0.5} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.75 }}>

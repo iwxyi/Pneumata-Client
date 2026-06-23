@@ -524,11 +524,11 @@ export default function CreateChatPage() {
   }, [chatDraftDefaults.showRoleActions]);
 
   const handleRoomTemplateChange = useCallback((templateKey: RoomTemplateKey) => {
-    if (editingChat) {
+    if (gameplayRuntimeLocked) {
       const currentKernelKey = getRoomTemplateKernel(selectedRoomTemplate).key;
       const nextKernelKey = getRoomTemplateKernel(templateKey).key;
       if (nextKernelKey !== currentKernelKey) {
-        showError(isZh ? '已有房间不能切换玩法内核，只能修改当前玩法的表单和参数。' : 'Existing rooms cannot switch gameplay core; edit the current gameplay settings instead.');
+        showError(isZh ? '已有运行数据后不能切换玩法内核，请另存为群聊后修改玩法。' : 'Rooms with runtime data cannot switch gameplay core; save as a new chat to change gameplay.');
         return;
       }
       if (gameplayRuntimeLocked && templateKey !== roomTemplate) {
@@ -537,7 +537,7 @@ export default function CreateChatPage() {
       }
     }
     applyRoomTemplate(templateKey);
-  }, [applyRoomTemplate, editingChat, gameplayRuntimeLocked, isZh, roomTemplate, selectedRoomTemplate]);
+  }, [applyRoomTemplate, gameplayRuntimeLocked, isZh, roomTemplate, selectedRoomTemplate]);
 
   const isStoryRoomTemplate = selectedRoomTemplate.sessionKind.scenarioId === 'story-reader';
   const topicPlaceholder = selectedRoomTemplate.topicPlaceholder;
@@ -1138,7 +1138,7 @@ export default function CreateChatPage() {
             roomTemplate={roomTemplate}
             roomTemplates={ROOM_TEMPLATES}
             onRoomTemplateChange={handleRoomTemplateChange}
-            lockGameplayKernelSelection={Boolean(editingChat)}
+            lockGameplayKernelSelection={gameplayRuntimeLocked}
             lockPresetSelection={gameplayRuntimeLocked}
             onSaveAsChat={editingChat ? handleSaveAsChatAction : undefined}
             saveAsChatDisabled={saving || saveAsChatSaving}
