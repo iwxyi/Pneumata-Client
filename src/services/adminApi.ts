@@ -174,6 +174,26 @@ class AdminApiClient {
     return this.request<Record<string, unknown>>('POST', `/ai/entitlements/${encodeURIComponent(userId)}/keys/manual`, payload);
   }
 
+  updateAiUserKeySecret(userId: string, providerKeyId: string, payload: { apiKey: string; externalKeyId?: string }) {
+    return this.request<Record<string, unknown>>('PUT', `/ai/entitlements/${encodeURIComponent(userId)}/keys/${encodeURIComponent(providerKeyId)}/secret`, payload);
+  }
+
+  updateAiUserKeyStatus(userId: string, providerKeyId: string, payload: { enabled?: boolean; status?: string }) {
+    return this.request<Record<string, unknown>>('PUT', `/ai/entitlements/${encodeURIComponent(userId)}/keys/${encodeURIComponent(providerKeyId)}/status`, payload);
+  }
+
+  updateAiUserKeyLimits(userId: string, providerKeyId: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('PUT', `/ai/entitlements/${encodeURIComponent(userId)}/keys/${encodeURIComponent(providerKeyId)}/limits`, payload);
+  }
+
+  transferAiUserKeyPoints(userId: string, providerKeyId: string, payload: { amount: number }) {
+    return this.request<Record<string, unknown>>('POST', `/ai/entitlements/${encodeURIComponent(userId)}/keys/${encodeURIComponent(providerKeyId)}/points`, payload);
+  }
+
+  getAiUserKeyUsage(userId: string, providerKeyId: string) {
+    return this.request<{ invocations: Array<Record<string, unknown>>; quotaLedger: Array<Record<string, unknown>> }>('GET', `/ai/entitlements/${encodeURIComponent(userId)}/keys/${encodeURIComponent(providerKeyId)}/usage`);
+  }
+
   getAuditLogs(params?: { action?: string; result?: string }) {
     return this.request<{ items: Array<Record<string, unknown>> }>('GET', `/audit${this.buildQuery({ action: params?.action, result: params?.result })}`);
   }

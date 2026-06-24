@@ -1,4 +1,6 @@
 import type { APIConfig, AIModelProfile } from '../types/settings';
+import { storageKey } from '../constants/brand';
+import { dispatchAuthSessionExpired } from './authSession';
 
 type ChatRole = 'user' | 'assistant' | 'system';
 export interface ChatMessageImageAttachment {
@@ -257,6 +259,23 @@ function buildOpenAICompatibleMessages(messages: ChatMessage[], systemPrompt: st
       content: buildOpenAICompatibleContent(message),
     })),
   ];
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof localStorage === 'undefined' ? null : localStorage.getItem(storageKey('token'));
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function buildOfficialMessages(messages: ChatMessage[], systemPrompt: string) {
+  return buildOpenAICompatibleMessages(messages, systemPrompt);
+}
+
+async function parseOfficialProxyResponse(response: Response) {
+  const result = await parseJsonResponse<{
+    choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>;
+  } & Record<string, JSONValue>>(response, 'Official AI request failed');
+  const content = result.choices?.[0]?.message?.content;
+  return Array.isArray(content) ? content.map((item) => item.text || '').join('') : (content || '');
 }
 
 function isOpenAICompatibleEndpoint(config: APIConfig) {
@@ -670,7 +689,53 @@ async function generateOpenAICompatibleResponse(
   return Array.isArray(content) ? content.map((item) => item.text || '').join('') : (content || '');
 }
 
+async function generateOfficialResponse(
+  config: APIConfig,
+  systemPrompt: string,
+  messages: ChatMessage[],
+  onChunk?: (chunk: string) => void,
+  options: GenerateResponseOptions = {},
+) {
+  const requestBody = {
+    model: config.model,
+    messages: buildOfficialMessages(messages, systemPrompt),
+    stream: Boolean(onChunk),
+    max_tokens: options.maxTokens,
+    temperature: 0.8,
+    response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
+  };
+  const response = await fetch('/api/ai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...getAuthHeaders(),
+    },
+    body: JSON.stringify(requestBody),
+    signal: options.signal,
+  });
+
+  if (response.status === 401 || response.status === 403) {
+    dispatchAuthSessionExpired({ status: response.status, path: '/api/ai/v1/chat/completions' });
+  }
+
+  if (onChunk) {
+    let fullResponse = '';
+    await parseSSEStream(response, (parsed) => {
+      const choices = parsed.choices as Array<{ delta?: { content?: string } }> | undefined;
+      const content = choices?.[0]?.delta?.content || '';
+      if (content) {
+        fullResponse += content;
+        onChunk(fullResponse);
+      }
+    });
+    return fullResponse;
+  }
+
+  return parseOfficialProxyResponse(response);
+}
+
 const providerHandlers: Partial<Record<APIConfig['provider'], typeof generateOpenAICompatibleResponse>> = {
+  official: generateOfficialResponse,
   openai: generateOpenAICompatibleResponse,
   anthropic: generateAnthropicResponse,
   google: generateGeminiResponse,
@@ -701,6 +766,19 @@ async function listOpenAICompatibleModels(config: APIConfig) {
     .map((item) => item.id)
     .filter((id): id is string => Boolean(id))
     .map((id) => ({ id, label: id }));
+}
+
+async function listOfficialModels(): Promise<AvailableModelInfo[]> {
+  const response = await fetch('/api/ai/models', {
+    headers: getAuthHeaders(),
+  });
+  if (response.status === 401 || response.status === 403) {
+    dispatchAuthSessionExpired({ status: response.status, path: '/api/ai/models' });
+  }
+  const result = await parseJsonResponse<{ items?: Array<{ id?: string; label?: string; metadata?: JSONValue }> }>(response, 'Official model list request failed');
+  return (result.items || [])
+    .filter((item): item is { id: string; label?: string; metadata?: JSONValue } => Boolean(item.id))
+    .map((item) => ({ id: item.id, label: item.label || item.id, raw: item.metadata }));
 }
 
 async function listAnthropicModels(config: APIConfig) {
@@ -735,6 +813,9 @@ async function listQwenModels(config: APIConfig) {
 }
 
 export async function listAvailableModels(config: APIConfig): Promise<AvailableModelInfo[]> {
+  if (config.provider === 'official') {
+    return listOfficialModels();
+  }
   if (config.provider === 'microsoft') {
     return [
       { id: 'zh-CN-XiaoxiaoNeural', label: 'zh-CN-XiaoxiaoNeural' },
@@ -1060,6 +1141,9 @@ export const generateResponse = async (
   onChunk?: (chunk: string) => void,
   options: GenerateResponseOptions = {},
 ): Promise<string> => {
+  if (config.provider === 'official') {
+    return generateOfficialResponse(config, systemPrompt, messages, onChunk, options);
+  }
   if (isOpenAICompatibleEndpoint(config)) {
     return generateOpenAICompatibleResponse(config, systemPrompt, messages, onChunk, options);
   }
@@ -1075,6 +1159,10 @@ export const generateJsonResponse = async (
   const jsonPrompt = `${systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
 
   try {
+    if (config.provider === 'official') {
+      return await generateOfficialResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+    }
+
     if (usesOpenAICompatibleChatApi(config)) {
       return await generateOpenAICompatibleResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
     }
@@ -1107,21 +1195,26 @@ async function testMetadataConnection(config: APIConfig) {
   await listAvailableModels(config);
 }
 
-export const testConnection = async (config: MaybeTypedConfig): Promise<boolean> => {
+export interface AIConnectionTestResult {
+  success: boolean;
+  error?: unknown;
+}
+
+export const testConnection = async (config: MaybeTypedConfig): Promise<AIConnectionTestResult> => {
   try {
     if (config.provider === 'microsoft') {
       await synthesizeMicrosoftSpeech(config, { input: 'connection test', voice: config.model });
-      return true;
+      return { success: true };
     }
     if (config.type === 'image' || config.type === 'audio') {
       await testMetadataConnection(config);
     } else {
       await testTextLikeConnection(config);
     }
-    return true;
+    return { success: true };
   } catch (error) {
     console.error('AI connection test failed:', error);
-    return false;
+    return { success: false, error };
   }
 };
 

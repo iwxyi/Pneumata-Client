@@ -55,6 +55,9 @@ export default function AdminAIProviderPage() {
     defaultGrantAmount: '',
     defaultDailyQuota: '',
     defaultMonthlyQuota: '',
+    quotaTransferPath: '',
+    quotaTransferMethod: 'POST',
+    quotaTransferBodyTemplate: '',
   });
   const [quotaPackages, setQuotaPackages] = useState<QuotaPackageForm[]>([]);
   const [keys, setKeys] = useState<Array<Record<string, unknown>>>([]);
@@ -86,6 +89,11 @@ export default function AdminAIProviderPage() {
         defaultGrantAmount: config.defaultGrantAmount == null ? '' : String(config.defaultGrantAmount),
         defaultDailyQuota: config.defaultDailyQuota == null ? '' : String(config.defaultDailyQuota),
         defaultMonthlyQuota: config.defaultMonthlyQuota == null ? '' : String(config.defaultMonthlyQuota),
+        quotaTransferPath: config.quotaTransferPath == null ? '' : String(config.quotaTransferPath),
+        quotaTransferMethod: String(config.quotaTransferMethod || 'POST'),
+        quotaTransferBodyTemplate: config.quotaTransferBodyTemplate == null
+          ? ''
+          : JSON.stringify(config.quotaTransferBodyTemplate, null, 2),
       });
       setQuotaPackages(Array.isArray(config.quotaPackages) ? (config.quotaPackages as Array<Record<string, unknown>>).map(toPackageForm) : []);
     } catch (loadError) {
@@ -113,6 +121,11 @@ export default function AdminAIProviderPage() {
         defaultGrantAmount: form.defaultGrantAmount ? Number(form.defaultGrantAmount) : null,
         defaultDailyQuota: form.defaultDailyQuota ? Number(form.defaultDailyQuota) : null,
         defaultMonthlyQuota: form.defaultMonthlyQuota ? Number(form.defaultMonthlyQuota) : null,
+        quotaTransferPath: form.quotaTransferPath.trim() || null,
+        quotaTransferMethod: form.quotaTransferMethod || 'POST',
+        quotaTransferBodyTemplate: form.quotaTransferBodyTemplate.trim()
+          ? JSON.parse(form.quotaTransferBodyTemplate)
+          : null,
         quotaPackages: serializePackages(quotaPackages),
       };
       if (form.adminToken.trim()) payload.adminToken = form.adminToken.trim();
@@ -214,8 +227,6 @@ export default function AdminAIProviderPage() {
 
   return (
     <Stack spacing={2} sx={{ pb: 10 }}>
-      <Typography variant="h6">{providerCode.toUpperCase()}</Typography>
-
       <Tabs value={tab} onChange={(_event, value) => setTab(value)}>
         <Tab label="配置" />
         <Tab label="Key 查询" />
@@ -224,45 +235,85 @@ export default function AdminAIProviderPage() {
 
       {tab === 0 ? (
         <Stack spacing={1.25}>
-          <Alert severity={providerConfig?.adminTokenConfigured ? 'success' : 'warning'}>
-            主账号 Token：{providerConfig?.adminTokenConfigured ? `已配置 ${String(providerConfig.adminTokenMask || '')}` : '未配置'}
-          </Alert>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-            <TextField label="名称" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} fullWidth />
-            <TextField label="AI 调用 Base URL" value={form.baseUrl} onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))} fullWidth />
-            <TextField
-              label="管理 API Base URL"
-              value={form.adminBaseUrl}
-              onChange={(e) => setForm((prev) => ({ ...prev, adminBaseUrl: e.target.value }))}
-              helperText="API2D 开发者计划 custom_key 管理接口，例如 https://api.api2d.com"
-              fullWidth
-            />
-            <TextField select label="状态" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))} sx={{ minWidth: 140 }}>
-              <MenuItem value="active">启用</MenuItem>
-              <MenuItem value="inactive">停用</MenuItem>
-            </TextField>
-          </Stack>
-          <TextField
-            label="API2D 主账号管理 Token（不是模型调用 Key，留空表示不修改）"
-            type="password"
-            value={form.adminToken}
-            onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
-            fullWidth
-          />
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-            <FormControlLabel control={<Switch checked={form.autoProvisionEnabled} onChange={(e) => setForm((prev) => ({ ...prev, autoProvisionEnabled: e.target.checked }))} />} label="新用户自动生成 Key" />
-            <TextField
-              label="默认 Key 分组 ID"
-              value={form.defaultKeyTypeId}
-              onChange={(e) => setForm((prev) => ({ ...prev, defaultKeyTypeId: e.target.value }))}
-              helperText={providerCode === 'api2d' ? '填写 custom_key_type/search 返回的数字 id，例如 1219，不要带 CK 前缀' : undefined}
-            />
-            <TextField label="默认点数" value={form.defaultGrantAmount} onChange={(e) => setForm((prev) => ({ ...prev, defaultGrantAmount: e.target.value }))} />
-          </Stack>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-            <TextField label="每日重置额度" value={form.defaultDailyQuota} onChange={(e) => setForm((prev) => ({ ...prev, defaultDailyQuota: e.target.value }))} />
-            <TextField label="每月最高额度（0 表示不限制）" value={form.defaultMonthlyQuota} onChange={(e) => setForm((prev) => ({ ...prev, defaultMonthlyQuota: e.target.value }))} />
-          </Stack>
+          <AdminDetailCard title="主账号配置">
+            <Stack spacing={1.25}>
+              <Alert severity={providerConfig?.adminTokenConfigured ? 'success' : 'warning'}>
+                主账号 Token：{providerConfig?.adminTokenConfigured ? `已配置 ${String(providerConfig.adminTokenMask || '')}` : '未配置'}
+              </Alert>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                <TextField label="名称" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} fullWidth />
+                <TextField select label="状态" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))} sx={{ minWidth: 140 }}>
+                  <MenuItem value="active">启用</MenuItem>
+                  <MenuItem value="inactive">停用</MenuItem>
+                </TextField>
+              </Stack>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                <TextField label="AI 调用 Base URL" value={form.baseUrl} onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))} fullWidth />
+                <TextField
+                  label="管理 API Base URL"
+                  value={form.adminBaseUrl}
+                  onChange={(e) => setForm((prev) => ({ ...prev, adminBaseUrl: e.target.value }))}
+                  helperText="API2D 开发者计划 custom_key 管理接口，例如 https://api.api2d.com"
+                  fullWidth
+                />
+              </Stack>
+              <TextField
+                label="API2D 主账号管理 Token（不是模型调用 Key，留空表示不修改）"
+                type="password"
+                value={form.adminToken}
+                onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
+                fullWidth
+              />
+            </Stack>
+          </AdminDetailCard>
+
+          <AdminDetailCard title="新用户自动分配 Key">
+            <Stack spacing={1.25}>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                <FormControlLabel control={<Switch checked={form.autoProvisionEnabled} onChange={(e) => setForm((prev) => ({ ...prev, autoProvisionEnabled: e.target.checked }))} />} label="新用户自动生成 Key" />
+                <TextField
+                  label="默认 Key 分组 ID"
+                  value={form.defaultKeyTypeId}
+                  onChange={(e) => setForm((prev) => ({ ...prev, defaultKeyTypeId: e.target.value }))}
+                  helperText={providerCode === 'api2d' ? '填写 custom_key_type/search 返回的数字 id，例如 1219，不要带 CK 前缀' : undefined}
+                />
+                <TextField label="默认点数" value={form.defaultGrantAmount} onChange={(e) => setForm((prev) => ({ ...prev, defaultGrantAmount: e.target.value }))} />
+              </Stack>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                <TextField label="每日重置额度" value={form.defaultDailyQuota} onChange={(e) => setForm((prev) => ({ ...prev, defaultDailyQuota: e.target.value }))} />
+                <TextField label="每月最高额度（0 表示不限制）" value={form.defaultMonthlyQuota} onChange={(e) => setForm((prev) => ({ ...prev, defaultMonthlyQuota: e.target.value }))} />
+              </Stack>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                <TextField
+                  label="额度转入路径"
+                  value={form.quotaTransferPath}
+                  onChange={(e) => setForm((prev) => ({ ...prev, quotaTransferPath: e.target.value }))}
+                  helperText="API2D 点数转入接口路径，例如 /custom_key/transfer_point；留空则使用后端默认值"
+                  fullWidth
+                />
+                <TextField
+                  select
+                  label="额度转入方法"
+                  value={form.quotaTransferMethod}
+                  onChange={(e) => setForm((prev) => ({ ...prev, quotaTransferMethod: e.target.value }))}
+                  sx={{ minWidth: 140 }}
+                >
+                  <MenuItem value="POST">POST</MenuItem>
+                  <MenuItem value="PUT">PUT</MenuItem>
+                </TextField>
+              </Stack>
+              <TextField
+                label="额度转入请求体模板"
+                value={form.quotaTransferBodyTemplate}
+                onChange={(e) => setForm((prev) => ({ ...prev, quotaTransferBodyTemplate: e.target.value }))}
+                helperText='JSON 模板，可使用 {externalKeyId}、{apiKey}、{amount}；API2D 默认 body 为 {"key":"{apiKey}","direction":"to","point":"{amount}"}'
+                minRows={4}
+                multiline
+                fullWidth
+              />
+            </Stack>
+          </AdminDetailCard>
+
           <AdminDetailCard title="额度套餐">
             <Stack spacing={1.25}>
               {!quotaPackages.length ? <Alert severity="info">暂无套餐，添加后可用于后续支付购买。</Alert> : null}

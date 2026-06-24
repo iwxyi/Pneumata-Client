@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Stack, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material';
+import { Box, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
@@ -19,21 +19,31 @@ function ProviderTable({ items, onOpen }: { items: Array<Record<string, unknown>
             <TableCell>自动开通</TableCell>
             <TableCell>默认分组</TableCell>
             <TableCell>默认点数</TableCell>
-            <TableCell>操作</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
           {items.map((item) => (
-            <TableRow key={String(item.id)}>
+            <TableRow
+              key={String(item.id)}
+              hover
+              onClick={() => onOpen(String(item.code || ''))}
+              sx={{ cursor: 'pointer' }}
+            >
               <TableCell>{String(item.code || '')}</TableCell>
               <TableCell>{String(item.name || '')}</TableCell>
               <TableCell>{String(item.base_url || '')}</TableCell>
               <TableCell>{String(item.admin_base_url || '')}</TableCell>
-              <TableCell>{String(item.status || '')}</TableCell>
+              <TableCell>
+                <Chip
+                  size="small"
+                  label={String(item.status || '') === 'active' ? '启用' : '停用'}
+                  color={String(item.status || '') === 'active' ? 'success' : 'default'}
+                  sx={{ height: 22 }}
+                />
+              </TableCell>
               <TableCell>{Number(item.auto_provision_enabled || 0) ? '是' : '否'}</TableCell>
               <TableCell>{String(item.default_key_type_id ?? '')}</TableCell>
               <TableCell>{String(item.default_grant_amount ?? '')}</TableCell>
-              <TableCell><Button size="small" onClick={() => onOpen(String(item.code || ''))}>进入</Button></TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -71,9 +81,16 @@ export default function AdminAIPage() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-        <Alert severity="success" sx={{ flex: 1 }}>启用 Provider：{providerStats.active}</Alert>
-        <Alert severity="warning" sx={{ flex: 1 }}>停用 Provider：{providerStats.disabled}</Alert>
+      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
+        <Paper variant="outlined" sx={{ px: 1.25, py: 0.75, borderRadius: 1.5, minWidth: 120 }}>
+          <Typography variant="caption" color="text.secondary">启用 Provider</Typography>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.25 }}>{providerStats.active}</Typography>
+        </Paper>
+        <Paper variant="outlined" sx={{ px: 1.25, py: 0.75, borderRadius: 1.5, minWidth: 120 }}>
+          <Typography variant="caption" color="text.secondary">停用 Provider</Typography>
+          <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.25 }}>{providerStats.disabled}</Typography>
+        </Paper>
+        <Box sx={{ flex: 1 }} />
       </Stack>
       <AdminRequestState loading={loading} error={error} onRetry={() => void loadProviders()} />
       <ProviderTable items={items} onOpen={(providerCode) => navigate(`/admin/ai/providers/${encodeURIComponent(providerCode)}`)} />

@@ -50,6 +50,11 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        configure(proxy) {
+          proxy.on('proxyRes', (proxyRes) => {
+            proxyRes.headers['x-pneumata-vite-proxy'] = 'Pneumata-Client:5173';
+          })
+        },
       },
       '/uploads': {
         target: 'http://localhost:3001',

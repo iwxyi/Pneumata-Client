@@ -2,7 +2,7 @@ import type { RuntimeEvolutionIntensity } from './chat';
 import type { ArtifactAppearanceSettings } from './artifactAppearance';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS } from './artifactAppearance';
 
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'xai' | 'deepseek' | 'alibaba' | 'zhipu' | 'moonshot' | 'minimax' | 'bytedance' | 'microsoft' | 'custom';
+export type AIProvider = 'official' | 'openai' | 'anthropic' | 'google' | 'xai' | 'deepseek' | 'alibaba' | 'zhipu' | 'moonshot' | 'minimax' | 'bytedance' | 'microsoft' | 'custom';
 export type AIModelType = 'text' | 'image' | 'audio' | 'document';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Language = 'zh' | 'en';
@@ -150,6 +150,7 @@ export function getAttachmentUiCapabilitySummary(profile?: Pick<AIModelProfile, 
 
 export function getInputCapabilitySource(profile?: Pick<AIModelProfile, 'provider' | 'model'> | null) {
   if (!profile) return 'none' as const;
+  if (profile.provider === 'official') return 'official' as const;
   if (profile.provider === 'anthropic' || profile.provider === 'google') return 'official' as const;
   return inferTextInputCapabilities(profile.provider, profile.model).imageInput || inferTextInputCapabilities(profile.provider, profile.model).fileInput
     ? 'third-party-inferred' as const
@@ -918,7 +919,9 @@ export function getPreferredAIProfile(aiProfiles: AIModelProfile[], type: AIMode
 }
 
 export function isAIProfileUsable<T extends Pick<APIConfig, 'apiKey' | 'model'>>(profile: T | null | undefined): profile is T {
-  return Boolean(profile?.apiKey?.trim() && profile?.model?.trim());
+  if (!profile?.model?.trim()) return false;
+  const provider = 'provider' in profile ? (profile as T & Pick<APIConfig, 'provider'>).provider : null;
+  return provider === 'official' || Boolean(profile.apiKey?.trim());
 }
 
 export function getUsablePreferredAIProfile(aiProfiles: AIModelProfile[], type: AIModelType) {

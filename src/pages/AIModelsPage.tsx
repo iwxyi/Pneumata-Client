@@ -39,6 +39,24 @@ function blockSecretCopy(event: ClipboardEvent<HTMLInputElement | HTMLTextAreaEl
   event.preventDefault();
 }
 
+function extractConnectionErrorMessage(error: unknown) {
+  if (!error) return '';
+  const raw = error instanceof Error ? error.message : String(error);
+  if (!raw) return '';
+  try {
+    const parsed = JSON.parse(raw) as {
+      error?: string | { message?: string };
+      detail?: string;
+      message?: string;
+    };
+    const upstreamDetail = parsed.detail ? JSON.parse(parsed.detail) as { message?: string } : null;
+    const errorMessage = typeof parsed.error === 'string' ? parsed.error : parsed.error?.message;
+    return upstreamDetail?.message || errorMessage || parsed.message || raw;
+  } catch {
+    return raw;
+  }
+}
+
 function blockSecretDrag(event: DragEvent<HTMLInputElement | HTMLTextAreaElement>) {
   event.preventDefault();
 }
@@ -99,6 +117,82 @@ function solidPopupPaperSx() {
       py: 0,
     },
   };
+}
+
+const OFFICIAL_MODEL_GROUP_ORDER = [
+  'gpt-5',
+  'o',
+  'gpt-4.5',
+  'gpt-4.1',
+  'gpt-4o',
+  'gpt-4-turbo',
+  'gpt-4-vision',
+  'gpt-4',
+  'gpt-3.5',
+  'embedding',
+  'image',
+  'other',
+] as const;
+
+function getOfficialModelGroupKey(model: string) {
+  const normalized = model.trim().toLowerCase();
+  if (/^gpt-5(?:[.-]|$)/.test(normalized)) return 'gpt-5';
+  if (/^o\d/.test(normalized)) return 'o';
+  if (/^gpt-4\.5(?:[.-]|$)/.test(normalized)) return 'gpt-4.5';
+  if (/^gpt-4\.1(?:[.-]|$)/.test(normalized)) return 'gpt-4.1';
+  if (/^gpt-4o(?:[.-]|$)/.test(normalized)) return 'gpt-4o';
+  if (/^gpt-4-turbo/.test(normalized)) return 'gpt-4-turbo';
+  if (/^gpt-4.*vision/.test(normalized)) return 'gpt-4-vision';
+  if (/^gpt-4(?:[.-]|$)/.test(normalized)) return 'gpt-4';
+  if (/^gpt-3\.5/.test(normalized)) return 'gpt-3.5';
+  if (normalized.includes('embedding')) return 'embedding';
+  if (normalized.includes('image') || normalized.includes('dall-e')) return 'image';
+  return 'other';
+}
+
+function getOfficialModelGroupLabel(model: string, isZh: boolean) {
+  const key = getOfficialModelGroupKey(model);
+  if (isZh) {
+    const labels: Record<(typeof OFFICIAL_MODEL_GROUP_ORDER)[number], string> = {
+      'gpt-5': 'GPT-5 系列',
+      o: 'o 推理系列',
+      'gpt-4.5': 'GPT-4.5 系列',
+      'gpt-4.1': 'GPT-4.1 系列',
+      'gpt-4o': 'GPT-4o 系列',
+      'gpt-4-turbo': 'GPT-4 Turbo 系列',
+      'gpt-4-vision': 'GPT-4 视觉系列',
+      'gpt-4': 'GPT-4 系列',
+      'gpt-3.5': 'GPT-3.5 系列',
+      embedding: 'Embedding 模型',
+      image: '图像模型',
+      other: '其他模型',
+    };
+    return labels[key];
+  }
+  const labels: Record<(typeof OFFICIAL_MODEL_GROUP_ORDER)[number], string> = {
+    'gpt-5': 'GPT-5',
+    o: 'o reasoning',
+    'gpt-4.5': 'GPT-4.5',
+    'gpt-4.1': 'GPT-4.1',
+    'gpt-4o': 'GPT-4o',
+    'gpt-4-turbo': 'GPT-4 Turbo',
+    'gpt-4-vision': 'GPT-4 Vision',
+    'gpt-4': 'GPT-4',
+    'gpt-3.5': 'GPT-3.5',
+    embedding: 'Embeddings',
+    image: 'Images',
+    other: 'Other models',
+  };
+  return labels[key];
+}
+
+function compareOfficialModels(left: string, right: string) {
+  const leftGroup = getOfficialModelGroupKey(left);
+  const rightGroup = getOfficialModelGroupKey(right);
+  const leftGroupIndex = OFFICIAL_MODEL_GROUP_ORDER.indexOf(leftGroup);
+  const rightGroupIndex = OFFICIAL_MODEL_GROUP_ORDER.indexOf(rightGroup);
+  if (leftGroupIndex !== rightGroupIndex) return leftGroupIndex - rightGroupIndex;
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 export default function AIModelsPage() {
@@ -217,15 +311,21 @@ export default function AIModelsPage() {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
     if (!profile) return;
     setTestingId(profileId);
-    const success = await testConnection(profile);
+    const result = await testConnection(profile);
     setTestingId(null);
     const corsHint = i18n.language.startsWith('zh')
       ? '浏览器直连被目标站跨域策略拦截，可继续保存配置，实际使用建议走服务端代理。'
       : 'Browser-direct request was blocked by the target CORS policy. You can still save the config; production use should go through your server proxy.';
+    const errorMessage = extractConnectionErrorMessage(result.error);
+    const message = result.success
+      ? t('settings.connectionSuccess')
+      : isLikelyBrowserCorsError(result.error)
+        ? corsHint
+        : errorMessage || t('settings.connectionFailed');
     setSnackbar({
       open: true,
-      message: success ? t('settings.connectionSuccess') : corsHint,
-      severity: success ? 'success' : 'error',
+      message,
+      severity: result.success ? 'success' : 'error',
     });
   };
 
@@ -280,12 +380,12 @@ export default function AIModelsPage() {
   const fetchAvailableModels = async (profileId: string, silent = false, force = false) => {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
     if (!profile) return false;
-    if (!profile.apiKey) {
+    if (profile.provider !== 'official' && !profile.apiKey) {
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: [] }));
       return false;
     }
 
-    const fetchKey = `${profile.provider}__${profile.type || 'text'}__${profile.baseUrl}__${profile.apiKey}`;
+    const fetchKey = `${profile.provider}__${profile.type || 'text'}__${profile.baseUrl}__${profile.apiKey || 'account'}`;
     if (!force && fetchedModelKeys[profileId] === fetchKey) return true;
     if (fetchingModelKeysRef.current[profileId] === fetchKey) return false;
 
@@ -299,6 +399,9 @@ export default function AIModelsPage() {
     try {
       const models = await listAvailableModels(profile);
       const options = Array.from(new Set(models.map((item) => item.id).filter(Boolean)));
+      if (profile.provider === 'official') {
+        options.sort(compareOfficialModels);
+      }
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: options }));
       setFetchedModelKeys((prev) => ({ ...prev, [profileId]: fetchKey }));
       if (!silent) {
@@ -379,12 +482,20 @@ export default function AIModelsPage() {
                     const providerOptions = getProvidersForType(activeType);
                     const selectedProvider = providerOptions.find((item) => item.key === profile.provider) || providerOptions[0] || getProviderCatalogEntry(profile.provider);
                     const providerDefaults = getProviderDefaults(selectedProvider.key, activeType);
-                    const popularModels = getPopularModels(selectedProvider.key, activeType);
-                    const remoteModels = (remoteModelOptions[profile.id] || []).filter((item) => !popularModels.includes(item));
+                    const usesOfficialProxy = selectedProvider.key === 'official';
+                    const fetchedModels = remoteModelOptions[profile.id] || [];
+                    const popularModels = usesOfficialProxy && fetchedModels.length > 0 ? [] : getPopularModels(selectedProvider.key, activeType);
+                    const remoteModels = fetchedModels.filter((item) => !popularModels.includes(item));
                     const fetchingModels = Boolean(fetchingModelIds[profile.id]);
                     const modelOptions = [
-                      ...popularModels.map((value) => ({ value, group: groupedModelLabels.popular })),
-                      ...remoteModels.map((value) => ({ value, group: groupedModelLabels.remote })),
+                      ...popularModels.map((value) => ({
+                        value,
+                        group: usesOfficialProxy ? getOfficialModelGroupLabel(value, i18n.language.startsWith('zh')) : groupedModelLabels.popular,
+                      })),
+                      ...remoteModels.map((value) => ({
+                        value,
+                        group: usesOfficialProxy ? getOfficialModelGroupLabel(value, i18n.language.startsWith('zh')) : groupedModelLabels.remote,
+                      })),
                     ];
                     return (
                       <>
@@ -503,12 +614,20 @@ export default function AIModelsPage() {
 
                   <TextField
                     label={t('settings.apiKey')}
-                    placeholder={t('settings.apiKeyPlaceholder')}
-                    value={showKey ? maskSecret(profile.apiKey) : profile.apiKey}
-                    onChange={(e) => settings.updateAIProfile(profile.id, { apiKey: e.target.value })}
+                    placeholder={usesOfficialProxy
+                      ? (i18n.language.startsWith('zh') ? '使用当前登录账号，无需填写密钥' : 'Uses your signed-in account; no key required')
+                      : t('settings.apiKeyPlaceholder')}
+                    value={usesOfficialProxy ? '' : (showKey ? maskSecret(profile.apiKey) : profile.apiKey)}
+                    onChange={(e) => {
+                      if (!usesOfficialProxy) settings.updateAIProfile(profile.id, { apiKey: e.target.value });
+                    }}
                     type={showKey ? 'text' : 'password'}
                     size="small"
                     fullWidth
+                    disabled={usesOfficialProxy}
+                    helperText={usesOfficialProxy
+                      ? (i18n.language.startsWith('zh') ? '官方服务商会通过后台账号权益获取中转 Key。' : 'Official provider uses your account entitlement through the backend proxy.')
+                      : undefined}
                     sx={fieldSx()}
                     slotProps={{
                       input: {
@@ -538,9 +657,10 @@ export default function AIModelsPage() {
 
                   <TextField
                     label={t('settings.baseUrl')}
-                    placeholder={selectedProvider.key === 'custom' ? 'https://example.com/v1' : providerDefaults.baseUrl}
+                    placeholder={usesOfficialProxy ? '/api/ai' : (selectedProvider.key === 'custom' ? 'https://example.com/v1' : providerDefaults.baseUrl)}
                     value={profile.baseUrl}
                     onChange={(e) => {
+                      if (usesOfficialProxy) return;
                       setFetchModelFailedIds((prev) => {
                         const next = { ...prev };
                         delete next[profile.id];
@@ -550,6 +670,10 @@ export default function AIModelsPage() {
                     }}
                     size="small"
                     fullWidth
+                    disabled={usesOfficialProxy}
+                    helperText={usesOfficialProxy
+                      ? (i18n.language.startsWith('zh') ? '请求固定发送到本程序后台中转。' : 'Requests are routed through this app backend.')
+                      : undefined}
                     sx={fieldSx()}
                   />
 
