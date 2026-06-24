@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { FormEvent } from 'react';
 import { Alert, Box, Button, Paper, Stack, TextField, Typography } from '@mui/material';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAdminAuthStore } from '../../stores/useAdminAuthStore';
@@ -17,13 +18,24 @@ export default function AdminLoginPage() {
     return `${from.pathname}${from.search || ''}${from.hash || ''}`;
   })();
 
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError('');
+    try {
+      await login(email.trim(), password);
+      navigate(nextPath, { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '登录失败');
+    }
+  };
+
   if (isLoggedIn) {
     return <Navigate to={nextPath} replace />;
   }
 
   return (
     <Box sx={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', px: 2, bgcolor: 'background.default' }}>
-      <Paper sx={{ width: '100%', maxWidth: 420, p: 3, borderRadius: 3 }} elevation={4}>
+      <Paper component="form" onSubmit={handleSubmit} sx={{ width: '100%', maxWidth: 420, p: 3, borderRadius: 3 }} elevation={4}>
         <Stack spacing={2.25}>
           <Box>
             <Typography variant="h5" sx={{ fontWeight: 800 }}>后台登录</Typography>
@@ -33,17 +45,9 @@ export default function AdminLoginPage() {
           <TextField label="邮箱" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
           <TextField label="密码" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
           <Button
+            type="submit"
             variant="contained"
             disabled={isLoading}
-            onClick={async () => {
-              setError('');
-              try {
-                await login(email.trim(), password);
-                navigate(nextPath, { replace: true });
-              } catch (err) {
-                setError(err instanceof Error ? err.message : '登录失败');
-              }
-            }}
           >
             登录后台
           </Button>

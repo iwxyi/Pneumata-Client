@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, Divider, Grid, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery, useTheme } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
+import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
 function formatTime(value: unknown) {
@@ -46,6 +47,11 @@ export default function AdminUsersPage() {
   const [selectedUser, setSelectedUser] = useState<Record<string, unknown> | null>(null);
   const [selectedRestrictions, setSelectedRestrictions] = useState<Array<Record<string, unknown>>>([]);
   const [restrictionReason, setRestrictionReason] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const statCards = useMemo(() => [
     { label: '聊天数', value: selectedUser?.chatCount },
@@ -54,14 +60,59 @@ export default function AdminUsersPage() {
     { label: '生效限制', value: selectedUser?.activeRestrictionCount },
   ], [selectedUser]);
 
+  const loadUsers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await adminApi.getUsers(search);
+      setItems(result.items as Array<{ id: string; phone: string; nickname: string; created_at: number }>);
+    } catch (loadError) {
+      setError(getAdminErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadSelectedUser = async (userId: string) => {
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const [user, restrictions] = await Promise.all([
+        adminApi.getUser(userId),
+        adminApi.getUserRestrictions(userId),
+      ]);
+      setSelectedUser(user);
+      setSelectedRestrictions(restrictions.items);
+    } catch (loadError) {
+      setDetailError(getAdminErrorMessage(loadError));
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const saveRestriction = async (restrictionType: string, status = 'active') => {
+    if (!selectedUserId) return;
+    setActionLoading(true);
+    setDetailError(null);
+    try {
+      await adminApi.upsertUserRestriction(selectedUserId, restrictionType, { status, reasonText: restrictionReason });
+      await loadSelectedUser(selectedUserId);
+    } catch (saveError) {
+      setDetailError(getAdminErrorMessage(saveError));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
-    void adminApi.getUsers(search).then((result) => setItems(result.items as Array<{ id: string; phone: string; nickname: string; created_at: number }>));
+    void loadUsers();
   }, [search]);
 
   useEffect(() => {
     if (!selectedUserId) return;
-    void adminApi.getUser(selectedUserId).then(setSelectedUser);
-    void adminApi.getUserRestrictions(selectedUserId).then((result) => setSelectedRestrictions(result.items));
+    setSelectedUser(null);
+    setSelectedRestrictions([]);
+    void loadSelectedUser(selectedUserId);
   }, [selectedUserId]);
 
   const workspace = selectedUser?.workspace as { recentOrders?: Array<Record<string, unknown>>; recentChats?: Array<Record<string, unknown>>; recentCharacters?: Array<Record<string, unknown>> } | undefined;
@@ -69,6 +120,7 @@ export default function AdminUsersPage() {
   return (
     <Stack spacing={2}>
       <TextField value={search} onChange={(e) => setSearch(e.target.value)} label="搜索手机号或昵称" />
+      <AdminRequestState loading={loading} error={error} onRetry={() => void loadUsers()} />
       <AdminResponsiveTable minWidth={640}>
         <Table>
           <TableHead>
@@ -80,6 +132,13 @@ export default function AdminUsersPage() {
             </TableRow>
           </TableHead>
           <TableBody>
+            {!items.length && !loading ? (
+              <TableRow>
+                <TableCell colSpan={4}>
+                  <Alert severity="info">暂无用户</Alert>
+                </TableCell>
+              </TableRow>
+            ) : null}
             {items.map((item) => (
               <TableRow key={item.id} hover>
                 <TableCell>{item.nickname}</TableCell>
@@ -96,6 +155,7 @@ export default function AdminUsersPage() {
         <DialogTitle>用户详情</DialogTitle>
         <DialogContent>
           <Stack spacing={2}>
+            <AdminRequestState loading={detailLoading || actionLoading} error={detailError} onRetry={selectedUserId ? () => void loadSelectedUser(selectedUserId) : undefined} />
             {selectedUser ? (
               <Stack spacing={2}>
                 <AdminDetailCard title="基础信息">
@@ -136,31 +196,21 @@ export default function AdminUsersPage() {
             <AdminDetailCard title="限制项">
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
                 {selectedRestrictions.map((item) => (
-                  <Chip key={String(item.id)} label={`${String(item.restriction_type)} · ${String(item.status)}`} />
+                  <Chip
+                    key={String(item.id)}
+                    label={`${String(item.restriction_type)} · ${String(item.status)}`}
+                    color={String(item.status) === 'active' ? 'warning' : 'default'}
+                    onDelete={String(item.status) === 'active' ? () => void saveRestriction(String(item.restriction_type || ''), 'inactive') : undefined}
+                  />
                 ))}
               </Box>
               {!selectedRestrictions.length ? <Alert severity="info">暂无限制项</Alert> : null}
               <Divider />
               <TextField label="限制原因" value={restrictionReason} onChange={(e) => setRestrictionReason(e.target.value)} />
               <Stack direction="row" spacing={1}>
-                <Button variant="outlined" onClick={async () => {
-                  if (!selectedUserId) return;
-                  await adminApi.upsertUserRestriction(selectedUserId, 'share_disabled', { status: 'active', reasonText: restrictionReason });
-                  const result = await adminApi.getUserRestrictions(selectedUserId);
-                  setSelectedRestrictions(result.items);
-                }}>禁分享</Button>
-                <Button variant="outlined" onClick={async () => {
-                  if (!selectedUserId) return;
-                  await adminApi.upsertUserRestriction(selectedUserId, 'ai_disabled', { status: 'active', reasonText: restrictionReason });
-                  const result = await adminApi.getUserRestrictions(selectedUserId);
-                  setSelectedRestrictions(result.items);
-                }}>禁AI</Button>
-                <Button variant="outlined" onClick={async () => {
-                  if (!selectedUserId) return;
-                  await adminApi.upsertUserRestriction(selectedUserId, 'sync_disabled', { status: 'active', reasonText: restrictionReason });
-                  const result = await adminApi.getUserRestrictions(selectedUserId);
-                  setSelectedRestrictions(result.items);
-                }}>禁同步</Button>
+                <Button variant="outlined" disabled={actionLoading} onClick={() => void saveRestriction('share_disabled')}>禁分享</Button>
+                <Button variant="outlined" disabled={actionLoading} onClick={() => void saveRestriction('ai_disabled')}>禁AI</Button>
+                <Button variant="outlined" disabled={actionLoading} onClick={() => void saveRestriction('sync_disabled')}>禁同步</Button>
               </Stack>
             </AdminDetailCard>
           </Stack>

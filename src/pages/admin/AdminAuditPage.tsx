@@ -2,15 +2,31 @@ import { useEffect, useState } from 'react';
 import { Button, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
+import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
 export default function AdminAuditPage() {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [selectedItem, setSelectedItem] = useState<Record<string, unknown> | null>(null);
   const [result, setResult] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await adminApi.getAuditLogs({ result: result || undefined });
+      setItems(response.items);
+    } catch (loadError) {
+      setError(getAdminErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    void adminApi.getAuditLogs({ result: result || undefined }).then((response) => setItems(response.items));
+    void load();
   }, [result]);
 
   return (
@@ -20,6 +36,7 @@ export default function AdminAuditPage() {
         <Button variant={result === 'success' ? 'contained' : 'outlined'} onClick={() => setResult('success')}>成功</Button>
         <Button variant={result === 'failed' ? 'contained' : 'outlined'} onClick={() => setResult('failed')}>失败</Button>
       </Stack>
+      <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <AdminResponsiveTable minWidth={760}>
         <Table>
           <TableHead>

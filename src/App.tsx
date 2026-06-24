@@ -13,16 +13,19 @@ import CreateChatPage from './pages/CreateChatPage';
 import ChatDetailPage from './pages/ChatDetailPage';
 import CreateDirectChatPage from './pages/CreateDirectChatPage';
 import AdminLayout from './components/admin/AdminLayout';
+import AdminPermissionGate from './components/admin/AdminPermissionGate';
 import AdminLoginPage from './pages/admin/AdminLoginPage';
 import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminUsersPage from './pages/admin/AdminUsersPage';
 import AdminAIPage from './pages/admin/AdminAIPage';
+import AdminAIProviderPage from './pages/admin/AdminAIProviderPage';
 import AdminBillingPage from './pages/admin/AdminBillingPage';
 import AdminModerationPage from './pages/admin/AdminModerationPage';
 import AdminRiskPage from './pages/admin/AdminRiskPage';
 import AdminAuditPage from './pages/admin/AdminAuditPage';
 import AdminNotificationsPage from './pages/admin/AdminNotificationsPage';
 import { useAdminAuthStore } from './stores/useAdminAuthStore';
+import { ADMIN_DASHBOARD_PERMISSIONS, ADMIN_PERMISSION_CODES } from './constants/adminPermissions';
 import { ADMIN_LOGIN_EVENT } from './services/adminApi';
 import { AUTH_SESSION_EXPIRED_EVENT, type AuthSessionExpiredDetail } from './services/authSession';
 import DevUpdatePrompt from './components/common/DevUpdatePrompt';
@@ -136,7 +139,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 function RequireAdminAuth() {
   const isLoggedIn = useAdminAuthStore((s) => s.isLoggedIn);
+  const isLoading = useAdminAuthStore((s) => s.isLoading);
   const location = useLocation();
+  if (isLoading) {
+    return <RouteFallback />;
+  }
   if (!isLoggedIn) {
     return <Navigate to="/admin/login" state={{ from: location }} replace />;
   }
@@ -233,14 +240,15 @@ function RoutedApp() {
       <Route path="/shared/chats/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
       <Route element={<RequireAdminAuth />}>
         <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminDashboardPage />} />
-          <Route path="users" element={<AdminUsersPage />} />
-          <Route path="ai" element={<AdminAIPage />} />
-          <Route path="billing" element={<AdminBillingPage />} />
-          <Route path="moderation" element={<AdminModerationPage />} />
-          <Route path="notifications" element={<AdminNotificationsPage />} />
-          <Route path="risk" element={<AdminRiskPage />} />
-          <Route path="audit" element={<AdminAuditPage />} />
+          <Route index element={<AdminPermissionGate permissions={ADMIN_DASHBOARD_PERMISSIONS}><AdminDashboardPage /></AdminPermissionGate>} />
+          <Route path="users" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.usersRead]}><AdminUsersPage /></AdminPermissionGate>} />
+          <Route path="ai" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIPage /></AdminPermissionGate>} />
+          <Route path="ai/providers/:providerCode" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIProviderPage /></AdminPermissionGate>} />
+          <Route path="billing" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.billingRead]}><AdminBillingPage /></AdminPermissionGate>} />
+          <Route path="moderation" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.sharesReview]}><AdminModerationPage /></AdminPermissionGate>} />
+          <Route path="notifications" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.notificationsRead]}><AdminNotificationsPage /></AdminPermissionGate>} />
+          <Route path="risk" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.riskRead]}><AdminRiskPage /></AdminPermissionGate>} />
+          <Route path="audit" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.auditRead]}><AdminAuditPage /></AdminPermissionGate>} />
         </Route>
       </Route>
       <Route element={

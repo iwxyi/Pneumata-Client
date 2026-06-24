@@ -3,6 +3,7 @@ import Button from '@mui/material/Button';
 import AppSnackbar from './AppSnackbar';
 
 const DEV_UPDATE_POLL_INTERVAL_MS = 2500;
+const UPDATE_MODE = import.meta.env.VITE_APP_UPDATE_MODE === 'prompt' ? 'prompt' : 'auto';
 
 async function fetchDevUpdateVersion(signal: AbortSignal) {
   const response = await fetch('/__pneumata_dev_updates', {
@@ -39,6 +40,10 @@ export default function DevUpdatePrompt() {
         if (baselineVersion === null) {
           baselineVersion = version;
         } else if (version !== baselineVersion) {
+          if (UPDATE_MODE === 'auto') {
+            window.location.reload();
+            return;
+          }
           setNeedRefresh(true);
           baselineVersion = version;
         }
@@ -61,7 +66,7 @@ export default function DevUpdatePrompt() {
     };
   }, []);
 
-  if (!import.meta.env.DEV) return null;
+  if (!import.meta.env.DEV || UPDATE_MODE === 'auto') return null;
 
   return (
     <AppSnackbar

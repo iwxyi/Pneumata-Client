@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:admin-browser-smoke": "node scripts/admin-browser-smoke.mjs",
     "test:story-browser-smoke": "node scripts/story-room-browser-smoke.mjs",
     "test:story-llm-acceptance": "node scripts/story-llm-acceptance.mjs",
     "preview": "vite preview"

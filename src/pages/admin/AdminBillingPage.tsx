@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
+import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
 function formatOrderTime(value: unknown) {
@@ -31,6 +32,9 @@ function OrderDetailCard({ selectedOrder }: { selectedOrder: Record<string, unkn
 export default function AdminBillingPage() {
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [selectedOrder, setSelectedOrder] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const summary = useMemo(() => ({
     pending: items.filter((item) => String(item.status || '') === 'pending').length,
     paid: items.filter((item) => String(item.status || '') === 'paid').length,
@@ -40,11 +44,32 @@ export default function AdminBillingPage() {
   const [status, setStatus] = useState('');
 
   const load = async () => {
-    const result = await adminApi.getOrders({ status: status || undefined });
-    setItems(result.items);
-    if (selectedOrder) {
-      const next = result.items.find((item) => String(item.id) === String(selectedOrder.id));
-      setSelectedOrder(next || null);
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await adminApi.getOrders({ status: status || undefined });
+      setItems(result.items);
+      if (selectedOrder) {
+        const next = result.items.find((item) => String(item.id) === String(selectedOrder.id));
+        setSelectedOrder(next || null);
+      }
+    } catch (loadError) {
+      setError(getAdminErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const markPaid = async (orderId: string) => {
+    setActionLoadingId(orderId);
+    setError(null);
+    try {
+      await adminApi.markOrderPaid(orderId);
+      await load();
+    } catch (actionError) {
+      setError(getAdminErrorMessage(actionError));
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -59,6 +84,7 @@ export default function AdminBillingPage() {
         <Button variant={status === 'pending' ? 'contained' : 'outlined'} onClick={() => setStatus('pending')}>待支付</Button>
         <Button variant={status === 'paid' ? 'contained' : 'outlined'} onClick={() => setStatus('paid')}>已支付</Button>
       </Stack>
+      <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
         <Alert severity="info" sx={{ flex: 1 }}>待支付：{summary.pending}</Alert>
         <Alert severity="success" sx={{ flex: 1 }}>已支付：{summary.paid}</Alert>
@@ -86,7 +112,7 @@ export default function AdminBillingPage() {
                 <TableCell>{String(item.status || '')}</TableCell>
                 <TableCell align="right">
                   {String(item.status || '') !== 'paid' ? (
-                    <Button size="small" onClick={async (event) => { event.stopPropagation(); await adminApi.markOrderPaid(String(item.id)); await load(); }}>标记支付</Button>
+                    <Button size="small" disabled={actionLoadingId === String(item.id)} onClick={(event) => { event.stopPropagation(); void markPaid(String(item.id)); }}>标记支付</Button>
                   ) : null}
                 </TableCell>
               </TableRow>
@@ -98,4 +124,3 @@ export default function AdminBillingPage() {
     </Stack>
   );
 }
-

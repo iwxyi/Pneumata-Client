@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Grid, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
+import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
 const metricMeta: Record<string, { title: string; route?: string }> = {
@@ -66,19 +67,33 @@ export default function AdminDashboardPage() {
   const [recentOrders, setRecentOrders] = useState<Array<Record<string, unknown>>>([]);
   const [recentReviews, setRecentReviews] = useState<Array<Record<string, unknown>>>([]);
   const [recentAudits, setRecentAudits] = useState<Array<Record<string, unknown>>>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const metricCards = useMemo(() => Object.entries(metricMeta), []);
 
-  useEffect(() => {
-    void adminApi.getDashboardStats().then((result) => {
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await adminApi.getDashboardStats();
       setMetrics(result.metrics);
       setRecentOrders(result.recentOrders);
       setRecentReviews(result.recentReviews);
       setRecentAudits(result.recentAudits);
-    });
+    } catch (loadError) {
+      setError(getAdminErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
   }, []);
 
   return (
     <Stack spacing={2}>
+      <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <Grid container spacing={2}>
         {metricCards.map(([key, meta]) => (
           <Grid key={key} size={{ xs: 12, sm: 6, xl: 3 }}>

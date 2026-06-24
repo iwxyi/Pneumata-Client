@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
+import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
 function ModerationCaseDetail({ item }: { item: Record<string, unknown> | null }) {
@@ -27,6 +28,9 @@ export default function AdminModerationPage() {
   const [selectedItem, setSelectedItem] = useState<Record<string, unknown> | null>(null);
   const [reason, setReason] = useState('');
   const [status, setStatus] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const stats = useMemo(() => ({
     pending: items.filter((item) => String(item.status || '') === 'pending').length,
     inReview: items.filter((item) => String(item.status || '') === 'in_review').length,
@@ -34,11 +38,32 @@ export default function AdminModerationPage() {
   }), [items]);
 
   const load = async () => {
-    const result = await adminApi.getShareReviewCases({ status: status || undefined });
-    setItems(result.items);
-    if (selectedItem) {
-      const next = result.items.find((item) => String(item.id) === String(selectedItem.id));
-      setSelectedItem(next || null);
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await adminApi.getShareReviewCases({ status: status || undefined });
+      setItems(result.items);
+      if (selectedItem) {
+        const next = result.items.find((item) => String(item.id) === String(selectedItem.id));
+        setSelectedItem(next || null);
+      }
+    } catch (loadError) {
+      setError(getAdminErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runCaseAction = async (caseId: string, action: () => Promise<unknown>) => {
+    setActionLoadingId(caseId);
+    setError(null);
+    try {
+      await action();
+      await load();
+    } catch (actionError) {
+      setError(getAdminErrorMessage(actionError));
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -59,6 +84,7 @@ export default function AdminModerationPage() {
         <Button variant={status === 'in_review' ? 'contained' : 'outlined'} onClick={() => setStatus('in_review')}>处理中</Button>
         <Button variant={status === 'escalated' ? 'contained' : 'outlined'} onClick={() => setStatus('escalated')}>已升级</Button>
       </Stack>
+      <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <TextField value={reason} onChange={(e) => setReason(e.target.value)} label="审核备注" />
       <AdminResponsiveTable minWidth={860}>
         <Table>
@@ -82,9 +108,9 @@ export default function AdminModerationPage() {
                 <TableCell>{String(item.latest_decision || '')}</TableCell>
                 <TableCell align="right">
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'flex-end' }}>
-                    {String(item.status || '') === 'pending' ? <Button size="small" onClick={async (event) => { event.stopPropagation(); await adminApi.claimShareReviewCase(String(item.id)); await load(); }}>领取</Button> : null}
-                    <Button size="small" color="success" onClick={async (event) => { event.stopPropagation(); await adminApi.decideShareReviewCase(String(item.id), 'approved', reason); await load(); }}>通过</Button>
-                    <Button size="small" color="error" onClick={async (event) => { event.stopPropagation(); await adminApi.decideShareReviewCase(String(item.id), 'rejected', reason); await load(); }}>拒绝</Button>
+                    {String(item.status || '') === 'pending' ? <Button size="small" disabled={actionLoadingId === String(item.id)} onClick={(event) => { event.stopPropagation(); void runCaseAction(String(item.id), () => adminApi.claimShareReviewCase(String(item.id))); }}>领取</Button> : null}
+                    <Button size="small" color="success" disabled={actionLoadingId === String(item.id)} onClick={(event) => { event.stopPropagation(); void runCaseAction(String(item.id), () => adminApi.decideShareReviewCase(String(item.id), 'approved', reason)); }}>通过</Button>
+                    <Button size="small" color="error" disabled={actionLoadingId === String(item.id)} onClick={(event) => { event.stopPropagation(); void runCaseAction(String(item.id), () => adminApi.decideShareReviewCase(String(item.id), 'rejected', reason)); }}>拒绝</Button>
                   </Stack>
                 </TableCell>
               </TableRow>
@@ -96,4 +122,3 @@ export default function AdminModerationPage() {
     </Stack>
   );
 }
-

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Alert, Button, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
+import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
 function RestrictionDetail({ item }: { item: Record<string, unknown> | null }) {
@@ -26,6 +27,56 @@ export default function AdminRiskPage() {
   const [reason, setReason] = useState('');
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
   const [selectedItem, setSelectedItem] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadRestrictions = async () => {
+    const trimmedUserId = userId.trim();
+    if (!trimmedUserId) {
+      setError('请输入用户ID');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await adminApi.getUserRestrictions(trimmedUserId);
+      setItems(result.items);
+      if (selectedItem) {
+        const next = result.items.find((item) => String(item.id) === String(selectedItem.id));
+        setSelectedItem(next || null);
+      }
+    } catch (loadError) {
+      setError(getAdminErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveRestriction = async (status = 'active', overrideRestrictionType?: string) => {
+    const trimmedUserId = userId.trim();
+    const trimmedType = (overrideRestrictionType ?? restrictionType).trim();
+    if (!trimmedUserId) {
+      setError('请输入用户ID');
+      return;
+    }
+    if (!trimmedType) {
+      setError('请输入限制类型');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await adminApi.upsertUserRestriction(trimmedUserId, trimmedType, { status, reasonText: reason });
+      const result = await adminApi.getUserRestrictions(trimmedUserId);
+      setItems(result.items);
+      const next = result.items.find((item) => String(item.restriction_type) === trimmedType);
+      setSelectedItem(next || null);
+    } catch (saveError) {
+      setError(getAdminErrorMessage(saveError));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <Stack spacing={2}>
@@ -35,16 +86,11 @@ export default function AdminRiskPage() {
         <TextField label="原因" value={reason} onChange={(e) => setReason(e.target.value)} fullWidth />
       </Stack>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-        <Button variant="outlined" onClick={async () => {
-          const result = await adminApi.getUserRestrictions(userId.trim());
-          setItems(result.items);
-        }}>查询</Button>
-        <Button variant="contained" onClick={async () => {
-          await adminApi.upsertUserRestriction(userId.trim(), restrictionType.trim(), { status: 'active', reasonText: reason });
-          const result = await adminApi.getUserRestrictions(userId.trim());
-          setItems(result.items);
-        }}>保存限制</Button>
+        <Button variant="outlined" disabled={loading} onClick={() => void loadRestrictions()}>查询</Button>
+        <Button variant="contained" disabled={loading} onClick={() => void saveRestriction('active')}>保存限制</Button>
+        <Button variant="outlined" color="warning" disabled={loading} onClick={() => void saveRestriction('inactive')}>解除限制</Button>
       </Stack>
+      <AdminRequestState loading={loading} error={error} onRetry={() => void loadRestrictions()} />
       {!items.length ? <Alert severity="info">输入用户ID后可查询或写入限制项。</Alert> : null}
       <AdminResponsiveTable minWidth={700}>
         <Table>
@@ -54,6 +100,7 @@ export default function AdminRiskPage() {
               <TableCell>状态</TableCell>
               <TableCell>原因</TableCell>
               <TableCell>开始时间</TableCell>
+              <TableCell align="right">操作</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -63,6 +110,22 @@ export default function AdminRiskPage() {
                 <TableCell>{String(item.status || '')}</TableCell>
                 <TableCell>{String(item.reason_text || '')}</TableCell>
                 <TableCell>{item.created_at ? new Date(Number(item.created_at)).toLocaleString() : ''}</TableCell>
+                <TableCell align="right">
+                  {String(item.status || '') === 'active' ? (
+                    <Button
+                      size="small"
+                      color="warning"
+                      disabled={loading}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setRestrictionType(String(item.restriction_type || ''));
+                        void saveRestriction('inactive', String(item.restriction_type || ''));
+                      }}
+                    >
+                      解除
+                    </Button>
+                  ) : null}
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -72,4 +135,3 @@ export default function AdminRiskPage() {
     </Stack>
   );
 }
-

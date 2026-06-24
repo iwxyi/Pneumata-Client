@@ -2,19 +2,20 @@ import { useState } from 'react';
 import { AppBar, Box, Button, Drawer, IconButton, List, ListItemButton, ListItemText, Toolbar, Typography } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ADMIN_DASHBOARD_PERMISSIONS, ADMIN_PERMISSION_CODES, adminHasAnyPermission } from '../../constants/adminPermissions';
 import { useAdminAuthStore } from '../../stores/useAdminAuthStore';
 
 const drawerWidth = 248;
 
 const navItems = [
-  { path: '/admin', label: '总览' },
-  { path: '/admin/users', label: '用户' },
-  { path: '/admin/ai', label: 'AI平台' },
-  { path: '/admin/billing', label: '计费订单' },
-  { path: '/admin/moderation', label: '分享审核' },
-  { path: '/admin/notifications', label: '通知中心' },
-  { path: '/admin/risk', label: '风控限制' },
-  { path: '/admin/audit', label: '审计日志' },
+  { path: '/admin', label: '总览', permissions: ADMIN_DASHBOARD_PERMISSIONS },
+  { path: '/admin/users', label: '用户', permissions: [ADMIN_PERMISSION_CODES.usersRead] },
+  { path: '/admin/ai', label: 'AI平台', permissions: [ADMIN_PERMISSION_CODES.aiRead] },
+  { path: '/admin/billing', label: '计费订单', permissions: [ADMIN_PERMISSION_CODES.billingRead] },
+  { path: '/admin/moderation', label: '分享审核', permissions: [ADMIN_PERMISSION_CODES.sharesReview] },
+  { path: '/admin/notifications', label: '通知中心', permissions: [ADMIN_PERMISSION_CODES.notificationsRead] },
+  { path: '/admin/risk', label: '风控限制', permissions: [ADMIN_PERMISSION_CODES.riskRead] },
+  { path: '/admin/audit', label: '审计日志', permissions: [ADMIN_PERMISSION_CODES.auditRead] },
 ];
 
 export default function AdminLayout() {
@@ -23,6 +24,7 @@ export default function AdminLayout() {
   const admin = useAdminAuthStore((s) => s.admin);
   const logout = useAdminAuthStore((s) => s.logout);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const visibleNavItems = navItems.filter((item) => adminHasAnyPermission(admin, item.permissions));
   const currentTitle = navItems.find((item) => (item.path === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(item.path)))?.label || '后台';
 
   const navList = (
@@ -31,7 +33,7 @@ export default function AdminLayout() {
         <Typography sx={{ fontWeight: 900 }}>后台模块</Typography>
       </Toolbar>
       <List sx={{ px: 1.25 }}>
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const selected = item.path === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(item.path);
           return (
             <ListItemButton

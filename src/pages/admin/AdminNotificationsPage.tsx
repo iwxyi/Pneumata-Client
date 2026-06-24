@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
+import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
 function NotificationDetail({ item }: { item: Record<string, unknown> | null }) {
@@ -27,15 +28,37 @@ export default function AdminNotificationsPage() {
   const [selectedItem, setSelectedItem] = useState<Record<string, unknown> | null>(null);
   const [status, setStatus] = useState('');
   const [channel, setChannel] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const stats = useMemo(() => ({
     queued: items.filter((item) => String(item.status || '') === 'queued').length,
     sent: items.filter((item) => String(item.status || '') === 'sent').length,
     failed: items.filter((item) => String(item.status || '') === 'failed').length,
   }), [items]);
 
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [jobsResult, templatesResult] = await Promise.all([
+        adminApi.getNotificationJobs({ status: status || undefined, channel: channel || undefined }),
+        adminApi.getNotificationTemplates(),
+      ]);
+      setItems(jobsResult.items);
+      setTemplates(templatesResult.items);
+      if (selectedItem) {
+        const next = jobsResult.items.find((item) => String(item.id) === String(selectedItem.id));
+        setSelectedItem(next || null);
+      }
+    } catch (loadError) {
+      setError(getAdminErrorMessage(loadError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    void adminApi.getNotificationJobs({ status: status || undefined, channel: channel || undefined }).then((result) => setItems(result.items));
-    void adminApi.getNotificationTemplates().then((result) => setTemplates(result.items));
+    void load();
   }, [status, channel]);
 
   return (
@@ -54,6 +77,7 @@ export default function AdminNotificationsPage() {
         <Button variant={channel === 'email' ? 'contained' : 'outlined'} onClick={() => setChannel('email')}>邮件</Button>
         <Button variant={channel === 'sms' ? 'contained' : 'outlined'} onClick={() => setChannel('sms')}>短信</Button>
       </Stack>
+      <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <Paper sx={{ p: 2, borderRadius: 3 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.25 }}>模板数量：{templates.length}</Typography>
         <Stack spacing={0.75}>
@@ -92,4 +116,3 @@ export default function AdminNotificationsPage() {
     </Stack>
   );
 }
-

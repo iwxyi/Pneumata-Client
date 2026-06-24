@@ -12,11 +12,13 @@ interface AdminAuthStore {
   checkAuth: () => Promise<boolean>;
 }
 
+const initialAdminToken = adminApi.getToken();
+
 export const useAdminAuthStore = create<AdminAuthStore>((set) => ({
-  token: adminApi.getToken(),
+  token: initialAdminToken,
   admin: null,
-  isLoggedIn: Boolean(adminApi.getToken()),
-  isLoading: false,
+  isLoggedIn: Boolean(initialAdminToken),
+  isLoading: Boolean(initialAdminToken),
   login: async (email, password) => {
     set({ isLoading: true });
     try {
@@ -38,6 +40,7 @@ export const useAdminAuthStore = create<AdminAuthStore>((set) => ({
       set({ token: null, admin: null, isLoggedIn: false, isLoading: false });
       return false;
     }
+    set({ token, isLoggedIn: true, isLoading: true });
     try {
       const admin = await adminApi.me();
       set({ token, admin, isLoggedIn: true, isLoading: false });

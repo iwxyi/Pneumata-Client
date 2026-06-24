@@ -1,6 +1,6 @@
 import { ApiError } from './api';
 
-const ADMIN_BASE = '/admin';
+const ADMIN_BASE = '/api/admin';
 const ADMIN_TOKEN_KEY = 'pneumata-admin-token';
 const ADMIN_LOGIN_EVENT = 'pneumata-admin-auth-required';
 
@@ -37,21 +37,64 @@ class AdminApiClient {
     return headers;
   }
 
+  private async parseJsonResponse<T>(response: Response): Promise<T> {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return response.json() as Promise<T>;
+    }
+    const text = await response.text().catch(() => '');
+    const normalized = text.trimStart().toLowerCase();
+    const isHtml = normalized.startsWith('<!doctype') || normalized.startsWith('<html');
+    throw new ApiError(
+      isHtml ? '后台接口返回了前端页面，请检查后端服务或开发代理配置' : '后台接口返回了非 JSON 响应',
+      { status: response.status, code: 'INVALID_ADMIN_API_RESPONSE' },
+    );
+  }
+
+  private async parseErrorResponse(response: Response): Promise<{ error: string; code?: string }> {
+    try {
+      const error = await this.parseJsonResponse<{ error?: string; code?: string; detail?: string }>(response);
+      const detail = typeof error.detail === 'string' && error.detail ? `（${error.detail}）` : '';
+      return {
+        error: `${error.error || `HTTP ${response.status}`}${detail}`,
+        code: error.code,
+      };
+    } catch (error) {
+      if (error instanceof ApiError) {
+        return { error: `${error.message}（HTTP ${response.status}）`, code: error.code };
+      }
+      return { error: `后台请求失败（HTTP ${response.status}）` };
+    }
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const response = await fetch(`${ADMIN_BASE}${path}`, {
-      method,
-      headers: this.getHeaders(),
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${ADMIN_BASE}${path}`, {
+        method,
+        headers: this.getHeaders(),
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (requestError) {
+      console.error('Admin API network error', { method, path, error: requestError });
+      throw new ApiError('无法连接后台接口，请检查后端服务或开发代理配置', { code: 'ADMIN_API_NETWORK_ERROR' });
+    }
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: '请求失败' }));
+      const error = await this.parseErrorResponse(response);
+      console.error('Admin API request failed', {
+        method,
+        path,
+        status: response.status,
+        error: error.error,
+        code: error.code,
+      });
       if (response.status === 401 || response.status === 403) {
         this.setToken(null);
         this.notifyAuthRequired();
       }
-      throw new ApiError(error.error || `HTTP ${response.status}`, { status: response.status, code: error.code });
+      throw new ApiError(error.error, { status: response.status, code: error.code });
     }
-    return response.json();
+    return this.parseJsonResponse<T>(response);
   }
 
   private buildQuery(params: Record<string, string | undefined>) {
@@ -87,8 +130,32 @@ class AdminApiClient {
     return this.request<{ items: Array<Record<string, unknown>>; runtime: Array<Record<string, unknown>> }>('GET', '/ai/providers');
   }
 
+  getAiProviderConfig(providerCode: string) {
+    return this.request<Record<string, unknown>>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/config`);
+  }
+
+  updateAiProviderConfig(providerCode: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('PUT', `/ai/providers/${encodeURIComponent(providerCode)}/config`, payload);
+  }
+
+  getAiProviderKeys(providerCode: string, params?: { typeId?: string; keyword?: string }) {
+    return this.request<{ items: Array<Record<string, unknown>>; raw?: Record<string, unknown> }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/keys${this.buildQuery({ typeId: params?.typeId, keyword: params?.keyword })}`);
+  }
+
+  createAiProviderKey(providerCode: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('POST', `/ai/providers/${encodeURIComponent(providerCode)}/keys`, payload);
+  }
+
+  updateAiProviderKey(providerCode: string, externalKeyId: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('PUT', `/ai/providers/${encodeURIComponent(providerCode)}/keys/${encodeURIComponent(externalKeyId)}`, payload);
+  }
+
+  transferAiProviderKeyPoints(providerCode: string, externalKeyId: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('POST', `/ai/providers/${encodeURIComponent(providerCode)}/keys/${encodeURIComponent(externalKeyId)}/points`, payload);
+  }
+
   getAiEntitlement(userId: string) {
-    return this.request<{ entitlement: Record<string, unknown> | null; keys: Array<Record<string, unknown>> }>('GET', `/ai/entitlements${this.buildQuery({ userId })}`);
+    return this.request<{ entitlement: Record<string, unknown> | null; keys: Array<Record<string, unknown>>; quotaLedger?: Array<Record<string, unknown>> }>('GET', `/ai/entitlements${this.buildQuery({ userId })}`);
   }
 
   getAiBalance(userId: string) {
@@ -97,6 +164,14 @@ class AdminApiClient {
 
   updateAiEntitlement(userId: string, payload: Record<string, unknown>) {
     return this.request<Record<string, unknown>>('PUT', `/ai/entitlements/${encodeURIComponent(userId)}`, payload);
+  }
+
+  createAiUserKey(userId: string, providerCode = 'api2d') {
+    return this.request<Record<string, unknown>>('POST', `/ai/entitlements/${encodeURIComponent(userId)}/keys/auto`, { providerCode });
+  }
+
+  setAiUserKey(userId: string, payload: { providerCode?: string; apiKey: string; externalKeyId?: string; isPrimary?: boolean }) {
+    return this.request<Record<string, unknown>>('POST', `/ai/entitlements/${encodeURIComponent(userId)}/keys/manual`, payload);
   }
 
   getAuditLogs(params?: { action?: string; result?: string }) {

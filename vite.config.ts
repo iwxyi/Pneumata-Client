@@ -6,6 +6,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 const allowedHosts = process.env.VITE_ALLOWED_HOSTS
   ? process.env.VITE_ALLOWED_HOSTS.split(',').map((host) => host.trim()).filter(Boolean)
   : true
+const appUpdateMode = process.env.VITE_APP_UPDATE_MODE === 'prompt' ? 'prompt' : 'auto'
 
 function manualDevUpdatePlugin(): Plugin {
   let updateVersion = Date.now()
@@ -43,14 +44,10 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
-    hmr: false,
+    hmr: appUpdateMode === 'auto',
     allowedHosts,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
-        changeOrigin: true,
-      },
-      '^/admin/(auth|users|ai|billing|audit|moderation|risk)(?:/.*)?$': {
         target: 'http://localhost:3001',
         changeOrigin: true,
       },
@@ -64,7 +61,7 @@ export default defineConfig({
     react(),
     manualDevUpdatePlugin(),
     VitePWA({
-      registerType: 'prompt',
+      registerType: appUpdateMode === 'prompt' ? 'prompt' : 'autoUpdate',
       includeAssets: ['favicon.svg', 'logo-192.png', 'logo-512.png'],
       manifest: {
         name: 'Pneumata',
@@ -90,6 +87,8 @@ export default defineConfig({
         ],
       },
       workbox: {
+        clientsClaim: appUpdateMode === 'auto',
+        skipWaiting: appUpdateMode === 'auto',
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {

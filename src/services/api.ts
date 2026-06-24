@@ -158,6 +158,20 @@ class ApiClient {
     return headers;
   }
 
+  private async parseJsonResponse<T>(response: Response): Promise<T> {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return response.json() as Promise<T>;
+    }
+    const text = await response.text().catch(() => '');
+    const normalized = text.trimStart().toLowerCase();
+    const isHtml = normalized.startsWith('<!doctype') || normalized.startsWith('<html');
+    throw new ApiError(
+      isHtml ? '接口返回了前端页面，请检查后端服务或开发代理配置' : '接口返回了非 JSON 响应',
+      { status: response.status, code: 'INVALID_API_RESPONSE' },
+    );
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const url = `${API_BASE}${path}`;
     const options: RequestInit = {
@@ -172,7 +186,7 @@ class ApiClient {
     const response = await fetch(url, options);
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
+      const error: { error?: string; detail?: string; code?: string } = await this.parseJsonResponse<{ error?: string; detail?: string; code?: string }>(response).catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
       const detail = typeof error.detail === 'string' && error.detail ? ` (${error.detail})` : '';
       if (response.status === 401 || response.status === 403) {
         dispatchAuthSessionExpired({ status: response.status, path });
@@ -180,7 +194,7 @@ class ApiClient {
       throw new ApiError(`${error.error || `HTTP ${response.status}`}${detail}`, { code: error.code, status: response.status });
     }
 
-    return response.json();
+    return this.parseJsonResponse<T>(response);
   }
 
   async sendCode(phone: string, purpose: 'login' | 'register' | 'forgot-password' | 'change-phone' = 'login') {
