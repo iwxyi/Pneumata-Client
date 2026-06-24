@@ -790,6 +790,23 @@ export function getRoomTemplateKernel(templateOrKey: RoomTemplateDefinition | Ro
   return template.parentTemplateKey ? getRoomTemplate(template.parentTemplateKey) : template;
 }
 
+const PUBLIC_ROOM_TEMPLATE_KERNEL_KEYS = new Set<RoomTemplateKey>([
+  'open_chat',
+  'story_reader',
+]);
+
+export function isRoomTemplateAvailableForStandardUsers(template: RoomTemplateDefinition) {
+  return PUBLIC_ROOM_TEMPLATE_KERNEL_KEYS.has(getRoomTemplateKernel(template).key);
+}
+
+export function filterRoomTemplatesForAvailability(
+  templates: RoomTemplateDefinition[],
+  options: { developerMode: boolean },
+) {
+  if (options.developerMode) return templates;
+  return templates.filter(isRoomTemplateAvailableForStandardUsers);
+}
+
 export function getRoomTemplatePresetLabel(template: RoomTemplateDefinition) {
   return template.presetLabel || template.label;
 }

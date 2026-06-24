@@ -3,8 +3,11 @@ import { buildGroupChatDraft } from './chatDraftBuilder';
 import { STORY_ENGINE } from './engines/storyEngine';
 import {
   buildRoomTemplatePreview,
+  filterRoomTemplatesForAvailability,
   getRoomTemplate,
   getRoomTemplatePresetLabel,
+  isRoomTemplateAvailableForStandardUsers,
+  ROOM_TEMPLATES,
   listRoomTemplateKernelsByStructure,
   listRoomTemplatePresets,
   listTemplateStructures,
@@ -101,6 +104,24 @@ describe('roomTemplates story seeds', () => {
     expect(getRoomTemplate('story_reader').defaults?.storyBackground).toBeUndefined();
     expect(getRoomTemplate('story_reader').defaults?.storyDirection).toBeUndefined();
     expect(getRoomTemplate('story_reader').defaults?.storyOutline).toBeUndefined();
+  });
+
+  it('only exposes completed gameplay templates outside developer mode', () => {
+    const standardTemplateKeys = filterRoomTemplatesForAvailability(ROOM_TEMPLATES, { developerMode: false })
+      .map((template) => template.key);
+
+    expect(standardTemplateKeys).toContain('open_chat');
+    expect(standardTemplateKeys).toContain('story_reader');
+    expect(standardTemplateKeys).toContain('free_chat_preset');
+    expect(standardTemplateKeys).toContain('default_mystery_story');
+    expect(standardTemplateKeys).not.toContain('group_discussion');
+    expect(standardTemplateKeys).not.toContain('ielts_coach');
+    expect(standardTemplateKeys).not.toContain('single_agent_workflow');
+    expect(standardTemplateKeys).not.toContain('board_game');
+    expect(standardTemplateKeys).not.toContain('werewolf');
+    expect(standardTemplateKeys).not.toContain('murder_mystery');
+    expect(standardTemplateKeys.every((key) => isRoomTemplateAvailableForStandardUsers(getRoomTemplate(key)))).toBe(true);
+    expect(filterRoomTemplatesForAvailability(ROOM_TEMPLATES, { developerMode: true })).toEqual(ROOM_TEMPLATES);
   });
 
   it('provides editable story seeds for every story-room template', () => {

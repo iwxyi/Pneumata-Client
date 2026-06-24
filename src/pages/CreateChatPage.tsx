@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef, useCallback } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import {
   Box, Typography, Button, Dialog, DialogTitle, DialogContent, DialogActions,
@@ -15,7 +15,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity } from '../types/chat';
-import { ROOM_TEMPLATES, getRoomTemplate, getRoomTemplateKernel, getRoomTemplateKeyBySessionKind, type RoomTemplateKey } from '../services/roomTemplates';
+import { ROOM_TEMPLATES, filterRoomTemplatesForAvailability, getRoomTemplate, getRoomTemplateKernel, getRoomTemplateKeyBySessionKind, type RoomTemplateKey } from '../services/roomTemplates';
 import {
   DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
   DEFAULT_CONVERSATION_DRAMA_RULES,
@@ -93,7 +93,7 @@ export default function CreateChatPage() {
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
   const { chats, addChat, updateChat, deleteChat, prefetchChats, markChatsWarm } = useChatStore();
   const { characters, addCharacters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
-  const { chatDraftDefaults, aiProfiles, api, setChatDraftDefaults, loadSettings } = useSettingsStore();
+  const { chatDraftDefaults, aiProfiles, api, developerMode, setChatDraftDefaults, loadSettings } = useSettingsStore();
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);
@@ -472,6 +472,16 @@ export default function CreateChatPage() {
   const hasCustomCharacters = customCharacters.length > 0;
   const hasPresetCharacters = presetCharacters.length > 0;
   const canAutofill = !editingChat && !aiAutofilling && Boolean(name.trim() || topic.trim() || selectedMembers.length);
+  const availableRoomTemplates = useMemo(
+    () => filterRoomTemplatesForAvailability(ROOM_TEMPLATES, { developerMode }),
+    [developerMode],
+  );
+  const roomTemplateAvailable = availableRoomTemplates.some((template) => template.key === roomTemplate);
+  const gameplaySectionTemplates = useMemo(() => {
+    if (roomTemplateAvailable) return availableRoomTemplates;
+    const selected = getRoomTemplate(roomTemplate);
+    return [selected, ...availableRoomTemplates.filter((template) => template.key !== selected.key)];
+  }, [availableRoomTemplates, roomTemplate, roomTemplateAvailable]);
   const selectedRoomTemplate = getRoomTemplate(roomTemplate);
   const gameplayRuntimeLocked = Boolean(editingChat && hasGameplayRuntimeData(editingChat));
   const includeUserAsMemberCopy = buildIncludeUserAsMemberCopy({
@@ -523,7 +533,16 @@ export default function CreateChatPage() {
     if (defaults.mysteryClueCount !== undefined) setMysteryClueCount(defaults.mysteryClueCount);
   }, [chatDraftDefaults.showRoleActions]);
 
+  useEffect(() => {
+    if (editingChat || roomTemplateAvailable) return;
+    applyRoomTemplate('open_chat');
+  }, [applyRoomTemplate, editingChat, roomTemplateAvailable]);
+
   const handleRoomTemplateChange = useCallback((templateKey: RoomTemplateKey) => {
+    if (!developerMode && !availableRoomTemplates.some((template) => template.key === templateKey)) {
+      showError(isZh ? '该玩法仍在开发中，开发者模式下才可使用。' : 'This gameplay is still in development and is only available in developer mode.');
+      return;
+    }
     if (gameplayRuntimeLocked) {
       const currentKernelKey = getRoomTemplateKernel(selectedRoomTemplate).key;
       const nextKernelKey = getRoomTemplateKernel(templateKey).key;
@@ -537,7 +556,7 @@ export default function CreateChatPage() {
       }
     }
     applyRoomTemplate(templateKey);
-  }, [applyRoomTemplate, gameplayRuntimeLocked, isZh, roomTemplate, selectedRoomTemplate]);
+  }, [applyRoomTemplate, availableRoomTemplates, developerMode, gameplayRuntimeLocked, isZh, roomTemplate, selectedRoomTemplate]);
 
   const isStoryRoomTemplate = selectedRoomTemplate.sessionKind.scenarioId === 'story-reader';
   const topicPlaceholder = selectedRoomTemplate.topicPlaceholder;
@@ -571,7 +590,10 @@ export default function CreateChatPage() {
       const appliedTopic = !topic.trim() && suggestion.suggestedTopic;
       const appliedStyle = style === chatDraftDefaults.style && suggestion.suggestedStyle;
       const appliedRoleActions = showRoleActions === chatDraftDefaults.showRoleActions && suggestion.suggestedShowRoleActions !== undefined;
-      const appliedRoomTemplate = roomTemplate === 'open_chat' && suggestion.suggestedRoomTemplate && suggestion.suggestedRoomTemplate !== roomTemplate;
+      const suggestedRoomTemplate = suggestion.suggestedRoomTemplate && availableRoomTemplates.some((template) => template.key === suggestion.suggestedRoomTemplate)
+        ? suggestion.suggestedRoomTemplate
+        : undefined;
+      const appliedRoomTemplate = roomTemplate === 'open_chat' && suggestedRoomTemplate && suggestedRoomTemplate !== roomTemplate;
       const appliedMembers = !selectedMembers.length && suggestion.suggestedMemberIds?.length && suggestion.suggestedMemberIds.length >= minRequiredMembers;
 
       if (appliedName) setName(suggestion.suggestedName!);
@@ -581,7 +603,7 @@ export default function CreateChatPage() {
         setStyle(suggestion.suggestedStyle!);
       }
       if (appliedRoleActions) setShowRoleActions(suggestion.suggestedShowRoleActions!);
-      if (appliedRoomTemplate) applyRoomTemplate(suggestion.suggestedRoomTemplate!);
+      if (appliedRoomTemplate) applyRoomTemplate(suggestedRoomTemplate);
       if (appliedMembers) setSelectedMembers(suggestion.suggestedMemberIds!);
       if (!appliedName && !appliedTopic && !appliedStyle && !appliedRoleActions && !appliedRoomTemplate && !appliedMembers) {
         throw new Error(i18n.language.startsWith('zh') ? 'AI 没有返回可用建议' : 'AI did not return usable suggestions');
@@ -600,6 +622,7 @@ export default function CreateChatPage() {
     aiProfiles,
     api,
     applyRoomTemplate,
+    availableRoomTemplates,
     characters,
     chatDraftDefaults.showRoleActions,
     chatDraftDefaults.style,
@@ -1136,7 +1159,7 @@ export default function CreateChatPage() {
           <GameplaySection
             language={i18n.language}
             roomTemplate={roomTemplate}
-            roomTemplates={ROOM_TEMPLATES}
+            roomTemplates={gameplaySectionTemplates}
             onRoomTemplateChange={handleRoomTemplateChange}
             lockGameplayKernelSelection={gameplayRuntimeLocked}
             lockPresetSelection={gameplayRuntimeLocked}

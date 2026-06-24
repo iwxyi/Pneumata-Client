@@ -7,9 +7,6 @@ import {
   getRoomTemplateKernel,
   getRoomTemplatePresetDescription,
   getRoomTemplatePresetLabel,
-  listRoomTemplateKernelsByStructure,
-  listRoomTemplatePresets,
-  listTemplateStructures,
 } from '../../services/roomTemplates';
 
 const STRUCTURE_LABELS: Record<string, string> = {
@@ -95,8 +92,30 @@ function inferSelectedStructure(template: RoomTemplateDefinition): RoomTemplateS
   return template.structure;
 }
 
-function pickFirstTemplateKey(structure: RoomTemplateStructure, fallback: RoomTemplateKey): RoomTemplateKey {
-  return listRoomTemplateKernelsByStructure(structure)[0]?.key || fallback;
+function listAvailableKernels(templates: RoomTemplateDefinition[]) {
+  return templates.filter((item) => !item.parentTemplateKey);
+}
+
+function listAvailableStructures(templates: RoomTemplateDefinition[]) {
+  return Array.from(new Map(listAvailableKernels(templates).map((item) => [item.structure, item])).values()).map((item) => ({
+    value: item.structure,
+    label: STRUCTURE_LABELS[item.structure] || item.categoryLabel,
+    family: item.sessionKind.family,
+  }));
+}
+
+function listAvailableKernelsByStructure(templates: RoomTemplateDefinition[], structure: RoomTemplateStructure) {
+  return listAvailableKernels(templates).filter((item) => item.structure === structure);
+}
+
+function listAvailablePresets(templates: RoomTemplateDefinition[], kernelKey: RoomTemplateKey) {
+  const kernel = templates.find((item) => item.key === kernelKey) || null;
+  if (!kernel) return [];
+  return [kernel, ...templates.filter((item) => item.parentTemplateKey === kernel.key)];
+}
+
+function pickFirstTemplateKey(templates: RoomTemplateDefinition[], structure: RoomTemplateStructure, fallback: RoomTemplateKey): RoomTemplateKey {
+  return listAvailableKernelsByStructure(templates, structure)[0]?.key || fallback;
 }
 
 function getFieldValue(field: RoomTemplateFieldDefinition, props: GameplaySectionProps) {
@@ -214,9 +233,9 @@ export default function GameplaySection(props: GameplaySectionProps) {
   const selectedFamily = selectedKernel.sessionKind.family;
   const structureLabel = STRUCTURE_LABELS[selectedStructure] || selectedStructure;
   const familyLabel = FAMILY_LABELS[selectedFamily] || selectedFamily;
-  const structures = listTemplateStructures();
-  const structureKernels = listRoomTemplateKernelsByStructure(selectedStructure);
-  const selectedPresets = listRoomTemplatePresets(selectedKernel.key);
+  const structures = listAvailableStructures(props.roomTemplates);
+  const structureKernels = listAvailableKernelsByStructure(props.roomTemplates, selectedStructure);
+  const selectedPresets = listAvailablePresets(props.roomTemplates, selectedKernel.key);
   const selectedPreset = selectedPresets.find((preset) => preset.key === props.roomTemplate) || selectedPresets[0];
   const presetMenuItems = selectedPresets.flatMap((preset, index) => {
     const items = [
@@ -232,7 +251,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
 
   const handleStructureChange = (structure: RoomTemplateStructure) => {
     if (props.lockGameplayKernelSelection) return;
-    props.onRoomTemplateChange(pickFirstTemplateKey(structure, props.roomTemplate));
+    props.onRoomTemplateChange(pickFirstTemplateKey(props.roomTemplates, structure, props.roomTemplate));
   };
   const setAdvancedGroupExpanded = (groupKey: string, expanded: boolean) => {
     setExpandedAdvancedGroups((prev) => ({ ...prev, [groupKey]: expanded }));
