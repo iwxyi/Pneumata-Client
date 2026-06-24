@@ -65,10 +65,10 @@ function compactText(value?: string | null, max = 92) {
 }
 
 const chatStyleLabels: Record<string, string> = {
-  free: '自由聊天',
-  debate: '辩论',
-  brainstorm: '头脑风暴',
-  roleplay: '角色扮演',
+  free: '轻松',
+  debate: '讨论',
+  brainstorm: '共创',
+  roleplay: '演绎',
 };
 
 const chatModeLabels: Record<string, string> = {
@@ -341,7 +341,7 @@ function ChatPreview({ chat, members = [], statusLabel }: { chat: NonNullable<Pr
             </Box>
           </Box>
         ) : null}
-        <InfoRow label="风格" value={labelFromMap(chat.style, chatStyleLabels)} />
+        <InfoRow label="倾向" value={labelFromMap(chat.style, chatStyleLabels)} />
         <InfoRow label="模式" value={labelFromMap(chat.sessionKind?.scenarioId || chat.mode, chatModeLabels)} />
         <InfoRow label="状态" value={statusLabel} />
       </Stack>

@@ -19,8 +19,8 @@ export const CHAT_STYLE_DEFINITIONS: ChatStyleDefinition[] = [
     value: 'free',
     icon: 'C',
     label: {
-      zh: '轻松闲聊',
-      en: 'Casual chat',
+      zh: '轻松',
+      en: 'Casual',
     },
     description: {
       zh: '自然接话，适合日常陪伴、轻话题和低压力交流。',
@@ -33,8 +33,8 @@ export const CHAT_STYLE_DEFINITIONS: ChatStyleDefinition[] = [
     value: 'debate',
     icon: 'D',
     label: {
-      zh: '深度讨论',
-      en: 'Deep discussion',
+      zh: '讨论',
+      en: 'Discussion',
     },
     description: {
       zh: '围绕问题推进观点、证据、反驳和取舍，不做空泛争吵。',
@@ -47,8 +47,8 @@ export const CHAT_STYLE_DEFINITIONS: ChatStyleDefinition[] = [
     value: 'brainstorm',
     icon: 'I',
     label: {
-      zh: '共创点子',
-      en: 'Co-create ideas',
+      zh: '共创',
+      en: 'Co-create',
     },
     description: {
       zh: '快速发散、接力补强，再把可执行方向收拢出来。',
@@ -61,8 +61,8 @@ export const CHAT_STYLE_DEFINITIONS: ChatStyleDefinition[] = [
     value: 'roleplay',
     icon: 'R',
     label: {
-      zh: '沉浸演绎',
-      en: 'Immersive roleplay',
+      zh: '演绎',
+      en: 'Roleplay',
     },
     description: {
       zh: '保持角色动机、关系和场景连续性，像真实场面一样推进。',
