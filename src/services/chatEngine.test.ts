@@ -484,6 +484,30 @@ describe('chatEngine streaming preview', () => {
     expect(message.content).toContain('每个实例单独分支');
   });
 
+  it('removes leaked runtime field names from generated visible content', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: 'eventType先按“未翻案、有人先试锋”落着，你别替任何人往下续。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const empress = buildCharacter('empress', '太后');
+
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['empress'] }),
+      speaker: empress,
+      characters: [empress],
+      messages: [
+        buildUserMessage('继续说。', 1),
+      ],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.content).toBe('先按“未翻案、有人先试锋”落着，你别替任何人往下续。');
+    expect(message.content).not.toContain('eventType');
+  });
+
   it('commits storyEvents as visible narrator content, narrative blocks, and choices when content is empty', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
@@ -811,6 +835,29 @@ describe('chatEngine streaming preview', () => {
       promptText: 'A cute WeChat-style photo of mango pomelo sago dessert on a table',
       altText: '一杯杨枝甘露甜品',
     });
+  });
+
+  it('normalizes singleton social event hints from model envelopes', () => {
+    const parsed = parseInlineInteractionEnvelope(JSON.stringify({
+      content: '这事别在这里说，回头我单独找你。',
+      interactionHints: null,
+      socialEventHints: {
+        eventKind: 'pair_private_thread',
+        participantIds: ['a', 'b'],
+        targetIds: ['b'],
+        confidence: 90,
+        visibilityPlan: 'conversation_private',
+      },
+      conflictFocus: null,
+    }));
+
+    expect(parsed?.socialEventHints).toEqual([expect.objectContaining({
+      eventKind: 'pair_private_thread',
+      participantIds: ['a', 'b'],
+      targetIds: ['b'],
+      confidence: 0.9,
+      visibilityPlan: 'conversation_private',
+    })]);
   });
 
   it('rejects story narrativeBlocks as a legacy body and retries with storyEvents', async () => {

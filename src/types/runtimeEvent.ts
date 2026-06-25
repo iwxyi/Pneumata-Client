@@ -230,6 +230,61 @@ export interface SocialEventHintEnvelope {
   dedupeKey?: string | null;
 }
 
+const SOCIAL_EVENT_KINDS: SocialEventKind[] = [
+  'pair_private_thread',
+  'social_outing',
+  'post_moment',
+  'status_update',
+  'gift_exchange',
+  'conflict_expression',
+  'check_in',
+  'react_to_moment',
+  'custom',
+];
+
+function isSocialEventKind(value: unknown): value is SocialEventKind {
+  return typeof value === 'string' && SOCIAL_EVENT_KINDS.includes(value as SocialEventKind);
+}
+
+function normalizeStringArray(value: unknown) {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())) : undefined;
+}
+
+function normalizeSocialEventHint(value: unknown): SocialEventHintEnvelope | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Record<string, unknown>;
+  if (!isSocialEventKind(raw.eventKind)) return null;
+  const rawConfidence = typeof raw.confidence === 'number' ? raw.confidence : undefined;
+  const confidence = rawConfidence == null
+    ? undefined
+    : Math.max(0, Math.min(1, rawConfidence > 1 ? rawConfidence / 100 : rawConfidence));
+  return {
+    eventKind: raw.eventKind,
+    targetIds: normalizeStringArray(raw.targetIds),
+    participantIds: normalizeStringArray(raw.participantIds),
+    reasonType: typeof raw.reasonType === 'string' ? raw.reasonType : undefined,
+    confidence,
+    urgency: raw.urgency === 'immediate' || raw.urgency === 'soon' || raw.urgency === 'defer' ? raw.urgency : undefined,
+    seedIntent: typeof raw.seedIntent === 'string' ? raw.seedIntent : undefined,
+    visibilityPlan: raw.visibilityPlan === 'public' || raw.visibilityPlan === 'conversation_private' || raw.visibilityPlan === 'user_private' || raw.visibilityPlan === 'mixed' ? raw.visibilityPlan : undefined,
+    expectedArtifacts: normalizeStringArray(raw.expectedArtifacts),
+    triggerReason: typeof raw.triggerReason === 'string' ? raw.triggerReason : undefined,
+    openingMessage: typeof raw.openingMessage === 'string' ? raw.openingMessage : undefined,
+    title: typeof raw.title === 'string' ? raw.title : undefined,
+    activityType: typeof raw.activityType === 'string' ? raw.activityType : undefined,
+    timeHint: typeof raw.timeHint === 'string' || raw.timeHint === null ? raw.timeHint : undefined,
+    locationHint: typeof raw.locationHint === 'string' || raw.locationHint === null ? raw.locationHint : undefined,
+    dedupeKey: typeof raw.dedupeKey === 'string' || raw.dedupeKey === null ? raw.dedupeKey : undefined,
+  };
+}
+
+export function normalizeSocialEventHints(value: unknown): SocialEventHintEnvelope[] {
+  const values = Array.isArray(value) ? value : value && typeof value === 'object' ? [value] : [];
+  return values
+    .map((item) => normalizeSocialEventHint(item))
+    .filter((item): item is SocialEventHintEnvelope => Boolean(item));
+}
+
 export interface RecentSocialEventSummary {
   eventKind: SocialEventKind;
   title?: string;

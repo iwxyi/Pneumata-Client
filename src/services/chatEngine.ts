@@ -43,6 +43,7 @@ import { resolvePersonaActivation, type PersonaActivation } from './personaActiv
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
 import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryContinuationState, buildStoryEventsVisibleText, evaluateStoryContinuationQuality, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents, type StoryContinuationState } from './narrativeRuntime';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' | 'isDeleted'> {
@@ -347,10 +348,10 @@ function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?
 function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeakIntentFromContext>, speaker: AICharacter, recentMessages: Message[], showRoleActions?: boolean, intentionalRepeat = false, surface?: ResponseSurface) {
   const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
   const sanitized = trimHumanChatStyle(showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix, surface?.preserveParagraphs);
-  if (surface?.kind !== 'chat' && normalizeForComparison(sanitized)) return sanitized;
+  if (surface?.kind !== 'chat' && normalizeForComparison(sanitized)) return sanitizeUserFacingText(sanitized, [], { preserveLineBreaks: true });
   const processed = postProcessHumanChat(sanitized, intent, speaker, recentMessages, intentionalRepeat);
-  if (normalizeForComparison(processed)) return processed;
-  return salvageEmptyResponse(content, speaker.name, showRoleActions);
+  if (normalizeForComparison(processed)) return sanitizeUserFacingText(processed, [], { preserveLineBreaks: true });
+  return sanitizeUserFacingText(salvageEmptyResponse(content, speaker.name, showRoleActions), [], { preserveLineBreaks: true });
 }
 
 function normalizeStoryActorName(value: string) {

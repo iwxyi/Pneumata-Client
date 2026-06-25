@@ -14,6 +14,7 @@ import type {
   PostMomentAnalysisResult,
   PairPrivateThreadAnalysisResult,
 } from '../../types/runtimeEvent';
+import { normalizeSocialEventHints } from '../../types/runtimeEvent';
 import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../../types/chat';
 import { buildChatPatch, buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from '../chatRuntimeTransitionBuilder';
 import { judgeInteractionEvent } from '../interactionJudge';
@@ -285,7 +286,7 @@ function buildPairPrivateThreadCandidateFromHint(params: {
   conversation: GroupChat;
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
 }): RuntimeEventV2 | null {
-  const hint = (params.message.socialEventHints || []).find((item) => item.eventKind === 'pair_private_thread');
+  const hint = normalizeSocialEventHints(params.message.socialEventHints).find((item) => item.eventKind === 'pair_private_thread');
   if (!hint || (hint.confidence || 0) < 0.8) return null;
   const participantIds = (hint.participantIds || []).filter((id) => params.conversation.memberIds.includes(id));
   if (participantIds.length !== 2) return null;
@@ -1067,7 +1068,7 @@ function buildPostMomentCandidateFromHint(params: {
   conversation: GroupChat;
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
 }): RuntimeEventV2 | null {
-  const hint = (params.message.socialEventHints || []).find((item) => item.eventKind === 'post_moment');
+  const hint = normalizeSocialEventHints(params.message.socialEventHints).find((item) => item.eventKind === 'post_moment');
   if (!hint || (hint.confidence || 0) < 0.8) return null;
   const payload: SocialEventCandidatePayload = {
     eventKind: 'post_moment',
@@ -1102,7 +1103,7 @@ function buildStatusUpdateCandidateFromHint(params: {
   conversation: GroupChat;
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
 }): RuntimeEventV2 | null {
-  const hint = (params.message.socialEventHints || []).find((item) => item.eventKind === 'status_update');
+  const hint = normalizeSocialEventHints(params.message.socialEventHints).find((item) => item.eventKind === 'status_update');
   if (!hint || (hint.confidence || 0) < 0.8) return null;
   const payload: SocialEventCandidatePayload = {
     eventKind: 'status_update',
@@ -1257,7 +1258,7 @@ function buildGiftExchangeCandidateFromHint(params: {
   conversation: GroupChat;
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
 }): RuntimeEventV2 | null {
-  const hint = (params.message.socialEventHints || []).find((item) => item.eventKind === 'gift_exchange');
+  const hint = normalizeSocialEventHints(params.message.socialEventHints).find((item) => item.eventKind === 'gift_exchange');
   if (!hint || (hint.confidence || 0) < 0.8) return null;
   const payload: SocialEventCandidatePayload = {
     eventKind: 'gift_exchange',
@@ -1361,7 +1362,7 @@ function buildConflictExpressionCandidateFromHint(params: {
   conversation: GroupChat;
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
 }): RuntimeEventV2 | null {
-  const hint = (params.message.socialEventHints || []).find((item) => item.eventKind === 'conflict_expression');
+  const hint = normalizeSocialEventHints(params.message.socialEventHints).find((item) => item.eventKind === 'conflict_expression');
   if (!hint || (hint.confidence || 0) < 0.8) return null;
   const payload: SocialEventCandidatePayload = {
     eventKind: 'conflict_expression',
@@ -1903,7 +1904,7 @@ async function resolveSocialEventHints(params: {
   recentMessages?: Message[];
   apiConfig?: APIConfig;
 }) {
-  const baseHints = [...(params.message.socialEventHints || [])];
+  const baseHints = normalizeSocialEventHints(params.message.socialEventHints);
   const hasOutingHint = baseHints.some((hint) => hint.eventKind === 'social_outing');
   const hasMomentHint = baseHints.some((hint) => hint.eventKind === 'post_moment');
   const hasPairPrivateThreadHint = baseHints.some((hint) => hint.eventKind === 'pair_private_thread');
@@ -1999,7 +2000,7 @@ function buildSocialOutingCandidateFromHint(params: {
   conversation: GroupChat;
   message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
 }): RuntimeEventV2 | null {
-  const hint = (params.message.socialEventHints || []).find((item) => item.eventKind === 'social_outing');
+  const hint = normalizeSocialEventHints(params.message.socialEventHints).find((item) => item.eventKind === 'social_outing');
   if (!hint || (hint.confidence || 0) < 0.8) return null;
   const participantIds = (hint.participantIds || []).filter((id) => params.conversation.memberIds.includes(id));
   const payload: SocialEventCandidatePayload = {

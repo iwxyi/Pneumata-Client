@@ -178,6 +178,38 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(kinds).toContain('event_candidate');
   });
 
+  it('normalizes non-array social event hints during commit', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result: DriverMessageCommitResult = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai',
+        senderId: 'a',
+        content: '今天这段对话挺有意思，我想发条动态记录一下。',
+        socialEventHints: {
+          eventKind: 'post_moment',
+          targetIds: ['b'],
+          reasonType: 'emotion_release',
+          confidence: 90,
+          urgency: 'soon',
+          seedIntent: '想发一条和刚才气氛有关的动态。',
+          visibilityPlan: 'public',
+        },
+      } as unknown as Parameters<typeof openChatEngine.onMessageCommitted>[0]['message'],
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const eventCandidate = readRuntimeEvents(result).find((event) => event.kind === 'event_candidate');
+    expect(eventCandidate?.payload).toMatchObject({
+      eventKind: 'post_moment',
+      participantIds: ['a'],
+    });
+    expect((eventCandidate?.payload as SocialEventCandidatePayload | undefined)?.confidence).toBeGreaterThanOrEqual(0.9);
+  });
+
   it('records plain user guidance as conversation focus and a topic memory cue', async () => {
     const chat = buildChat({ memberIds: ['a', 'b'] });
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];

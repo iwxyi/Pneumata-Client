@@ -2,6 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { MediaGenerationDecision, Message } from '../types/message';
 import type { AddressedTargetHintEnvelope, ConflictFocusPayload, InteractionHintCollection, RecentSocialEventSummary, SocialEventHintEnvelope } from '../types/runtimeEvent';
+import { normalizeSocialEventHints } from '../types/runtimeEvent';
 import type { TurnPlan } from './turnPlanner';
 import { hasVisibleStoryEvents, normalizeStoryEvents } from './narrativeRuntime';
 
@@ -115,6 +116,7 @@ function sanitizeEnvelope(envelope: InlineInteractionEnvelope): InlineInteractio
   return {
     ...envelope,
     content: typeof envelope.content === 'string' ? envelope.content : '',
+    socialEventHints: normalizeSocialEventHints(envelope.socialEventHints),
     conflictFocus: sanitizeConflictFocus(envelope.conflictFocus),
     storyEvents: normalizeStoryEvents(envelope.storyEvents),
   };

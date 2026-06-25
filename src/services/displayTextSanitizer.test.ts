@@ -20,6 +20,10 @@ describe('sanitizeUserFacingText', () => {
     expect(sanitizeUserFacingText('episodic / status_shift / memory_candidate')).toBe('片段记忆 / 状态变化 / 记忆候选');
   });
 
+  it('removes bare runtime field names from visible text', () => {
+    expect(sanitizeUserFacingText('eventType先按“未翻案、有人先试锋”落着。')).toBe('先按“未翻案、有人先试锋”落着。');
+  });
+
   it('replaces long member ids without leaking replace offsets', () => {
     const text = sanitizeUserFacingText(
       '3c78729f-e52d-4dde-b27f-01a949960bb8b 提到了 8b3d7266-c0c7-4ceb-8dc2-45126f3f2321',

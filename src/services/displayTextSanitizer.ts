@@ -51,9 +51,10 @@ function replaceMemberIds(text: string, members: DisplayTextMember[]) {
   return next;
 }
 
-export function sanitizeUserFacingText(text: string | undefined | null, members: DisplayTextMember[] = []) {
+export function sanitizeUserFacingText(text: string | undefined | null, members: DisplayTextMember[] = [], options: { preserveLineBreaks?: boolean } = {}) {
   let next = String(text || '');
   next = next.replace(/\{[\s\S]*?"eventType"[\s\S]*?\}/g, '系统事件');
+  next = next.replace(/\beventType\s*(?=[\u4e00-\u9fa5A-Za-z0-9"'“”‘’:_-])/g, '');
   next = next.replace(/\b(?:relationship|faction|topic|scene|scenario|growth|goal|mystery):[^\s，。；、/]+/g, '线索');
   next = replaceMemberIds(next, members);
   INTERNAL_LABELS.forEach(([pattern, label]) => {
@@ -67,7 +68,8 @@ export function sanitizeUserFacingText(text: string | undefined | null, members:
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/gi, '成员')
     .replace(/\b(source events?|sourceEventIds?|salience|tension|momentum|pressure)\b\s*:?\s*[\w.-]*%?/gi, '')
     .replace(/\bNaN\b/g, '0')
-    .replace(/\s{2,}/g, ' ')
+    .replace(options.preserveLineBreaks ? /[^\S\n]{2,}/g : /\s{2,}/g, ' ')
+    .replace(options.preserveLineBreaks ? /\n{3,}/g : /(?!)/g, '\n\n')
     .replace(/\s+([，。；：、])/g, '$1')
     .trim();
 }
