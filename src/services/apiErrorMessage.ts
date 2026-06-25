@@ -42,8 +42,12 @@ export function buildApiErrorUserMessage(error: unknown, action: string) {
   const prefix = `${cleanAction(action)}失败`;
 
   if (error instanceof ApiError) {
-    if (error.status === 401 || error.status === 403 || isAuthExpiredCode(error.code)) {
+    if (error.status === 401 || isAuthExpiredCode(error.code)) {
       return `${prefix}：登录已过期，请重新登录后再试。`;
+    }
+    if (error.status === 403) {
+      const readable = getReadableApiMessage(error);
+      return readable ? `${prefix}：${readable}` : `${prefix}：当前账号无权限执行该操作。`;
     }
     if (error.status === 404) {
       return `${prefix}：云端资源不存在，可能已在其他设备删除或尚未同步。`;

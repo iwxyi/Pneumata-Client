@@ -10,13 +10,14 @@ import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import CloudSyncIcon from '@mui/icons-material/CloudSyncOutlined';
+import VpnKeyIcon from '@mui/icons-material/VpnKeyOutlined';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { isLikelyBrowserCorsError, listAvailableModels, testConnection } from '../services/aiClient';
 import { api } from '../services/api';
-import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType } from '../types/settings';
+import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType, AIProvider } from '../types/settings';
 import { normalizeImageCapabilities, normalizeInputCapabilities, inferTextInputCapabilities, buildTextInputCapabilityPatch, getInputCapabilityLockState, getAttachmentUiCapabilitySummary, getInputCapabilityBadge, getInputCapabilityWarning, shouldShowInputCapabilityWarning } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
@@ -218,6 +219,23 @@ function getAiBalanceLabel(view: AiBalanceView, zh: boolean) {
   return zh ? '登录后查看点数' : 'Sign in to view points';
 }
 
+function isOfficialProviderKey(provider: string) {
+  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt';
+}
+
+function resolveOfficialBackendProvider(provider: string) {
+  return provider === 'official-deepseek' ? 'deepseek' : 'api2d';
+}
+
+function resolveSelectableProviderKey(provider: string, type: AIModelType) {
+  const providerOptions = getProvidersForType(type);
+  const catalogProvider = getProviderCatalogEntry(provider as AIProvider);
+  return providerOptions.find((item) => item.key === provider)?.key
+    || providerOptions.find((item) => item.key === catalogProvider.key)?.key
+    || providerOptions[0]?.key
+    || catalogProvider.key;
+}
+
 export default function AIModelsPage() {
   const { t, i18n } = useTranslation();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
@@ -231,15 +249,16 @@ export default function AIModelsPage() {
   const [showKey, setShowKey] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [applyingKeyId, setApplyingKeyId] = useState<string | null>(null);
   const [confirmAssignProfileId, setConfirmAssignProfileId] = useState<string | null>(null);
   const [remoteModelOptions, setRemoteModelOptions] = useState<Record<string, string[]>>({});
   const [fetchedModelKeys, setFetchedModelKeys] = useState<Record<string, string>>({});
   const [fetchingModelIds, setFetchingModelIds] = useState<Record<string, boolean>>({});
   const [fetchModelFailedIds, setFetchModelFailedIds] = useState<Record<string, boolean>>({});
   const [openModelDropdownIds, setOpenModelDropdownIds] = useState<Record<string, boolean>>({});
-  const [aiBalance, setAiBalance] = useState<Record<string, unknown> | null>(null);
-  const [aiBalanceLoading, setAiBalanceLoading] = useState(false);
-  const [aiBalanceStatus, setAiBalanceStatus] = useState<'idle' | 'guest' | 'unassigned' | 'error'>('idle');
+  const [aiBalances, setAiBalances] = useState<Record<string, Record<string, unknown> | null>>({});
+  const [aiBalanceLoadingIds, setAiBalanceLoadingIds] = useState<Record<string, boolean>>({});
+  const [aiBalanceStatuses, setAiBalanceStatuses] = useState<Record<string, 'idle' | 'guest' | 'unassigned' | 'error'>>({});
   const modelInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const fetchingModelKeysRef = useRef<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -326,24 +345,29 @@ export default function AIModelsPage() {
     });
   }, [settings]);
 
-  const refreshAiBalance = useCallback(async () => {
-    setAiBalanceLoading(true);
+  const refreshAiBalance = useCallback(async (providerKey: string) => {
+    const backendProvider = resolveOfficialBackendProvider(providerKey);
+    setAiBalanceLoadingIds((prev) => ({ ...prev, [providerKey]: true }));
     try {
-      const balance = await api.getAiBalance();
-      setAiBalance(balance);
+      const balance = await api.getAiBalance(backendProvider);
+      setAiBalances((prev) => ({ ...prev, [providerKey]: balance }));
       const raw = balance.availableBalance ?? balance.available_balance;
-      setAiBalanceStatus(typeof raw === 'number' && Number.isFinite(raw) ? 'idle' : 'unassigned');
+      setAiBalanceStatuses((prev) => ({ ...prev, [providerKey]: typeof raw === 'number' && Number.isFinite(raw) ? 'idle' : 'unassigned' }));
     } catch {
-      setAiBalance(null);
-      setAiBalanceStatus('guest');
+      setAiBalances((prev) => ({ ...prev, [providerKey]: null }));
+      setAiBalanceStatuses((prev) => ({ ...prev, [providerKey]: 'guest' }));
     } finally {
-      setAiBalanceLoading(false);
+      setAiBalanceLoadingIds((prev) => {
+        const next = { ...prev };
+        delete next[providerKey];
+        return next;
+      });
     }
   }, []);
 
   useEffect(() => {
-    const hasOfficialProfile = settings.aiProfiles.some((profile) => profile.provider === 'official');
-    if (hasOfficialProfile) void refreshAiBalance();
+    const providers = Array.from(new Set(settings.aiProfiles.filter((profile) => isOfficialProviderKey(profile.provider)).map((profile) => profile.provider)));
+    providers.forEach((provider) => void refreshAiBalance(provider));
   }, [refreshAiBalance, settings.aiProfiles]);
 
   useEffect(() => {
@@ -357,22 +381,75 @@ export default function AIModelsPage() {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
     if (!profile) return;
     setTestingId(profileId);
-    const result = await testConnection(profile);
-    setTestingId(null);
-    const corsHint = i18n.language.startsWith('zh')
-      ? '浏览器直连被目标站跨域策略拦截，可继续保存配置，实际使用建议走服务端代理。'
-      : 'Browser-direct request was blocked by the target CORS policy. You can still save the config; production use should go through your server proxy.';
-    const errorMessage = extractConnectionErrorMessage(result.error);
-    const message = result.success
-      ? t('settings.connectionSuccess')
-      : isLikelyBrowserCorsError(result.error)
-        ? corsHint
-        : errorMessage || t('settings.connectionFailed');
-    setSnackbar({
-      open: true,
-      message,
-      severity: result.success ? 'success' : 'error',
-    });
+    try {
+      const result = await testConnection(profile);
+      const corsBlocked = isLikelyBrowserCorsError(result.error);
+      const shouldSave = result.success || corsBlocked;
+      if (shouldSave) {
+        await settings.syncCurrentSettingsToServer();
+      }
+      const corsHint = i18n.language.startsWith('zh')
+        ? '浏览器直连被目标站跨域策略拦截，配置已保存，实际使用建议走服务端代理。'
+        : 'Browser-direct request was blocked by the target CORS policy. Config saved; production use should go through your server proxy.';
+      const successMessage = i18n.language.startsWith('zh')
+        ? '连接测试成功，配置已保存'
+        : 'Connection test succeeded. Config saved.';
+      const errorMessage = extractConnectionErrorMessage(result.error);
+      const message = result.success
+        ? successMessage
+        : corsBlocked
+          ? corsHint
+          : errorMessage || t('settings.connectionFailed');
+      setSnackbar({
+        open: true,
+        message,
+        severity: shouldSave ? 'success' : 'error',
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error instanceof Error
+          ? error.message
+          : (i18n.language.startsWith('zh') ? '保存配置失败' : 'Failed to save config'),
+        severity: 'error',
+      });
+    } finally {
+      setTestingId(null);
+    }
+  };
+
+  const handleApplyOfficialKey = async (profileId: string, providerKey: string) => {
+    const backendProvider = resolveOfficialBackendProvider(providerKey);
+    setApplyingKeyId(profileId);
+    try {
+      const result = await api.assignAiProviderKey(backendProvider);
+      const balance = result.balance && typeof result.balance === 'object'
+        ? result.balance as Record<string, unknown>
+        : null;
+      if (balance) {
+        const raw = balance.availableBalance ?? balance.available_balance;
+        setAiBalances((prev) => ({ ...prev, [providerKey]: balance }));
+        setAiBalanceStatuses((prev) => ({ ...prev, [providerKey]: typeof raw === 'number' && Number.isFinite(raw) ? 'idle' : 'unassigned' }));
+      } else {
+        await refreshAiBalance(providerKey);
+      }
+      await settings.syncCurrentSettingsToServer();
+      setSnackbar({
+        open: true,
+        message: i18n.language.startsWith('zh') ? 'Key 已申请并分配额度' : 'Key created and quota assigned',
+        severity: 'success',
+      });
+    } catch (error) {
+      setSnackbar({
+        open: true,
+        message: error instanceof Error
+          ? error.message
+          : (i18n.language.startsWith('zh') ? '申请 Key 失败' : 'Failed to request key'),
+        severity: 'error',
+      });
+    } finally {
+      setApplyingKeyId(null);
+    }
   };
 
   const handleAssignToAllRoles = async (profileId: string) => {
@@ -426,7 +503,7 @@ export default function AIModelsPage() {
   const fetchAvailableModels = async (profileId: string, silent = false, force = false) => {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
     if (!profile) return false;
-    if (profile.provider !== 'official' && !profile.apiKey) {
+    if (!isOfficialProviderKey(profile.provider) && !profile.apiKey) {
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: [] }));
       return false;
     }
@@ -445,7 +522,7 @@ export default function AIModelsPage() {
     try {
       const models = await listAvailableModels(profile);
       const options = Array.from(new Set(models.map((item) => item.id).filter(Boolean)));
-      if (profile.provider === 'official') {
+      if (isOfficialProviderKey(profile.provider)) {
         options.sort(compareOfficialModels);
       }
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: options }));
@@ -526,18 +603,21 @@ export default function AIModelsPage() {
                   {(() => {
                     const activeType = profile.type || 'text';
                     const providerOptions = getProvidersForType(activeType);
-                    const selectedProvider = providerOptions.find((item) => item.key === profile.provider) || providerOptions[0] || getProviderCatalogEntry(profile.provider);
+                    const selectedProviderKey = resolveSelectableProviderKey(profile.provider, activeType);
+                    const selectedProvider = providerOptions.find((item) => item.key === selectedProviderKey) || getProviderCatalogEntry(selectedProviderKey);
                     const providerDefaults = getProviderDefaults(selectedProvider.key, activeType);
-                    const usesOfficialProxy = selectedProvider.key === 'official';
+                    const usesOfficialProxy = isOfficialProviderKey(selectedProvider.key);
                     const fetchedModels = remoteModelOptions[profile.id] || [];
                     const popularModels = usesOfficialProxy && fetchedModels.length > 0 ? [] : getPopularModels(selectedProvider.key, activeType);
                     const remoteModels = fetchedModels.filter((item) => !popularModels.includes(item));
                     const fetchingModels = Boolean(fetchingModelIds[profile.id]);
                     const balanceView = usesOfficialProxy
-                      ? (aiBalanceStatus === 'guest' || aiBalanceStatus === 'error'
-                        ? { status: aiBalanceStatus } as AiBalanceView
-                        : resolveAiBalanceView(aiBalance, aiBalanceLoading))
+                      ? (aiBalanceStatuses[selectedProvider.key] === 'guest' || aiBalanceStatuses[selectedProvider.key] === 'error'
+                        ? { status: aiBalanceStatuses[selectedProvider.key] } as AiBalanceView
+                        : resolveAiBalanceView(aiBalances[selectedProvider.key] || null, Boolean(aiBalanceLoadingIds[selectedProvider.key])))
                       : null;
+                    const requiresApi2dKeyApplication = selectedProvider.key === 'official-gpt' && balanceView?.status === 'unassigned';
+                    const checkingApi2dKey = selectedProvider.key === 'official-gpt' && (balanceView?.status === 'idle' || balanceView?.status === 'loading');
                     const modelOptions = [
                       ...popularModels.map((value) => ({
                         value,
@@ -572,8 +652,7 @@ export default function AIModelsPage() {
                           MenuProps={{ slotProps: { paper: { sx: solidPopupPaperSx() } } }}
                           onChange={(e) => {
                             const type = e.target.value as AIModelType;
-                            const compatibleProviders = getProvidersForType(type);
-                            const nextProvider = compatibleProviders.find((item) => item.key === profile.provider)?.key || compatibleProviders[0]?.key || profile.provider;
+                            const nextProvider = resolveSelectableProviderKey(profile.provider, type);
                             const nextDefaults = getProviderDefaults(nextProvider, type);
                             setFetchedModelKeys((prev) => {
                               const next = { ...prev };
@@ -915,14 +994,33 @@ export default function AIModelsPage() {
 
                   <Divider />
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Button
-                      variant="outlined"
-                      startIcon={<CloudSyncIcon />}
-                      onClick={() => handleTestConnection(profile.id)}
-                      disabled={testingId === profile.id || !profile.apiKey}
-                    >
-                      {testingId === profile.id ? t('common.loading') : t('settings.testConnection')}
-                    </Button>
+                    {checkingApi2dKey ? (
+                      <Button
+                        variant="outlined"
+                        startIcon={<VpnKeyIcon />}
+                        disabled
+                      >
+                        {i18n.language.startsWith('zh') ? '检查 Key' : 'Checking key'}
+                      </Button>
+                    ) : requiresApi2dKeyApplication ? (
+                      <Button
+                        variant="outlined"
+                        startIcon={<VpnKeyIcon />}
+                        onClick={() => handleApplyOfficialKey(profile.id, selectedProvider.key)}
+                        disabled={applyingKeyId === profile.id}
+                      >
+                        {applyingKeyId === profile.id ? t('common.loading') : (i18n.language.startsWith('zh') ? '申请 Key' : 'Request key')}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outlined"
+                        startIcon={<CloudSyncIcon />}
+                        onClick={() => handleTestConnection(profile.id)}
+                        disabled={testingId === profile.id || (!usesOfficialProxy && !profile.apiKey)}
+                      >
+                        {testingId === profile.id ? t('common.loading') : (i18n.language.startsWith('zh') ? '测试并保存' : 'Test & save')}
+                      </Button>
+                    )}
                     {index > 0 ? (
                       <Button
                         color="error"
@@ -938,8 +1036,8 @@ export default function AIModelsPage() {
                       <Button
                         size="small"
                         variant="text"
-                        onClick={() => void refreshAiBalance()}
-                        disabled={aiBalanceLoading}
+                        onClick={() => void refreshAiBalance(selectedProvider.key)}
+                        disabled={Boolean(aiBalanceLoadingIds[selectedProvider.key])}
                         sx={{ minHeight: 30, px: 1, color: 'text.secondary', flexShrink: 0 }}
                       >
                         {getAiBalanceLabel(balanceView, i18n.language.startsWith('zh'))}

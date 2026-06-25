@@ -142,6 +142,18 @@ export class ApiError extends Error {
   }
 }
 
+const AUTH_EXPIRED_CODES = new Set([
+  'AUTH_EXPIRED',
+  'AUTH_REQUIRED',
+  'INVALID_TOKEN',
+  'TOKEN_EXPIRED',
+  'UNAUTHORIZED',
+]);
+
+function shouldExpireAuthSession(status: number, code?: string) {
+  return status === 401 || Boolean(code && AUTH_EXPIRED_CODES.has(code.toUpperCase()));
+}
+
 class ApiClient {
   private getToken(): string | null {
     return localStorage.getItem(storageKey('token'));
@@ -188,7 +200,7 @@ class ApiClient {
     if (!response.ok) {
       const error: { error?: string; detail?: string; code?: string } = await this.parseJsonResponse<{ error?: string; detail?: string; code?: string }>(response).catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
       const detail = typeof error.detail === 'string' && error.detail ? ` (${error.detail})` : '';
-      if (response.status === 401 || response.status === 403) {
+      if (shouldExpireAuthSession(response.status, error.code)) {
         dispatchAuthSessionExpired({ status: response.status, path });
       }
       throw new ApiError(`${error.error || `HTTP ${response.status}`}${detail}`, { code: error.code, status: response.status });
@@ -221,8 +233,13 @@ class ApiClient {
     return this.request<{ id: string; phone: string; nickname: string; avatar: string; cloudSyncEntitled?: boolean }>('PUT', '/auth/change-phone', { phone, code });
   }
 
-  async getAiBalance() {
-    return this.request<Record<string, unknown>>('GET', '/ai/balance');
+  async getAiBalance(provider?: string) {
+    const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
+    return this.request<Record<string, unknown>>('GET', `/ai/balance${query}`);
+  }
+
+  async assignAiProviderKey(providerCode: string) {
+    return this.request<Record<string, unknown>>('POST', '/ai/keys/assign', { providerCode });
   }
 
   async getCharacters() {

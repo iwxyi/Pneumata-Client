@@ -46,10 +46,12 @@ export const useAdminAuthStore = create<AdminAuthStore>((set) => ({
       set({ token, admin, isLoggedIn: true, isLoading: false });
       return true;
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      if (error instanceof ApiError && error.status === 401) {
         adminApi.setToken(null);
+        set({ token: null, admin: null, isLoggedIn: false, isLoading: false });
+        return false;
       }
-      set({ token: null, admin: null, isLoggedIn: false, isLoading: false });
+      set({ token, isLoggedIn: true, isLoading: false });
       return false;
     }
   },

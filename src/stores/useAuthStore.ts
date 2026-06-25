@@ -235,7 +235,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       void refreshStoresAfterCloudAuth({ forceRemote: user.cloudSyncEntitled !== false });
       return true;
     } catch (error) {
-      if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+      if (error instanceof ApiError && error.status === 401) {
         get().expireCloudSession();
         return false;
       }

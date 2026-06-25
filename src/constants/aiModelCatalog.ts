@@ -48,6 +48,11 @@ const OFFICIAL_TEXT_MODELS = [
   'gpt-3.5-turbo-16k-0613',
 ];
 
+const OFFICIAL_DEEPSEEK_TEXT_MODELS = [
+  'deepseek-chat',
+  'deepseek-reasoner',
+];
+
 export interface ProviderTypeDefaults {
   baseUrl: string;
   model: string;
@@ -63,9 +68,22 @@ export interface AIProviderCatalogEntry {
 
 export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
   {
-    key: 'official',
-    label: '官方',
-    family: 'Pneumata',
+    key: 'official-deepseek',
+    label: '官方1（DeepSeek）',
+    family: 'Pneumata DeepSeek',
+    defaults: {
+      text: { baseUrl: '/api/ai', model: 'deepseek-chat' },
+      document: { baseUrl: '/api/ai', model: 'deepseek-chat' },
+    },
+    popularModels: {
+      text: OFFICIAL_DEEPSEEK_TEXT_MODELS,
+      document: OFFICIAL_DEEPSEEK_TEXT_MODELS,
+    },
+  },
+  {
+    key: 'official-gpt',
+    label: '官方2（GPT）',
+    family: 'Pneumata GPT',
     defaults: {
       text: { baseUrl: '/api/ai', model: 'gpt-5.5' },
       document: { baseUrl: '/api/ai', model: 'gpt-5.5' },
@@ -258,6 +276,7 @@ export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
 ];
 
 export function getProviderCatalogEntry(provider: AIProvider) {
+  if (provider === 'official') return AI_PROVIDER_CATALOG.find((item) => item.key === 'official-gpt') || AI_PROVIDER_CATALOG[0];
   return AI_PROVIDER_CATALOG.find((item) => item.key === provider) || AI_PROVIDER_CATALOG[0];
 }
 

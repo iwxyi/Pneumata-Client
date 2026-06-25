@@ -17,6 +17,14 @@ type GenerateResponseOptions = {
   signal?: AbortSignal;
 };
 
+function isOfficialProvider(provider: APIConfig['provider']) {
+  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt';
+}
+
+function resolveOfficialBackendProvider(provider: APIConfig['provider']) {
+  return provider === 'official-deepseek' ? 'deepseek' : 'api2d';
+}
+
 export interface AvailableModelInfo {
   id: string;
   label: string;
@@ -697,6 +705,7 @@ async function generateOfficialResponse(
   options: GenerateResponseOptions = {},
 ) {
   const requestBody = {
+    provider: resolveOfficialBackendProvider(config.provider),
     model: config.model,
     messages: buildOfficialMessages(messages, systemPrompt),
     stream: Boolean(onChunk),
@@ -713,7 +722,7 @@ async function generateOfficialResponse(
     signal: options.signal,
   });
 
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     dispatchAuthSessionExpired({ status: response.status, path: '/api/ai/v1/chat/completions' });
   }
 
@@ -735,6 +744,8 @@ async function generateOfficialResponse(
 
 const providerHandlers: Partial<Record<APIConfig['provider'], typeof generateOpenAICompatibleResponse>> = {
   official: generateOfficialResponse,
+  'official-deepseek': generateOfficialResponse,
+  'official-gpt': generateOfficialResponse,
   openai: generateOpenAICompatibleResponse,
   anthropic: generateAnthropicResponse,
   google: generateGeminiResponse,
@@ -767,11 +778,12 @@ async function listOpenAICompatibleModels(config: APIConfig) {
     .map((id) => ({ id, label: id }));
 }
 
-async function listOfficialModels(): Promise<AvailableModelInfo[]> {
-  const response = await fetch('/api/ai/models', {
+async function listOfficialModels(config: APIConfig): Promise<AvailableModelInfo[]> {
+  const provider = resolveOfficialBackendProvider(config.provider);
+  const response = await fetch(`/api/ai/models?provider=${encodeURIComponent(provider)}`, {
     headers: getAuthHeaders(),
   });
-  if (response.status === 401 || response.status === 403) {
+  if (response.status === 401) {
     dispatchAuthSessionExpired({ status: response.status, path: '/api/ai/models' });
   }
   const result = await parseJsonResponse<{ items?: Array<{ id?: string; label?: string; metadata?: JSONValue }> }>(response, 'Official model list request failed');
@@ -812,8 +824,8 @@ async function listQwenModels(config: APIConfig) {
 }
 
 export async function listAvailableModels(config: APIConfig): Promise<AvailableModelInfo[]> {
-  if (config.provider === 'official') {
-    return listOfficialModels();
+  if (isOfficialProvider(config.provider)) {
+    return listOfficialModels(config);
   }
   if (config.provider === 'microsoft') {
     return [
@@ -1140,7 +1152,7 @@ export const generateResponse = async (
   onChunk?: (chunk: string) => void,
   options: GenerateResponseOptions = {},
 ): Promise<string> => {
-  if (config.provider === 'official') {
+  if (isOfficialProvider(config.provider)) {
     return generateOfficialResponse(config, systemPrompt, messages, onChunk, options);
   }
   if (isOpenAICompatibleEndpoint(config)) {
@@ -1158,7 +1170,7 @@ export const generateJsonResponse = async (
   const jsonPrompt = `${systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
 
   try {
-    if (config.provider === 'official') {
+    if (isOfficialProvider(config.provider)) {
       return await generateOfficialResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
     }
 

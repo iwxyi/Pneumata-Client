@@ -48,6 +48,27 @@ interface HomeOverviewCard {
   attention?: boolean;
 }
 
+type OfficialBalanceProvider = 'official-deepseek' | 'official-gpt';
+
+const OFFICIAL_BALANCE_PROVIDERS: Array<{
+  key: OfficialBalanceProvider;
+  backendProvider: 'deepseek' | 'api2d';
+  label: string;
+}> = [
+  { key: 'official-deepseek', backendProvider: 'deepseek', label: 'DS余额' },
+  { key: 'official-gpt', backendProvider: 'api2d', label: 'GPT点数' },
+];
+
+function normalizeOfficialBalanceProvider(provider: string): OfficialBalanceProvider | null {
+  if (provider === 'official-deepseek') return 'official-deepseek';
+  if (provider === 'official' || provider === 'official-gpt') return 'official-gpt';
+  return null;
+}
+
+function formatAiPointValue(value: number) {
+  return `${Number(value.toFixed(6))}P`;
+}
+
 function buildStatGridSx() {
   return {
     display: 'grid',
@@ -256,7 +277,7 @@ export default function HomePage() {
   const [avatarQueueSummary, setAvatarQueueSummary] = useState<AvatarGenerationQueueSummary>(() => avatarGenerationQueue.getSummary());
   const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(() => isCloudSyncEnabled());
   const [workerEntries, setWorkerEntries] = useState(() => getRegisteredSyncWorkerEntries());
-  const [aiPoints, setAiPoints] = useState<number | null>(null);
+  const [aiBalances, setAiBalances] = useState<Partial<Record<OfficialBalanceProvider, number | null>>>({});
 
   useEffect(() => {
     markChatsWarm();
@@ -305,8 +326,15 @@ export default function HomePage() {
   const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
   const needsAIModelSetup = !hasUsableDefaultTextAI(aiProfiles);
   const needsLogin = authMode === 'local' || !isLoggedIn;
-  const hasOfficialAiProfile = aiProfiles.some((profile) => profile.provider === 'official');
-  const canQueryAiPoints = !needsLogin && hasOfficialAiProfile;
+  const enabledOfficialBalanceProviders = useMemo(() => {
+    const providerKeys = new Set<OfficialBalanceProvider>();
+    aiProfiles.forEach((profile) => {
+      const normalized = normalizeOfficialBalanceProvider(profile.provider);
+      if (normalized) providerKeys.add(normalized);
+    });
+    return OFFICIAL_BALANCE_PROVIDERS.filter((provider) => providerKeys.has(provider.key));
+  }, [aiProfiles]);
+  const canQueryAiPoints = !needsLogin && enabledOfficialBalanceProviders.length > 0;
   const needsOwnCharacter = characters.length > 0 && customCharacters.length === 0;
   const hasActiveAvatarTasks = avatarQueueSummary.active > 0;
   const knownMessages = useMemo(() => {
@@ -375,22 +403,35 @@ export default function HomePage() {
   const syncExceptionCount = syncOverview.failedUpload + syncOverview.failedScopes + syncOverview.backoffScopes;
   useEffect(() => {
     if (!canQueryAiPoints) {
-      setAiPoints(null);
+      setAiBalances({});
       return;
     }
     let cancelled = false;
-    api.getAiBalance()
-      .then((balance) => {
-        const raw = balance.availableBalance ?? balance.available_balance;
-        if (!cancelled) setAiPoints(typeof raw === 'number' && Number.isFinite(raw) ? raw : null);
-      })
-      .catch(() => {
-        if (!cancelled) setAiPoints(null);
-      });
+    const activeProviderKeys = new Set(enabledOfficialBalanceProviders.map((provider) => provider.key));
+    setAiBalances((prev) => Object.fromEntries(
+      Object.entries(prev).filter(([providerKey]) => activeProviderKeys.has(providerKey as OfficialBalanceProvider)),
+    ) as Partial<Record<OfficialBalanceProvider, number | null>>);
+    enabledOfficialBalanceProviders.forEach((provider) => {
+      api.getAiBalance(provider.backendProvider)
+        .then((balance) => {
+          const raw = balance.availableBalance ?? balance.available_balance;
+          if (!cancelled) {
+            setAiBalances((prev) => ({
+              ...prev,
+              [provider.key]: typeof raw === 'number' && Number.isFinite(raw) ? raw : null,
+            }));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setAiBalances((prev) => ({ ...prev, [provider.key]: null }));
+          }
+        });
+    });
     return () => {
       cancelled = true;
     };
-  }, [canQueryAiPoints]);
+  }, [canQueryAiPoints, enabledOfficialBalanceProviders]);
 
   const syncStatusStats: HomeOverviewCard[] = (!needsLogin && cloudSyncEnabled) ? [
     ...(syncUploadingCount > 0 ? [{
@@ -508,13 +549,17 @@ export default function HomePage() {
       color: 'primary.main',
       onOpen: () => navigate('/chats?tab=0'),
     },
-    ...(aiPoints !== null ? [{
-      label: 'AI点数',
-      value: `${aiPoints}P`,
-      icon: <AutoAwesomeIcon />,
-      color: 'primary.main',
-      onOpen: () => navigate('/models'),
-    }] : []),
+    ...enabledOfficialBalanceProviders.flatMap((provider) => {
+      const balance = aiBalances[provider.key];
+      if (balance === null || balance === undefined) return [];
+      return [{
+        label: provider.label,
+        value: formatAiPointValue(balance),
+        icon: <AutoAwesomeIcon />,
+        color: 'primary.main',
+        onOpen: () => navigate('/models'),
+      }];
+    }),
     ...syncStatusStats,
   ];
 
