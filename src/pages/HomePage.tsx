@@ -33,6 +33,7 @@ import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { buildHomeSyncOverview } from '../services/homeSyncOverview';
 import { buildLocalOutboxProjection } from '../services/localOutboxProjection';
 import { mirrorLocalOutboxQueues } from '../services/localOutboxMirror';
+import { api } from '../services/api';
 import { getRegisteredSyncWorkerEntries } from '../stores/storeSyncScheduler';
 import { motion, transition } from '../styles/motion';
 
@@ -76,6 +77,7 @@ function buildStatCellSx() {
 function buildStatCardSx() {
   return {
     width: '100%',
+    height: '100%',
     maxWidth: { xs: 'none', sm: 142 },
     minWidth: 0,
     position: 'relative',
@@ -126,6 +128,20 @@ function buildStatContentSx() {
   return {
     width: '100%',
     textAlign: 'center',
+    p: 0,
+    '&:last-child': { pb: 0 },
+    minHeight: { xs: 78, sm: 88 },
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'visible',
+  };
+}
+
+function buildStatCenterSx() {
+  return {
+    width: '100%',
+    minHeight: { xs: 78, sm: 88 },
     py: { xs: 1.15, sm: 1.35 },
     px: { xs: 0.55, sm: 0.9 },
     display: 'flex',
@@ -133,7 +149,6 @@ function buildStatContentSx() {
     alignItems: 'center',
     justifyContent: 'center',
     gap: { xs: 0.35, sm: 0.45 },
-    minHeight: { xs: 78, sm: 88 },
     overflow: 'visible',
   };
 }
@@ -176,13 +191,19 @@ function buildStatLabelSx() {
     width: '100%',
     lineHeight: 1.25,
     textAlign: 'center',
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
     minHeight: { xs: '2.2em', sm: '2.3em' },
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
     color: 'text.secondary',
     fontSize: { xs: '0.7rem', sm: '0.78rem' },
+    '& > span': {
+      display: '-webkit-box',
+      WebkitLineClamp: 2,
+      WebkitBoxOrient: 'vertical',
+      overflow: 'hidden',
+    },
   };
 }
 
@@ -235,6 +256,7 @@ export default function HomePage() {
   const [avatarQueueSummary, setAvatarQueueSummary] = useState<AvatarGenerationQueueSummary>(() => avatarGenerationQueue.getSummary());
   const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(() => isCloudSyncEnabled());
   const [workerEntries, setWorkerEntries] = useState(() => getRegisteredSyncWorkerEntries());
+  const [aiPoints, setAiPoints] = useState<number | null>(null);
 
   useEffect(() => {
     markChatsWarm();
@@ -283,6 +305,8 @@ export default function HomePage() {
   const recentChatsActionTab = recentChats[0]?.type === 'group' ? 0 : recentChats[0]?.type === 'ai_direct' ? 2 : 1;
   const needsAIModelSetup = !hasUsableDefaultTextAI(aiProfiles);
   const needsLogin = authMode === 'local' || !isLoggedIn;
+  const hasOfficialAiProfile = aiProfiles.some((profile) => profile.provider === 'official');
+  const canQueryAiPoints = !needsLogin && hasOfficialAiProfile;
   const needsOwnCharacter = characters.length > 0 && customCharacters.length === 0;
   const hasActiveAvatarTasks = avatarQueueSummary.active > 0;
   const knownMessages = useMemo(() => {
@@ -349,6 +373,25 @@ export default function HomePage() {
   const syncUploadingCount = syncOverview.uploading + syncOverview.pendingUpload;
   const syncDownloadingCount = syncOverview.checkingDownloads + syncOverview.pendingDownload;
   const syncExceptionCount = syncOverview.failedUpload + syncOverview.failedScopes + syncOverview.backoffScopes;
+  useEffect(() => {
+    if (!canQueryAiPoints) {
+      setAiPoints(null);
+      return;
+    }
+    let cancelled = false;
+    api.getAiBalance()
+      .then((balance) => {
+        const raw = balance.availableBalance ?? balance.available_balance;
+        if (!cancelled) setAiPoints(typeof raw === 'number' && Number.isFinite(raw) ? raw : null);
+      })
+      .catch(() => {
+        if (!cancelled) setAiPoints(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canQueryAiPoints]);
+
   const syncStatusStats: HomeOverviewCard[] = (!needsLogin && cloudSyncEnabled) ? [
     ...(syncUploadingCount > 0 ? [{
       label: syncOverview.uploading > 0 ? `${syncOverview.uploading} 正在上传` : '等待上传',
@@ -465,6 +508,13 @@ export default function HomePage() {
       color: 'primary.main',
       onOpen: () => navigate('/chats?tab=0'),
     },
+    ...(aiPoints !== null ? [{
+      label: 'AI点数',
+      value: `${aiPoints}P`,
+      icon: <AutoAwesomeIcon />,
+      color: 'primary.main',
+      onOpen: () => navigate('/models'),
+    }] : []),
     ...syncStatusStats,
   ];
 
@@ -478,10 +528,7 @@ export default function HomePage() {
               <Box key={stat.label} sx={buildStatCellSx()}>
                 <SurfaceCard
                   sx={stat.attention ? buildAttentionCardSx() : buildStatCardSx()}
-                  contentSx={{
-                    ...buildStatContentSx(),
-                    '& > :not(button)': { width: '100%', display: 'flex', justifyContent: 'center' },
-                  }}
+                  contentSx={buildStatContentSx()}
                   onClick={stat.onOpen}
                   aria-label={`${stat.label}快捷入口`}
                 >
@@ -498,9 +545,11 @@ export default function HomePage() {
                       <AddIcon fontSize="small" />
                     </IconButton>
                   ) : null}
-                  <Box sx={buildStatIconSx(stat.color)}>{stat.icon}</Box>
-                  <Typography variant="h5" sx={buildStatValueSx()}>{stat.value}</Typography>
-                  <Typography variant="body2" sx={buildStatLabelSx()}>{stat.label}</Typography>
+                  <Box sx={buildStatCenterSx()}>
+                    <Box sx={buildStatIconSx(stat.color)}>{stat.icon}</Box>
+                    <Typography variant="h5" sx={buildStatValueSx()}>{stat.value}</Typography>
+                    <Typography variant="body2" sx={buildStatLabelSx()}><span>{stat.label}</span></Typography>
+                  </Box>
                 </SurfaceCard>
               </Box>
             ))}

@@ -221,6 +221,10 @@ class ApiClient {
     return this.request<{ id: string; phone: string; nickname: string; avatar: string; cloudSyncEntitled?: boolean }>('PUT', '/auth/change-phone', { phone, code });
   }
 
+  async getAiBalance() {
+    return this.request<Record<string, unknown>>('GET', '/ai/balance');
+  }
+
   async getCharacters() {
     return this.request<Array<{
       id: string; name: string; avatar: string; personality: Record<string, number>;

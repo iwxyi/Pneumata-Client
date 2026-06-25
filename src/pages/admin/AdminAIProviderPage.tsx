@@ -39,6 +39,12 @@ function serializePackages(packages: QuotaPackageForm[]) {
     }));
 }
 
+function formatBalance(balance: Record<string, unknown> | null) {
+  const raw = balance?.availableBalance ?? balance?.available_balance;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return '未获取';
+  return `${raw}P`;
+}
+
 export default function AdminAIProviderPage() {
   const { providerCode: routeProviderCode } = useParams();
   const providerCode = routeProviderCode || 'api2d';
@@ -50,6 +56,7 @@ export default function AdminAIProviderPage() {
     adminBaseUrl: '',
     status: 'active',
     adminToken: '',
+    forwardKey: '',
     autoProvisionEnabled: false,
     defaultKeyTypeId: '',
     defaultGrantAmount: '',
@@ -59,6 +66,7 @@ export default function AdminAIProviderPage() {
     quotaTransferMethod: 'POST',
     quotaTransferBodyTemplate: '',
   });
+  const [loadedSecrets, setLoadedSecrets] = useState({ adminToken: '', forwardKey: '' });
   const [quotaPackages, setQuotaPackages] = useState<QuotaPackageForm[]>([]);
   const [keys, setKeys] = useState<Array<Record<string, unknown>>>([]);
   const [keySearch, setKeySearch] = useState({ typeId: '', keyword: '' });
@@ -69,21 +77,42 @@ export default function AdminAIProviderPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [keyLoading, setKeyLoading] = useState(false);
+  const [accountBalance, setAccountBalance] = useState<Record<string, unknown> | null>(null);
+  const [accountBalanceLoading, setAccountBalanceLoading] = useState(false);
+  const [accountBalanceError, setAccountBalanceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
+
+  const loadAccountBalance = async () => {
+    setAccountBalanceLoading(true);
+    setAccountBalanceError(null);
+    try {
+      const balance = await adminApi.getAiProviderAccountBalance(providerCode);
+      setAccountBalance(balance);
+    } catch (loadError) {
+      setAccountBalance(null);
+      setAccountBalanceError(getAdminErrorMessage(loadError));
+    } finally {
+      setAccountBalanceLoading(false);
+    }
+  };
 
   const loadConfig = async () => {
     setLoading(true);
     setError(null);
     try {
       const config = await adminApi.getAiProviderConfig(providerCode);
+      const adminToken = typeof config.adminToken === 'string' ? config.adminToken : '';
+      const forwardKey = typeof config.forwardKey === 'string' ? config.forwardKey : '';
       setProviderConfig(config);
+      setLoadedSecrets({ adminToken, forwardKey });
       setForm({
         name: String(config.name || ''),
         baseUrl: String(config.baseUrl || ''),
         adminBaseUrl: String(config.adminBaseUrl || ''),
         status: String(config.status || 'active'),
-        adminToken: '',
+        adminToken,
+        forwardKey,
         autoProvisionEnabled: Boolean(config.autoProvisionEnabled),
         defaultKeyTypeId: config.defaultKeyTypeId == null ? '' : String(config.defaultKeyTypeId),
         defaultGrantAmount: config.defaultGrantAmount == null ? '' : String(config.defaultGrantAmount),
@@ -96,6 +125,11 @@ export default function AdminAIProviderPage() {
           : JSON.stringify(config.quotaTransferBodyTemplate, null, 2),
       });
       setQuotaPackages(Array.isArray(config.quotaPackages) ? (config.quotaPackages as Array<Record<string, unknown>>).map(toPackageForm) : []);
+      if (config.forwardKeyConfigured) void loadAccountBalance();
+      else {
+        setAccountBalance(null);
+        setAccountBalanceError(null);
+      }
     } catch (loadError) {
       setError(getAdminErrorMessage(loadError));
     } finally {
@@ -128,10 +162,20 @@ export default function AdminAIProviderPage() {
           : null,
         quotaPackages: serializePackages(quotaPackages),
       };
-      if (form.adminToken.trim()) payload.adminToken = form.adminToken.trim();
+      const nextAdminToken = form.adminToken.trim();
+      const nextForwardKey = form.forwardKey.trim();
+      if (nextAdminToken !== loadedSecrets.adminToken) payload.adminToken = nextAdminToken;
+      if (nextForwardKey !== loadedSecrets.forwardKey) payload.forwardKey = nextForwardKey;
       const updated = await adminApi.updateAiProviderConfig(providerCode, payload);
+      const updatedAdminToken = typeof updated.adminToken === 'string' ? updated.adminToken : nextAdminToken;
+      const updatedForwardKey = typeof updated.forwardKey === 'string' ? updated.forwardKey : nextForwardKey;
       setProviderConfig(updated);
-      setForm((prev) => ({ ...prev, adminToken: '' }));
+      setLoadedSecrets({ adminToken: updatedAdminToken, forwardKey: updatedForwardKey });
+      setForm((prev) => ({
+        ...prev,
+        adminToken: updatedAdminToken,
+        forwardKey: updatedForwardKey,
+      }));
     } catch (saveError) {
       setError(getAdminErrorMessage(saveError));
     } finally {
@@ -238,8 +282,32 @@ export default function AdminAIProviderPage() {
           <AdminDetailCard title="主账号配置">
             <Stack spacing={1.25}>
               <Alert severity={providerConfig?.adminTokenConfigured ? 'success' : 'warning'}>
-                主账号 Token：{providerConfig?.adminTokenConfigured ? `已配置 ${String(providerConfig.adminTokenMask || '')}` : '未配置'}
+                管理 Token：{providerConfig?.adminTokenConfigured ? String(providerConfig.adminToken || '') : '未配置'}
               </Alert>
+              <Alert severity={providerConfig?.forwardKeyConfigured ? 'success' : 'warning'}>
+                主账号 ForwardKey：{providerConfig?.forwardKeyConfigured ? String(providerConfig.forwardKey || '') : '未配置'}
+              </Alert>
+              <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={1.25}
+                sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
+              >
+                <Box>
+                  <Typography variant="caption" color="text.secondary">主账号总余额</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                    {accountBalanceLoading ? '查询中' : formatBalance(accountBalance)}
+                  </Typography>
+                  {accountBalanceError ? <Typography variant="caption" color="error">{accountBalanceError}</Typography> : null}
+                </Box>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => void loadAccountBalance()}
+                  disabled={!providerConfig?.forwardKeyConfigured || accountBalanceLoading}
+                >
+                  刷新余额
+                </Button>
+              </Stack>
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                 <TextField label="名称" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} fullWidth />
                 <TextField select label="状态" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))} sx={{ minWidth: 140 }}>
@@ -257,14 +325,19 @@ export default function AdminAIProviderPage() {
                   fullWidth
                 />
               </Stack>
-              <TextField
-                label="API2D 主账号管理 Token（不是模型调用 Key，留空表示不修改）"
-                type="password"
-                value={form.adminToken}
-                onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
-                fullWidth
-              />
-            </Stack>
+                <TextField
+                  label="API2D 主账号管理 Token（不是模型调用 Key）"
+                  value={form.adminToken}
+                  onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
+                  fullWidth
+                />
+                <TextField
+                  label="API2D 主账号 ForwardKey（用于余额查询）"
+                  value={form.forwardKey}
+                  onChange={(e) => setForm((prev) => ({ ...prev, forwardKey: e.target.value }))}
+                  fullWidth
+                />
+              </Stack>
           </AdminDetailCard>
 
           <AdminDetailCard title="新用户自动分配 Key">
@@ -317,17 +390,38 @@ export default function AdminAIProviderPage() {
           <AdminDetailCard title="额度套餐">
             <Stack spacing={1.25}>
               {!quotaPackages.length ? <Alert severity="info">暂无套餐，添加后可用于后续支付购买。</Alert> : null}
-              {quotaPackages.map((item, index) => (
-                <Stack key={`${item.code}-${index}`} direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-                  <TextField label="套餐编码" value={item.code} onChange={(e) => updatePackage(index, 'code', e.target.value)} />
-                  <TextField label="套餐名称" value={item.name} onChange={(e) => updatePackage(index, 'name', e.target.value)} />
-                  <TextField label="点数额度" value={item.points} onChange={(e) => updatePackage(index, 'points', e.target.value)} />
-                  <TextField label="价格" value={item.price} onChange={(e) => updatePackage(index, 'price', e.target.value)} />
-                  <TextField label="每日额度" value={item.dailyQuota} onChange={(e) => updatePackage(index, 'dailyQuota', e.target.value)} />
-                  <TextField label="每月额度" value={item.monthlyQuota} onChange={(e) => updatePackage(index, 'monthlyQuota', e.target.value)} />
-                  <Button color="warning" onClick={() => removePackage(index)}>删除</Button>
-                </Stack>
-              ))}
+              {quotaPackages.length ? (
+                <AdminResponsiveTable minWidth={900}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>套餐编码</TableCell>
+                        <TableCell>套餐名称</TableCell>
+                        <TableCell>点数额度</TableCell>
+                        <TableCell>价格</TableCell>
+                        <TableCell>每日额度</TableCell>
+                        <TableCell>每月额度</TableCell>
+                        <TableCell align="right">操作</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {quotaPackages.map((item, index) => (
+                        <TableRow key={`${item.code}-${index}`}>
+                          <TableCell><TextField size="small" value={item.code} onChange={(e) => updatePackage(index, 'code', e.target.value)} sx={{ minWidth: 120 }} /></TableCell>
+                          <TableCell><TextField size="small" value={item.name} onChange={(e) => updatePackage(index, 'name', e.target.value)} sx={{ minWidth: 140 }} /></TableCell>
+                          <TableCell><TextField size="small" value={item.points} onChange={(e) => updatePackage(index, 'points', e.target.value)} sx={{ width: 110 }} /></TableCell>
+                          <TableCell><TextField size="small" value={item.price} onChange={(e) => updatePackage(index, 'price', e.target.value)} sx={{ width: 100 }} /></TableCell>
+                          <TableCell><TextField size="small" value={item.dailyQuota} onChange={(e) => updatePackage(index, 'dailyQuota', e.target.value)} sx={{ width: 110 }} /></TableCell>
+                          <TableCell><TextField size="small" value={item.monthlyQuota} onChange={(e) => updatePackage(index, 'monthlyQuota', e.target.value)} sx={{ width: 110 }} /></TableCell>
+                          <TableCell align="right">
+                            <Button size="small" color="warning" onClick={() => removePackage(index)}>删除</Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </AdminResponsiveTable>
+              ) : null}
               <Button variant="outlined" onClick={addPackage} sx={{ alignSelf: 'flex-start' }}>添加套餐</Button>
             </Stack>
           </AdminDetailCard>

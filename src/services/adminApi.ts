@@ -134,6 +134,10 @@ class AdminApiClient {
     return this.request<Record<string, unknown>>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/config`);
   }
 
+  getAiProviderAccountBalance(providerCode: string) {
+    return this.request<Record<string, unknown>>('POST', `/ai/providers/${encodeURIComponent(providerCode)}/account-balance`);
+  }
+
   updateAiProviderConfig(providerCode: string, payload: Record<string, unknown>) {
     return this.request<Record<string, unknown>>('PUT', `/ai/providers/${encodeURIComponent(providerCode)}/config`, payload);
   }

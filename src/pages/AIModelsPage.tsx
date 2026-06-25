@@ -15,6 +15,7 @@ import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { isLikelyBrowserCorsError, listAvailableModels, testConnection } from '../services/aiClient';
+import { api } from '../services/api';
 import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType } from '../types/settings';
 import { normalizeImageCapabilities, normalizeInputCapabilities, inferTextInputCapabilities, buildTextInputCapabilityPatch, getInputCapabilityLockState, getAttachmentUiCapabilitySummary, getInputCapabilityBadge, getInputCapabilityWarning, shouldShowInputCapabilityWarning } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
@@ -25,6 +26,11 @@ import AppSnackbar from '../components/common/AppSnackbar';
 import ExpandableFab from '../components/common/ExpandableFab';
 import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
 import { motion, transition } from '../styles/motion';
+
+type AiBalanceView =
+  | { status: 'idle' | 'loading' }
+  | { status: 'guest' | 'unassigned' | 'error' }
+  | { status: 'ready'; points: number };
 
 function maskSecret(value: string) {
   if (!value) return '';
@@ -195,6 +201,23 @@ function compareOfficialModels(left: string, right: string) {
   return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
 }
 
+function resolveAiBalanceView(balance: Record<string, unknown> | null, loading: boolean): AiBalanceView {
+  if (loading) return { status: 'loading' };
+  if (!balance) return { status: 'idle' };
+  const raw = balance.availableBalance ?? balance.available_balance;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return { status: 'ready', points: raw };
+  return { status: 'unassigned' };
+}
+
+function getAiBalanceLabel(view: AiBalanceView, zh: boolean) {
+  if (view.status === 'loading') return zh ? '点数刷新中' : 'Refreshing points';
+  if (view.status === 'ready') return `${view.points}P`;
+  if (view.status === 'guest') return zh ? '登录后查看点数' : 'Sign in to view points';
+  if (view.status === 'unassigned') return zh ? '未分配点数' : 'No points assigned';
+  if (view.status === 'error') return zh ? '登录后查看点数' : 'Sign in to view points';
+  return zh ? '登录后查看点数' : 'Sign in to view points';
+}
+
 export default function AIModelsPage() {
   const { t, i18n } = useTranslation();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
@@ -214,6 +237,9 @@ export default function AIModelsPage() {
   const [fetchingModelIds, setFetchingModelIds] = useState<Record<string, boolean>>({});
   const [fetchModelFailedIds, setFetchModelFailedIds] = useState<Record<string, boolean>>({});
   const [openModelDropdownIds, setOpenModelDropdownIds] = useState<Record<string, boolean>>({});
+  const [aiBalance, setAiBalance] = useState<Record<string, unknown> | null>(null);
+  const [aiBalanceLoading, setAiBalanceLoading] = useState(false);
+  const [aiBalanceStatus, setAiBalanceStatus] = useState<'idle' | 'guest' | 'unassigned' | 'error'>('idle');
   const modelInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const fetchingModelKeysRef = useRef<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -299,6 +325,26 @@ export default function AIModelsPage() {
       ...(profile?.type === 'text' ? { inputCapabilities: inferTextInputCapabilities(profile.provider, value) } : {}),
     });
   }, [settings]);
+
+  const refreshAiBalance = useCallback(async () => {
+    setAiBalanceLoading(true);
+    try {
+      const balance = await api.getAiBalance();
+      setAiBalance(balance);
+      const raw = balance.availableBalance ?? balance.available_balance;
+      setAiBalanceStatus(typeof raw === 'number' && Number.isFinite(raw) ? 'idle' : 'unassigned');
+    } catch {
+      setAiBalance(null);
+      setAiBalanceStatus('guest');
+    } finally {
+      setAiBalanceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const hasOfficialProfile = settings.aiProfiles.some((profile) => profile.provider === 'official');
+    if (hasOfficialProfile) void refreshAiBalance();
+  }, [refreshAiBalance, settings.aiProfiles]);
 
   useEffect(() => {
     if (characters.length === 0 && !characterLoading) {
@@ -487,6 +533,11 @@ export default function AIModelsPage() {
                     const popularModels = usesOfficialProxy && fetchedModels.length > 0 ? [] : getPopularModels(selectedProvider.key, activeType);
                     const remoteModels = fetchedModels.filter((item) => !popularModels.includes(item));
                     const fetchingModels = Boolean(fetchingModelIds[profile.id]);
+                    const balanceView = usesOfficialProxy
+                      ? (aiBalanceStatus === 'guest' || aiBalanceStatus === 'error'
+                        ? { status: aiBalanceStatus } as AiBalanceView
+                        : resolveAiBalanceView(aiBalance, aiBalanceLoading))
+                      : null;
                     const modelOptions = [
                       ...popularModels.map((value) => ({
                         value,
@@ -863,7 +914,7 @@ export default function AIModelsPage() {
                   ) : null}
 
                   <Divider />
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                     <Button
                       variant="outlined"
                       startIcon={<CloudSyncIcon />}
@@ -880,6 +931,18 @@ export default function AIModelsPage() {
                         onClick={() => settings.removeAIProfile(profile.id)}
                       >
                         {t('common.delete')}
+                      </Button>
+                    ) : null}
+                    <Box sx={{ flex: 1 }} />
+                    {balanceView ? (
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => void refreshAiBalance()}
+                        disabled={aiBalanceLoading}
+                        sx={{ minHeight: 30, px: 1, color: 'text.secondary', flexShrink: 0 }}
+                      >
+                        {getAiBalanceLabel(balanceView, i18n.language.startsWith('zh'))}
                       </Button>
                     ) : null}
                   </Box>

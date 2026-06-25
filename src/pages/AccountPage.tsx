@@ -16,6 +16,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import { isCloudSyncEnabled, setCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
 import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
+import { api } from '../services/api';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 512;
@@ -25,6 +26,13 @@ const AVATAR_OUTPUT_QUALITY = 0.82;
 function formatSyncTime(value?: number, fallback?: string) {
   if (!value) return fallback || '未同步';
   return new Date(value).toLocaleString();
+}
+
+function formatAiPoints(balance: Record<string, unknown> | null, loading: boolean, zh: boolean) {
+  if (loading) return zh ? 'AI点数：刷新中' : 'AI points: refreshing';
+  const raw = balance?.availableBalance ?? balance?.available_balance;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return zh ? `AI点数：${raw}P` : `AI points: ${raw}P`;
+  return zh ? 'AI点数：未分配点数' : 'AI points: not assigned';
 }
 
 function loadImage(file: File) {
@@ -104,6 +112,8 @@ export default function AccountPage() {
   });
   const [syncingAll, setSyncingAll] = useState(false);
   const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(isCloudSyncEnabled);
+  const [aiBalance, setAiBalance] = useState<Record<string, unknown> | null>(null);
+  const [aiBalanceLoading, setAiBalanceLoading] = useState(false);
   const cloudSyncAvailable = authMode !== 'local' && user?.cloudSyncEntitled !== false;
 
   useEffect(() => {
@@ -117,6 +127,28 @@ export default function AccountPage() {
     setCloudSyncEnabled(false);
     setCloudSyncEnabledState(false);
   }, [cloudSyncAvailable, cloudSyncEnabled]);
+
+  useEffect(() => {
+    if (authMode === 'local') {
+      setAiBalance(null);
+      return;
+    }
+    let cancelled = false;
+    setAiBalanceLoading(true);
+    api.getAiBalance()
+      .then((balance) => {
+        if (!cancelled) setAiBalance(balance);
+      })
+      .catch(() => {
+        if (!cancelled) setAiBalance(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAiBalanceLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authMode, user?.id]);
 
   useEffect(() => {
     if (phoneCountdown <= 0) return;
@@ -489,6 +521,19 @@ export default function AccountPage() {
                 {i18n.language.startsWith('zh') ? '退出登录' : 'Log out'}
               </Button>
             )}
+          </CardContent>
+        </Card>
+
+        <Card variant="outlined">
+          <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+              {i18n.language.startsWith('zh') ? 'AI点数' : 'AI points'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {authMode === 'local'
+                ? (i18n.language.startsWith('zh') ? '登录后查看点数' : 'Sign in to view points')
+                : formatAiPoints(aiBalance, aiBalanceLoading, i18n.language.startsWith('zh'))}
+            </Typography>
           </CardContent>
         </Card>
 

@@ -701,7 +701,6 @@ async function generateOfficialResponse(
     messages: buildOfficialMessages(messages, systemPrompt),
     stream: Boolean(onChunk),
     max_tokens: options.maxTokens,
-    temperature: 0.8,
     response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
   };
   const response = await fetch('/api/ai/v1/chat/completions', {

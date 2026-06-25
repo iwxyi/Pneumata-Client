@@ -452,23 +452,23 @@ export default function AdminUsersPage() {
                     </Alert>
                   ) : null}
                   {manualKeyDraft.visible ? (
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} sx={{ mb: 1.25 }}>
+                    <Stack direction="row" spacing={0.75} sx={{ mb: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
                       <TextField
                         size="small"
                         label="API2D Key"
                         value={manualKeyDraft.apiKey}
                         onChange={(event) => setManualKeyDraft((prev) => ({ ...prev, apiKey: event.target.value }))}
-                        sx={{ flex: 1 }}
+                        sx={{ flex: '1 1 320px', minWidth: 180 }}
                       />
                       <TextField
                         size="small"
-                        label="外部 Key ID（可选）"
+                        label="外部 ID"
                         value={manualKeyDraft.externalKeyId}
                         onChange={(event) => setManualKeyDraft((prev) => ({ ...prev, externalKeyId: event.target.value }))}
-                        sx={{ width: { md: 220 } }}
+                        sx={{ flex: '0 1 180px', minWidth: 120 }}
                       />
-                      <Button variant="contained" disabled={actionLoading || !manualKeyDraft.apiKey.trim()} onClick={() => void saveManualKey()}>保存</Button>
-                      <Button disabled={actionLoading} onClick={() => setManualKeyDraft({ visible: false, apiKey: '', externalKeyId: '' })}>取消</Button>
+                      <Button variant="contained" size="small" disabled={actionLoading || !manualKeyDraft.apiKey.trim()} onClick={() => void saveManualKey()} sx={{ minHeight: 32 }}>保存</Button>
+                      <Button size="small" disabled={actionLoading} onClick={() => setManualKeyDraft({ visible: false, apiKey: '', externalKeyId: '' })} sx={{ minHeight: 32 }}>取消</Button>
                     </Stack>
                   ) : null}
                   <Stack spacing={1.25}>
@@ -480,24 +480,24 @@ export default function AdminUsersPage() {
                       return (
                         <Paper key={keyId} variant="outlined" sx={{ p: 1, borderRadius: 1.5 }}>
                           <Stack spacing={1}>
-                            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                            <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', flexWrap: 'nowrap', overflowX: 'auto', pb: 0.25 }}>
                               <TextField
                                 size="small"
                                 label={`${String(key.provider_code || 'api2d').toUpperCase()} Key`}
                                 value={draft.apiKey}
                                 placeholder={String(key.key_mask || '')}
                                 onChange={(event) => updateKeyDraft(key, { apiKey: event.target.value })}
-                                sx={{ flex: '1 1 260px', minWidth: 0 }}
+                                sx={{ flex: '1 1 auto', minWidth: 260 }}
                               />
                               <TextField
                                 size="small"
                                 label="外部 ID"
                                 value={draft.externalKeyId}
                                 onChange={(event) => updateKeyDraft(key, { externalKeyId: event.target.value })}
-                                sx={{ flex: '0 1 180px', minWidth: 140 }}
+                                sx={{ flex: '0 0 160px' }}
                               />
                               {keyChanged && draft.apiKey.trim() ? (
-                                <Button size="small" variant="contained" disabled={actionLoading} onClick={() => void saveKeySecret(key)} sx={{ minHeight: 32 }}>保存</Button>
+                                <Button size="small" variant="contained" disabled={actionLoading} onClick={() => void saveKeySecret(key)} sx={{ minHeight: 32, flexShrink: 0 }}>保存</Button>
                               ) : null}
                             </Stack>
                             <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', rowGap: 0.75, alignItems: 'center' }}>
