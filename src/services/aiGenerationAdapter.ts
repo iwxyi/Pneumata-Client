@@ -9,6 +9,7 @@ import {
   transcribeAudio,
   type AudioTranscriptionOptions,
   type AudioTranscriptionResult,
+  type AiUsageMetadata,
   type GeneratedImage,
   type ImageGenerationOptions,
   type SpeechSynthesisOptions,
@@ -56,6 +57,7 @@ export interface TextGenerationAdapterOptions {
   onChunk?: (chunk: string) => void;
   maxTokens?: number;
   signal?: AbortSignal;
+  aiUsage?: AiUsageMetadata;
 }
 
 export interface SpeechGenerationAdapterOptions extends SpeechSynthesisOptions {
@@ -181,12 +183,17 @@ export async function generateTextWithAdapter(params: TextGenerationAdapterOptio
     params.systemPrompt,
     params.messages,
     params.onChunk,
-    params.maxTokens === undefined && !params.signal ? undefined : { maxTokens: params.maxTokens, signal: params.signal },
+    params.maxTokens === undefined && !params.signal && !params.aiUsage
+      ? undefined
+      : { maxTokens: params.maxTokens, signal: params.signal, aiUsage: params.aiUsage },
   );
 }
 
 export async function generateJsonWithAdapter(params: Omit<TextGenerationAdapterOptions, 'onChunk' | 'maxTokens'>): Promise<string> {
-  return generateJsonResponse(profileToApi(params.profile), params.systemPrompt, params.messages);
+  return generateJsonResponse(profileToApi(params.profile), params.systemPrompt, params.messages, {
+    signal: params.signal,
+    aiUsage: params.aiUsage,
+  });
 }
 
 export async function synthesizeSpeechWithAdapter(params: SpeechGenerationAdapterOptions): Promise<SpeechSynthesisResult> {

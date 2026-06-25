@@ -131,7 +131,9 @@ async function judgeCompanionshipPhaseWithModel(params: {
     recentTranscript,
     userMessage: params.message.content,
   };
-  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }]);
+  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }], {
+    aiUsage: { type: 'companionship_phase', label: '陪伴阶段分析', scope: 'chat', resourceId: params.chat.id },
+  });
   const parsed = JSON.parse(cleanJsonCandidate(raw)) as unknown;
   return normalizeModelDecision(parsed, params.message.content);
 }

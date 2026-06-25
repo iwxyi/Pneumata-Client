@@ -111,7 +111,9 @@ async function judgeGreetingRitualWithModel(params: {
     recentTranscript,
     userMessage: params.message.content,
   };
-  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }]);
+  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }], {
+    aiUsage: { type: 'companionship_ritual', label: '陪伴仪式分析', scope: 'chat', resourceId: params.chat.id },
+  });
   return normalizeModelRitualDecision(JSON.parse(cleanJsonCandidate(raw)) as unknown, params.message.content);
 }
 

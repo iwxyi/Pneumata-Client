@@ -111,5 +111,8 @@ function buildUserPrompt({ chat, message, messages, characters }: AnalysisContex
 }
 
 export async function analyzeChatMessage(config: APIConfig, context: AnalysisContext) {
-  return generateResponse(config, buildSystemPrompt(), [{ role: 'user', content: buildUserPrompt(context) }], undefined, { maxTokens: 1800 });
+  return generateResponse(config, buildSystemPrompt(), [{ role: 'user', content: buildUserPrompt(context) }], undefined, {
+    maxTokens: 1800,
+    aiUsage: { type: 'message_analysis', label: '分析消息', scope: 'chat' },
+  });
 }

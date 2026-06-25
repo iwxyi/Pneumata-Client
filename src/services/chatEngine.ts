@@ -2226,6 +2226,12 @@ async function generateWithPrompt(params: {
     {
       signal: params.signal,
       responseFormat: params.chat.sessionKind?.scenarioId === 'story-reader' ? 'json' : 'text',
+      aiUsage: {
+        type: params.chat.sessionKind?.scenarioId === 'story-reader' ? 'story_chat' : params.chat.type === 'direct' ? 'direct_chat' : 'group_chat',
+        label: params.chat.sessionKind?.scenarioId === 'story-reader' ? '生成故事回复' : params.chat.type === 'direct' ? '生成单聊回复' : '生成群聊回复',
+        scope: 'chat',
+        resourceId: params.chat.id,
+      },
     },
   );
   logRawAiResponse({ chat: params.chat, speaker: params.speaker, attempt: params.attempt, response });

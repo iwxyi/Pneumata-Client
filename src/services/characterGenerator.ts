@@ -369,7 +369,9 @@ export async function generateCharacterProfiles(config: APIConfig, names: string
   const response = await generateResponse(
     config,
     `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nWhen generating multiple characters, return exactly one valid JSON array. Each item must include the requested name plus the same profile fields as a single-character result. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
-    [{ role: 'user', content: buildBatchGeneratePrompt(normalizedNames, language, context) }]
+    [{ role: 'user', content: buildBatchGeneratePrompt(normalizedNames, language, context) }],
+    undefined,
+    { aiUsage: { type: 'character_generation', label: '批量生成角色', scope: 'character' } },
   );
   return parseGeneratedProfileMap(response, normalizedNames);
 }
@@ -380,7 +382,7 @@ export async function generateCharacterProfile(config: APIConfig, name: string, 
     `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not include trailing commas. Do not truncate. Do not add explanations before or after the JSON.`,
     [{ role: 'user', content: `${buildGeneratePrompt(name.trim(), language, context)} ${language === 'zh' ? '只返回合法JSON。' : 'Return only valid JSON.'}` }],
     undefined,
-    { maxTokens: 2400 }
+    { maxTokens: 2400, aiUsage: { type: 'character_generation', label: '生成角色', scope: 'character' } },
   );
   return parseGeneratedProfile(response);
 }
@@ -411,7 +413,7 @@ export async function generateCharacterVisualIdentityDraft(config: APIConfig, in
     `${CHARACTER_GENERATOR_SYSTEM_PROMPT}\nOutput exactly one valid JSON object containing only visualIdentity draft fields.`,
     [{ role: 'user', content: prompt }],
     undefined,
-    { maxTokens: 700 }
+    { maxTokens: 700, aiUsage: { type: 'character_visual_identity', label: '生成角色视觉锚点', scope: 'character' } },
   );
   const parsed = JSON.parse(extractJsonBlock(response)) as GeneratedCharacterProfile['visualIdentity'];
   return {

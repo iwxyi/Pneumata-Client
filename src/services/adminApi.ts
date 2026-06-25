@@ -162,8 +162,55 @@ class AdminApiClient {
     return this.request<{ items: Array<Record<string, unknown>>; page: number; limit: number; total: number }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/user-balances${this.buildQuery({ search: params?.search, page: params?.page, limit: params?.limit })}`);
   }
 
-  getAiProviderUserUsage(providerCode: string, userId: string) {
-    return this.request<{ user: Record<string, unknown>; invocations: Array<Record<string, unknown>>; totals: Record<string, unknown>; quotaLedger: Array<Record<string, unknown>>; monthly?: Array<Record<string, unknown>> }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/users/${encodeURIComponent(userId)}/usage`);
+  getAiProviderUserUsage(providerCode: string, userId: string, params?: { invocationPage?: number; invocationLimit?: number; ledgerPage?: number; ledgerLimit?: number }) {
+    return this.request<{
+      user: Record<string, unknown>;
+      invocations: Array<Record<string, unknown>>;
+      totals: Record<string, unknown>;
+      invocationsPage?: Record<string, unknown>;
+      quotaLedger: Array<Record<string, unknown>>;
+      quotaLedgerPage?: Record<string, unknown>;
+      monthly?: Array<Record<string, unknown>>;
+    }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/users/${encodeURIComponent(userId)}/usage${this.buildQuery({
+      invocationPage: params?.invocationPage,
+      invocationLimit: params?.invocationLimit,
+      ledgerPage: params?.ledgerPage,
+      ledgerLimit: params?.ledgerLimit,
+    })}`);
+  }
+
+  getAiProviderUsageStats(providerCode: string, params?: {
+    userId?: string;
+    groupBy?: string;
+    from?: number;
+    to?: number;
+    usageType?: string;
+    model?: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    return this.request<{
+      providerCode: string;
+      groupBy: string;
+      page: number;
+      limit: number;
+      total: number;
+      totals: Record<string, unknown>;
+      items: Array<Record<string, unknown>>;
+    }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/usage-stats${this.buildQuery({
+      userId: params?.userId,
+      groupBy: params?.groupBy,
+      from: params?.from,
+      to: params?.to,
+      usageType: params?.usageType,
+      model: params?.model,
+      status: params?.status,
+      search: params?.search,
+      page: params?.page,
+      limit: params?.limit,
+    })}`);
   }
 
   transferAiProviderUserPoints(providerCode: string, userId: string, payload: { amount: number }) {

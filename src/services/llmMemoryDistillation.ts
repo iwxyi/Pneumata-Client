@@ -235,7 +235,7 @@ export async function distillChatMemoriesWithLlm(api: APIConfig, chat: GroupChat
   const systemPrompt = buildChatMemoryAnalysisPrompt();
   const raw = await generateJsonResponse(api, systemPrompt, [
     { role: 'user', content: `群聊：${chat.name}\n主题：${chat.topic || '未设置'}\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
-  ]);
+  ], { aiUsage: { type: 'memory_distillation', label: '蒸馏群聊记忆', scope: 'chat', resourceId: chat.id } });
   const result = parseLlmMemoryAnalysisResult(raw);
   return result.items.slice(0, 4).map((item) => toCandidate(chat.id, source, item, options?.now));
 }
@@ -246,7 +246,7 @@ export async function distillCharacterMemoriesWithLlm(api: APIConfig, character:
   const systemPrompt = buildCharacterMemoryAnalysisPrompt();
   const raw = await generateJsonResponse(api, systemPrompt, [
     { role: 'user', content: `${buildCharacterAnalysisContext(character)}\n\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
-  ]);
+  ], { aiUsage: { type: 'memory_distillation', label: '蒸馏角色记忆', scope: 'character', resourceId: character.id } });
   const result = parseLlmMemoryAnalysisResult(raw);
   return result.items.slice(0, 4).map((item) => toCandidate(character.id, source, item, options?.now));
 }
@@ -366,7 +366,7 @@ export async function distillCharacterCoreProfileWithLlm(api: APIConfig, charact
   if (!source.length) return null;
   const raw = await generateJsonResponse(api, buildCoreProfileDistillationPrompt(), [
     { role: 'user', content: `${buildCharacterAnalysisContext(character)}\n\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
-  ]);
+  ], { aiUsage: { type: 'character_core_profile', label: '蒸馏角色核心画像', scope: 'character', resourceId: character.id } });
   const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {};
   const patch = normalizeCoreProfilePatch(record.coreProfile || raw);
   return patch ? mergeCoreProfilePatch(character.coreProfile, patch) : null;

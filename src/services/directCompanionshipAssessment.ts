@@ -918,7 +918,9 @@ async function runModelAssessment(params: {
     recentTranscript: buildRecentTranscript(params.recentMessages || []),
     userMessage: params.message.content,
   };
-  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }]);
+  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }], {
+    aiUsage: { type: 'companionship_assessment', label: '陪伴关系评估', scope: 'chat', resourceId: params.chat.id },
+  });
   const parsed = JSON.parse(cleanJsonCandidate(raw)) as Record<string, unknown>;
   return {
     phase: normalizePhase(parsed.phase, params.message.content),

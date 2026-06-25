@@ -290,7 +290,9 @@ async function judgeCareTopicWithModel(params: {
     recentTranscript,
     userMessage: params.message.content,
   };
-  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }]);
+  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }], {
+    aiUsage: { type: 'companionship_care', label: '陪伴关怀分析', scope: 'chat', resourceId: params.chat.id },
+  });
   return normalizeModelCareDecision(JSON.parse(cleanJsonCandidate(raw)) as unknown, params.message.content, params.message.timestamp || Date.now());
 }
 

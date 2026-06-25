@@ -805,6 +805,7 @@ async function generateArtifactFromContext(params: {
     buildArtifactPrompt(params.kind, params.language),
     [{ role: 'user', content: serializedContext }],
     undefined,
+    { aiUsage: { type: 'character_artifact', label: '生成角色经历产物', scope: 'character' } },
   ));
   if (first && !looksLikeRawArtifactContext(first)) return first;
 
@@ -813,6 +814,7 @@ async function generateArtifactFromContext(params: {
     buildArtifactRetryPrompt(params.kind, params.language),
     [{ role: 'user', content: serializedContext }],
     undefined,
+    { aiUsage: { type: 'character_artifact', label: '重试生成角色经历产物', scope: 'character' } },
   ));
   if (retry && !looksLikeRawArtifactContext(retry)) return retry;
 

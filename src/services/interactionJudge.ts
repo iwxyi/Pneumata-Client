@@ -81,7 +81,9 @@ export async function judgeInteractionEvent(params: {
       currentMessage: params.message,
       recentMessages: params.recentMessages,
     });
-    const raw = await generateResponse(params.api, systemPrompt, [{ role: 'user', content: '只输出 JSON。' }]);
+    const raw = await generateResponse(params.api, systemPrompt, [{ role: 'user', content: '只输出 JSON。' }], undefined, {
+      aiUsage: { type: 'interaction_analysis', label: '互动事件判断', scope: 'chat', resourceId: params.chat.id },
+    });
     const interaction = parseJudgeResult(raw, params.message.senderId, params.message.content);
     if (interaction) return { interaction, source: 'ai' };
   } catch {

@@ -232,6 +232,7 @@ export default function MomentsPage() {
             ].join('\n'),
           }],
           maxTokens: 220,
+          aiUsage: { type: 'moment_generation', label: '生成朋友圈文案', scope: 'moment', resourceId: pickedChat.chat.id },
         });
         const cleaned = cleanGeneratedMomentText(rawText);
         if (cleaned) payload.momentText = cleaned;

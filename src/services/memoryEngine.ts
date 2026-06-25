@@ -87,6 +87,8 @@ export async function refineMemoryCandidate(
       config,
       'Refine one high-value long-term memory from a chat message.',
       [{ role: 'user', content: prompt }],
+      undefined,
+      { aiUsage: { type: 'memory_refinement', label: '润色记忆', scope: 'chat' } },
     );
     const text = normalizeText(refined).slice(0, 80);
     if (!text) return null;

@@ -33,6 +33,74 @@ const DEFAULT_DEEPSEEK_PRICING_FORM: DeepSeekPricingForm = {
   cacheMiss: '1',
 };
 
+const USER_USAGE_PAGE_SIZE = 100;
+const USAGE_STATS_PAGE_SIZE = 100;
+
+const AI_USAGE_TYPE_LABELS: Record<string, string> = {
+  direct_chat: '单聊回复',
+  group_chat: '群聊回复',
+  story_chat: '故事回复',
+  group_creation: '生成群聊',
+  character_generation: '生成角色',
+  character_visual_identity: '角色视觉锚点',
+  relationship_analysis: '关系分析',
+  memory_distillation: '记忆蒸馏',
+  memory_refinement: '记忆润色',
+  character_core_profile: '角色核心画像',
+  user_profile_memory: '用户画像记忆',
+  companionship_assessment: '陪伴评估',
+  companionship_care: '陪伴关怀',
+  companionship_phase: '陪伴阶段',
+  companionship_ritual: '陪伴仪式',
+  world_decision: '世界决策',
+  message_analysis: '消息分析',
+  interaction_analysis: '互动判断',
+  social_event_analysis: '社交事件分析',
+  chat_draft: '群聊草稿',
+  character_artifact: '角色产物',
+  moment_generation: '朋友圈生成',
+  model_test: '测试连接',
+  other: '其他',
+  unknown: '未分类',
+};
+
+type UserUsagePageInfo = {
+  page?: unknown;
+  limit?: unknown;
+  total?: unknown;
+};
+
+type SelectedUserUsage = {
+  invocations: Array<Record<string, unknown>>;
+  quotaLedger: Array<Record<string, unknown>>;
+  totals?: Record<string, unknown>;
+  invocationsPage?: UserUsagePageInfo;
+  quotaLedgerPage?: UserUsagePageInfo;
+};
+
+type UsageStatsResult = {
+  groupBy?: string;
+  items: Array<Record<string, unknown>>;
+  totals?: Record<string, unknown>;
+  total?: unknown;
+  page?: unknown;
+  limit?: unknown;
+};
+
+const LEDGER_ENTRY_TYPE_LABELS: Record<string, string> = {
+  grant: '额度增加',
+  adjustment: '额度调整',
+  consume: '调用消耗',
+};
+
+const LEDGER_SOURCE_TYPE_LABELS: Record<string, string> = {
+  default_grant: '自动分配',
+  purchase_order: '订单购买',
+  admin_transfer: '后台增减',
+  manual_adjustment: '手动调整',
+  ai_invocation: 'AI 调用',
+};
+
 function getRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -130,6 +198,62 @@ function formatTime(value: unknown) {
   return new Date(timestamp).toLocaleString();
 }
 
+function toPageTotal(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function toZeroBasedPage(value: unknown, fallback: number) {
+  const parsed = Number(value || 0);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed - 1;
+}
+
+function formatUsageType(value: unknown) {
+  const key = String(value || 'unknown');
+  return AI_USAGE_TYPE_LABELS[key] || key;
+}
+
+function parseDateTimeInput(value: string) {
+  if (!value.trim()) return undefined;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : undefined;
+}
+
+function formatCount(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? String(Math.round(parsed)) : '0';
+}
+
+function toAmountNumber(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatLedgerEntryType(value: unknown) {
+  const key = String(value || '');
+  return LEDGER_ENTRY_TYPE_LABELS[key] || key || '-';
+}
+
+function formatLedgerSourceType(value: unknown) {
+  const key = String(value || '');
+  return LEDGER_SOURCE_TYPE_LABELS[key] || key || '-';
+}
+
+function formatLedgerDirection(value: unknown) {
+  const amount = toAmountNumber(value);
+  if (amount > 0) return '增加';
+  if (amount < 0) return '扣除';
+  return '无变化';
+}
+
+function getLedgerAmountSx(value: unknown) {
+  const amount = toAmountNumber(value);
+  if (amount > 0) return { color: '#1b5e20', fontWeight: 800 };
+  if (amount < 0) return { color: 'error.main', fontWeight: 800 };
+  return { color: 'text.secondary', fontWeight: 700 };
+}
+
 export default function AdminAIProviderPage() {
   const { providerCode: routeProviderCode } = useParams();
   const providerCode = routeProviderCode || 'api2d';
@@ -167,8 +291,26 @@ export default function AdminAIProviderPage() {
   const [userBalanceRowsPerPage, setUserBalanceRowsPerPage] = useState(20);
   const [userBalanceTotal, setUserBalanceTotal] = useState(0);
   const [selectedBalanceUser, setSelectedBalanceUser] = useState<Record<string, unknown> | null>(null);
-  const [selectedUserUsage, setSelectedUserUsage] = useState<{ invocations: Array<Record<string, unknown>>; quotaLedger: Array<Record<string, unknown>>; totals?: Record<string, unknown> } | null>(null);
+  const [selectedUserUsage, setSelectedUserUsage] = useState<SelectedUserUsage | null>(null);
+  const [selectedUsageTab, setSelectedUsageTab] = useState(0);
+  const [selectedInvocationPage, setSelectedInvocationPage] = useState(0);
+  const [selectedLedgerPage, setSelectedLedgerPage] = useState(0);
+  const [selectedUserStats, setSelectedUserStats] = useState<UsageStatsResult | null>(null);
+  const [selectedUserStatsGroupBy, setSelectedUserStatsGroupBy] = useState('usage_type');
+  const [selectedUserStatsPage, setSelectedUserStatsPage] = useState(0);
   const [userPointDraft, setUserPointDraft] = useState('');
+  const [usageStats, setUsageStats] = useState<UsageStatsResult | null>(null);
+  const [usageStatsFilters, setUsageStatsFilters] = useState({
+    groupBy: 'usage_type',
+    usageType: '',
+    model: '',
+    search: '',
+    status: '',
+    from: '',
+    to: '',
+  });
+  const [usageStatsPage, setUsageStatsPage] = useState(0);
+  const [usageStatsRowsPerPage, setUsageStatsRowsPerPage] = useState(USAGE_STATS_PAGE_SIZE);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -176,11 +318,14 @@ export default function AdminAIProviderPage() {
   const [keyLoading, setKeyLoading] = useState(false);
   const [userBalanceLoading, setUserBalanceLoading] = useState(false);
   const [userUsageLoading, setUserUsageLoading] = useState(false);
+  const [selectedUserStatsLoading, setSelectedUserStatsLoading] = useState(false);
+  const [usageStatsLoading, setUsageStatsLoading] = useState(false);
   const [accountBalance, setAccountBalance] = useState<Record<string, unknown> | null>(null);
   const [accountBalanceLoading, setAccountBalanceLoading] = useState(false);
   const [accountBalanceError, setAccountBalanceError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [usageStatsError, setUsageStatsError] = useState<string | null>(null);
   const usesInternalLedger = isDeepSeek || String(providerConfig?.billingMode || '') === 'internal_ledger';
 
   const loadAccountBalance = async () => {
@@ -246,12 +391,24 @@ export default function AdminAIProviderPage() {
     setUserBalanceTotal(0);
     setSelectedBalanceUser(null);
     setSelectedUserUsage(null);
+    setSelectedUsageTab(0);
+    setSelectedInvocationPage(0);
+    setSelectedLedgerPage(0);
+    setSelectedUserStats(null);
+    setSelectedUserStatsGroupBy('usage_type');
+    setSelectedUserStatsPage(0);
+    setUsageStats(null);
+    setUsageStatsPage(0);
+    setUsageStatsRowsPerPage(USAGE_STATS_PAGE_SIZE);
+    setUsageStatsError(null);
   }, [providerCode]);
 
   useEffect(() => {
-    if (tab !== 1) return;
-    if (usesInternalLedger) void loadUserBalances();
-    else void loadKeys();
+    if (tab === 1) {
+      if (usesInternalLedger) void loadUserBalances();
+      else void loadKeys();
+    }
+    if (tab === 2) void loadUsageStats();
   }, [tab, providerCode, usesInternalLedger]);
 
   const saveConfig = async () => {
@@ -334,20 +491,83 @@ export default function AdminAIProviderPage() {
     }
   };
 
-  const loadSelectedUserUsage = async (userId: string) => {
+  const loadSelectedUserUsage = async (userId: string, invocationPage = selectedInvocationPage, ledgerPage = selectedLedgerPage) => {
     setUserUsageLoading(true);
     setKeyError(null);
     try {
-      const result = await adminApi.getAiProviderUserUsage(providerCode, userId);
+      const result = await adminApi.getAiProviderUserUsage(providerCode, userId, {
+        invocationPage: invocationPage + 1,
+        invocationLimit: USER_USAGE_PAGE_SIZE,
+        ledgerPage: ledgerPage + 1,
+        ledgerLimit: USER_USAGE_PAGE_SIZE,
+      });
       setSelectedUserUsage({
         invocations: result.invocations,
         quotaLedger: result.quotaLedger,
         totals: result.totals,
+        invocationsPage: result.invocationsPage,
+        quotaLedgerPage: result.quotaLedgerPage,
       });
+      setSelectedInvocationPage(toZeroBasedPage(result.invocationsPage?.page, invocationPage));
+      setSelectedLedgerPage(toZeroBasedPage(result.quotaLedgerPage?.page, ledgerPage));
     } catch (loadError) {
       setKeyError(getAdminErrorMessage(loadError));
     } finally {
       setUserUsageLoading(false);
+    }
+  };
+
+  const loadUsageStats = async (
+    page = usageStatsPage,
+    rowsPerPage = usageStatsRowsPerPage,
+    filters: typeof usageStatsFilters = usageStatsFilters,
+  ) => {
+    setUsageStatsLoading(true);
+    setUsageStatsError(null);
+    try {
+      const result = await adminApi.getAiProviderUsageStats(providerCode, {
+        groupBy: filters.groupBy,
+        usageType: filters.usageType || undefined,
+        model: filters.model || undefined,
+        search: filters.search.trim() || undefined,
+        status: filters.status || undefined,
+        from: parseDateTimeInput(filters.from),
+        to: parseDateTimeInput(filters.to),
+        page: page + 1,
+        limit: rowsPerPage,
+      });
+      setUsageStats(result);
+      setUsageStatsPage(Math.max(Number(result.page || 1) - 1, 0));
+      setUsageStatsRowsPerPage(Number(result.limit || rowsPerPage));
+    } catch (loadError) {
+      setUsageStatsError(getAdminErrorMessage(loadError));
+    } finally {
+      setUsageStatsLoading(false);
+    }
+  };
+
+  const loadSelectedUserStats = async (
+    userId: string,
+    page = selectedUserStatsPage,
+    groupBy = selectedUserStatsGroupBy,
+  ) => {
+    if (!userId) return;
+    setSelectedUserStatsLoading(true);
+    setKeyError(null);
+    try {
+      const result = await adminApi.getAiProviderUsageStats(providerCode, {
+        userId,
+        groupBy,
+        status: 'success',
+        page: page + 1,
+        limit: USAGE_STATS_PAGE_SIZE,
+      });
+      setSelectedUserStats(result);
+      setSelectedUserStatsPage(Math.max(Number(result.page || 1) - 1, 0));
+    } catch (loadError) {
+      setKeyError(getAdminErrorMessage(loadError));
+    } finally {
+      setSelectedUserStatsLoading(false);
     }
   };
 
@@ -356,8 +576,15 @@ export default function AdminAIProviderPage() {
     if (!userId) return;
     setSelectedBalanceUser(item);
     setSelectedUserUsage(null);
+    setSelectedUsageTab(0);
+    setSelectedInvocationPage(0);
+    setSelectedLedgerPage(0);
+    setSelectedUserStats(null);
+    setSelectedUserStatsGroupBy('usage_type');
+    setSelectedUserStatsPage(0);
     setUserPointDraft('');
-    void loadSelectedUserUsage(userId);
+    void loadSelectedUserUsage(userId, 0, 0);
+    void loadSelectedUserStats(userId, 0, 'usage_type');
   };
 
   const transferUserPoints = async () => {
@@ -377,9 +604,10 @@ export default function AdminAIProviderPage() {
       if (Number.isFinite(balanceAfter)) {
         setSelectedBalanceUser((prev) => prev ? { ...prev, balanceAmount: balanceAfter, balance_amount: balanceAfter } : prev);
       }
+      setSelectedLedgerPage(0);
       await Promise.all([
         loadUserBalances(userBalancePage, userBalanceRowsPerPage),
-        loadSelectedUserUsage(userId),
+        loadSelectedUserUsage(userId, selectedInvocationPage, 0),
       ]);
     } catch (saveError) {
       setKeyError(getAdminErrorMessage(saveError));
@@ -473,11 +701,12 @@ export default function AdminAIProviderPage() {
       <Tabs value={tab} onChange={(_event, value) => setTab(value)}>
         <Tab label="配置" />
         <Tab label={usesInternalLedger ? '用户额度' : 'Key 查询'} />
+        <Tab label="用量统计" />
       </Tabs>
       <AdminRequestState
-        loading={loading || saving || keyLoading || userBalanceLoading || userUsageLoading}
-        error={error || keyError}
-        onRetry={tab === 0 ? () => void loadConfig() : usesInternalLedger ? () => void loadUserBalances() : () => void loadKeys()}
+        loading={loading || saving || keyLoading || userBalanceLoading || userUsageLoading || selectedUserStatsLoading || usageStatsLoading}
+        error={tab === 0 ? error : tab === 1 ? keyError : usageStatsError}
+        onRetry={tab === 0 ? () => void loadConfig() : tab === 1 ? (usesInternalLedger ? () => void loadUserBalances() : () => void loadKeys()) : () => void loadUsageStats()}
       />
 
       {tab === 0 ? (
@@ -694,7 +923,7 @@ export default function AdminAIProviderPage() {
             </Stack>
           </AdminDetailCard>
         </Stack>
-      ) : (
+      ) : tab === 1 ? (
         usesInternalLedger ? (
           <Stack spacing={1.5}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -794,6 +1023,154 @@ export default function AdminAIProviderPage() {
             </AdminResponsiveTable>
           </Stack>
         )
+      ) : (
+        <Stack spacing={1.5}>
+          <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <TextField
+              select
+              size="small"
+              label="分组"
+              value={usageStatsFilters.groupBy}
+              onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, groupBy: e.target.value }))}
+              sx={{ width: 140 }}
+            >
+              <MenuItem value="usage_type">用途</MenuItem>
+              <MenuItem value="model">模型</MenuItem>
+              <MenuItem value="user">用户</MenuItem>
+              <MenuItem value="day">日期</MenuItem>
+            </TextField>
+            <TextField
+              select
+              size="small"
+              label="用途类型"
+              value={usageStatsFilters.usageType}
+              onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, usageType: e.target.value }))}
+              sx={{ width: 180 }}
+            >
+              <MenuItem value="">全部</MenuItem>
+              {Object.entries(AI_USAGE_TYPE_LABELS).filter(([key]) => key !== 'unknown').map(([key, label]) => (
+                <MenuItem key={key} value={key}>{label}</MenuItem>
+              ))}
+            </TextField>
+            <TextField size="small" label="模型" value={usageStatsFilters.model} onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, model: e.target.value }))} sx={{ width: 180 }} />
+            <TextField size="small" label="关键字" value={usageStatsFilters.search} onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, search: e.target.value }))} sx={{ width: { xs: 180, sm: 240 } }} />
+            <TextField
+              select
+              size="small"
+              label="状态"
+              value={usageStatsFilters.status}
+              onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, status: e.target.value }))}
+              sx={{ width: 120 }}
+            >
+              <MenuItem value="">全部</MenuItem>
+              <MenuItem value="failed">失败</MenuItem>
+            </TextField>
+            <TextField
+              size="small"
+              label="开始时间"
+              type="datetime-local"
+              value={usageStatsFilters.from}
+              onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, from: e.target.value }))}
+              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{ width: 220 }}
+            />
+            <TextField
+              size="small"
+              label="结束时间"
+              type="datetime-local"
+              value={usageStatsFilters.to}
+              onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, to: e.target.value }))}
+              slotProps={{ inputLabel: { shrink: true } }}
+              sx={{ width: 220 }}
+            />
+            <Button variant="contained" disabled={usageStatsLoading} onClick={() => void loadUsageStats(0, usageStatsRowsPerPage)} sx={{ minWidth: 88, height: 40 }}>查询</Button>
+            <Button
+              variant="outlined"
+              disabled={usageStatsLoading}
+              onClick={() => {
+                const nextFilters = {
+                  groupBy: 'usage_type',
+                  usageType: '',
+                  model: '',
+                  search: '',
+                  status: '',
+                  from: '',
+                  to: '',
+                };
+                setUsageStatsFilters(nextFilters);
+                void loadUsageStats(0, usageStatsRowsPerPage, nextFilters);
+              }}
+              sx={{ minWidth: 88, height: 40 }}
+            >
+              重置
+            </Button>
+          </Stack>
+          {usageStats ? (
+            <Alert severity="info">
+              调用 {formatCount(usageStats.totals?.requestCount)}，失败 {formatCount(usageStats.totals?.failedCount)}，输入 {formatCount(usageStats.totals?.inputTokens)}，输出 {formatCount(usageStats.totals?.outputTokens)}，实扣 {formatPoint(usageStats.totals?.chargedAmount)}
+            </Alert>
+          ) : null}
+          <AdminResponsiveTable minWidth={1200}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>维度</TableCell>
+                  <TableCell>调用数</TableCell>
+                  <TableCell>失败</TableCell>
+                  <TableCell>输入</TableCell>
+                  <TableCell>输出</TableCell>
+                  <TableCell>总量</TableCell>
+                  <TableCell>计费</TableCell>
+                  <TableCell>实扣</TableCell>
+                  <TableCell>平均耗时</TableCell>
+                  <TableCell>最近调用</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {!usageStats?.items.length && !usageStatsLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={10}>
+                      <Alert severity="info">暂无用量统计</Alert>
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                {usageStats?.items.map((row) => (
+                  <TableRow key={String(row.groupKey || row.group_key || row.label || row.model || row.userId || row.user_id || 'usage-row')}>
+                    <TableCell>
+                      <Stack spacing={0}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{String(row.label || row.groupKey || row.group_key || '-')}</Typography>
+                        {row.subLabel ? <Typography variant="caption" color="text.secondary">{String(row.subLabel)}</Typography> : null}
+                      </Stack>
+                    </TableCell>
+                    <TableCell>{formatCount(row.requestCount ?? row.request_count)}</TableCell>
+                    <TableCell>{formatCount(row.failedCount ?? row.failed_count)}</TableCell>
+                    <TableCell>{formatCount(row.inputTokens ?? row.input_tokens)}</TableCell>
+                    <TableCell>{formatCount(row.outputTokens ?? row.output_tokens)}</TableCell>
+                    <TableCell>{formatCount(row.totalTokens ?? row.total_tokens)}</TableCell>
+                    <TableCell>{formatPoint(row.billableAmount ?? row.billable_amount)}</TableCell>
+                    <TableCell>{formatPoint(row.chargedAmount ?? row.charged_amount)}</TableCell>
+                    <TableCell>{formatCount(row.averageLatencyMs ?? row.average_latency_ms)} ms</TableCell>
+                    <TableCell>{formatTime(row.lastUsedAt ?? row.last_used_at)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </AdminResponsiveTable>
+          <TablePagination
+            component="div"
+            count={toPageTotal(usageStats?.total)}
+            page={usageStatsPage}
+            rowsPerPage={usageStatsRowsPerPage}
+            rowsPerPageOptions={[USAGE_STATS_PAGE_SIZE]}
+            labelRowsPerPage="每页"
+            labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+            onPageChange={(_event, nextPage) => {
+              setUsageStatsPage(nextPage);
+              void loadUsageStats(nextPage, usageStatsRowsPerPage);
+            }}
+            onRowsPerPageChange={undefined}
+          />
+        </Stack>
       )}
 
       {tab === 0 ? (
@@ -841,83 +1218,204 @@ export default function AdminAIProviderPage() {
                 placeholder="负数扣除"
                 sx={{ width: { xs: '100%', sm: 180 } }}
               />
-              <Button variant="contained" disabled={userUsageLoading || !userPointDraft.trim()} onClick={() => void transferUserPoints()} sx={{ height: 40 }}>保存额度</Button>
+              <Button variant="contained" disabled={userUsageLoading || !userPointDraft.trim()} onClick={() => void transferUserPoints()} sx={{ height: 40 }}>增减额度</Button>
               <Button variant="outlined" disabled={userUsageLoading || !selectedBalanceUser?.id} onClick={() => void loadSelectedUserUsage(String(selectedBalanceUser?.id || ''))} sx={{ height: 40 }}>刷新明细</Button>
             </Stack>
-            <AdminRequestState loading={userUsageLoading} error={null} />
-            <Stack spacing={1}>
-              <Typography variant="subtitle2">额度流水</Typography>
-              {!selectedUserUsage?.quotaLedger.length && !userUsageLoading ? <Alert severity="info">暂无额度流水</Alert> : null}
-              {selectedUserUsage?.quotaLedger.length ? (
-                <AdminResponsiveTable minWidth={820}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>类型</TableCell>
-                        <TableCell>来源</TableCell>
-                        <TableCell>额度</TableCell>
-                        <TableCell>余额</TableCell>
-                        <TableCell>状态</TableCell>
-                        <TableCell>时间</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {selectedUserUsage.quotaLedger.map((row) => (
-                        <TableRow key={String(row.id)}>
-                          <TableCell>{String(row.entry_type || '-')}</TableCell>
-                          <TableCell>{String(row.source_type || '-')}</TableCell>
-                          <TableCell>{formatPoint(row.amount)}</TableCell>
-                          <TableCell>{row.balance_after == null ? '-' : formatPoint(row.balance_after)}</TableCell>
-                          <TableCell>{String(row.status || '-')}</TableCell>
-                          <TableCell>{formatTime(row.created_at)}</TableCell>
+            <AdminRequestState loading={userUsageLoading || selectedUserStatsLoading} error={null} />
+            <Tabs value={selectedUsageTab} onChange={(_event, value) => setSelectedUsageTab(value)}>
+              <Tab label="额度流水" />
+              <Tab label="调用消耗" />
+              <Tab label="用量统计" />
+            </Tabs>
+            {selectedUsageTab === 0 ? (
+              <Stack spacing={1}>
+                {!selectedUserUsage?.quotaLedger.length && !userUsageLoading ? <Alert severity="info">暂无额度流水</Alert> : null}
+                {selectedUserUsage?.quotaLedger.length ? (
+                  <AdminResponsiveTable minWidth={860}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>方向</TableCell>
+                          <TableCell>类型</TableCell>
+                          <TableCell>来源</TableCell>
+                          <TableCell>额度</TableCell>
+                          <TableCell>余额</TableCell>
+                          <TableCell>时间</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </AdminResponsiveTable>
-              ) : null}
-            </Stack>
-            <Stack spacing={1}>
-              <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                <Typography variant="subtitle2">调用消耗</Typography>
+                      </TableHead>
+                      <TableBody>
+                        {selectedUserUsage.quotaLedger.map((row) => (
+                          <TableRow key={String(row.id)}>
+                            <TableCell>{formatLedgerDirection(row.amount)}</TableCell>
+                            <TableCell>{formatLedgerEntryType(row.entry_type)}</TableCell>
+                            <TableCell>{formatLedgerSourceType(row.source_type)}</TableCell>
+                            <TableCell><Typography variant="body2" sx={getLedgerAmountSx(row.amount)}>{formatPoint(row.amount)}</Typography></TableCell>
+                            <TableCell>{row.balance_after == null ? '-' : formatPoint(row.balance_after)}</TableCell>
+                            <TableCell>{formatTime(row.created_at)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </AdminResponsiveTable>
+                ) : null}
+                <TablePagination
+                  component="div"
+                  count={toPageTotal(selectedUserUsage?.quotaLedgerPage?.total)}
+                  page={selectedLedgerPage}
+                  rowsPerPage={USER_USAGE_PAGE_SIZE}
+                  rowsPerPageOptions={[USER_USAGE_PAGE_SIZE]}
+                  labelRowsPerPage="每页"
+                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+                  onPageChange={(_event, nextPage) => {
+                    setSelectedLedgerPage(nextPage);
+                    if (selectedBalanceUser?.id) void loadSelectedUserUsage(String(selectedBalanceUser.id), selectedInvocationPage, nextPage);
+                  }}
+                  onRowsPerPageChange={undefined}
+                />
+              </Stack>
+            ) : selectedUsageTab === 1 ? (
+              <Stack spacing={1}>
                 <Typography variant="caption" color="text.secondary">
                   合计：{formatPoint(selectedUserUsage?.totals?.charged_amount)} / {String(selectedUserUsage?.totals?.request_count ?? 0)} 次
                 </Typography>
-              </Stack>
-              {!selectedUserUsage?.invocations.length && !userUsageLoading ? <Alert severity="info">暂无调用记录</Alert> : null}
-              {selectedUserUsage?.invocations.length ? (
-                <AdminResponsiveTable minWidth={920}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>模型</TableCell>
-                        <TableCell>状态</TableCell>
-                        <TableCell>输入</TableCell>
-                        <TableCell>输出</TableCell>
-                        <TableCell>总量</TableCell>
-                        <TableCell>扣费</TableCell>
-                        <TableCell>耗时</TableCell>
-                        <TableCell>时间</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {selectedUserUsage.invocations.map((row) => (
-                        <TableRow key={String(row.id)}>
-                          <TableCell>{String(row.model || '-')}</TableCell>
-                          <TableCell>{String(row.status || '-')}</TableCell>
-                          <TableCell>{String(row.input_tokens ?? '-')}</TableCell>
-                          <TableCell>{String(row.output_tokens ?? '-')}</TableCell>
-                          <TableCell>{String(row.total_tokens ?? '-')}</TableCell>
-                          <TableCell>{row.charged_amount == null ? '-' : formatPoint(row.charged_amount)}</TableCell>
-                          <TableCell>{String(row.latency_ms ?? '-')}</TableCell>
-                          <TableCell>{formatTime(row.created_at)}</TableCell>
+                {!selectedUserUsage?.invocations.length && !userUsageLoading ? <Alert severity="info">暂无调用记录</Alert> : null}
+                {selectedUserUsage?.invocations.length ? (
+                  <AdminResponsiveTable minWidth={920}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>用途</TableCell>
+                          <TableCell>模型</TableCell>
+                          <TableCell>输入</TableCell>
+                          <TableCell>输出</TableCell>
+                          <TableCell>总量</TableCell>
+                          <TableCell>扣费</TableCell>
+                          <TableCell>耗时</TableCell>
+                          <TableCell>时间</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </AdminResponsiveTable>
-              ) : null}
-            </Stack>
+                      </TableHead>
+                      <TableBody>
+                        {selectedUserUsage.invocations.map((row) => (
+                          <TableRow key={String(row.id)}>
+                            <TableCell>{String(row.usage_label || formatUsageType(row.usage_type) || '-')}</TableCell>
+                            <TableCell>{String(row.model || '-')}</TableCell>
+                            <TableCell>{String(row.input_tokens ?? '-')}</TableCell>
+                            <TableCell>{String(row.output_tokens ?? '-')}</TableCell>
+                            <TableCell>{String(row.total_tokens ?? '-')}</TableCell>
+                            <TableCell>{row.charged_amount == null ? '-' : formatPoint(row.charged_amount)}</TableCell>
+                            <TableCell>{String(row.latency_ms ?? '-')}</TableCell>
+                            <TableCell>{formatTime(row.created_at)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </AdminResponsiveTable>
+                ) : null}
+                <TablePagination
+                  component="div"
+                  count={toPageTotal(selectedUserUsage?.invocationsPage?.total)}
+                  page={selectedInvocationPage}
+                  rowsPerPage={USER_USAGE_PAGE_SIZE}
+                  rowsPerPageOptions={[USER_USAGE_PAGE_SIZE]}
+                  labelRowsPerPage="每页"
+                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+                  onPageChange={(_event, nextPage) => {
+                    setSelectedInvocationPage(nextPage);
+                    if (selectedBalanceUser?.id) void loadSelectedUserUsage(String(selectedBalanceUser.id), nextPage, selectedLedgerPage);
+                  }}
+                  onRowsPerPageChange={undefined}
+                />
+              </Stack>
+            ) : (
+              <Stack spacing={1}>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                  <TextField
+                    select
+                    size="small"
+                    label="分组"
+                    value={selectedUserStatsGroupBy}
+                    onChange={(event) => {
+                      const nextGroupBy = event.target.value;
+                      setSelectedUserStatsGroupBy(nextGroupBy);
+                      setSelectedUserStatsPage(0);
+                      if (selectedBalanceUser?.id) void loadSelectedUserStats(String(selectedBalanceUser.id), 0, nextGroupBy);
+                    }}
+                    sx={{ width: 140 }}
+                  >
+                    <MenuItem value="usage_type">用途</MenuItem>
+                    <MenuItem value="model">模型</MenuItem>
+                    <MenuItem value="day">日期</MenuItem>
+                  </TextField>
+                  <Button
+                    variant="outlined"
+                    disabled={selectedUserStatsLoading || !selectedBalanceUser?.id}
+                    onClick={() => void loadSelectedUserStats(String(selectedBalanceUser?.id || ''), selectedUserStatsPage, selectedUserStatsGroupBy)}
+                    sx={{ height: 40 }}
+                  >
+                    刷新统计
+                  </Button>
+                </Stack>
+                {selectedUserStats ? (
+                  <Alert severity="info">
+                    调用 {formatCount(selectedUserStats.totals?.requestCount)}，输入 {formatCount(selectedUserStats.totals?.inputTokens)}，输出 {formatCount(selectedUserStats.totals?.outputTokens)}，实扣 {formatPoint(selectedUserStats.totals?.chargedAmount)}
+                  </Alert>
+                ) : null}
+                {!selectedUserStats?.items.length && !selectedUserStatsLoading ? <Alert severity="info">暂无用量统计</Alert> : null}
+                {selectedUserStats?.items.length ? (
+                  <AdminResponsiveTable minWidth={980}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>维度</TableCell>
+                          <TableCell>调用数</TableCell>
+                          <TableCell>输入</TableCell>
+                          <TableCell>输出</TableCell>
+                          <TableCell>总量</TableCell>
+                          <TableCell>计费</TableCell>
+                          <TableCell>实扣</TableCell>
+                          <TableCell>平均耗时</TableCell>
+                          <TableCell>最近调用</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {selectedUserStats.items.map((row) => (
+                          <TableRow key={String(row.groupKey || row.group_key || row.label || row.model || 'selected-user-stat-row')}>
+                            <TableCell>
+                              <Stack spacing={0}>
+                                <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{String(row.label || row.groupKey || row.group_key || '-')}</Typography>
+                                {row.subLabel ? <Typography variant="caption" color="text.secondary">{String(row.subLabel)}</Typography> : null}
+                              </Stack>
+                            </TableCell>
+                            <TableCell>{formatCount(row.requestCount ?? row.request_count)}</TableCell>
+                            <TableCell>{formatCount(row.inputTokens ?? row.input_tokens)}</TableCell>
+                            <TableCell>{formatCount(row.outputTokens ?? row.output_tokens)}</TableCell>
+                            <TableCell>{formatCount(row.totalTokens ?? row.total_tokens)}</TableCell>
+                            <TableCell>{formatPoint(row.billableAmount ?? row.billable_amount)}</TableCell>
+                            <TableCell>{formatPoint(row.chargedAmount ?? row.charged_amount)}</TableCell>
+                            <TableCell>{formatCount(row.averageLatencyMs ?? row.average_latency_ms)} ms</TableCell>
+                            <TableCell>{formatTime(row.lastUsedAt ?? row.last_used_at)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </AdminResponsiveTable>
+                ) : null}
+                <TablePagination
+                  component="div"
+                  count={toPageTotal(selectedUserStats?.total)}
+                  page={selectedUserStatsPage}
+                  rowsPerPage={USAGE_STATS_PAGE_SIZE}
+                  rowsPerPageOptions={[USAGE_STATS_PAGE_SIZE]}
+                  labelRowsPerPage="每页"
+                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+                  onPageChange={(_event, nextPage) => {
+                    setSelectedUserStatsPage(nextPage);
+                    if (selectedBalanceUser?.id) void loadSelectedUserStats(String(selectedBalanceUser.id), nextPage, selectedUserStatsGroupBy);
+                  }}
+                  onRowsPerPageChange={undefined}
+                />
+              </Stack>
+            )}
           </Stack>
         </DialogContent>
       </Dialog>

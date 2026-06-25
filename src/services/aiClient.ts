@@ -11,10 +11,45 @@ export interface ChatMessageImageAttachment {
 type ChatMessage = { role: ChatRole; content: string; attachments?: ChatMessageImageAttachment[] };
 type MaybeTypedConfig = APIConfig & Partial<Pick<AIModelProfile, 'type'>>;
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue };
-type GenerateResponseOptions = {
+export type AiUsageType =
+  | 'direct_chat'
+  | 'group_chat'
+  | 'story_chat'
+  | 'group_creation'
+  | 'character_generation'
+  | 'character_visual_identity'
+  | 'relationship_analysis'
+  | 'memory_distillation'
+  | 'memory_refinement'
+  | 'character_core_profile'
+  | 'user_profile_memory'
+  | 'companionship_assessment'
+  | 'companionship_care'
+  | 'companionship_phase'
+  | 'companionship_ritual'
+  | 'world_decision'
+  | 'message_analysis'
+  | 'interaction_analysis'
+  | 'social_event_analysis'
+  | 'chat_draft'
+  | 'character_artifact'
+  | 'moment_generation'
+  | 'model_test'
+  | 'other';
+
+export type AiUsageMetadata = {
+  type: AiUsageType;
+  label?: string;
+  scope?: string;
+  resourceId?: string;
+  relatedIds?: string[];
+};
+
+export type GenerateResponseOptions = {
   responseFormat?: 'text' | 'json';
   maxTokens?: number;
   signal?: AbortSignal;
+  aiUsage?: AiUsageMetadata;
 };
 
 function isOfficialProvider(provider: APIConfig['provider']) {
@@ -711,6 +746,7 @@ async function generateOfficialResponse(
     stream: Boolean(onChunk),
     max_tokens: options.maxTokens,
     response_format: options.responseFormat === 'json' ? { type: 'json_object' } : undefined,
+    metadata: options.aiUsage ? { aiUsage: options.aiUsage } : undefined,
   };
   const response = await fetch('/api/ai/v1/chat/completions', {
     method: 'POST',
@@ -1166,28 +1202,30 @@ export const generateJsonResponse = async (
   config: APIConfig,
   systemPrompt: string,
   messages: ChatMessage[],
+  options: GenerateResponseOptions = {},
 ): Promise<string> => {
   const jsonPrompt = `${systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
+  const jsonOptions: GenerateResponseOptions = { ...options, responseFormat: 'json' };
 
   try {
     if (isOfficialProvider(config.provider)) {
-      return await generateOfficialResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+      return await generateOfficialResponse(config, jsonPrompt, messages, undefined, jsonOptions);
     }
 
     if (usesOpenAICompatibleChatApi(config)) {
-      return await generateOpenAICompatibleResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+      return await generateOpenAICompatibleResponse(config, jsonPrompt, messages, undefined, jsonOptions);
     }
 
     if (config.provider === 'zhipu') {
-      return await generateZhipuResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+      return await generateZhipuResponse(config, jsonPrompt, messages, undefined, jsonOptions);
     }
 
     if (config.provider === 'alibaba') {
-      return await generateQwenResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+      return await generateQwenResponse(config, jsonPrompt, messages, undefined, jsonOptions);
     }
 
     if (config.provider === 'google') {
-      return await generateGeminiResponse(config, jsonPrompt, messages, undefined, { responseFormat: 'json' });
+      return await generateGeminiResponse(config, jsonPrompt, messages, undefined, jsonOptions);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1195,11 +1233,13 @@ export const generateJsonResponse = async (
   }
 
   const handler = providerHandlers[config.provider] || generateOpenAICompatibleResponse;
-  return handler(config, jsonPrompt, messages);
+  return handler(config, jsonPrompt, messages, undefined, options);
 };
 
 async function testTextLikeConnection(config: APIConfig) {
-  await generateResponse(config, 'You are a connection test.', [{ role: 'user', content: 'Hello' }]);
+  await generateResponse(config, 'You are a connection test.', [{ role: 'user', content: 'Hello' }], undefined, {
+    aiUsage: { type: 'model_test', label: '测试连接' },
+  });
 }
 
 async function testMetadataConnection(config: APIConfig) {

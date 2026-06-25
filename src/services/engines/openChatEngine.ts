@@ -1787,7 +1787,9 @@ async function analyzeSocialOuting(params: {
     .join('\n');
   const prompt = `你是群聊社交事件分析器。判断这条新消息是否真的在提议一次线下活动。\n\n只输出 JSON：\n{\n  "shouldCreate": boolean,\n  "title": string | null,\n  "activityType": string | null,\n  "timeHint": string | null,\n  "locationHint": string | null,\n  "participantIds": string[] | null,\n  "confidence": number,\n  "reasonType": string | null,\n  "dedupeKey": string | null,\n  "seedIntent": string | null\n}\n\n要求：\n1. 不要靠关键词机械判断，只有明确在推动“线下活动真的可能发生”时才 shouldCreate=true。\n2. 标题用泛化层级，例如“线下活动”。具体内容放 activityType。\n3. 如果这条消息和最近已有活动是同一件事，返回相同 dedupeKey。\n4. participantIds 必须来自以下成员 id。\n5. 拿不准就 shouldCreate=false 或降低 confidence。\n\n成员：\n${buildCharacterReference(params.characters.filter((character) => params.conversation.memberIds.includes(character.id)))}\n\n最近对话：\n${recentTranscript}\n\n最近线下活动：\n${recentOutings || '无'}\n\n当前消息（speakerId=${params.message.senderId}）：\n${params.message.content}`;
   try {
-    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }]);
+    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }], undefined, {
+      aiUsage: { type: 'social_event_analysis', label: '分析线下活动', scope: 'chat' },
+    });
     return JSON.parse(cleanJson(raw)) as SocialOutingAnalysisResult;
   } catch {
     return null;
@@ -1830,7 +1832,9 @@ async function analyzePostMoment(params: {
     .join('\n');
   const prompt = `你是群聊社交事件分析器。判断这条新消息之后，角色是否很可能会发一条朋友圈/动态。\n\n只输出 JSON：\n{\n  "shouldCreate": boolean,\n  "title": string | null,\n  "activityType": string | null,\n  "targetIds": string[] | null,\n  "confidence": number,\n  "reasonType": string | null,\n  "dedupeKey": string | null,\n  "seedIntent": string | null\n}\n\n要求：\n1. 不要靠关键词机械判断，只有在角色真的有“分享/吐槽/记录/阴阳外显”冲动时才 shouldCreate=true。\n2. 如果只是普通聊天，不要创建动态。\n3. 如果和最近已有动态是同一条语义，返回相同 dedupeKey。\n4. targetIds 如有，必须来自成员 id。\n5. 拿不准就 shouldCreate=false 或降低 confidence。\n\n成员：\n${buildCharacterReference(params.characters.filter((character) => params.conversation.memberIds.includes(character.id)))}\n\n最近对话：\n${recentTranscript}\n\n最近动态：\n${recentMoments || '无'}\n\n当前消息（speakerId=${params.message.senderId}）：\n${params.message.content}`;
   try {
-    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }]);
+    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }], undefined, {
+      aiUsage: { type: 'social_event_analysis', label: '分析朋友圈动态', scope: 'chat' },
+    });
     return JSON.parse(cleanJson(raw)) as PostMomentAnalysisResult;
   } catch {
     return null;
@@ -1878,7 +1882,9 @@ async function analyzePairPrivateThread(params: {
     .join('\n');
   const prompt = `你是群聊社交事件分析器。判断这条新消息之后，发言角色是否真的需要和某个AI角色派生一个双人私聊，并写出私聊第一句。\n\n只输出 JSON：\n{\n  "shouldCreate": boolean,\n  "participantIds": string[] | null,\n  "targetIds": string[] | null,\n  "confidence": number,\n  "reasonType": string | null,\n  "dedupeKey": string | null,\n  "seedIntent": string | null,\n  "triggerReason": string | null,\n  "openingMessage": string | null\n}\n\n要求：\n1. participantIds 必须恰好 2 个AI角色 id，且必须包含 speakerId=${params.message.senderId}；不要包含 user。\n2. openingMessage 是 speakerId 角色发给另一个角色的第一句私聊消息，要契合当前群聊上下文和角色人设；可以短招呼、追问、解释、安抚，也可以较长，但不能像系统说明。\n3. triggerReason 用一句话说明为什么当前场景会触发这段私聊，必须基于最近对话，不要泛泛而谈。\n4. 只有确实存在“公开群聊不适合继续讲、两人关系需要转入私下、某个问题需要避开他人追问、或者关系余波需要双人处理”时才 shouldCreate=true。\n5. 如果只是普通回复、玩笑、寒暄、或可以继续在群里聊，返回 shouldCreate=false。\n6. 如果和最近已有私聊是同一对同一语义，返回相同 dedupeKey。\n\n成员：\n${buildCharacterReference(memberCharacters)}\n\n最近对话：\n${recentTranscript}\n\n最近双人私聊事件：\n${recentPrivateThreads || '无'}\n\n当前消息（speakerId=${params.message.senderId}）：\n${params.message.content}`;
   try {
-    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }]);
+    const raw = await generateResponse(params.apiConfig, prompt, [{ role: 'user', content: '只输出 JSON。' }], undefined, {
+      aiUsage: { type: 'social_event_analysis', label: '分析双人私聊', scope: 'chat' },
+    });
     return JSON.parse(cleanJson(raw)) as PairPrivateThreadAnalysisResult;
   } catch {
     return null;

@@ -215,7 +215,9 @@ async function judgeUserProfileMemoryWithModel(params: {
     recentTranscript,
     userMessage: params.message.content,
   };
-  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }]);
+  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content: JSON.stringify(payload) }], {
+    aiUsage: { type: 'user_profile_memory', label: '用户画像记忆', scope: 'chat', resourceId: params.chat.id },
+  });
   return normalizeModelItems(JSON.parse(cleanJsonCandidate(raw)) as unknown, params.message.content);
 }
 

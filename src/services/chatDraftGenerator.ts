@@ -150,7 +150,9 @@ export async function generateChatDraftSuggestion(params: GenerateChatDraftParam
   const response = await generateResponse(
     params.config,
     `${CHAT_DRAFT_SYSTEM_PROMPT}\nOutput exactly one valid JSON object. Do not add markdown fences or explanations.`,
-    [{ role: 'user', content: buildUserPrompt(params) }]
+    [{ role: 'user', content: buildUserPrompt(params) }],
+    undefined,
+    { aiUsage: { type: 'chat_draft', label: '生成群聊草稿', scope: 'chat' } },
   );
 
   return normalizeGeneratedSuggestion(parseGeneratedSuggestion(response), params.characters);

@@ -43,7 +43,9 @@ async function chooseByModel(params: {
       summary: item.summary || '',
     })),
   });
-  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content }]);
+  const raw = await generateJsonResponse(params.config, systemPrompt, [{ role: 'user', content }], {
+    aiUsage: { type: 'world_decision', label: '世界决策', scope: 'world' },
+  });
   const parsed = JSON.parse(raw) as { selectedId?: string; confidenceDelta?: number; reason?: string };
   const selectedId = typeof parsed.selectedId === 'string' ? parsed.selectedId : '';
   const reason = typeof parsed.reason === 'string' ? parsed.reason.slice(0, 180) : '';

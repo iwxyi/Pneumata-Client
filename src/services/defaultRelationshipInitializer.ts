@@ -148,7 +148,7 @@ export async function buildDefaultRelationshipPatches(params: {
     'You infer initial directional relationship axes for AI characters. Return valid JSON only.',
     [{ role: 'user', content: buildPrompt({ createdCharacters: created, allCharacters: all, language: params.language }) }],
     undefined,
-    { maxTokens: 3200 }
+    { maxTokens: 3200, aiUsage: { type: 'relationship_analysis', label: '初始化角色关系', scope: 'character' } },
   );
 
   const nameMap = buildUniqueNameMap(all);
