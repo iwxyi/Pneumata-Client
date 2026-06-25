@@ -14,6 +14,7 @@ import ImageLightbox from '../common/ImageLightbox';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
 import { buildStoryNodeProgress, type StoryNodeProgressChip } from '../../services/storyNodeProgress';
+import type { MessageBranchVersionInfo } from '../../services/messageBranching';
 
 const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
@@ -52,6 +53,9 @@ interface MessageListProps {
   onExpressionFeedback?: (message: Message, kind: ExpressionFeedbackKind) => void;
   onRetryMedia?: (message: Message, attachmentId: string) => void | Promise<void>;
   onCharacterAvatarClick?: (character: AICharacter, anchorEl: HTMLElement) => void;
+  onCreateRevision?: (message: Message, content: string) => void | Promise<void>;
+  onSwitchRevision?: (message: Message, direction: -1 | 1) => void | Promise<void>;
+  branchVersionInfoByMessageId?: Record<string, MessageBranchVersionInfo | null | undefined>;
   onReachTop?: () => void | Promise<void>;
   onReachBottom?: () => void | Promise<void>;
   onJumpToConversationBottom?: () => void | Promise<void>;
@@ -306,6 +310,9 @@ export default function MessageList({
   onExpressionFeedback,
   onRetryMedia,
   onCharacterAvatarClick,
+  onCreateRevision,
+  onSwitchRevision,
+  branchVersionInfoByMessageId,
   onReachTop,
   onReachBottom,
   onJumpToConversationBottom,
@@ -412,11 +419,14 @@ export default function MessageList({
       onRetryMedia={item.pending ? undefined : onRetryMedia}
       onOpenImage={item.pending ? undefined : openChatImage}
       onCharacterAvatarClick={item.pending ? undefined : onCharacterAvatarClick}
+      onCreateRevision={item.pending ? undefined : onCreateRevision}
+      onSwitchRevision={item.pending ? undefined : onSwitchRevision}
+      branchVersionInfo={branchVersionInfoByMessageId?.[options?.message?.id || item.message.id] || null}
       pending={item.pending}
       selfMemberId={selfMemberId}
       privateConversation={privateConversation}
     />
-  ), [characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onDeleteMessage, onExpressionFeedback, onRetryMedia, openChatImage, privateConversation, selfMemberId]);
+  ), [branchVersionInfoByMessageId, characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onCreateRevision, onDeleteMessage, onExpressionFeedback, onRetryMedia, onSwitchRevision, openChatImage, privateConversation, selfMemberId]);
 
   const renderMessageItem = useCallback((item: ChatRenderItem) => {
     const anchorProps = {

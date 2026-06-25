@@ -130,6 +130,13 @@ export interface MessageMetadata {
   format?: 'plain' | 'markdown';
   contextText?: string;
   renderText?: string;
+  branching?: {
+    nodeId?: string;
+    parentNodeId?: string | null;
+    revisionRootId?: string | null;
+    revisionOfMessageId?: string | null;
+    createdFromMessageId?: string | null;
+  };
   storyEvents?: StoryEvent[];
   storyQuality?: StoryQualityTrace;
   narrativeTurn?: NarrativeTurnMetadata;

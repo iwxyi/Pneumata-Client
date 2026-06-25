@@ -149,6 +149,7 @@ export function useChatRunLoop(params: {
         api: current.aiProfiles,
         getCurrentMessages: () => projectCurrentChatMessages({
           chatId: current.chatId!,
+          chat: useChatStore.getState().chats.find((item) => item.id === current.chatId) || loopChat,
           activeMessages: useMessageStore.getState().messages,
           cachedWindow: useMessageStore.getState().messageWindowsByChatId[current.chatId!],
         }),
@@ -162,6 +163,7 @@ export function useChatRunLoop(params: {
           const latestChat = useChatStore.getState().chats.find((item) => item.id === current.chatId);
           const latestMessages = projectCurrentChatMessages({
             chatId: current.chatId!,
+            chat: latestChat || loopChat,
             activeMessages: useMessageStore.getState().messages,
             cachedWindow: useMessageStore.getState().messageWindowsByChatId[current.chatId!],
           });
@@ -358,6 +360,7 @@ export function useChatRunLoop(params: {
     const current = paramsRef.current;
     const latestMessages = projectCurrentChatMessages({
       chatId: conversationChat.id,
+      chat: useChatStore.getState().chats.find((item) => item.id === conversationChat.id) || conversationChat,
       activeMessages: useMessageStore.getState().messages,
       cachedWindow: useMessageStore.getState().messageWindowsByChatId[conversationChat.id],
     });

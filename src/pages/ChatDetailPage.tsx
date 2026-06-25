@@ -18,7 +18,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
-import { type DriverMessageCommitResult, type GroupChat, type StoryChapterState } from '../types/chat';
+import { type DriverMessageCommitResult, type GroupChat, type MessageBranchState, type StoryChapterState } from '../types/chat';
 import MessageList, { type MessageListScrollPosition, type MessageListScrollRequest } from '../components/chat/MessageList';
 import type { NarrativeStoryChoiceOption } from '../components/chat/messageBubblePresentation';
 import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
@@ -61,6 +61,8 @@ import { resolveSessionScrollCapabilities } from '../services/sessionScrollCapab
 import { messagesShareIdentity } from '../services/messageIdentity';
 import { buildStoryRoomOpeningPreview, type StoryRoomOpeningPreview } from '../services/storyRoomOpeningPreview';
 import type { StoryReaderRole } from '../types/chat';
+import { attachMessageToActiveBranch, createMessageRevisionDraft, getBranchRevisionGroup, getMessageBranchVersionInfo, isMessageBranchingEnabled, projectActiveBranchMessages, resolveMessageBranchNodes } from '../services/messageBranching';
+import { projectCurrentChatMessages } from '../services/currentChatMessages';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
@@ -662,7 +664,23 @@ export default function ChatDetailPage() {
     () => sessionInfoCards.filter((card) => card.key !== 'ai-direct-source-chat'),
     [sessionInfoCards]
   );
-  const currentChatMessages = useCurrentChatMessages({ chatId: id, activeMessages: messages, cachedWindows: messageWindowsByChatId });
+  const currentChatMessages = useCurrentChatMessages({ chatId: id, chat, activeMessages: messages, cachedWindows: messageWindowsByChatId });
+  const currentChatAllMessages = useMemo(() => (id
+    ? projectCurrentChatMessages({
+      chatId: id,
+      activeMessages: messages,
+      cachedWindow: messageWindowsByChatId[id],
+    })
+    : []), [id, messages, messageWindowsByChatId]);
+  const branchVersionInfoByMessageId = useMemo(() => {
+    if (!chat || !isMessageBranchingEnabled(chat)) return {} as Record<string, NonNullable<ReturnType<typeof getMessageBranchVersionInfo>>>;
+    const next: Record<string, NonNullable<ReturnType<typeof getMessageBranchVersionInfo>>> = {};
+    for (const message of currentChatMessages) {
+      const info = getMessageBranchVersionInfo(chat, currentChatAllMessages, message.id);
+      if (info) next[message.id] = info;
+    }
+    return next;
+  }, [chat, currentChatAllMessages, currentChatMessages]);
   const sidebarMessages = sidebarMessagesReady ? currentChatMessages : EMPTY_MESSAGES;
   const {
     analysisDialogOpen,
@@ -942,22 +960,25 @@ export default function ChatDetailPage() {
   const appendEventMessage = useCallback(async (chatId: string, payload: { eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[]; createdAt?: number; sourceMessageId?: string }, sourceMessageId?: string) => {
     const targetChat = chats.find((item) => item.id === chatId);
     const eventPayload = normalizeRuntimeEvent(targetChat ? buildPrivateSessionEvent(targetChat, payload) : payload);
+    const eventMessage = attachMessageToActiveBranch(targetChat || chat, currentChatMessages, {
+      chatId,
+      type: 'event' as const,
+      senderId: 'system',
+      senderName: 'System',
+      content: buildRuntimeEventMessageContent({
+        ...eventPayload,
+        sourceMessageId: eventPayload.sourceMessageId || sourceMessageId,
+      }),
+      emotion: 0,
+      timestamp: eventPayload.createdAt,
+    });
+    const { timestamp: eventTimestamp, ...persistedEventMessage } = eventMessage;
     await persistLocalFirstMessage({
       upsertMessage,
-      timestamp: eventPayload.createdAt,
-      message: {
-        chatId,
-        type: 'event',
-        senderId: 'system',
-        senderName: 'System',
-        content: buildRuntimeEventMessageContent({
-          ...eventPayload,
-          sourceMessageId: eventPayload.sourceMessageId || sourceMessageId,
-        }),
-        emotion: 0,
-      },
+      timestamp: eventTimestamp,
+      message: persistedEventMessage,
     });
-  }, [chats, upsertMessage]);
+  }, [chat, chats, currentChatMessages, upsertMessage]);
 
   const appendEventMessages = useCallback(async (chatId: string, payloads: Array<{ eventType: string; title: string; summary: string; pair?: [string, string]; metrics?: unknown; visibilityScope?: 'public' | 'role_private' | 'moderator_only' | 'pair_private' | 'derived_public'; visibleToIds?: string[]; visibleToRoles?: string[]; createdAt?: number; sourceMessageId?: string }>, sourceMessageId?: string) => {
     if (!payloads.length) return;
@@ -968,28 +989,34 @@ export default function ChatDetailPage() {
       messages: payloads.map((payload, index) => {
         const eventPayload = normalizeRuntimeEvent(targetChat ? buildPrivateSessionEvent(targetChat, payload) : payload);
         const createdAt = eventPayload.createdAt ?? Date.now() + index;
-        return {
+        const message = attachMessageToActiveBranch(targetChat || chat, currentChatMessages, {
           timestamp: createdAt,
-          message: {
-            chatId,
-            type: 'event' as const,
-            senderId: 'system',
-            senderName: 'System',
-            content: buildRuntimeEventMessageContent({
-              ...eventPayload,
-              createdAt,
-              sourceMessageId: eventPayload.sourceMessageId || sourceMessageId,
-            }),
-            emotion: 0,
-          },
+          chatId,
+          type: 'event' as const,
+          senderId: 'system',
+          senderName: 'System',
+          content: buildRuntimeEventMessageContent({
+            ...eventPayload,
+            createdAt,
+            sourceMessageId: eventPayload.sourceMessageId || sourceMessageId,
+          }),
+          emotion: 0,
+        });
+        const { timestamp, ...persistedMessage } = message;
+        return {
+          timestamp,
+          message: persistedMessage,
         };
       }),
     });
-  }, [chats, upsertMessages]);
+  }, [chat, chats, currentChatMessages, upsertMessages]);
 
   const addAnchoredMessage = useCallback(async (message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'> & { timestamp?: number }) => {
-    return addMessage(message as Parameters<typeof addMessage>[0]);
-  }, [addMessage]);
+    const anchoredMessage = chat && message.chatId === chat.id
+      ? attachMessageToActiveBranch(chat, currentChatMessages, message)
+      : message;
+    return addMessage(anchoredMessage as Parameters<typeof addMessage>[0]);
+  }, [addMessage, chat, currentChatMessages]);
 
   const upsertMessageStable = useCallback((message: Message) => {
     upsertMessageWithLiveReveal(message);
@@ -1132,6 +1159,104 @@ export default function ChatDetailPage() {
       getCurrentCharacters: () => useCharacterStore.getState().characters,
     });
   }, [api, appendEventMessageStable, appendEventMessagesStable, applyChatRuntimeDelta, characters, chat, id, recordSpeak, updateCharacter, updateCharacters, updateChat]);
+
+  const handleCreateMessageRevision = useCallback(async (sourceMessage: Message, nextContent: string) => {
+    if (!chat || !id || !isMessageBranchingEnabled(chat)) return;
+    const trimmedContent = nextContent.trim();
+    if (!trimmedContent) return;
+
+    await enqueueManualInput(async () => {
+      const sourceNode = resolveMessageBranchNodes(currentChatAllMessages)
+        .find((node) => node.message.id === sourceMessage.id || node.nodeId === sourceMessage.id);
+      if (!sourceNode) return;
+
+      const revisionDraft = createMessageRevisionDraft({
+        sourceMessage,
+        parentNodeId: sourceNode.parentNodeId,
+        content: trimmedContent,
+        timestamp: getNextMessageTimestamp(),
+      });
+      const createdRevision = await addAnchoredMessage(revisionDraft);
+      const revisionNodeId = createdRevision.metadata?.branching?.nodeId || createdRevision.id;
+      const revisionRootId = createdRevision.metadata?.branching?.revisionRootId || sourceNode.revisionRootId || sourceMessage.id;
+      const parentKey = sourceNode.parentNodeId || '';
+      const nextBranchState: MessageBranchState = {
+        ...(chat.messageBranchState || {}),
+        enabled: true,
+        selectedRevisionByRootId: {
+          ...(chat.messageBranchState?.selectedRevisionByRootId || {}),
+          [revisionRootId]: revisionNodeId,
+        },
+        activeChildByParentNodeId: {
+          ...(chat.messageBranchState?.activeChildByParentNodeId || {}),
+          [parentKey]: revisionNodeId,
+        },
+        activeLeafNodeId: revisionNodeId,
+        updatedAt: Date.now(),
+      };
+      const nextChat: GroupChat = {
+        ...chat,
+        messageBranchState: nextBranchState,
+        lastMessageAt: createdRevision.timestamp,
+        latestMessage: createdRevision,
+      };
+      const nextAllMessages = [
+        ...currentChatAllMessages.filter((message) => message.id !== createdRevision.id),
+        createdRevision,
+      ];
+      const activeMessagesAfterRevision = projectActiveBranchMessages(nextChat, nextAllMessages);
+
+      await updateChat(id, {
+        messageBranchState: nextBranchState,
+        lastMessageAt: createdRevision.timestamp,
+        latestMessage: createdRevision,
+      });
+      if (createdRevision.type === 'user' || createdRevision.type === 'god') {
+        await commitPersistedManualRuntime(createdRevision, activeMessagesAfterRevision);
+      }
+      startConversationLoopIfNeeded(nextChat, { immediate: true });
+    });
+  }, [addAnchoredMessage, chat, commitPersistedManualRuntime, currentChatAllMessages, enqueueManualInput, getNextMessageTimestamp, id, startConversationLoopIfNeeded, updateChat]);
+
+  const handleSwitchMessageRevision = useCallback(async (sourceMessage: Message, direction: -1 | 1) => {
+    if (!chat || !id || !isMessageBranchingEnabled(chat)) return;
+    const group = getBranchRevisionGroup(currentChatAllMessages, sourceMessage.id);
+    const currentIndex = group.findIndex((message) => message.id === sourceMessage.id);
+    const target = group[currentIndex + direction];
+    if (!target) return;
+    const targetNode = resolveMessageBranchNodes(currentChatAllMessages)
+      .find((node) => node.message.id === target.id || node.nodeId === target.id);
+    if (!targetNode) return;
+
+    const targetNodeId = targetNode.nodeId || target.id;
+    const revisionRootId = targetNode.revisionRootId || target.id;
+    const parentKey = targetNode.parentNodeId || '';
+    const nextBranchState: MessageBranchState = {
+      ...(chat.messageBranchState || {}),
+      enabled: true,
+      selectedRevisionByRootId: {
+        ...(chat.messageBranchState?.selectedRevisionByRootId || {}),
+        [revisionRootId]: targetNodeId,
+      },
+      activeChildByParentNodeId: {
+        ...(chat.messageBranchState?.activeChildByParentNodeId || {}),
+        [parentKey]: targetNodeId,
+      },
+      activeLeafNodeId: targetNodeId,
+      updatedAt: Date.now(),
+    };
+    const nextChat: GroupChat = {
+      ...chat,
+      messageBranchState: nextBranchState,
+    };
+    const activeTail = projectActiveBranchMessages(nextChat, currentChatAllMessages).at(-1);
+    await updateChat(id, {
+      messageBranchState: {
+        ...nextBranchState,
+        activeLeafNodeId: activeTail?.metadata?.branching?.nodeId || activeTail?.id || targetNodeId,
+      },
+    });
+  }, [chat, currentChatAllMessages, id, updateChat]);
 
   useEffect(() => {
     if (id) {
@@ -1938,6 +2063,9 @@ export default function ChatDetailPage() {
             characters={characters}
             selfMemberId={effectiveAiDirectPerspectiveMemberId}
             currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
+            onCreateRevision={isMessageBranchingEnabled(chat) ? handleCreateMessageRevision : undefined}
+            onSwitchRevision={isMessageBranchingEnabled(chat) ? handleSwitchMessageRevision : undefined}
+            branchVersionInfoByMessageId={branchVersionInfoByMessageId}
             isLoadingOlder={isLoadingOlder}
             isLoadingNewer={isLoadingNewer}
             hasMore={hasMore}
@@ -2075,6 +2203,9 @@ export default function ChatDetailPage() {
             messages={currentChatMessages}
             characters={characters}
             currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
+            onCreateRevision={isMessageBranchingEnabled(chat) ? handleCreateMessageRevision : undefined}
+            onSwitchRevision={isMessageBranchingEnabled(chat) ? handleSwitchMessageRevision : undefined}
+            branchVersionInfoByMessageId={branchVersionInfoByMessageId}
             onDeleteMessage={deleteMessage}
             onAnalyzeMessage={analyzeMessage}
             onExpressionFeedback={handleExpressionFeedback}

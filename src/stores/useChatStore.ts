@@ -165,6 +165,7 @@ async function createChatRemote(chatData: ChatCreatePayload) {
     dramaRules: chatData.dramaRules,
     worldState: chatData.worldState,
     directorControls: chatData.directorControls,
+    messageBranchState: chatData.messageBranchState,
   });
   return normalizeConversation(result as unknown as GroupChat);
 }

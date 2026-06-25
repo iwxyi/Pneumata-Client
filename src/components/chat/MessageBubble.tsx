@@ -1,5 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, Menu, MenuItem, Tooltip, Divider } from '@mui/material';
+import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, DialogActions, Menu, MenuItem, Tooltip, Divider, Button, TextField, Stack, IconButton } from '@mui/material';
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import EditIcon from '@mui/icons-material/Edit';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -30,6 +33,9 @@ interface MessageBubbleProps {
   currentUser?: { nickname?: string; avatar?: string };
   selfMemberId?: string | null;
   privateConversation?: boolean;
+  branchVersionInfo?: { index: number; total: number; isActive: boolean } | null;
+  onCreateRevision?: (message: Message, content: string) => void | Promise<void>;
+  onSwitchRevision?: (message: Message, direction: -1 | 1) => void | Promise<void>;
 }
 
 interface MenuPosition {
@@ -56,7 +62,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, characters = [], onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false }: MessageBubbleProps) {
+export default function MessageBubble({ message, character, characters = [], onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onSwitchRevision }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -73,10 +79,13 @@ export default function MessageBubble({ message, character, characters = [], onD
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const [feedbackAnchorEl, setFeedbackAnchorEl] = useState<HTMLElement | null>(null);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
+  const [revisionEditorOpen, setRevisionEditorOpen] = useState(false);
+  const [revisionDraft, setRevisionDraft] = useState(message.content);
   const pressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const touchStartRef = useRef<MenuPosition | null>(null);
   const canDelete = useMemo(() => !pending && message.type !== 'system' && Boolean(onDelete), [message.type, onDelete, pending]);
   const canFeedback = useMemo(() => !pending && message.type === 'ai' && Boolean(onExpressionFeedback), [message.type, onExpressionFeedback, pending]);
+  const canEditRevision = Boolean(onCreateRevision) && !pending && message.type !== 'system' && message.type !== 'event';
 
   const clearPressTimer = () => {
     if (pressTimerRef.current) {
@@ -132,6 +141,23 @@ export default function MessageBubble({ message, character, characters = [], onD
   const handleAnalyze = () => {
     if (onAnalyze) onAnalyze(message);
     closeMenus();
+  };
+
+  const openRevisionEditor = () => {
+    if (!canEditRevision) return;
+    setRevisionDraft(message.content);
+    setRevisionEditorOpen(true);
+    closeMenus();
+  };
+
+  const closeRevisionEditor = () => setRevisionEditorOpen(false);
+
+  const handleSaveRevision = () => {
+    if (!onCreateRevision) return;
+    const nextContent = revisionDraft.trim();
+    if (!nextContent) return;
+    void onCreateRevision(message, nextContent);
+    setRevisionEditorOpen(false);
   };
 
   const handleExpressionFeedback = (kind: ExpressionFeedbackKind) => {
@@ -277,9 +303,32 @@ export default function MessageBubble({ message, character, characters = [], onD
 
         <Box sx={{ maxWidth: contentMaxWidth, minWidth: 0, display: 'grid', gap: 0.35, justifyItems: isUser ? 'end' : 'start' }}>
           <Tooltip title={formatTimestamp(message.timestamp)} placement="top" arrow>
-            <Typography variant="caption" sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', textAlign: isUser ? 'right' : 'left' }}>
-              {message.senderName}
-            </Typography>
+            <Stack direction="row" spacing={0.5} sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', maxWidth: '100%', alignItems: 'center' }}>
+              <Typography variant="caption" sx={{ fontWeight: 500, textAlign: isUser ? 'right' : 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {message.senderName}
+              </Typography>
+              {branchVersionInfo && branchVersionInfo.total > 1 && onSwitchRevision ? (
+                <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0, alignItems: 'center' }}>
+                  <Tooltip title="上一版" arrow>
+                    <span>
+                      <IconButton size="small" disabled={branchVersionInfo.index <= 1} onClick={() => onSwitchRevision(message, -1)} sx={{ width: 22, height: 22 }}>
+                        <ChevronLeftIcon fontSize="inherit" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Typography variant="caption" sx={{ fontWeight: 700, minWidth: 24, textAlign: 'center' }}>
+                    {branchVersionInfo.index}/{branchVersionInfo.total}
+                  </Typography>
+                  <Tooltip title="下一版" arrow>
+                    <span>
+                      <IconButton size="small" disabled={branchVersionInfo.index >= branchVersionInfo.total} onClick={() => onSwitchRevision(message, 1)} sx={{ width: 22, height: 22 }}>
+                        <ChevronRightIcon fontSize="inherit" />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                </Stack>
+              ) : null}
+            </Stack>
           </Tooltip>
           <Box
             {...bubbleHandlers}
@@ -340,6 +389,7 @@ export default function MessageBubble({ message, character, characters = [], onD
         }}
       >
         <MenuItem onClick={handleCopy}>复制</MenuItem>
+        {canEditRevision ? <MenuItem onClick={openRevisionEditor}><EditIcon fontSize="small" style={{ marginRight: 8 }} />重新编辑</MenuItem> : null}
         {onAnalyze ? <MenuItem onClick={handleAnalyze}>AI分析</MenuItem> : null}
         {canFeedback ? (
           <MenuItem
@@ -392,6 +442,26 @@ export default function MessageBubble({ message, character, characters = [], onD
         offset="composer"
         alertVariant="filled"
       />
+
+      <Dialog open={revisionEditorOpen} onClose={closeRevisionEditor} maxWidth="sm" fullWidth>
+        <DialogTitle>重新编辑</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <TextField
+            autoFocus
+            fullWidth
+            multiline
+            minRows={4}
+            value={revisionDraft}
+            onChange={(event) => setRevisionDraft(event.target.value)}
+            variant="outlined"
+            sx={{ mt: 0.5 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeRevisionEditor}>取消</Button>
+          <Button variant="contained" onClick={handleSaveRevision}>生成新版本</Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

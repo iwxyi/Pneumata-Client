@@ -47,6 +47,7 @@ export async function runDirectUserReplyFlow(params: {
     : params.characters;
   const getProjectedMessages = () => projectCurrentChatMessages({
     chatId: params.chatId,
+    chat: useChatStore.getState().chats.find((item) => item.id === params.chat.id) || params.chat,
     activeMessages: useMessageStore.getState().messages,
     cachedWindow: useMessageStore.getState().messageWindowsByChatId[params.chatId],
   });

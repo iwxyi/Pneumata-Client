@@ -1,5 +1,7 @@
 import type { Message } from '../types/message';
+import type { GroupChat } from '../types/chat';
 import { buildMessageIdentityKeys, getMessageRenderIdentity, messagesShareIdentity } from './messageIdentity';
+import { isMessageBranchingEnabled, projectActiveBranchMessages } from './messageBranching';
 
 export interface MessageWindowLike {
   messages?: Message[];
@@ -104,6 +106,7 @@ function sharesIdentityWithAnyActiveMessage(message: Message, activeMessages: Me
 
 export function projectCurrentChatMessages(params: {
   chatId: string;
+  chat?: Pick<GroupChat, 'sessionKind' | 'messageBranchState'> & Partial<Pick<GroupChat, 'mode'>> | null;
   activeMessages: Message[];
   cachedWindow?: MessageWindowLike | null;
 }) {
@@ -145,5 +148,8 @@ export function projectCurrentChatMessages(params: {
     indexMessage(nextIdentity, merged);
   }
 
-  return Array.from(byId.values()).sort(compareByTimeline);
+  const projected = Array.from(byId.values()).sort(compareByTimeline);
+  return isMessageBranchingEnabled(params.chat)
+    ? projectActiveBranchMessages(params.chat, projected)
+    : projected;
 }

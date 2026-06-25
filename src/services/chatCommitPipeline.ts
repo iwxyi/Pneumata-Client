@@ -9,6 +9,7 @@ import { applyChatCommitRuntime } from './chatCommitApply';
 import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
 import { isLocalOnlyMediaMode, processRichMessageMedia } from './richMessageMedia';
 import { parseRuntimeEvent } from './runtimeEventFactory';
+import { attachMessageToActiveBranch } from './messageBranching';
 
 export interface ChatCommitPipelineResult {
   persistedMessage: Message;
@@ -71,7 +72,7 @@ export async function runChatCommitPipeline(params: {
       });
     };
     const persistedMessage = await persistStreamingMessage({
-      message: params.message,
+      message: attachMessageToActiveBranch(params.chat, nextMessages, params.message),
       upsertMessage: params.upsertMessage,
       existingLocalMessage: params.streamingMessage,
       deferLocalUpsert: false,

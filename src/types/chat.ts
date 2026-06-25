@@ -284,6 +284,14 @@ export interface SessionTopologySummary {
   description: string;
 }
 
+export interface MessageBranchState {
+  enabled?: boolean;
+  activeLeafNodeId?: string | null;
+  activeChildByParentNodeId?: Record<string, string>;
+  selectedRevisionByRootId?: Record<string, string>;
+  updatedAt?: number;
+}
+
 export interface SessionFamilyRuntimeSummary {
   family: SessionFamily;
   scenarioId: string;
@@ -733,6 +741,7 @@ export interface GroupChat {
   latestMessage?: Message | null;
   runtimeDetailLoaded?: boolean;
   worldRuntimeLoaded?: boolean;
+  messageBranchState?: MessageBranchState | null;
   createdAt: number;
   updatedAt: number;
   lastMessageAt: number;
