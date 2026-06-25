@@ -170,8 +170,28 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
   const generationRuntime = decision.generationRuntime as {
     turnPlan?: { moveClass?: string; targetScope?: string; depth?: string; reason?: string };
     expressionPlan?: { surface?: string; texture?: string; rhythm?: string };
-    trace?: { policyHits?: string[]; scenarioChecks?: string[]; duplicateDecision?: string | null };
+    trace?: {
+      policyHits?: string[];
+      scenarioChecks?: string[];
+      duplicateDecision?: string | null;
+      humanAppraisal?: {
+        moveBias?: string;
+        strength?: string;
+        publicSafe?: boolean;
+        reasonTags?: string[];
+        sourceEventCount?: number;
+      } | null;
+    };
   } | undefined;
+  const humanAppraisal = generationRuntime?.trace?.humanAppraisal;
+  const humanAppraisalLabel = humanAppraisal?.moveBias && humanAppraisal.moveBias !== 'none'
+    ? [
+      humanAppraisal.moveBias,
+      humanAppraisal.strength && humanAppraisal.strength !== 'none' ? humanAppraisal.strength : '',
+      ...(Array.isArray(humanAppraisal.reasonTags) ? humanAppraisal.reasonTags.slice(0, 3) : []),
+      humanAppraisal.sourceEventCount ? `sources:${humanAppraisal.sourceEventCount}` : '',
+    ].filter(Boolean).join(' / ')
+    : '';
   pushSection(sections, {
     key: 'generation_runtime',
     label: '生成运行时',
@@ -186,6 +206,7 @@ export function projectMessageRuntimeClues(message: Pick<Message, 'metadata'> | 
       generationRuntime.expressionPlan?.surface ? `表面：${generationRuntime.expressionPlan.surface}` : '',
       generationRuntime.expressionPlan?.texture ? `质地：${generationRuntime.expressionPlan.texture}` : '',
       generationRuntime.expressionPlan?.rhythm ? `节奏：${generationRuntime.expressionPlan.rhythm}` : '',
+      humanAppraisalLabel ? `人性评估：${humanAppraisalLabel}` : '',
       generationRuntime.trace?.policyHits?.length ? `策略：${generationRuntime.trace.policyHits.join(' / ')}` : '',
       generationRuntime.trace?.scenarioChecks?.length ? `场景：${generationRuntime.trace.scenarioChecks.join(' / ')}` : '',
       generationRuntime.trace?.duplicateDecision ? `校验：${generationRuntime.trace.duplicateDecision}` : '',

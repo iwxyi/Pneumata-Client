@@ -511,7 +511,7 @@ class ApiClient {
       developerMode?: boolean;
       autoGenerateCharacterAvatar?: boolean;
       avatarGeneration?: { autoGenerateCharacterAvatar?: boolean; preferNonPhotorealAvatar?: boolean };
-      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showLocalInterceptionHints?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showMomentDebug?: boolean; showWithdrawnMessageContent?: boolean; dramaBoost?: boolean };
+      developerUI?: { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showLocalInterceptionHints?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showMomentDebug?: boolean; showWithdrawnMessageContent?: boolean; enableHumanAppraisal?: boolean; dramaBoost?: boolean };
       memoryUI?: { showDeveloperMemory?: boolean };
       chatDraftDefaults?: { style: string; showRoleActions: boolean; runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast' };
       customBubbleStyles?: Array<Record<string, unknown>>;

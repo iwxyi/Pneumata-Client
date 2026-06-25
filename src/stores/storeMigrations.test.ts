@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE, type GroupChat } from '../types/chat';
-import { migrateChatStoreState, migrateUiStoreState } from './storeMigrations';
+import { migrateChatStoreState, migrateSettingsStoreState, migrateUiStoreState } from './storeMigrations';
 
 function chatWithCohesion(cohesion: number): GroupChat {
   return {
@@ -73,5 +73,18 @@ describe('storeMigrations', () => {
     expect(migrateUiStoreState({ rightPanelTab: 'clues' })?.rightPanelTab).toBe('clues');
     expect(migrateUiStoreState({ rightPanelTab: 'roles' })?.rightPanelTab).toBe('roles');
     expect(migrateUiStoreState({ rightPanelTab: 'developer' })?.rightPanelTab).toBe('developer');
+  });
+
+  it('enables human appraisal by default for older developer UI settings', () => {
+    const migrated = migrateSettingsStoreState({
+      developerUI: {
+        showMemoryDebug: true,
+      },
+    });
+
+    expect(migrated?.developerUI).toMatchObject({
+      showMemoryDebug: true,
+      enableHumanAppraisal: true,
+    });
   });
 });

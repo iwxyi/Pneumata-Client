@@ -41,6 +41,7 @@ import { projectWorldAttentionStates, projectWorldCalendar, projectWorldMoments 
 import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanner';
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
+import { enrichRuntimeBundleWithHumanAppraisal } from './humanAppraisal';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
 import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryContinuationState, buildStoryEventsVisibleText, evaluateStoryContinuationQuality, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents, type StoryContinuationState } from './narrativeRuntime';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
@@ -1390,7 +1391,8 @@ function buildRuntimeRoleConstraintPrompt(runtimeBundle?: import('../types/sessi
   const roleConstraint = runtimeBundle?.realizationPlan?.roleConstraint;
   const functionTag = runtimeBundle?.realizationPlan?.functionTag;
   const hotspotState = runtimeBundle?.trace?.hotspotState;
-  if (!roleConstraint && !functionTag && !hotspotState) return '';
+  const humanHint = runtimeBundle?.trace?.humanAppraisal?.hiddenHint;
+  if (!roleConstraint && !functionTag && !hotspotState && !humanHint) return '';
   const lines = [] as string[];
   if (functionTag) lines.push(`- Primary function for this turn: ${functionTag}.`);
   if (roleConstraint === 'acknowledge_user_need_first') lines.push('- Acknowledge the user or addressed person before expanding the room topic.');
@@ -1400,6 +1402,7 @@ function buildRuntimeRoleConstraintPrompt(runtimeBundle?: import('../types/sessi
   else if (roleConstraint === 'push_one_point_only') lines.push('- Push on one specific point instead of scattering multiple objections.');
   if (hotspotState === 'hot') lines.push('- You have occupied recent room airtime. Keep this turn compact unless the current request clearly needs detail.');
   else if (hotspotState === 'warm') lines.push('- You have spoken a lot recently. Avoid expanding just to stay visible.');
+  if (humanHint) lines.push(`- ${humanHint}`);
   return lines.length ? `\n## Runtime Role Constraint\n${lines.join('\n')}` : '';
 }
 
@@ -2656,11 +2659,17 @@ export async function generateSpeakerMessage(params: {
     messages: activeMessages,
     speaker: params.speaker,
   }) || null;
-  const runtimeBundle = runtimeContextBundle || buildGenerationRuntimeBundle({
+  const baseRuntimeBundle = runtimeContextBundle || buildGenerationRuntimeBundle({
     chat: params.chat,
     speaker: params.speaker,
     messages: activeMessages,
     promptContext: enginePromptContext,
+  });
+  const runtimeBundle = enrichRuntimeBundleWithHumanAppraisal({
+    bundle: baseRuntimeBundle,
+    chat: params.chat,
+    speaker: params.speaker,
+    messages: activeMessages,
   });
   const pendingReplyPrompt = params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId
     ? `\nPending reply expectation:\n- You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.\n- Reply to that character first instead of pivoting to another member.\n- Acknowledge their question or emotion before expanding to the room.`

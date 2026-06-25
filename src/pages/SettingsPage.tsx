@@ -1817,6 +1817,7 @@ export default function SettingsPage() {
             <Box sx={buildDeveloperSwitchListSx()}>
               <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showWithdrawnMessageContent} onChange={(e) => settings.setDeveloperUI({ showWithdrawnMessageContent: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '悬浮查看撤回原文' : 'Reveal withdrawn content on hover'} />
               <FormControlLabel control={<Switch size="small" checked={settings.developerUI.showMomentDebug} onChange={(e) => settings.setDeveloperUI({ showMomentDebug: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '朋友圈调试' : 'Moments debug'} />
+              <FormControlLabel control={<Switch size="small" checked={settings.developerUI.enableHumanAppraisal} onChange={(e) => settings.setDeveloperUI({ enableHumanAppraisal: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '启用人性化行为评估' : 'Enable human appraisal'} />
               <FormControlLabel control={<Switch size="small" checked={settings.developerUI.dramaBoost} onChange={(e) => settings.setDeveloperUI({ dramaBoost: e.target.checked })} />} label={i18n.language.startsWith('zh') ? '增强戏剧冲突' : 'Boost dramatic conflict'} />
             </Box>
           </Box>

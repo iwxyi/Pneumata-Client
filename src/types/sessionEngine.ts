@@ -1406,6 +1406,22 @@ export type SessionMoveClass = 'respond' | 'advance' | 'expand' | 'deepen' | 'ch
 export type SessionTargetScope = 'person' | 'topic' | 'room' | 'scene' | 'task';
 export type SessionDepth = 'brief' | 'normal' | 'deep';
 export type SessionSurface = 'casual' | 'analytical' | 'companion' | 'dramatic' | 'task';
+export type SessionHumanAppraisalMoveBias = 'none' | 'ask_followup' | 'repair' | 'protect' | 'insist' | 'withdraw' | 'soften' | 'challenge' | 'let_pass';
+
+export interface SessionHumanAppraisalPatch {
+  moveBias: SessionHumanAppraisalMoveBias;
+  expressionBias?: {
+    warmth?: 'up' | 'down';
+    directness?: 'up' | 'down';
+    restraint?: 'up' | 'down';
+    length?: 'shorter' | 'normal';
+  };
+  strength: 'none' | 'low' | 'medium';
+  publicSafe: boolean;
+  reasonTags: string[];
+  sourceEventIds: string[];
+  hiddenHint?: string | null;
+}
 
 export interface SessionTurnPlan {
   speakerId: string;
@@ -1436,6 +1452,7 @@ export interface SessionExecutionTrace {
   functionTag?: string | null;
   roleConstraint?: string | null;
   hotspotState?: 'clear' | 'warm' | 'hot' | null;
+  humanAppraisal?: SessionHumanAppraisalPatch | null;
 }
 
 export interface SessionGenerationPromptContext {

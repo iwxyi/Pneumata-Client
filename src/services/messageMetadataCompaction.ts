@@ -1,4 +1,6 @@
 import type { Message, MessageMetadata } from '../types/message';
+import type { SessionHumanAppraisalPatch } from '../types/sessionEngine';
+import { buildPublicHumanAppraisalTrace } from './humanAppraisal';
 
 const MAX_TEXT = {
   contextText: 240,
@@ -39,6 +41,18 @@ function omitEmpty<T extends Record<string, unknown>>(record: T): T {
     next[key] = value;
   });
   return next as T;
+}
+
+function compactGenerationRuntimeTrace(trace: unknown) {
+  if (!trace || typeof trace !== 'object' || Array.isArray(trace)) return undefined;
+  const record = trace as Record<string, unknown>;
+  return omitEmpty({
+    ...record,
+    policyHits: compactStringArray(record.policyHits, 8, MAX_TEXT.label),
+    scenarioChecks: compactStringArray(record.scenarioChecks, 8, MAX_TEXT.label),
+    duplicateDecision: compactText(record.duplicateDecision, MAX_TEXT.reason),
+    humanAppraisal: buildPublicHumanAppraisalTrace(record.humanAppraisal as SessionHumanAppraisalPatch | null | undefined),
+  });
 }
 
 function compactEvidenceHistory(value: unknown, maxItems: number) {
@@ -208,12 +222,7 @@ function compactRuntimeDecision(decision: NonNullable<MessageMetadata['runtimeDe
       turnPlan: decision.generationRuntime.turnPlan,
       expressionPlan: decision.generationRuntime.expressionPlan,
       realizationPlan: decision.generationRuntime.realizationPlan,
-      trace: decision.generationRuntime.trace ? omitEmpty({
-        ...(decision.generationRuntime.trace as Record<string, unknown>),
-        policyHits: compactStringArray((decision.generationRuntime.trace as { policyHits?: unknown }).policyHits, 8, MAX_TEXT.label),
-        scenarioChecks: compactStringArray((decision.generationRuntime.trace as { scenarioChecks?: unknown }).scenarioChecks, 8, MAX_TEXT.label),
-        duplicateDecision: compactText((decision.generationRuntime.trace as { duplicateDecision?: unknown }).duplicateDecision, MAX_TEXT.reason),
-      }) : undefined,
+      trace: compactGenerationRuntimeTrace(decision.generationRuntime.trace),
     }) : undefined,
   }) as unknown as NonNullable<MessageMetadata['runtimeDecision']>;
 }

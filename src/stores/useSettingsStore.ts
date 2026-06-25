@@ -16,6 +16,7 @@ import { scopedStorageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { setAIGenerationRuntimeConfig } from '../services/aiGenerationRuntimeConfig';
 import { setCompanionshipRuntimeConfig } from '../services/companionshipRuntimeConfig';
+import { setHumanAppraisalRuntimeConfig } from '../services/humanAppraisalRuntimeConfig';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { createSyncScheduler } from './storeSyncScheduler';
@@ -282,6 +283,7 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
   };
   setAIGenerationRuntimeConfig(normalized.aiGeneration);
   setCompanionshipRuntimeConfig(normalized.companionship);
+  setHumanAppraisalRuntimeConfig({ enabled: normalized.developerUI.enableHumanAppraisal });
   return normalized;
 }
 
@@ -566,7 +568,8 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setDeveloperUI: (prefs) => {
         set((state) => {
-          const developerUI = { ...state.developerUI, ...prefs };
+          const developerUI = { ...DEFAULT_DEVELOPER_UI_PREFS, ...state.developerUI, ...prefs };
+          setHumanAppraisalRuntimeConfig({ enabled: developerUI.enableHumanAppraisal });
           const next = {
             ...state,
             developerUI,
@@ -580,7 +583,7 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setMemoryDeveloperView: (enabled) => {
         set((state) => {
-          const developerUI = { ...state.developerUI, showMemoryDebug: enabled };
+          const developerUI = { ...DEFAULT_DEVELOPER_UI_PREFS, ...state.developerUI, showMemoryDebug: enabled };
           const next = {
             ...state,
             developerUI,

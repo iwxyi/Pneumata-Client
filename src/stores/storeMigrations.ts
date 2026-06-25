@@ -3,7 +3,7 @@ import { normalizeCharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { toRelationshipLedgerRecentEvent } from '../types/runtimeEvent';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS, PAPER_SURFACE_VARIANTS } from '../types/artifactAppearance';
-import { DEFAULT_CHAT_APPEARANCE_SETTINGS } from '../types/settings';
+import { DEFAULT_CHAT_APPEARANCE_SETTINGS, DEFAULT_DEVELOPER_UI_PREFS } from '../types/settings';
 
 type VersionedPersistedState<T> = T | undefined;
 
@@ -117,7 +117,7 @@ export function migrateMessageStoreState<T extends { messages?: Array<Record<str
 
 export function migrateSettingsStoreState<T extends Record<string, unknown>>(persisted: VersionedPersistedState<T>): VersionedPersistedState<T> {
   if (!persisted) return persisted;
-  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showCalendarEvents?: boolean; showLocalInterceptionHints?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showCompanionshipDebug?: boolean; showMomentDebug?: boolean; showWithdrawnMessageContent?: boolean; dramaBoost?: boolean } | undefined) || {};
+  const developerUI = (persisted.developerUI as { showMemoryDebug?: boolean; showRelationshipEvents?: boolean; showAffectEvents?: boolean; showConflictEvents?: boolean; showStateEvents?: boolean; showMemoryDistillationEvents?: boolean; showCalendarEvents?: boolean; showLocalInterceptionHints?: boolean; showSpeechStyle?: boolean; showAdvancedRuntimePanels?: boolean; showCompanionshipDebug?: boolean; showMomentDebug?: boolean; showWithdrawnMessageContent?: boolean; enableHumanAppraisal?: boolean; dramaBoost?: boolean } | undefined) || {};
   const artifactAppearance = (persisted.artifactAppearance as { paperVariant?: string } | undefined) || {};
   const chatAppearance = (persisted.chatAppearance as { maxContentWidth?: number; storyReader?: { fontFamily?: string; fontSize?: number; lineHeight?: number } } | undefined) || {};
   return {
@@ -136,6 +136,7 @@ export function migrateSettingsStoreState<T extends Record<string, unknown>>(per
       showCompanionshipDebug: Boolean(developerUI.showCompanionshipDebug),
       showMomentDebug: Boolean(developerUI.showMomentDebug),
       showWithdrawnMessageContent: Boolean(developerUI.showWithdrawnMessageContent),
+      enableHumanAppraisal: developerUI.enableHumanAppraisal ?? DEFAULT_DEVELOPER_UI_PREFS.enableHumanAppraisal,
       dramaBoost: Boolean(developerUI.dramaBoost),
     },
     artifactAppearance: {

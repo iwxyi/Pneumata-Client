@@ -434,6 +434,7 @@ export interface DeveloperUIPrefs {
   showCompanionshipDebug: boolean;
   showMomentDebug: boolean;
   showWithdrawnMessageContent: boolean;
+  enableHumanAppraisal: boolean;
   dramaBoost: boolean;
 }
 
@@ -466,6 +467,7 @@ export function normalizeDeveloperUiPrefs(input?: Partial<DeveloperUIPrefs> | nu
     showCompanionshipDebug: Boolean(input?.showCompanionshipDebug),
     showMomentDebug: Boolean(input?.showMomentDebug),
     showWithdrawnMessageContent: Boolean(input?.showWithdrawnMessageContent),
+    enableHumanAppraisal: input?.enableHumanAppraisal ?? DEFAULT_DEVELOPER_UI_PREFS.enableHumanAppraisal,
     dramaBoost: Boolean(input?.dramaBoost),
   };
 }
@@ -475,6 +477,7 @@ export function mergeDeveloperUiPrefs(input?: Partial<DeveloperUIPrefs> | null) 
     ...DEFAULT_DEVELOPER_UI_PREFS,
     ...(input || {}),
     showAffectEvents: Boolean(input?.showAffectEvents),
+    enableHumanAppraisal: input?.enableHumanAppraisal ?? DEFAULT_DEVELOPER_UI_PREFS.enableHumanAppraisal,
   } satisfies DeveloperUIPrefs;
 }
 
@@ -487,7 +490,7 @@ export function getDeveloperUiVisibility(input: Partial<DeveloperUIPrefs> | null
 }
 
 export function getDeveloperUiToggleKeys() {
-  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showConflictEvents', 'showStateEvents', 'showMemoryDistillationEvents', 'showCalendarEvents', 'showLocalInterceptionHints', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'showCompanionshipDebug', 'showMomentDebug', 'showWithdrawnMessageContent', 'dramaBoost'] as const;
+  return ['showMemoryDebug', 'showRelationshipEvents', 'showAffectEvents', 'showConflictEvents', 'showStateEvents', 'showMemoryDistillationEvents', 'showCalendarEvents', 'showLocalInterceptionHints', 'showSpeechStyle', 'showAdvancedRuntimePanels', 'showCompanionshipDebug', 'showMomentDebug', 'showWithdrawnMessageContent', 'enableHumanAppraisal', 'dramaBoost'] as const;
 }
 
 export function getDeveloperUiAffectKey() {
@@ -805,6 +808,7 @@ export const DEFAULT_DEVELOPER_UI_PREFS: DeveloperUIPrefs = {
   showCompanionshipDebug: false,
   showMomentDebug: false,
   showWithdrawnMessageContent: false,
+  enableHumanAppraisal: true,
   dramaBoost: false,
 };
 

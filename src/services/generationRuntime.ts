@@ -8,6 +8,7 @@ import { resolveSessionDefinition } from '../types/sessionEngine';
 import { getStyleProfile, resolveDefaultStyleProfile } from './styleProfileRegistry';
 import { buildScenarioRuntimeDecision } from './scenarioRuntime';
 import { resolveEffectiveCapabilities } from './capabilityGraph';
+import { applyHumanAppraisalToExpressionPlan, applyHumanAppraisalToTurnPlan, buildHumanAppraisalPatch, isHumanAppraisalActive } from './humanAppraisal';
 
 function latestVisibleMessage(messages: Message[]) {
   return messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event').at(-1) || null;
@@ -133,14 +134,26 @@ function buildRuntimeTrace(params: {
   functionTag: NonNullable<SessionRealizationPlan['functionTag']>;
   roleConstraint: string;
   hotspotState: NonNullable<SessionExecutionTrace['hotspotState']>;
+  humanAppraisal: ReturnType<typeof buildHumanAppraisalPatch>;
 }): SessionExecutionTrace {
+  const humanAppraisalActive = isHumanAppraisalActive(params.humanAppraisal);
   return {
-    policyHits: [params.styleProfile, params.turnPlan.moveClass, params.turnPlan.targetScope, params.capabilities.memoryMode, params.capabilities.duplicateTolerance, params.functionTag, params.roleConstraint],
+    policyHits: [
+      params.styleProfile,
+      params.turnPlan.moveClass,
+      params.turnPlan.targetScope,
+      params.capabilities.memoryMode,
+      params.capabilities.duplicateTolerance,
+      params.functionTag,
+      params.roleConstraint,
+      ...(humanAppraisalActive ? [`human_appraisal:${params.humanAppraisal.moveBias}`, ...params.humanAppraisal.reasonTags] : []),
+    ],
     scenarioChecks: [params.scenarioDecision.scenarioId, params.scenarioDecision.family, params.scenarioDecision.phaseKey, params.capabilities.channelType, params.hotspotState],
     duplicateDecision: params.validationDecision.reason || null,
     functionTag: params.functionTag,
     roleConstraint: params.roleConstraint,
     hotspotState: params.hotspotState,
+    humanAppraisal: humanAppraisalActive ? params.humanAppraisal : null,
   };
 }
 
@@ -254,7 +267,7 @@ export function buildGenerationRuntimeBundle(params: {
   });
   const style = getStyleProfile(styleProfile);
   const hotspotState = deriveHotspotState(params.messages, params.speaker.id);
-  const turnPlan = buildTurnPlan({
+  const baseTurnPlan = buildTurnPlan({
     latest,
     scenarioDecision,
     capabilities,
@@ -263,13 +276,20 @@ export function buildGenerationRuntimeBundle(params: {
     speaker: params.speaker,
     hotspotState,
   });
-  const expressionPlan = buildExpressionPlan({
+  const baseExpressionPlan = buildExpressionPlan({
     styleProfile,
     chat: params.chat,
     capabilities,
     style,
     promptContext: params.promptContext,
   });
+  const humanAppraisal = buildHumanAppraisalPatch({
+    chat: params.chat,
+    speaker: params.speaker,
+    messages: params.messages,
+  });
+  const turnPlan = applyHumanAppraisalToTurnPlan(baseTurnPlan, humanAppraisal);
+  const expressionPlan = applyHumanAppraisalToExpressionPlan(baseExpressionPlan, humanAppraisal);
   const validator = resolveDuplicateValidator(styleProfile);
   const validationDecision = runValidationCycle({
     validator,
@@ -302,6 +322,7 @@ export function buildGenerationRuntimeBundle(params: {
     functionTag,
     roleConstraint,
     hotspotState,
+    humanAppraisal,
   });
   return { turnPlan, expressionPlan, realizationPlan, validationDecision, trace };
 }

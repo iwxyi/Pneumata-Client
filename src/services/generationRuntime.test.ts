@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 
 function speaker(): AICharacter {
@@ -23,7 +24,7 @@ function speaker(): AICharacter {
   } as AICharacter;
 }
 
-function chat(type: GroupChat['type'] = 'group', mode: GroupChat['mode'] = 'open_chat'): GroupChat {
+function chat(type: GroupChat['type'] = 'group', mode: GroupChat['mode'] = 'open_chat', patch: Partial<GroupChat> = {}): GroupChat {
   return {
     id: 'chat-1',
     type,
@@ -52,6 +53,7 @@ function chat(type: GroupChat['type'] = 'group', mode: GroupChat['mode'] = 'open
     createdAt: 1,
     updatedAt: 1,
     lastMessageAt: 1,
+    ...patch,
   } as GroupChat;
 }
 
@@ -66,6 +68,26 @@ function message(type: Message['type'], senderId: string, senderName: string, co
     emotion: 0,
     timestamp: 1,
     isDeleted: false,
+  };
+}
+
+function promiseEvent(): RuntimeEventV2 {
+  return {
+    id: 'promise-1',
+    conversationId: 'chat-1',
+    kind: 'decision_trace',
+    createdAt: 1,
+    actorIds: ['char-a'],
+    targetIds: ['user'],
+    summary: 'opened promise',
+    visibility: 'pair_private',
+    payload: {
+      eventType: 'companionship_promise',
+      action: 'opened',
+      characterId: 'char-a',
+      participantIds: ['char-a', 'user'],
+      promiseText: '周末一起看电影',
+    },
   };
 }
 
@@ -162,5 +184,28 @@ describe('generationRuntime', () => {
     expect(bundle.turnPlan?.moveClass).toBe('challenge');
     expect(bundle.realizationPlan?.functionTag).toBe('challenge');
     expect(bundle.trace?.duplicateDecision).toBeTruthy();
+  });
+
+  it('adds human appraisal trace and a follow-up move for unresolved promise pressure', () => {
+    const bundle = buildGenerationRuntimeBundle({
+      chat: chat('direct', 'open_chat', { runtimeEventsV2: [promiseEvent()] }),
+      speaker: speaker(),
+      messages: [message('user', 'user', 'User', '那我们下次一定去')],
+      promptContext: null,
+    });
+    expect(bundle.trace?.humanAppraisal?.moveBias).toBe('ask_followup');
+    expect(bundle.trace?.humanAppraisal?.reasonTags).toContain('unfinished_promise');
+    expect(bundle.turnPlan?.reason).toContain('human_appraisal:ask_followup');
+  });
+
+  it('does not let human appraisal steal explicit task turns', () => {
+    const bundle = buildGenerationRuntimeBundle({
+      chat: chat('direct', 'open_chat', { runtimeEventsV2: [promiseEvent()] }),
+      speaker: speaker(),
+      messages: [message('user', 'user', 'User', '请帮我分析这个方案，下次再说')],
+      promptContext: null,
+    });
+    expect(bundle.trace?.humanAppraisal).toBeNull();
+    expect(bundle.realizationPlan?.functionTag).toBe('comfort');
   });
 });

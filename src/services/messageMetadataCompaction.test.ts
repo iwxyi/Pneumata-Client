@@ -146,4 +146,39 @@ describe('messageMetadataCompaction', () => {
     expect(compacted?.runtimeDecision?.companionshipContext?.sharedPhraseHistory?.[0]?.text.length).toBeLessThan(220);
     expect(JSON.stringify(compacted).length).toBeLessThan(JSON.stringify(metadata).length / 4);
   });
+
+  it('keeps human appraisal runtime trace public-safe', () => {
+    const metadata: MessageMetadata = {
+      runtimeDecision: {
+        generationRuntime: {
+          trace: {
+            policyHits: ['companion_room', 'human_appraisal:repair'],
+            humanAppraisal: {
+              moveBias: 'repair',
+              strength: 'low',
+              publicSafe: true,
+              reasonTags: ['possible_recent_hurt', 'repairable_relation'],
+              sourceEventIds: ['relationship-event-1'],
+              hiddenHint: '隐性行为偏置：先补救可能造成的误伤。',
+            },
+          },
+        },
+      },
+    };
+
+    const compacted = compactMessageMetadata(metadata, { dropContextText: true });
+    const trace = compacted?.runtimeDecision?.generationRuntime?.trace as {
+      humanAppraisal?: Record<string, unknown> | null;
+    } | undefined;
+
+    expect(trace?.humanAppraisal).toMatchObject({
+      moveBias: 'repair',
+      strength: 'low',
+      publicSafe: true,
+      reasonTags: ['possible_recent_hurt', 'repairable_relation'],
+      sourceEventCount: 1,
+    });
+    expect(JSON.stringify(trace)).not.toContain('hiddenHint');
+    expect(JSON.stringify(trace)).not.toContain('relationship-event-1');
+  });
 });

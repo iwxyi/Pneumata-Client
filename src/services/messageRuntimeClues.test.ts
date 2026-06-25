@@ -632,4 +632,36 @@ describe('messageRuntimeClues', () => {
     ]));
     expect(world?.items.some((item) => item.includes('规则：Before expanding'))).toBe(true);
   });
+
+  it('projects human appraisal as safe generation runtime clues', () => {
+    const sections = projectMessageRuntimeClues({
+      metadata: {
+        runtimeDecision: {
+          generationRuntime: {
+            turnPlan: { moveClass: 'repair', targetScope: 'person', depth: 'brief' },
+            expressionPlan: { surface: 'companion', texture: 'terse' },
+            trace: {
+              humanAppraisal: {
+                moveBias: 'repair',
+                strength: 'low',
+                publicSafe: true,
+                reasonTags: ['possible_recent_hurt'],
+                sourceEventCount: 1,
+                hiddenHint: '隐性行为偏置：先补救可能造成的误伤。',
+                sourceEventIds: ['relationship-event-1'],
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const runtime = sections.find((section) => section.key === 'generation_runtime');
+    expect(runtime?.items).toEqual(expect.arrayContaining([
+      '动作：repair',
+      '人性评估：repair / low / possible_recent_hurt / sources:1',
+    ]));
+    expect(JSON.stringify(runtime)).not.toContain('hiddenHint');
+    expect(JSON.stringify(runtime)).not.toContain('relationship-event-1');
+  });
 });

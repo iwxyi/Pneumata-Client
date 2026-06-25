@@ -18,7 +18,18 @@ function buildMessage(): Message {
         generationRuntime: {
           turnPlan: { moveClass: 'deepen', targetScope: 'topic', depth: 'deep', reason: 'group-discussion:discussion' },
           expressionPlan: { surface: 'analytical', texture: 'rich', rhythm: 'back_and_forth' },
-          trace: { policyHits: ['analytical_room', 'deepen'], scenarioChecks: ['group-discussion', 'analysis'], duplicateDecision: 'none' },
+          trace: {
+            policyHits: ['analytical_room', 'deepen'],
+            scenarioChecks: ['group-discussion', 'analysis'],
+            duplicateDecision: 'none',
+            humanAppraisal: {
+              moveBias: 'ask_followup',
+              strength: 'low',
+              publicSafe: true,
+              reasonTags: ['unfinished_promise'],
+              sourceEventCount: 1,
+            },
+          },
         },
       },
     },
@@ -30,6 +41,8 @@ describe('generationRuntimePresentation', () => {
     const rows = buildGenerationRuntimeDebugRows(buildMessage());
     expect(rows.some((row) => row.label === 'Move' && row.value === 'deepen')).toBe(true);
     expect(rows.some((row) => row.label === 'Surface' && row.value === 'analytical')).toBe(true);
+    expect(rows.some((row) => row.label === 'Human Appraisal' && row.value.includes('ask_followup'))).toBe(true);
     expect(rows.some((row) => row.label === 'Scenario' && row.value.includes('group-discussion'))).toBe(true);
+    expect(JSON.stringify(rows)).not.toContain('hiddenHint');
   });
 });
