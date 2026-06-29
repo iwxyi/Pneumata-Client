@@ -157,9 +157,10 @@ function AdminAuthRedirectHandler() {
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const from = (event as CustomEvent<{ from?: string }>).detail?.from;
+      const from = (event as CustomEvent<{ from?: string }>).detail?.from || `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      if (!from.startsWith('/admin')) return;
       logout();
-      setRedirect(from?.startsWith('/admin') ? from : '/admin');
+      setRedirect(from);
     };
     window.addEventListener(ADMIN_LOGIN_EVENT, handler);
     return () => window.removeEventListener(ADMIN_LOGIN_EVENT, handler);
