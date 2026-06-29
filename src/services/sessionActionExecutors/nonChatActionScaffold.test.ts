@@ -80,6 +80,23 @@ function buildOpenChat() {
   });
 }
 
+function buildDiscussionChat() {
+  return normalizeConversation({
+    ...buildOpenChat(),
+    id: 'discussion-1',
+    mode: 'group_discussion',
+    sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'group-discussion', surfaceProfile: 'text' },
+    name: '开放讨论',
+    topic: '是否要重构推荐系统',
+    scenarioState: {
+      phase: 'discussion',
+      goals: [{ goalId: 'discussion-goal', label: '是否要重构推荐系统', status: 'active', progress: 0 }],
+      progress: [{ key: 'speeches', label: '发言轮次', value: 1, target: 4 }],
+    },
+    worldState: { phase: 'debating', mood: 'engaged', focus: '是否要重构推荐系统', recentEvent: '', conflictAxes: [] },
+  });
+}
+
 describe('executeNonChatActionScaffold', () => {
   it('turns ask_question into interview-flavored runtime output', () => {
     const result = executeNonChatActionScaffold(buildInterviewChat(), {
@@ -269,5 +286,30 @@ describe('executeNonChatActionScaffold', () => {
     const secondId = (second?.chatPatch as Partial<GroupChat> | undefined)?.runtimeEventsV2?.at(-1)?.id;
     expect(firstId).toBeTruthy();
     expect(firstId).toBe(secondId);
+  });
+
+  it('switches discussion to synthesis with a narrow chat patch', () => {
+    const result = executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'shift_to_synthesis',
+    });
+
+    expect(result?.chatPatch).toEqual({
+      scenarioState: expect.objectContaining({ phase: 'synthesis' }),
+      worldState: expect.objectContaining({ phase: 'aligned', recentEvent: '手动切换到收束阶段' }),
+    });
+    expect(result?.runtimeEvents?.[0]?.eventType).toBe('discussion_phase_shift');
+  });
+
+  it('stores discussion summary text in synthesis state', () => {
+    const result = executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'summarize_discussion',
+      payload: { focus: '共识是先拆召回层，分歧是是否同时改排序层。' },
+    });
+
+    expect(result?.chatPatch?.scenarioState).toMatchObject({
+      phase: 'synthesis',
+      summaryText: '共识是先拆召回层，分歧是是否同时改排序层。',
+    });
+    expect(result?.runtimeEvents?.[0]?.eventType).toBe('discussion_summary');
   });
 });

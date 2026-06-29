@@ -525,7 +525,6 @@ function handleShiftToSynthesis(chat: GroupChat, action: SessionActionDefinition
   return {
     ...buildActionResult(chat, action, '切换讨论阶段', summary, 'discussion_phase_shift', { phase: 'synthesis' }),
     chatPatch: {
-      ...chat,
       scenarioState: {
         ...(chat.scenarioState || {}),
         phase: 'synthesis',

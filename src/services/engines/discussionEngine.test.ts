@@ -171,9 +171,32 @@ describe('DISCUSSION_ENGINE', () => {
     const schema = DISCUSSION_ENGINE.getActionSchema?.({ conversation: chat, participants });
 
     expect(participants.find((participant) => participant.entityRefId === 'analyst-b')?.canSpeak).toBe(false);
-    expect(schema?.actions.map((action) => action.type)).toEqual(['mute_member', 'unmute_member']);
+    expect(schema?.actions.map((action) => action.type)).toEqual(['summarize_discussion', 'shift_to_synthesis', 'mute_member', 'unmute_member']);
     expect(schema?.actions.find((action) => action.type === 'mute_member')?.fields?.find((field) => field.key === 'targetId')?.options?.map((option) => option.value)).toEqual(['analyst-a', 'analyst-c']);
     expect(schema?.actions.find((action) => action.type === 'unmute_member')?.fields?.find((field) => field.key === 'targetId')?.options?.map((option) => option.value)).toEqual(['analyst-b']);
+  });
+
+  it('exposes discussion actions and hides phase shift after synthesis', () => {
+    const chat = buildChat();
+    const participants = DISCUSSION_ENGINE.buildParticipants(chat);
+    const schema = DISCUSSION_ENGINE.getActionSchema?.({ conversation: chat, participants });
+    const synthesisChat = buildChat({
+      scenarioState: {
+        phase: 'synthesis',
+        discussionMode: 'open',
+        progress: [{ key: 'speeches', label: '发言轮次', value: 3, target: 3 }],
+      },
+    });
+    const synthesisSchema = DISCUSSION_ENGINE.getActionSchema?.({
+      conversation: synthesisChat,
+      participants: DISCUSSION_ENGINE.buildParticipants(synthesisChat),
+    });
+
+    expect(DISCUSSION_ENGINE.getPhaseDefinitions?.(chat).find((phase) => phase.key === 'discussion')?.allowedActions).toContain('summarize_discussion');
+    expect(schema?.title).toBe('讨论动作');
+    expect(schema?.actions.map((action) => action.type)).toEqual(['summarize_discussion', 'shift_to_synthesis', 'mute_member']);
+    expect(schema?.actions.find((action) => action.type === 'summarize_discussion')?.fields?.[0]?.key).toBe('focus');
+    expect(synthesisSchema?.actions.map((action) => action.type)).toEqual(['summarize_discussion', 'mute_member']);
   });
 
   it('runs debate as ordered argument turns with assigned roles', async () => {

@@ -4,12 +4,12 @@ import type { Message } from '../../types/message';
 import { isChatMemberMuted } from '../scheduler';
 
 const DISCUSSION_PHASES = [
-  { key: 'discussion', label: '开放讨论', allowedActions: ['speak', 'send_message', 'summarize'] as string[] },
-  { key: 'roundtable', label: '圆桌发言', allowedActions: ['speak', 'send_message', 'summarize'] as string[] },
-  { key: 'debate', label: '观点攻防', allowedActions: ['speak', 'send_message', 'summarize'] as string[] },
-  { key: 'brainstorm', label: '创意发散', allowedActions: ['speak', 'send_message', 'summarize'] as string[] },
-  { key: 'retrospective', label: '复盘改进', allowedActions: ['speak', 'send_message', 'summarize'] as string[] },
-  { key: 'synthesis', label: '总结收束', allowedActions: ['speak', 'send_message', 'summarize'] as string[] },
+  { key: 'discussion', label: '开放讨论', allowedActions: ['speak', 'send_message', 'summarize_discussion', 'shift_to_synthesis'] as string[] },
+  { key: 'roundtable', label: '圆桌发言', allowedActions: ['speak', 'send_message', 'summarize_discussion', 'shift_to_synthesis'] as string[] },
+  { key: 'debate', label: '观点攻防', allowedActions: ['speak', 'send_message', 'summarize_discussion', 'shift_to_synthesis'] as string[] },
+  { key: 'brainstorm', label: '创意发散', allowedActions: ['speak', 'send_message', 'summarize_discussion', 'shift_to_synthesis'] as string[] },
+  { key: 'retrospective', label: '复盘改进', allowedActions: ['speak', 'send_message', 'summarize_discussion', 'shift_to_synthesis'] as string[] },
+  { key: 'synthesis', label: '总结收束', allowedActions: ['speak', 'send_message', 'summarize_discussion'] as string[] },
 ];
 function getPhaseDefinitions() {
   return [...DISCUSSION_PHASES];
@@ -157,7 +157,34 @@ function getAvailableActions() {
 }
 
 function getActionSchema(context: SessionEngineActionContext) {
-  return mergeGovernanceActionSchema(null, context);
+  const phase = getActiveDiscussionPhase(context.conversation);
+  const actions = [
+    {
+      type: 'summarize_discussion',
+      label: phase === 'synthesis' ? '更新讨论总结' : '总结讨论',
+      description: phase === 'synthesis'
+        ? '补充或更新当前讨论的收束结论。'
+        : '把当前讨论的主要观点、分歧和下一步整理成总结。',
+      visibility: 'public' as const,
+      fields: [
+        {
+          key: 'focus',
+          label: '总结重点',
+          type: 'textarea' as const,
+          placeholder: '例如：保留三条共识、两个分歧和一个下一步行动',
+        },
+      ],
+    },
+    ...(phase === 'synthesis'
+      ? []
+      : [{
+          type: 'shift_to_synthesis',
+          label: '进入收束',
+          description: '手动结束发散或攻防阶段，进入总结收束。',
+          visibility: 'public' as const,
+        }]),
+  ];
+  return mergeGovernanceActionSchema({ title: '讨论动作', actions }, context);
 }
 
 function buildGenerationPromptContext(params: Parameters<NonNullable<SessionEngineDefinition['buildGenerationPromptContext']>>[0]): SessionGenerationPromptContext {
