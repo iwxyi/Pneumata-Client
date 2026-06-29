@@ -1,4 +1,4 @@
-import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity, SessionKind } from '../types/chat';
+import type { ChatStyle, DiscussionMode, GroupChat, RuntimeEvolutionIntensity, SessionKind } from '../types/chat';
 import {
   DEFAULT_CONVERSATION_DIRECTOR_CONTROLS,
   DEFAULT_CONVERSATION_DRAMA_RULES,
@@ -244,15 +244,55 @@ function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 
   };
 }
 
+function resolveDiscussionMode(sessionKind: Pick<SessionKind, 'scenarioId'>, fallback?: DiscussionMode): DiscussionMode | null {
+  if (sessionKind.scenarioId === 'roundtable-discussion') return 'roundtable';
+  if (sessionKind.scenarioId === 'debate-arena') return 'debate';
+  if (sessionKind.scenarioId === 'brainstorm-workshop') return 'brainstorm';
+  if (sessionKind.scenarioId === 'retrospective-room') return 'retrospective';
+  if (sessionKind.scenarioId === 'group-discussion') return fallback || 'open';
+  return null;
+}
+
+function isDiscussionScenario(sessionKind: Pick<SessionKind, 'scenarioId'>) {
+  return Boolean(resolveDiscussionMode(sessionKind));
+}
+
+function isOrderedDiscussionMode(mode: DiscussionMode | null) {
+  return mode === 'roundtable' || mode === 'debate';
+}
+
+function buildDiscussionRoleAssignments(memberIds: string[], mode: DiscussionMode | null) {
+  if (mode !== 'debate') return [];
+  return memberIds
+    .filter((memberId) => memberId !== 'user')
+    .map((memberId, index) => {
+      const roleId = index % 3 === 0 ? 'affirmative' : index % 3 === 1 ? 'negative' : 'reviewer';
+      return {
+        actorId: memberId,
+        roleId,
+        factionId: roleId === 'affirmative' ? 'pro' : roleId === 'negative' ? 'con' : 'review',
+        summary: roleId === 'affirmative'
+          ? '优先提出支持论据并回应反方挑战'
+          : roleId === 'negative'
+            ? '优先提出反对论据并检验正方漏洞'
+            : '优先比较双方论据质量并提出判准',
+      };
+    });
+}
+
 export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
   const sessionKind = input.sessionKind || createDefaultSessionKind('group', 'open_chat');
   const templateDefaults = getRoomTemplateDefaultsBySessionKind(sessionKind);
   const isStoryReader = sessionKind.scenarioId === 'story-reader';
+  const discussionMode = resolveDiscussionMode(sessionKind, templateDefaults.discussionMode);
+  const isDiscussionRoom = isDiscussionScenario(sessionKind);
   const initialStoryAssets = isStoryReader ? buildInitialStoryAssets(input) : null;
   const mode = sessionKind.scenarioId === 'group-discussion'
     ? 'group_discussion'
-    : sessionKind.scenarioId === 'roundtable-discussion'
+    : isOrderedDiscussionMode(discussionMode)
       ? 'roundtable'
+      : isDiscussionRoom
+        ? 'group_discussion'
       : sessionKind.scenarioId === 'story-reader'
         ? 'scripted_play'
         : sessionKind.scenarioId === 'ielts-coach'
@@ -281,7 +321,9 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
     },
     scenarioState: {
       turnOrder: input.memberIds,
-      currentTurnActorId: null,
+      currentTurnActorId: isOrderedDiscussionMode(discussionMode)
+        ? input.memberIds.filter((id) => id !== 'user')[0] || null
+        : null,
       board: sessionKind.scenarioId === 'board-game'
         ? { schema: { kind: 'grid', columns: input.boardColumns || 8, rows: input.boardRows || 8 }, pieces: [] }
         : null,
@@ -289,8 +331,14 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
         ? Array.from({ length: Math.max(2, input.deductionFactionCount || 2) }, (_, index) => ({ factionId: `faction-${index + 1}`, label: `阵营${index + 1}` }))
         : [],
       phase: templateDefaults.initialPhase
-        || (sessionKind.scenarioId === 'roundtable-discussion'
+        || (discussionMode === 'roundtable'
           ? 'roundtable'
+          : discussionMode === 'debate'
+            ? 'debate'
+            : discussionMode === 'brainstorm'
+              ? 'brainstorm'
+              : discussionMode === 'retrospective'
+                ? 'retrospective'
           : sessionKind.scenarioId === 'board-game'
             ? 'board'
             : sessionKind.scenarioId === 'werewolf-classic'
@@ -298,9 +346,9 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
               : sessionKind.scenarioId === 'murder-mystery'
                 ? 'investigation'
                 : undefined),
-      goals: templateDefaults.goalLabel || sessionKind.scenarioId === 'werewolf-classic' || sessionKind.scenarioId === 'murder-mystery' || sessionKind.scenarioId === 'board-game'
+      goals: templateDefaults.goalLabel || isDiscussionRoom || sessionKind.scenarioId === 'werewolf-classic' || sessionKind.scenarioId === 'murder-mystery' || sessionKind.scenarioId === 'board-game'
         ? [{
-            goalId: `${sessionKind.family}-goal`,
+            goalId: isDiscussionRoom ? 'discussion-goal' : `${sessionKind.family}-goal`,
             label: templateDefaults.goalLabel
               || (sessionKind.scenarioId === 'board-game'
                 ? input.topic.trim() || input.name.trim()
@@ -313,8 +361,13 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
             progress: 0,
           }]
         : [],
-      progress: templateDefaults.progressLabel
-        ? [{ key: `${sessionKind.family}-progress`, label: templateDefaults.progressLabel, value: 0, target: templateDefaults.progressTarget || (input.discussionRoundsTarget || 100) }]
+      progress: templateDefaults.progressLabel || isDiscussionRoom
+        ? [{
+            key: isDiscussionRoom ? 'speeches' : `${sessionKind.family}-progress`,
+            label: templateDefaults.progressLabel || (discussionMode === 'roundtable' ? '圆桌发言' : '发言轮次'),
+            value: 0,
+            target: templateDefaults.progressTarget || (input.discussionRoundsTarget || 100),
+          }]
         : sessionKind.scenarioId === 'werewolf-classic'
           ? [{ key: 'deduction-progress', label: '推理进度', value: 0, target: 100 }]
           : sessionKind.scenarioId === 'murder-mystery'
@@ -326,7 +379,8 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
           ? Array.from({ length: Math.max(1, input.mysteryClueCount || templateDefaults.mysteryClueCount || 6) }, (_, index) => ({ branchId: `clue-${index + 1}`, label: `线索${index + 1}`, status: index === 0 ? 'available' : 'locked' }))
           : [],
       seats: input.memberIds.map((memberId, index) => ({ seatId: `seat-${index + 1}`, seatIndex: index, actorId: memberId })),
-      roleAssignments: [],
+      roleAssignments: buildDiscussionRoleAssignments(input.memberIds, discussionMode),
+      discussionMode: discussionMode || undefined,
       storyBackground: input.storyBackground || '',
       storyDirection: input.storyDirection || '',
       storyGoal: isStoryReader ? initialStoryAssets?.storyGoal : undefined,

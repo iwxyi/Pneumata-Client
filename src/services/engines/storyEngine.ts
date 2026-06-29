@@ -1,5 +1,5 @@
 import type { ConversationPhase, GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionRuntimeContextBundle } from '../../types/sessionEngine';
+import { applyGovernanceToParticipant, type SessionEngineDefinition, type SessionGenerationPromptContext, type SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message, NarrativeTurnMetadata } from '../../types/message';
 import {
   buildChapterRecap,
@@ -17,6 +17,7 @@ import {
 } from '../narrativeRuntime';
 import { filterStoryChoicesByReaderRole, getOpenStoryChoiceState, normalizeStoryChoiceSuggestions, resolveStoryReaderRole } from '../storyChoices';
 import { logDeveloperDiagnostic } from '../developerDiagnostics';
+import { isChatMemberMuted } from '../scheduler';
 
 const STORY_PHASES = [
   { key: 'scene', label: 'Scene', allowedActions: ['speak', 'send_message'] as string[] },
@@ -41,7 +42,7 @@ function buildParticipants(conversation: GroupChat) {
       canAct: true,
       flags: { actorRefKind: 'system_agent', systemAgentSubtype: 'narrator', actorCapabilities: 'observe,guide' },
     },
-    ...conversation.memberIds.map((memberId, index) => ({
+    ...conversation.memberIds.map((memberId, index) => applyGovernanceToParticipant(conversation, {
       participantId: `${conversation.id}:${memberId}`,
       conversationId: conversation.id,
       entityType: memberId === 'user' ? 'user' as const : 'ai' as const,
@@ -78,9 +79,12 @@ function resolveTurnPolicy(params: { conversation: GroupChat; messages: Message[
   };
 }
 
-function buildGenerationPromptContext(params: { conversation: GroupChat; messages?: Message[] }): SessionGenerationPromptContext {
+function buildGenerationPromptContext(params: Parameters<NonNullable<SessionEngineDefinition['buildGenerationPromptContext']>>[0]): SessionGenerationPromptContext {
   const phase = params.conversation.scenarioState?.phase || 'scene';
   const beatPlan = resolveStoryBeatPlan(params.conversation);
+  const mutedNames = params.conversation.memberIds
+    .filter((memberId) => isChatMemberMuted(params.conversation, memberId))
+    .map((memberId) => params.characters.find((character) => character.id === memberId)?.name || memberId);
   const background = params.conversation.scenarioState?.storyBackground ? `\nStory background: ${params.conversation.scenarioState.storyBackground}` : '';
   const direction = params.conversation.scenarioState?.storyDirection ? `\nCurrent story direction / selected branch: ${params.conversation.scenarioState.storyDirection}` : '';
   const outline = params.conversation.scenarioState?.storyOutline ? `\nStory outline: ${params.conversation.scenarioState.storyOutline}` : '';
@@ -98,6 +102,7 @@ function buildGenerationPromptContext(params: { conversation: GroupChat; message
     promptPrefix: `Write this story beat as a chat-driven scene using storyEvents as the authoritative visible story body. The narrator is the active actor; narrator prose may carry setting, action, consequences, inner pressure, sensory detail, and scene movement, while the main visible rhythm should be character chat bubbles when characters need to speak. Characters must only say what they can speak aloud, not scene narration, inner monologue, camera direction, or omniscient analysis. Never let a character inherit another character's private object, gesture, memory, wording, or sensory detail unless the transcript explicitly makes it public. Character dialogue is optional and must appear only as storyEvents speech.${background}${direction}${outline}`,
     additionalConstraints: [
       'When opening, renaming, or settling a chapter, include one storyEvents.chapter_update event with a short concrete title. Do not use generic titles such as "阶段回顾".',
+      ...(mutedNames.length ? [`Muted characters cannot speak aloud in storyEvents speech until unmuted: ${mutedNames.join(', ')}.`] : []),
       ...buildChoicePolicyPrompt(beatPlan),
       ...buildStoryAssetPrompt(params.conversation),
       ...buildStoryContinuationPrompt({ conversation: params.conversation, messages: params.messages }),

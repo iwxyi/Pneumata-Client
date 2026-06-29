@@ -3,6 +3,7 @@ import type { GroupChat, ParticipantInstance, RuntimeAction, RuntimePanelDefinit
 import type { Message, MessageAttachment, NarrativeBlock } from './message';
 import type { APIConfig } from './settings';
 import { buildDirectorInterventionFields } from './directorInterventionAction';
+import { canUseDirectorIntervention, canUseMute, canUsePrivateThreads } from '../services/conversationCapabilities';
 
 export type SessionFamily = 'conversation' | 'interview' | 'deduction' | 'mystery' | 'study' | 'analysis' | 'board_game' | 'agent' | 'simulation';
 export type SessionSurfaceProfile = 'text' | 'form' | 'board' | 'hybrid' | 'timeline' | 'dashboard';
@@ -113,6 +114,8 @@ export interface ScenarioSeat {
   teamId?: string | null;
   actorId?: string | null;
   displayName?: string;
+  muted?: boolean;
+  canSpeak?: boolean;
 }
 
 export interface PersistentCharacterCore {
@@ -282,6 +285,9 @@ export const DEFAULT_SESSION_FAMILY_REGISTRY: SessionFrameworkRegistry = {
     'ai-private-thread': { scenarioId: 'ai-private-thread', label: 'ai-private-thread', family: 'conversation', surfaceProfile: 'text' },
     'group-discussion': { scenarioId: 'group-discussion', label: 'group-discussion', family: 'analysis', surfaceProfile: 'text' },
     'roundtable-discussion': { scenarioId: 'roundtable-discussion', label: 'roundtable-discussion', family: 'analysis', surfaceProfile: 'text' },
+    'debate-arena': { scenarioId: 'debate-arena', label: 'debate-arena', family: 'analysis', surfaceProfile: 'text' },
+    'brainstorm-workshop': { scenarioId: 'brainstorm-workshop', label: 'brainstorm-workshop', family: 'analysis', surfaceProfile: 'text' },
+    'retrospective-room': { scenarioId: 'retrospective-room', label: 'retrospective-room', family: 'analysis', surfaceProfile: 'text' },
     'story-reader': { scenarioId: 'story-reader', label: 'story-reader', family: 'conversation', surfaceProfile: 'hybrid' },
     'ielts-coach': { scenarioId: 'ielts-coach', label: 'ielts-coach', family: 'study', surfaceProfile: 'form' },
     'single-agent-workflow': { scenarioId: 'single-agent-workflow', label: 'single-agent-workflow', family: 'agent', surfaceProfile: 'dashboard' },
@@ -1349,6 +1355,7 @@ export interface SessionActionDefinition {
   payload?: Record<string, unknown>;
   visibility?: VisibilityScope;
   fields?: SessionActionField[];
+  autoRun?: boolean;
 }
 
 export interface SessionActionSchema {
@@ -1642,6 +1649,7 @@ export function createDefaultConversationParticipants(conversation: GroupChat): 
     const systemAgentSubtype = entityType === 'system_agent' ? inferSystemAgentSubtypeFromMemberId(memberId) : null;
     const capabilities = buildParticipantCapabilities(entityType, systemAgentSubtype);
     const isMember = conversation.memberIds.includes(memberId);
+    const seat = isMember ? conversation.scenarioState?.seats?.find((item) => item.actorId === memberId) : undefined;
     const roleKey = entityType === 'user'
       ? 'user_persona'
       : entityType === 'system_agent'
@@ -1657,10 +1665,13 @@ export function createDefaultConversationParticipants(conversation: GroupChat): 
       entityType,
       entityRefId: memberId,
       seatIndex: isMember
-        ? (conversation.scenarioState?.seats?.find((seat) => seat.actorId === memberId)?.seatIndex ?? index)
+        ? (seat?.seatIndex ?? index)
         : undefined,
       displayName: entityType === 'user' ? '我' : entityType === 'system_agent' ? buildSystemAgentDisplayName(systemAgentSubtype) : undefined,
-      canSpeak: capabilities.includes('speak') || capabilities.includes('guide') || capabilities.includes('moderate') || capabilities.includes('judge'),
+      muted: canUseMute(conversation) ? seat?.muted === true : false,
+      canSpeak: canUseMute(conversation) && (seat?.muted === true || seat?.canSpeak === false)
+        ? false
+        : capabilities.includes('speak') || capabilities.includes('guide') || capabilities.includes('moderate') || capabilities.includes('judge'),
       canAct: true,
       roleKey,
       faction: null,
@@ -1684,6 +1695,24 @@ function hasParticipantCapability(participant: ParticipantInstance, capability: 
   return readParticipantCapabilities(participant).includes(capability);
 }
 
+export function getConversationSeat(conversation: GroupChat, memberId: string) {
+  return conversation.scenarioState?.seats?.find((item) => item.actorId === memberId);
+}
+
+export function applyGovernanceToParticipant(conversation: GroupChat, participant: ParticipantInstance): ParticipantInstance {
+  const memberId = participant.entityRefId || '';
+  const seat = memberId ? getConversationSeat(conversation, memberId) : undefined;
+  if (!canUseMute(conversation) || !seat) {
+    return { ...participant, muted: false };
+  }
+  const blocked = seat.muted === true || seat.canSpeak === false;
+  return {
+    ...participant,
+    muted: seat.muted === true,
+    canSpeak: blocked ? false : participant.canSpeak,
+  };
+}
+
 export function createDefaultConversationPanels(context: SessionProjectionContext): RuntimePanelDefinition[] {
   return [
     { key: 'members', title: context.conversation.type === 'group' ? '成员' : '角色', type: 'members', tabKey: 'members' },
@@ -1696,8 +1725,11 @@ export function createDefaultConversationActions(context: SessionProjectionConte
   const hasDirectorCapability = context.participants.some((participant) => hasParticipantCapability(participant, 'guide') || hasParticipantCapability(participant, 'moderate') || hasParticipantCapability(participant, 'judge'));
   const hasSystemAgent = context.participants.some((participant) => participant.entityType === 'system_agent');
   const aiParticipantCount = context.participants.filter((participant) => participant.entityType === 'ai').length;
-  if (context.conversation.type === 'group' && context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode && (hasDirectorCapability || !hasSystemAgent)) actions.push({ type: 'director_intervention' });
-  if (context.conversation.type === 'group' && context.conversation.governance.allowPrivateThreads && aiParticipantCount >= 2) actions.push({ type: 'start_private_thread' });
+  if (canUseDirectorIntervention(context.conversation) && (hasDirectorCapability || !hasSystemAgent)) actions.push({ type: 'director_intervention' });
+  if (canUsePrivateThreads(context.conversation) && aiParticipantCount >= 2) actions.push({ type: 'start_private_thread' });
+  if (canUseMute(context.conversation) && aiParticipantCount >= 1) {
+    actions.push({ type: 'mute_member' }, { type: 'unmute_member' });
+  }
   return actions;
 }
 
@@ -1710,7 +1742,7 @@ export function createDefaultConversationActionSchema(context: SessionEngineActi
     .map((participant, index) => ({ label: participant.displayName || `成员 ${index + 1}`, value: participant.entityRefId || '' }))
     .filter((option) => option.value);
   const actions: SessionActionDefinition[] = [];
-  if (context.conversation.modeConfig?.allowDirectorInterventions !== false && context.conversation.directorControls.allowDirectorMode && (hasDirectorCapability || !hasSystemAgent)) {
+  if (canUseDirectorIntervention(context.conversation) && (hasDirectorCapability || !hasSystemAgent)) {
     actions.push({
       type: 'director_intervention',
       label: '导演干预',
@@ -1724,7 +1756,7 @@ export function createDefaultConversationActionSchema(context: SessionEngineActi
       }),
     });
   }
-  if (context.conversation.governance.allowPrivateThreads && options.length >= 2) {
+  if (canUsePrivateThreads(context.conversation) && options.length >= 2) {
     actions.push({
       type: 'start_private_thread',
       label: '发起 AI 私聊',
@@ -1736,10 +1768,64 @@ export function createDefaultConversationActionSchema(context: SessionEngineActi
       ],
     });
   }
+  actions.push(...(createGovernanceActionSchema(context)?.actions || []));
   if (!actions.length) return null;
   return {
     title: '开放聊天动作',
     actions,
+  };
+}
+
+export function createGovernanceActionSchema(context: SessionEngineActionContext): SessionActionSchema | null {
+  if (!canUseMute(context.conversation)) return null;
+  const targetParticipants = context.participants.filter((participant) => participant.entityType === 'ai');
+  const muteOptions = targetParticipants
+    .filter((participant) => !participant.muted && participant.canSpeak !== false)
+    .map((participant, index) => ({ label: participant.displayName || `成员 ${index + 1}`, value: participant.entityRefId || '' }))
+    .filter((option) => option.value);
+  const unmuteOptions = targetParticipants
+    .filter((participant) => participant.muted || participant.canSpeak === false)
+    .map((participant, index) => ({ label: participant.displayName || `成员 ${index + 1}`, value: participant.entityRefId || '' }))
+    .filter((option) => option.value);
+  const actions: SessionActionDefinition[] = [];
+  if (muteOptions.length) {
+    actions.push({
+      type: 'mute_member',
+      label: '禁言成员',
+      description: '让指定成员暂时不能被自动调度发言。',
+      visibility: 'moderator_only',
+      fields: [
+        { key: 'targetId', label: '禁言对象', type: 'single_select', required: true, options: muteOptions, targetSource: 'participants' },
+        { key: 'prompt', label: '原因', type: 'textarea', placeholder: '例如：本轮先听其他成员发言' },
+      ],
+    });
+  }
+  if (unmuteOptions.length) {
+    actions.push({
+      type: 'unmute_member',
+      label: '解除禁言',
+      description: '恢复指定成员的自动发言资格。',
+      visibility: 'moderator_only',
+      fields: [
+        { key: 'targetId', label: '解除对象', type: 'single_select', required: true, options: unmuteOptions, targetSource: 'participants' },
+        { key: 'prompt', label: '原因', type: 'textarea', placeholder: '例如：恢复参与讨论' },
+      ],
+    });
+  }
+  if (!actions.length) return null;
+  return { title: '成员治理', actions };
+}
+
+export function mergeGovernanceActionSchema(baseSchema: SessionActionSchema | null, context: SessionEngineActionContext): SessionActionSchema | null {
+  const governanceSchema = createGovernanceActionSchema(context);
+  if (!governanceSchema) return baseSchema;
+  if (!baseSchema) return governanceSchema;
+  const existingTypes = new Set(baseSchema.actions.map((action) => action.type));
+  const governanceActions = governanceSchema.actions.filter((action) => !existingTypes.has(action.type));
+  if (!governanceActions.length) return baseSchema;
+  return {
+    ...baseSchema,
+    actions: [...baseSchema.actions, ...governanceActions],
   };
 }
 

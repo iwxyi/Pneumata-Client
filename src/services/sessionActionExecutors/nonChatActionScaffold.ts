@@ -2,6 +2,7 @@ import type { GroupChat } from '../../types/chat';
 import type { DirectorInterventionPayload, RuntimeEventV2 } from '../../types/runtimeEvent';
 import type { SessionActionDefinition, SessionActionExecutionResult } from '../../types/sessionEngine';
 import { buildStartPrivateThreadExecutionResult } from '../directSessionRuntime';
+import { canUseMute, canUsePrivateThreads } from '../conversationCapabilities';
 import { canActorRunSessionAction, resolveConversationActorRef } from '../memberActionPolicy';
 import { buildActionRuntimeContract } from '../sessionRuntimeContract';
 import { sanitizeStoryChoicePrompt } from '../storyChoices';
@@ -78,7 +79,7 @@ function prepareAction(action: SessionActionDefinition) {
 
 function validateAction(action: SessionActionDefinition) {
   if ((action.type === 'ask_question' || action.type === 'director_intervention') && !getPrompt(action)) return false;
-  if (['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player'].includes(action.type) && !(action.targetIds?.length)) return false;
+  if (['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player', 'mute_member', 'unmute_member'].includes(action.type) && !(action.targetIds?.length)) return false;
   return true;
 }
 
@@ -86,6 +87,17 @@ function canActorExecuteAction(chat: GroupChat, action: SessionActionDefinition)
   const actorId = typeof action.payload?.actorId === 'string' ? action.payload.actorId : action.actorId;
   if (!actorId) return true;
   if (action.type === 'choose_story_branch' && actorId === 'user') return true;
+  if (action.type === 'mute_member' || action.type === 'unmute_member') {
+    if (actorId === 'user') return true;
+    if (actorId === chat.governance.ownerCharacterId) return true;
+    if (chat.governance.adminCharacterIds.includes(actorId)) return true;
+    const memberSet = new Set(chat.memberIds);
+    const aiIds = new Set(
+      chat.memberIds.filter((id) => id !== 'user' && !/([_:-]|^)(gm|game|game_master|judge|referee|host|mc|主持|guide|guidance|topic|facilitator|引导|narrator|旁白|director|god|上帝|导演|moderator|mod|管理|system|orchestrator|scheduler|runtime)([_:-]|$)/i.test(id)),
+    );
+    const actorRef = resolveConversationActorRef(actorId, memberSet, aiIds);
+    return canActorRunSessionAction(action.type, actorRef);
+  }
   const memberSet = new Set(chat.memberIds);
   const aiIds = new Set(
     chat.memberIds.filter((id) => id !== 'user' && !/([_:-]|^)(gm|game|game_master|judge|referee|host|mc|主持|guide|guidance|topic|facilitator|引导|narrator|旁白|director|god|上帝|导演|moderator|mod|管理|system|orchestrator|scheduler|runtime)([_:-]|$)/i.test(id)),
@@ -95,10 +107,17 @@ function canActorExecuteAction(chat: GroupChat, action: SessionActionDefinition)
 }
 
 function validateTargetIdsInConversation(chat: GroupChat, action: SessionActionDefinition) {
-  const requiresTargets = ['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player'].includes(action.type);
+  const requiresTargets = ['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player', 'mute_member', 'unmute_member'].includes(action.type);
   if (!requiresTargets) return true;
   const memberSet = new Set(chat.memberIds);
   return (action.targetIds || []).every((id) => memberSet.has(id));
+}
+
+function validateMemberMuteAction(chat: GroupChat, action: SessionActionDefinition) {
+  if (action.type !== 'mute_member' && action.type !== 'unmute_member') return true;
+  if (!canUseMute(chat)) return false;
+  const targetId = action.targetIds?.[0] || '';
+  return Boolean(targetId && targetId !== 'user' && chat.memberIds.includes(targetId));
 }
 
 function validateDirectorInterventionTarget(chat: GroupChat, action: SessionActionDefinition) {
@@ -109,7 +128,7 @@ function validateDirectorInterventionTarget(chat: GroupChat, action: SessionActi
 }
 
 function validateStartPrivateThread(chat: GroupChat, action: SessionActionDefinition) {
-  if (!chat.governance.allowPrivateThreads) return false;
+  if (!canUsePrivateThreads(chat)) return false;
   const targetId = typeof action.payload?.targetId === 'string' ? action.payload.targetId : action.targetIds?.[0] || '';
   const actorId = typeof action.payload?.actorId === 'string' ? action.payload.actorId : action.actorId || '';
   if (!actorId || !targetId || actorId === targetId) return false;
@@ -191,6 +210,42 @@ function handleStartPrivateThread(chat: GroupChat, action: SessionActionDefiniti
   const targetId = typeof action.payload?.targetId === 'string' ? action.payload.targetId : action.targetIds?.[0] || '';
   const actorId = typeof action.payload?.actorId === 'string' ? action.payload.actorId : action.actorId || '';
   return buildStartPrivateThreadExecutionResult(chat, actorId, targetId, getPrompt(action));
+}
+
+function buildSeatsWithMuteState(chat: GroupChat, targetId: string, muted: boolean) {
+  const existingSeats = chat.scenarioState?.seats || [];
+  const existingSeat = existingSeats.find((seat) => seat.actorId === targetId);
+  const nextSeat = {
+    ...(existingSeat || {
+      seatId: `seat-${Math.max(1, chat.memberIds.indexOf(targetId) + 1)}`,
+      seatIndex: Math.max(0, chat.memberIds.indexOf(targetId)),
+      actorId: targetId,
+    }),
+    muted,
+    canSpeak: !muted,
+  };
+  if (existingSeat) {
+    return existingSeats.map((seat) => (seat.actorId === targetId ? nextSeat : seat));
+  }
+  return [...existingSeats, nextSeat];
+}
+
+function handleMemberMute(chat: GroupChat, action: SessionActionDefinition) {
+  const targetId = action.targetIds?.[0] || '';
+  const muted = action.type === 'mute_member';
+  const prompt = getPrompt(action);
+  const summary = `${muted ? '禁言' : '解除禁言'}${getTargetLabel(chat, action)}${prompt ? `：${truncate(prompt, 32)}` : ''}`;
+  const result = buildActionResult(chat, action, muted ? '禁言成员' : '解除禁言', summary, muted ? 'member_muted' : 'member_unmuted', { targetId, prompt });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        seats: buildSeatsWithMuteState(chat, targetId, muted),
+      },
+    },
+  };
 }
 
 function handleWolfVote(chat: GroupChat, action: SessionActionDefinition) {
@@ -488,6 +543,7 @@ function getHandler(action: SessionActionDefinition) {
   if (action.type === 'ask_question') return handleAskQuestion;
   if (action.type === 'director_intervention') return handleDirectorIntervention;
   if (action.type === 'start_private_thread') return handleStartPrivateThread;
+  if (action.type === 'mute_member' || action.type === 'unmute_member') return handleMemberMute;
   if (action.type === 'wolf_vote') return handleWolfVote;
   if (action.type === 'inspect_player') return handleInspectPlayer;
   if (action.type === 'vote_player') return handleVotePlayer;
@@ -511,6 +567,7 @@ export function executeNonChatActionScaffold(chat: GroupChat, action: SessionAct
   if (!canActorExecuteAction(chat, prepared)) return null;
   if (!validateTargetIdsInConversation(chat, prepared)) return null;
   if (!validateDirectorInterventionTarget(chat, prepared)) return null;
+  if (!validateMemberMuteAction(chat, prepared)) return null;
   if (prepared.type === 'start_private_thread' && !validateStartPrivateThread(chat, prepared)) return null;
   const handler = getHandler(prepared);
   if (!handler) return null;

@@ -1,4 +1,4 @@
-import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity, SessionKind } from '../types/chat';
+import type { ChatStyle, DiscussionMode, GroupChat, RuntimeEvolutionIntensity, SessionKind } from '../types/chat';
 import { createDefaultSessionKind } from '../types/chat';
 import roomPresetCatalog from '../data/roomPresetCatalog.json';
 
@@ -63,6 +63,7 @@ export interface RoomTemplateFieldDefinition {
 
 export interface RoomTemplateDefaults {
   discussionRoundsTarget?: number;
+  discussionMode?: DiscussionMode;
   storyBranchMode?: 'guided' | 'open';
   studyGoalLabel?: string;
   agentGoalLabel?: string;
@@ -242,7 +243,7 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'brainstorm',
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入讨论议题，例如：AI 会取代哪些职业？',
-    defaults: { discussionRoundsTarget: 6, initialPhase: 'discussion', goalLabel: '开放讨论', progressLabel: '发言轮次', allowPrivateThreads: true, allowCliques: true, allowMockery: false },
+    defaults: { discussionRoundsTarget: 6, discussionMode: 'open', initialPhase: 'discussion', goalLabel: '开放讨论', progressLabel: '发言轮次', allowPrivateThreads: true, allowCliques: true, allowMockery: false },
     configGroups: [
       {
         key: 'discussion-required',
@@ -273,7 +274,7 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'debate',
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入圆桌议题，例如：未来教育会如何变化？',
-    defaults: { discussionRoundsTarget: 4, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    defaults: { discussionRoundsTarget: 4, discussionMode: 'roundtable', initialPhase: 'roundtable', progressLabel: '圆桌发言', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
     configGroups: [
       {
         key: 'roundtable-required',
@@ -298,11 +299,11 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     structure: 'thinking',
     category: 'thinking',
     categoryLabel: '思考协作',
-    sessionKind: createTemplateSessionKind('group', 'roundtable', { family: 'analysis', scenarioId: 'roundtable-discussion', surfaceProfile: 'text', topology: 'table' }),
+    sessionKind: createTemplateSessionKind('group', 'roundtable', { family: 'analysis', scenarioId: 'debate-arena', surfaceProfile: 'text', topology: 'table' }),
     style: 'debate',
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入正反命题，例如：AI 应该拥有法律人格吗？',
-    defaults: { discussionRoundsTarget: 5, allowPrivateThreads: false, allowCliques: true, allowMockery: true },
+    defaults: { discussionRoundsTarget: 5, discussionMode: 'debate', initialPhase: 'debate', goalLabel: '观点攻防', progressLabel: '攻防轮次', allowPrivateThreads: false, allowCliques: true, allowMockery: true },
     configGroups: [
       {
         key: 'debate-required',
@@ -328,11 +329,11 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     structure: 'creation',
     category: 'creation',
     categoryLabel: '创作共创',
-    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'group-discussion', surfaceProfile: 'text', topology: 'group' }),
+    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'brainstorm-workshop', surfaceProfile: 'text', topology: 'group' }),
     style: 'brainstorm',
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入创意主题，例如：设计一个未来校园产品',
-    defaults: { discussionRoundsTarget: 8, allowPrivateThreads: true, allowCliques: false, allowMockery: false },
+    defaults: { discussionRoundsTarget: 8, discussionMode: 'brainstorm', initialPhase: 'brainstorm', goalLabel: '创意生成', progressLabel: '点子轮次', allowPrivateThreads: true, allowCliques: false, allowMockery: false },
     configGroups: [
       {
         key: 'brainstorm-required',
@@ -357,11 +358,11 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     structure: 'thinking',
     category: 'thinking',
     categoryLabel: '思考协作',
-    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'group-discussion', surfaceProfile: 'text', topology: 'group' }),
+    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'retrospective-room', surfaceProfile: 'text', topology: 'group' }),
     style: 'debate',
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入要复盘的项目、活动或结果',
-    defaults: { discussionRoundsTarget: 4, allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    defaults: { discussionRoundsTarget: 4, discussionMode: 'retrospective', initialPhase: 'retrospective', goalLabel: '复盘改进', progressLabel: '复盘轮次', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
     configGroups: [
       {
         key: 'retrospective-required',

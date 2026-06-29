@@ -1,5 +1,5 @@
 import type { ConversationPhase, GroupChat, RuntimeContext } from '../../types/chat';
-import type { SessionActionSchema } from '../../types/sessionEngine';
+import { applyGovernanceToParticipant, mergeGovernanceActionSchema, type SessionActionSchema, type SessionEngineActionContext } from '../../types/sessionEngine';
 import type { AICharacter } from '../../types/character';
 import type { RuntimeEventV2 } from '../../types/runtimeEvent';
 import { buildDirectorInterventionFields } from '../../types/directorInterventionAction';
@@ -32,7 +32,15 @@ export function buildWerewolfScenarioState(conversation: GroupChat) {
     ],
     seats: turnOrder.map((memberId, index) => {
       const roleId = pickWerewolfRole(index, total);
-      return { seatId: `seat-${index + 1}`, seatIndex: index, actorId: memberId, roleId, teamId: roleId === 'werewolf' ? 'werewolves' : 'villagers' };
+      const existingSeat = conversation.scenarioState?.seats?.find((seat) => seat.actorId === memberId);
+      return {
+        ...(existingSeat || {}),
+        seatId: existingSeat?.seatId || `seat-${index + 1}`,
+        seatIndex: existingSeat?.seatIndex ?? index,
+        actorId: memberId,
+        roleId,
+        teamId: roleId === 'werewolf' ? 'werewolves' : 'villagers',
+      };
     }),
     roleAssignments: turnOrder.map((memberId, index) => {
       const roleId = pickWerewolfRole(index, total);
@@ -73,7 +81,7 @@ export function buildWerewolfParticipants(conversation: GroupChat) {
   return conversation.memberIds.map((memberId, index) => {
     const seat = scenarioState.seats?.find((item) => item.actorId === memberId);
     const role = getWerewolfScenarioRole(conversation, memberId);
-    return {
+    return applyGovernanceToParticipant(conversation, {
       participantId: `${conversation.id}:${memberId}`,
       conversationId: conversation.id,
       entityType: 'ai' as const,
@@ -84,7 +92,7 @@ export function buildWerewolfParticipants(conversation: GroupChat) {
       roleKey: role,
       faction: seat?.teamId || null,
       flags: { role, alive: true },
-    };
+    });
   });
 }
 
@@ -99,6 +107,10 @@ export function buildWerewolfActionSchema(conversation: GroupChat): SessionActio
       { type: 'director_intervention', label: '主持推进', description: '切换昼夜、结算结果或推动发言。', visibility: 'moderator_only', fields: buildDirectorInterventionFields({ preset: 'deduction', targetLabel: '影响玩家', targetOptions, promptPlaceholder: '例如：天亮了，昨夜是平安夜，进入白天讨论' }) },
     ],
   };
+}
+
+export function buildWerewolfActionSchemaWithGovernance(context: SessionEngineActionContext): SessionActionSchema | null {
+  return mergeGovernanceActionSchema(buildWerewolfActionSchema(context.conversation), context);
 }
 
 export function getWerewolfVisiblePanels(_context: RuntimeContext) {

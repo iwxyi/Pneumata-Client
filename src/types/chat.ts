@@ -40,6 +40,8 @@ export interface ScenarioSeat {
   roleId?: string | null;
   teamId?: string | null;
   displayName?: string;
+  muted?: boolean;
+  canSpeak?: boolean;
 }
 
 export interface ScenarioRoleAssignment {
@@ -84,6 +86,8 @@ export interface ScenarioProgressState {
   value: number;
   target?: number;
 }
+
+export type DiscussionMode = 'open' | 'roundtable' | 'debate' | 'brainstorm' | 'retrospective';
 
 export interface ScenarioBranchState {
   branchId: string;
@@ -167,6 +171,7 @@ export interface ScenarioState {
   board?: SessionBoardState | null;
   factions?: Array<{ factionId: string; label: string }>;
   phase?: string;
+  discussionMode?: DiscussionMode;
   goals?: ScenarioGoalState[];
   progress?: ScenarioProgressState[];
   branches?: ScenarioBranchState[];

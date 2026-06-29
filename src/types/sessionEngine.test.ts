@@ -46,11 +46,33 @@ describe('default conversation action schema', () => {
     const participants = createDefaultConversationParticipants(conversation);
     const actions = createDefaultConversationActions({ conversation, participants });
     const schema = createDefaultConversationActionSchema({ conversation, participants });
-    expect(actions.map((action) => action.type)).toEqual(['speak', 'director_intervention', 'start_private_thread']);
-    expect(schema?.actions.map((action) => action.type)).toEqual(['director_intervention', 'start_private_thread']);
+    expect(actions.map((action) => action.type)).toEqual(['speak', 'director_intervention', 'start_private_thread', 'mute_member', 'unmute_member']);
+    expect(schema?.actions.map((action) => action.type)).toEqual(['director_intervention', 'start_private_thread', 'mute_member']);
     const director = schema?.actions.find((action) => action.type === 'director_intervention');
     expect(director?.fields?.map((field) => field.key)).toEqual(['intent', 'targetId', 'maxTurns', 'prompt']);
     expect(director?.fields?.find((field) => field.key === 'intent')?.options?.map((option) => option.value)).toContain('force_reply');
+    const mute = schema?.actions.find((action) => action.type === 'mute_member');
+    expect(mute?.fields?.find((field) => field.key === 'targetId')?.options?.map((option) => option.value)).toEqual(['a', 'b']);
+  });
+
+  it('projects muted participants and exposes unmute action for them', () => {
+    const conversation = buildChat({
+      scenarioState: {
+        seats: [
+          { seatId: 'seat-a', seatIndex: 0, actorId: 'a', muted: true },
+          { seatId: 'seat-b', seatIndex: 1, actorId: 'b' },
+        ],
+      },
+    });
+    const participants = createDefaultConversationParticipants(conversation);
+    const muted = participants.find((item) => item.entityRefId === 'a');
+    const schema = createDefaultConversationActionSchema({ conversation, participants });
+
+    expect(muted?.muted).toBe(true);
+    expect(muted?.canSpeak).toBe(false);
+    expect(schema?.actions.map((action) => action.type)).toEqual(['director_intervention', 'start_private_thread', 'mute_member', 'unmute_member']);
+    expect(schema?.actions.find((action) => action.type === 'mute_member')?.fields?.find((field) => field.key === 'targetId')?.options?.map((option) => option.value)).toEqual(['b']);
+    expect(schema?.actions.find((action) => action.type === 'unmute_member')?.fields?.find((field) => field.key === 'targetId')?.options?.map((option) => option.value)).toEqual(['a']);
   });
 
   it('infers system agent participant subtype and capabilities from member id', () => {
@@ -112,8 +134,8 @@ describe('default conversation action schema', () => {
     const participants = createDefaultConversationParticipants(conversation);
     const actions = createDefaultConversationActions({ conversation, participants });
     const schema = createDefaultConversationActionSchema({ conversation, participants });
-    expect(actions.map((action) => action.type)).toEqual(['speak']);
-    expect(schema).toBeNull();
+    expect(actions.map((action) => action.type)).toEqual(['speak', 'mute_member', 'unmute_member']);
+    expect(schema?.actions.map((action) => action.type)).toEqual(['mute_member']);
   });
 
   it('keeps private-thread actor options AI-only when user persona is in the group', () => {
@@ -130,15 +152,15 @@ describe('default conversation action schema', () => {
     const participants = createDefaultConversationParticipants(conversation);
     const actions = createDefaultConversationActions({ conversation, participants });
     const schema = createDefaultConversationActionSchema({ conversation, participants });
-    expect(actions.map((action) => action.type)).toEqual(['speak', 'director_intervention']);
-    expect(schema?.actions.map((action) => action.type)).toEqual(['director_intervention']);
+    expect(actions.map((action) => action.type)).toEqual(['speak', 'director_intervention', 'mute_member', 'unmute_member']);
+    expect(schema?.actions.map((action) => action.type)).toEqual(['director_intervention', 'mute_member']);
   });
 
   it('omits director intervention when director mode is disabled', () => {
     const conversation = buildChat({ directorControls: { allowSpeakAs: true, allowDirectorMode: false, allowEventInjection: true, allowForcedReply: true } });
     const participants = createDefaultConversationParticipants(conversation);
     const schema = createDefaultConversationActionSchema({ conversation, participants });
-    expect(schema?.actions.map((action) => action.type)).toEqual(['start_private_thread']);
+    expect(schema?.actions.map((action) => action.type)).toEqual(['start_private_thread', 'mute_member']);
   });
 });
 

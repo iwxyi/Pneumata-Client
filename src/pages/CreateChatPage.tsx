@@ -41,6 +41,7 @@ import ManagementSection from '../components/createChat/ManagementSection';
 import MemberSelectionDialog from '../components/createChat/MemberSelectionDialog';
 import { normalizeRuntimeSeedLines } from '../services/runtimeSeed';
 import { buildIncludeUserAsMemberCopy } from '../services/createChatPresentation';
+import { resolveRoomTemplateCapabilityDefaults } from '../services/conversationCapabilities';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import AppSnackbar from '../components/common/AppSnackbar';
 import ExpandableFab from '../components/common/ExpandableFab';
@@ -528,13 +529,19 @@ export default function CreateChatPage() {
   const applyRoomTemplate = useCallback((templateKey: RoomTemplateKey) => {
     const template = getRoomTemplate(templateKey);
     const defaults = template.defaults || {};
+    const capabilityDefaults = resolveRoomTemplateCapabilityDefaults(template, { showRoleActions: chatDraftDefaults.showRoleActions });
     setRoomTemplate(template.key);
     if (!styleOverriddenRef.current) setStyle(template.style);
     setRuntimeEvolutionIntensity(template.runtimeEvolutionIntensity);
-    setShowRoleActions(template.sessionKind.scenarioId === 'story-reader' ? false : chatDraftDefaults.showRoleActions);
-    setAllowPrivateThreads(defaults.allowPrivateThreads ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
-    setAllowCliques(defaults.allowCliques ?? (template.sessionKind.family === 'conversation' || template.sessionKind.family === 'analysis'));
-    setAllowMockery(defaults.allowMockery ?? (template.sessionKind.family === 'conversation'));
+    setShowRoleActions(capabilityDefaults.showRoleActions);
+    setAllowMute(capabilityDefaults.allowMute);
+    setAllowPrivateThreads(capabilityDefaults.allowPrivateThreads);
+    setAllowCliques(capabilityDefaults.allowCliques);
+    setAllowMockery(capabilityDefaults.allowMockery);
+    setAllowSpeakAs(capabilityDefaults.allowSpeakAs);
+    setAllowDirectorMode(capabilityDefaults.allowDirectorMode);
+    setAllowEventInjection(capabilityDefaults.allowEventInjection);
+    setAllowForcedReply(capabilityDefaults.allowForcedReply);
     if (template.sessionKind.scenarioId === 'story-reader' && !template.parentTemplateKey) {
       setStoryBackground('');
       setStoryDirection('');

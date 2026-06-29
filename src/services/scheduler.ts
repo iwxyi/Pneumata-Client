@@ -8,6 +8,7 @@ import type { DirectorIntent } from './directorIntent';
 import { buildSpeakerScoreBreakdown, getDirectorIntentSpeakerBias, type SpeakerScoreBreakdown } from './speakerScoring';
 import { getInnerLifeSpeakerBias, projectInnerLife } from './innerLifeEngine';
 import { projectWorldAttentionStates } from './worldRuntimeProjection';
+import { canUseMute } from './conversationCapabilities';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -63,6 +64,12 @@ function hasRecentSameTargetLoop(messages: Message[], charId: string, targetId?:
     && lastTwoAi.length === 2
     && lastTwoAi[0].senderId === targetId
     && lastTwoAi[1].senderId === charId;
+}
+
+export function isChatMemberMuted(chat: Pick<GroupChat, 'governance' | 'scenarioState'> | null | undefined, memberId: string) {
+  if (!chat || !canUseMute(chat)) return false;
+  const seat = chat.scenarioState?.seats?.find((item) => item.actorId === memberId);
+  return seat?.muted === true || seat?.canSpeak === false;
 }
 
 export interface WeightedCandidate {
@@ -210,6 +217,9 @@ export function calculateWeights(
   chat?: GroupChat | null,
   directorIntent?: DirectorIntent | null
 ): WeightedCandidate[] {
+  const speakableCharacters = chat
+    ? characters.filter((char) => !isChatMemberMuted(chat, char.id))
+    : characters;
   const recentAiMessages = recentMessages.filter((m) => m.type === 'ai' && !m.isDeleted);
   const lastSpeakerId = recentAiMessages.at(-1)?.senderId;
   const conflictContext = resolveConflictSpeakerContext(chat);
@@ -237,7 +247,7 @@ export function calculateWeights(
     : [];
   const attentionStateBiasByActor = new Map<string, number>();
   if (chat) {
-    projectWorldAttentionStates([chat], characters, { now })
+    projectWorldAttentionStates([chat], speakableCharacters, { now })
       .filter((state) => state.targetId === 'user')
       .forEach((state) => {
         const rawBias = (state.attentionScore - state.restraint) * 0.32;
@@ -248,7 +258,7 @@ export function calculateWeights(
       });
   }
 
-  return characters
+  return speakableCharacters
     .filter((char) => {
       if (forcedUserGuidanceActorIds.length && !forcedUserGuidanceActorIds.includes(char.id)) return false;
       if (forcedUserGuidanceActorIds.includes(char.id)) return true;

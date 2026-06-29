@@ -5,6 +5,7 @@ import {
   normalizeOperatorIdsInput,
   stripUserMemberId,
 } from './chatDraftBuilder';
+import { getRoomTemplate } from './roomTemplates';
 
 describe('chatDraftBuilder composeGroupMemberIds', () => {
   it('adds user as participant when includeUserAsMember is enabled', () => {
@@ -114,6 +115,133 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
       visibleThreat: '旧医院连续有人失踪。',
       summary: '旧医院连续有人失踪。 / 当前开场：雨夜旧医院',
     }));
+  });
+
+  it('initializes roundtable discussion with stable speech progress and first speaker', () => {
+    const draft = buildGroupChatDraft({
+      type: 'group',
+      name: '圆桌讨论',
+      topic: '是否要重构推荐系统',
+      style: 'debate',
+      runtimeEvolutionIntensity: 'balanced',
+      sessionKind: { family: 'analysis', scenarioId: 'roundtable-discussion', surfaceProfile: 'text', topology: 'table' },
+      discussionRoundsTarget: 4,
+      memberIds: ['analyst-a', 'analyst-b', 'user'],
+      operatorIds: [],
+      showRoleActions: true,
+      seedMemoryText: '',
+      seedArtifactText: '',
+      ownerCharacterId: null,
+      adminCharacterIds: [],
+      autoModeration: false,
+      allowMute: true,
+      allowPrivateThreads: false,
+      allowCliques: false,
+      allowMockery: false,
+      mood: '',
+      focus: '',
+      recentEvent: '',
+      allowSpeakAs: true,
+      allowDirectorMode: true,
+      allowEventInjection: true,
+      allowForcedReply: true,
+    });
+
+    expect(draft.mode).toBe('roundtable');
+    expect(draft.scenarioState?.phase).toBe('roundtable');
+    expect(draft.scenarioState?.currentTurnActorId).toBe('analyst-a');
+    expect(draft.scenarioState?.goals?.[0]).toEqual(expect.objectContaining({
+      goalId: 'discussion-goal',
+      label: '是否要重构推荐系统',
+    }));
+    expect(draft.scenarioState?.progress).toEqual([
+      { key: 'speeches', label: '圆桌发言', value: 0, target: 4 },
+    ]);
+  });
+
+  it('materializes thinking variants with distinct discussion runtime state', () => {
+    const cases = [
+      { key: 'debate_arena', mode: 'roundtable', scenarioId: 'debate-arena', discussionMode: 'debate', phase: 'debate', progressLabel: '攻防轮次' },
+      { key: 'brainstorm_workshop', mode: 'group_discussion', scenarioId: 'brainstorm-workshop', discussionMode: 'brainstorm', phase: 'brainstorm', progressLabel: '点子轮次' },
+      { key: 'retrospective_room', mode: 'group_discussion', scenarioId: 'retrospective-room', discussionMode: 'retrospective', phase: 'retrospective', progressLabel: '复盘轮次' },
+    ] as const;
+
+    for (const item of cases) {
+      const template = getRoomTemplate(item.key);
+      const draft = buildGroupChatDraft({
+        type: 'group',
+        name: template.label,
+        topic: '是否应该重构推荐系统',
+        style: template.style,
+        runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
+        sessionKind: template.sessionKind,
+        discussionRoundsTarget: template.defaults?.discussionRoundsTarget,
+        memberIds: ['analyst-a', 'analyst-b', 'analyst-c'],
+        operatorIds: [],
+        showRoleActions: true,
+        seedMemoryText: '',
+        seedArtifactText: '',
+        ownerCharacterId: null,
+        adminCharacterIds: [],
+        autoModeration: false,
+        allowMute: true,
+        allowPrivateThreads: false,
+        allowCliques: false,
+        allowMockery: false,
+        mood: '',
+        focus: '',
+        recentEvent: '',
+        allowSpeakAs: true,
+        allowDirectorMode: true,
+        allowEventInjection: true,
+        allowForcedReply: true,
+      });
+
+      expect(draft.mode).toBe(item.mode);
+      expect(draft.sessionKind?.scenarioId).toBe(item.scenarioId);
+      expect(draft.scenarioState?.discussionMode).toBe(item.discussionMode);
+      expect(draft.scenarioState?.phase).toBe(item.phase);
+      expect(draft.scenarioState?.progress?.[0]?.label).toBe(item.progressLabel);
+    }
+  });
+
+  it('assigns stable debate roles by seat order', () => {
+    const template = getRoomTemplate('debate_arena');
+    const draft = buildGroupChatDraft({
+      type: 'group',
+      name: template.label,
+      topic: 'AI 是否应拥有法律人格',
+      style: template.style,
+      runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
+      sessionKind: template.sessionKind,
+      discussionRoundsTarget: 5,
+      memberIds: ['a', 'b', 'c', 'user'],
+      operatorIds: [],
+      showRoleActions: true,
+      seedMemoryText: '',
+      seedArtifactText: '',
+      ownerCharacterId: null,
+      adminCharacterIds: [],
+      autoModeration: false,
+      allowMute: true,
+      allowPrivateThreads: false,
+      allowCliques: true,
+      allowMockery: true,
+      mood: '',
+      focus: '',
+      recentEvent: '',
+      allowSpeakAs: true,
+      allowDirectorMode: true,
+      allowEventInjection: true,
+      allowForcedReply: true,
+    });
+
+    expect(draft.scenarioState?.currentTurnActorId).toBe('a');
+    expect(draft.scenarioState?.roleAssignments?.map((item) => [item.actorId, item.roleId, item.factionId])).toEqual([
+      ['a', 'affirmative', 'pro'],
+      ['b', 'negative', 'con'],
+      ['c', 'reviewer', 'review'],
+    ]);
   });
 
   it('normalizes operator ids and filters user/member duplicates', () => {

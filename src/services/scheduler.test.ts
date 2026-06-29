@@ -169,6 +169,29 @@ describe('scheduler speaker scoring', () => {
     expect(b?.scoreBreakdown?.addressed).toBeGreaterThan(0);
   });
 
+  it('excludes muted members from speaker candidates when mute governance is enabled', () => {
+    const candidates = calculateWeights(
+      [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '乙，你说呢？' })],
+      {},
+      1,
+      0,
+      null,
+      {
+        ...buildChat(),
+        governance: { ...DEFAULT_CONVERSATION_GOVERNANCE, allowMute: true },
+        scenarioState: {
+          seats: [
+            { seatId: 'seat-a', seatIndex: 0, actorId: 'a' },
+            { seatId: 'seat-b', seatIndex: 1, actorId: 'b', muted: true },
+          ],
+        },
+      },
+    );
+
+    expect(candidates.map((candidate) => candidate.characterId)).toEqual(['a']);
+  });
+
   it('lets explicit user media guidance override cooldown and suppress non-target speakers', () => {
     const intent: DirectorIntent = {
       source: 'user_message',

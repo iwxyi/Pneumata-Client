@@ -13,6 +13,7 @@ import { formatRuntimeEventKindLabel } from './runtimeEventPresentation';
 import { formatActorRefKindLabel, formatSystemAgentSubtypeLabel, inferSystemAgentSubtypeFromId, toActorRef, type ActorRefKind } from './actorRefPresentation';
 import { evaluateGuidanceGeneratedContent, extractGuidanceMatchTokens, normalizeGuidanceMatchText } from './guidanceExecution';
 import { projectWorldAttentionStates } from './worldRuntimeProjection';
+import { canUsePrivateThreads } from './conversationCapabilities';
 
 export interface ProjectedRuntimeTimelineItem {
   type: 'note' | 'artifact' | 'relationship';
@@ -1146,7 +1147,7 @@ export function buildProjectedSessionActions(chat: GroupChat, actions: SessionAc
     ],
     visibility: 'public',
   };
-  const canInjectPrivateThread = chat.governance.allowPrivateThreads && scopedMembers.length >= 2;
+  const canInjectPrivateThread = canUsePrivateThreads(chat) && scopedMembers.length >= 2;
   return [
     ...(canInjectPrivateThread ? [startPrivateThread] : []),
     ...dedupedFollowupActions,

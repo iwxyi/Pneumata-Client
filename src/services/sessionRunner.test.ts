@@ -281,6 +281,57 @@ describe('runSessionLoop', () => {
     expect(params.onLoopError).toHaveBeenCalled();
   });
 
+  it('does not auto-run manual governance actions from the action schema', async () => {
+    const engine = {
+      key: 'governance-test',
+      createInitialConfig: () => ({}),
+      createInitialState: () => ({}),
+      buildParticipants: () => [],
+      getVisiblePanels: () => [],
+      getAvailableActions: () => [{ type: 'mute_member' }],
+      getActionSchema: () => ({
+        title: '治理动作',
+        actions: [{ type: 'mute_member', targetIds: ['a'], visibility: 'moderator_only' as const }],
+      }),
+      resolveTurnPolicy: () => ({ runChat: false, runAction: true, interleaveAction: false }),
+      onMessageCommitted: async () => ({ chatPatch: {}, characterPatches: [], runtimeEvents: [] }),
+    };
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' } }));
+
+    await runSessionLoop({ ...params, resolveSessionEngine: async () => engine } as never);
+
+    expect(runSessionActionExecutorMock).not.toHaveBeenCalled();
+    expect(params.updateChat).not.toHaveBeenCalled();
+    expect(params.onLoopError).toHaveBeenCalled();
+  });
+
+  it('does not auto-run form actions when required fields have no payload', async () => {
+    const engine = {
+      key: 'manual-form-test',
+      createInitialConfig: () => ({}),
+      createInitialState: () => ({}),
+      buildParticipants: () => [],
+      getVisiblePanels: () => [],
+      getAvailableActions: () => [{ type: 'assign_study_task' }],
+      getActionSchema: () => ({
+        title: '表单动作',
+        actions: [{
+          type: 'assign_study_task',
+          fields: [{ key: 'task', label: '任务内容', type: 'textarea' as const, required: true }],
+        }],
+      }),
+      resolveTurnPolicy: () => ({ runChat: false, runAction: true, interleaveAction: false }),
+      onMessageCommitted: async () => ({ chatPatch: {}, characterPatches: [], runtimeEvents: [] }),
+    };
+    const params = buildLoopParams(buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'study', scenarioId: 'ielts-coach', surfaceProfile: 'form' } }));
+
+    await runSessionLoop({ ...params, resolveSessionEngine: async () => engine } as never);
+
+    expect(runSessionActionExecutorMock).not.toHaveBeenCalled();
+    expect(params.updateChat).not.toHaveBeenCalled();
+    expect(params.onLoopError).toHaveBeenCalled();
+  });
+
   it('skips chat ticks when engine policy disallows werewolf speaking', async () => {
     const params = buildLoopParams(buildChat({ mode: 'werewolf', sessionKind: { topology: 'table', family: 'deduction', scenarioId: 'werewolf-classic', surfaceProfile: 'hybrid' }, worldState: { phase: 'warming', mood: '', focus: '', recentEvent: '', conflictAxes: [] } as never }));
     await runSessionLoop(params as never);

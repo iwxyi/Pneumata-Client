@@ -13,6 +13,7 @@ import { getPreferredAIProfile } from '../types/settings';
 import { resolveUserInputHold, type UserDraftActivity } from './userInputBuffer';
 import { isGenerationCancelledError } from './generationCancellation';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
+import { isAutoRunnableSessionAction } from './conversationCapabilities';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -131,7 +132,7 @@ async function maybeRunNonChatAction(
 ) {
   const context = createSessionRuntimeContext(engine, chat);
   const actionSchema = engine.getActionSchema?.({ conversation: chat, participants: context.participants }) || null;
-  const nonChatAction = actionSchema?.actions.find((action: { type: string }) => action.type !== 'send_message' && action.type !== 'speak') || null;
+  const nonChatAction = actionSchema?.actions.find((action) => action.type !== 'send_message' && action.type !== 'speak' && isAutoRunnableSessionAction(action)) || null;
   if (!nonChatAction) return false;
 
   const actionChance = getFallbackActionChance(chat);

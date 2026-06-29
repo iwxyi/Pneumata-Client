@@ -7,6 +7,7 @@ const engineLoaders: Record<string, () => Promise<SessionEngineDefinition>> = {
   interview: async () => (await import('./engines/interviewEngine')).INTERVIEW_ENGINE,
   werewolf: async () => (await import('./engines/werewolfEngine')).WEREWOLF_ENGINE,
   group_discussion: async () => (await import('./engines/discussionEngine')).DISCUSSION_ENGINE,
+  roundtable: async () => (await import('./engines/discussionEngine')).DISCUSSION_ENGINE,
   scripted_play: async () => (await import('./engines/storyEngine')).STORY_ENGINE,
   classroom: async () => (await import('./engines/studyEngine')).STUDY_ENGINE,
   agent_workflow: async () => (await import('./engines/agentWorkflowEngine')).AGENT_WORKFLOW_ENGINE,

@@ -1,5 +1,5 @@
 import type { ConversationPhase, GroupChat } from '../../types/chat';
-import type { SessionEngineDefinition, SessionRuntimeContextBundle } from '../../types/sessionEngine';
+import { applyGovernanceToParticipant, mergeGovernanceActionSchema, type SessionEngineActionContext, type SessionEngineDefinition, type SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
 
 const BOARD_PHASES = [
@@ -20,7 +20,7 @@ function buildParticipants(conversation: GroupChat) {
     canSpeak: true,
     canAct: true,
     flags: { actorRefKind: memberId === 'user' ? 'user_persona' : 'ai_character' },
-  }));
+  })).map((participant) => applyGovernanceToParticipant(conversation, participant));
 }
 
 function getVisiblePanels() {
@@ -86,6 +86,10 @@ function getActionSchema(conversation: GroupChat) {
   };
 }
 
+function getActionSchemaWithGovernance(context: SessionEngineActionContext) {
+  return mergeGovernanceActionSchema(getActionSchema(context.conversation), context);
+}
+
 function onMessageCommitted(params: {
   conversation: GroupChat;
   characters: Parameters<SessionEngineDefinition['onMessageCommitted']>[0]['characters'];
@@ -131,7 +135,7 @@ export const BOARD_GAME_ENGINE: SessionEngineDefinition = {
   getPhaseDefinitions,
   getVisiblePanels,
   getAvailableActions,
-  getActionSchema: ({ conversation }) => getActionSchema(conversation),
+  getActionSchema: getActionSchemaWithGovernance,
   buildRuntimeContextBundle,
   onMessageCommitted,
 };

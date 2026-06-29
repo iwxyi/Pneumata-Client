@@ -38,6 +38,10 @@ export function canActorRunSessionAction(
   if (actorRef.kind === 'user_persona') {
     return actionType === 'director_intervention' || actionType === 'attention_followup_user' || actionType === 'apply_calendar_patch_drafts';
   }
+  if (actionType === 'mute_member' || actionType === 'unmute_member') {
+    const capabilities = new Set(resolveActorRuntimeCapabilities(actorRef));
+    return capabilities.has('moderate') || capabilities.has('judge') || capabilities.has('orchestrate');
+  }
   if (actorRef.kind === 'ai_character') {
     return actionType !== 'apply_calendar_patch_drafts';
   }

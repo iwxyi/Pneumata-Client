@@ -1,7 +1,7 @@
 import type { GroupChat } from '../../types/chat';
 import type { SessionEngineDefinition, SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
-import { WEREWOLF_PHASES, buildWerewolfActionSchema, buildWerewolfGenerationPromptContext, buildWerewolfParticipants, buildWerewolfScenarioPatch, buildWerewolfScenarioState, createStructuredWerewolfEvent, getWerewolfAvailableActions, getWerewolfScenarioRole, getWerewolfVisiblePanels, resolveWerewolfTurnPolicy } from '../sessionScenarios/werewolfScenario';
+import { WEREWOLF_PHASES, buildWerewolfActionSchemaWithGovernance, buildWerewolfGenerationPromptContext, buildWerewolfParticipants, buildWerewolfScenarioPatch, buildWerewolfScenarioState, createStructuredWerewolfEvent, getWerewolfAvailableActions, getWerewolfScenarioRole, getWerewolfVisiblePanels, resolveWerewolfTurnPolicy } from '../sessionScenarios/werewolfScenario';
 
 function getPhaseDefinitions() {
   return WEREWOLF_PHASES;
@@ -132,7 +132,7 @@ export const WEREWOLF_ENGINE: SessionEngineDefinition = {
   getPhaseDefinitions,
   getVisiblePanels,
   getAvailableActions,
-  getActionSchema: ({ conversation }) => buildWerewolfActionSchema(conversation),
+  getActionSchema: buildWerewolfActionSchemaWithGovernance,
   buildGenerationPromptContext,
   resolveTurnPolicy,
   buildRuntimeContextBundle,

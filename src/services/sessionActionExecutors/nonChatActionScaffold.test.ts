@@ -177,6 +177,54 @@ describe('executeNonChatActionScaffold', () => {
     expect(result).toBeNull();
   });
 
+  it('mutes and unmutes a member through governance actions', () => {
+    const muted = executeNonChatActionScaffold(buildOpenChat(), {
+      type: 'mute_member',
+      targetIds: ['b'],
+      payload: { targetId: 'b', prompt: '本轮先听其他人' },
+    });
+    expect(muted?.chatPatch?.scenarioState?.seats?.find((seat) => seat.actorId === 'b')).toEqual(
+      { seatId: 'seat-2', seatIndex: 1, actorId: 'b', muted: true, canSpeak: false },
+    );
+    expect(muted?.runtimeEvents?.[0]?.eventType).toBe('member_muted');
+
+    const unmuted = executeNonChatActionScaffold(normalizeConversation({
+      ...buildOpenChat(),
+      scenarioState: { seats: [{ seatId: 'seat-b', seatIndex: 1, actorId: 'b', muted: true, canSpeak: false }] },
+    }), {
+      type: 'unmute_member',
+      targetIds: ['b'],
+      payload: { targetId: 'b', prompt: '恢复参与' },
+    });
+    expect(unmuted?.chatPatch?.scenarioState?.seats?.find((seat) => seat.actorId === 'b')).toEqual(
+      { seatId: 'seat-b', seatIndex: 1, actorId: 'b', muted: false, canSpeak: true },
+    );
+    expect(unmuted?.runtimeEvents?.[0]?.eventType).toBe('member_unmuted');
+  });
+
+  it('rejects mute actions from ordinary members but allows group admins', () => {
+    const chat = normalizeConversation({
+      ...buildOpenChat(),
+      governance: { ownerCharacterId: 'a', adminCharacterIds: ['b'], autoModeration: false, allowMute: true, allowPrivateThreads: true },
+      memberIds: ['a', 'b', 'c'],
+    });
+    const ordinaryMember = executeNonChatActionScaffold(chat, {
+      type: 'mute_member',
+      actorId: 'c',
+      targetIds: ['a'],
+      payload: { actorId: 'c', targetId: 'a' },
+    });
+    const adminMember = executeNonChatActionScaffold(chat, {
+      type: 'mute_member',
+      actorId: 'b',
+      targetIds: ['c'],
+      payload: { actorId: 'b', targetId: 'c' },
+    });
+
+    expect(ordinaryMember).toBeNull();
+    expect(adminMember?.chatPatch?.scenarioState?.seats?.find((seat) => seat.actorId === 'c')?.muted).toBe(true);
+  });
+
   it('rejects target-required actions when target is outside current chat', () => {
     const chat = buildInterviewChat();
     const askQuestion = executeNonChatActionScaffold(chat, {
