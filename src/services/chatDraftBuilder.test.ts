@@ -159,6 +159,42 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     ]);
   });
 
+  it('allows discussion rooms to disable automatic synthesis with zero rounds', () => {
+    const template = getRoomTemplate('group_discussion');
+    const draft = buildGroupChatDraft({
+      type: 'group',
+      name: template.label,
+      topic: '长期讨论推荐系统演进',
+      style: template.style,
+      runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
+      sessionKind: template.sessionKind,
+      discussionRoundsTarget: 0,
+      memberIds: ['analyst-a', 'analyst-b'],
+      operatorIds: [],
+      showRoleActions: true,
+      seedMemoryText: '',
+      seedArtifactText: '',
+      ownerCharacterId: null,
+      adminCharacterIds: [],
+      autoModeration: false,
+      allowMute: true,
+      allowPrivateThreads: true,
+      allowCliques: true,
+      allowMockery: false,
+      mood: '',
+      focus: '',
+      recentEvent: '',
+      allowSpeakAs: true,
+      allowDirectorMode: true,
+      allowEventInjection: true,
+      allowForcedReply: true,
+    });
+
+    expect(draft.scenarioState?.progress).toEqual([
+      { key: 'speeches', label: '发言轮次', value: 0, target: 0 },
+    ]);
+  });
+
   it('materializes thinking variants with distinct discussion runtime state', () => {
     const cases = [
       { key: 'debate_arena', mode: 'roundtable', scenarioId: 'debate-arena', discussionMode: 'debate', phase: 'debate', progressLabel: '攻防轮次' },

@@ -366,7 +366,7 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
             key: isDiscussionRoom ? 'speeches' : `${sessionKind.family}-progress`,
             label: templateDefaults.progressLabel || (discussionMode === 'roundtable' ? '圆桌发言' : '发言轮次'),
             value: 0,
-            target: templateDefaults.progressTarget || (input.discussionRoundsTarget || 100),
+            target: templateDefaults.progressTarget ?? (typeof input.discussionRoundsTarget === 'number' ? input.discussionRoundsTarget : 100),
           }]
         : sessionKind.scenarioId === 'werewolf-classic'
           ? [{ key: 'deduction-progress', label: '推理进度', value: 0, target: 100 }]

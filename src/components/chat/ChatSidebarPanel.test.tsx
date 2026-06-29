@@ -244,7 +244,7 @@ describe('ChatSidebarPanel story room panels', () => {
 
     expect(html).toContain('阶段 总结收束');
     expect(html).toContain('议题 林医生 是否要重构推荐系统');
-    expect(html).toContain('目标轮次 3/4');
+    expect(html).toContain('自动收束 3/4');
     expect(html).toContain('讨论总结 林医生 建议先拆召回层，护士 担心排序链路风险。');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);

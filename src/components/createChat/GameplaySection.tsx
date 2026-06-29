@@ -132,7 +132,7 @@ function getFieldValue(field: RoomTemplateFieldDefinition, props: GameplaySectio
 
 function setFieldValue(field: RoomTemplateFieldDefinition, value: string, props: GameplaySectionProps) {
   switch (field.key) {
-    case 'discussionRoundsTarget': props.onDiscussionRoundsTargetChange(Math.max(1, Number(value) || 1)); break;
+    case 'discussionRoundsTarget': props.onDiscussionRoundsTargetChange(Math.max(0, Number(value) || 0)); break;
     case 'storyBranchMode': props.onStoryBranchModeChange(value as 'guided' | 'open'); break;
     case 'studyGoalLabel': props.onStudyGoalLabelChange(value); break;
     case 'agentGoalLabel': props.onAgentGoalLabelChange(value); break;
@@ -168,6 +168,8 @@ function renderField(field: RoomTemplateFieldDefinition, props: GameplaySectionP
       fullWidth
       required={field.required}
       placeholder={field.placeholder}
+      helperText={field.helperText}
+      slotProps={field.kind === 'number' ? { htmlInput: { min: field.key === 'discussionRoundsTarget' ? 0 : 1 } } : undefined}
     >
       {field.kind === 'single_select'
         ? (field.options || []).map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)

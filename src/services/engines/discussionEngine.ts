@@ -99,6 +99,7 @@ function getSpeechProgress(conversation: GroupChat) {
 
 function getTargetSpeeches(conversation: GroupChat) {
   const progressTarget = getSpeechProgress(conversation)?.target;
+  if (progressTarget === 0) return null;
   if (typeof progressTarget === 'number' && Number.isFinite(progressTarget) && progressTarget > 0) return progressTarget;
   return isOrderedDiscussion(conversation)
     ? Math.max(1, conversation.memberIds.length)
@@ -196,6 +197,9 @@ function buildGenerationPromptContext(params: Parameters<NonNullable<SessionEngi
   const goal = getDiscussionGoal(params.conversation);
   const currentCount = getCommittedSpeechCount(params.conversation);
   const targetSpeeches = getTargetSpeeches(params.conversation);
+  const progressText = targetSpeeches === null
+    ? `${currentCount} speaking turns, no automatic synthesis target`
+    : `${currentCount}/${targetSpeeches} speaking turns`;
   const nextSpeakerId = getNextRoundtableSpeakerId(params.conversation);
   const nextSpeakerName = getSpeakerName({ conversation: params.conversation, characters: params.characters, speakerId: nextSpeakerId });
   const debateRole = mode === 'debate' ? getDebateRoleLabel(params.conversation, params.speaker.id) : '';
@@ -216,7 +220,7 @@ function buildGenerationPromptContext(params: Parameters<NonNullable<SessionEngi
               ? 'You are participating in a retrospective. Separate facts, causes, lessons, and next actions.'
               : 'You are participating in an open analytical group discussion, not casual small talk.',
       `Discussion goal: ${goal}.`,
-      `Current phase: ${phase}. Progress: ${currentCount}/${targetSpeeches} speaking turns.`,
+      `Current phase: ${phase}. Progress: ${progressText}.`,
       ordered && nextSpeakerName ? `Structured turn order says the current turn belongs to: ${nextSpeakerName}.` : '',
       debateRole ? `Your debate role: ${debateRole}.` : '',
       recentSpeakers.length ? `Recent speakers: ${recentSpeakers.join(' -> ')}.` : '',
@@ -290,10 +294,11 @@ function onMessageCommitted(params: {
   const mode = getDiscussionMode(params.conversation);
   const nextCount = getCommittedSpeechCount(params.conversation) + 1;
   const targetSpeeches = getTargetSpeeches(params.conversation);
-  const shouldSynthesize = nextCount >= targetSpeeches;
+  const shouldSynthesize = targetSpeeches !== null && nextCount >= targetSpeeches;
   const nextSpeakerId = shouldSynthesize ? null : getNextRoundtableSpeakerId(params.conversation, nextCount);
   const goalLabel = getDiscussionGoal(params.conversation);
   const nextPhase = shouldSynthesize ? 'synthesis' : getActiveDiscussionPhase(params.conversation);
+  const goalProgress = targetSpeeches === null ? 0.75 : Math.min(0.75, nextCount / targetSpeeches);
   return {
     chatPatch: {
       scenarioState: {
@@ -303,9 +308,9 @@ function onMessageCommitted(params: {
         currentTurnActorId: nextSpeakerId,
         goals: params.conversation.scenarioState?.goals?.length
           ? params.conversation.scenarioState?.goals
-          : [{ goalId: 'discussion-goal', label: goalLabel, status: 'active' as const, progress: shouldSynthesize ? 0.9 : Math.min(0.75, nextCount / targetSpeeches) }],
+          : [{ goalId: 'discussion-goal', label: goalLabel, status: 'active' as const, progress: shouldSynthesize ? 0.9 : goalProgress }],
         progress: [
-          { key: 'speeches', label: getProgressLabel(mode), value: nextCount, target: targetSpeeches },
+          { key: 'speeches', label: getProgressLabel(mode), value: nextCount, ...(targetSpeeches === null ? { target: 0 } : { target: targetSpeeches }) },
         ],
         turnOrder: params.conversation.scenarioState?.turnOrder?.length ? params.conversation.scenarioState.turnOrder : params.conversation.memberIds,
       },

@@ -82,7 +82,7 @@ function ChatScenarioCard({ chat, members }: { chat: GroupChat; members: AIChara
     const progress = chat.scenarioState?.progress?.find((item) => item.key === 'speeches' || item.key === 'analysis-progress');
     rows.push(`阶段 ${formatDiscussionPhaseLabel(chat.scenarioState?.phase, chat.scenarioState?.discussionMode || chat.mode)}`);
     if (chat.scenarioState?.goals?.[0]?.label || chat.topic) rows.push(`议题 ${clean(String(chat.scenarioState?.goals?.[0]?.label || chat.topic))}`);
-    if (progress?.target) rows.push(`目标轮次 ${progress.value || 0}/${progress.target}`);
+    if (typeof progress?.target === 'number') rows.push(progress.target > 0 ? `自动收束 ${progress.value || 0}/${progress.target}` : '自动收束 关闭');
     if (chat.scenarioState?.summaryText) rows.push(`讨论总结 ${clean(chat.scenarioState.summaryText)}`);
   }
   if (chat.scenarioState?.roleAssignments?.length) {

@@ -83,6 +83,38 @@ describe('DISCUSSION_ENGINE', () => {
     expect(result.runtimeEvents[0]?.eventType).toBe('discussion_synthesis');
   });
 
+  it('keeps discussion open when automatic synthesis target is disabled', async () => {
+    const chat = buildChat({
+      scenarioState: {
+        phase: 'discussion',
+        turnOrder: ['analyst-a', 'analyst-b'],
+        goals: [{ goalId: 'discussion-goal', label: '是否要长期讨论推荐系统', status: 'active', progress: 0 }],
+        progress: [{ key: 'speeches', label: '发言轮次', value: 12, target: 0 }],
+      },
+    });
+
+    const context = DISCUSSION_ENGINE.buildGenerationPromptContext?.({
+      conversation: chat,
+      characters: [buildCharacter('analyst-a', '分析师A')],
+      messages: [],
+      speaker: buildCharacter('analyst-a', '分析师A'),
+    });
+    const result = await DISCUSSION_ENGINE.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('analyst-a', '分析师A')],
+      message: { type: 'ai', senderId: 'analyst-a', content: '我继续补一个长期演进的角度。' },
+      previousAiMessage: null,
+    });
+
+    expect(context?.promptPrefix).toContain('no automatic synthesis target');
+    expect(result.chatPatch.scenarioState?.phase).toBe('discussion');
+    expect(result.chatPatch.scenarioState?.progress).toEqual([
+      { key: 'speeches', label: '发言轮次', value: 13, target: 0 },
+    ]);
+    expect(result.chatPatch.worldState?.phase).toBe('debating');
+    expect(result.runtimeEvents[0]?.eventType).toBe('discussion_turn');
+  });
+
   it('keeps roundtable turn order and moves to the next speaker', async () => {
     const chat = buildChat({
       mode: 'roundtable',

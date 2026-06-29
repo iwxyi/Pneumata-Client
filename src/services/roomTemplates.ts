@@ -58,6 +58,7 @@ export interface RoomTemplateFieldDefinition {
   required?: boolean;
   advanced?: boolean;
   placeholder?: string;
+  helperText?: string;
   options?: Array<{ label: string; value: string }>;
 }
 
@@ -248,13 +249,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
       {
         key: 'discussion-required',
         label: '讨论主设定',
+        description: '这里控制自动收束，不限制你继续聊天。填 0 表示一直讨论，之后可手动总结或进入收束。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '目标发言轮次', kind: 'number', required: true },
+          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
         ],
       },
       {
         key: 'discussion-advanced',
         label: '讨论风格',
+        description: '这些开关会写入底层能力：私下线程控制角色能否派生 AI 私聊；小圈子和尖锐表达会影响群聊关系与冲突表现。',
         fields: [
           { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
           { key: 'allowCliques', label: '允许结盟与小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
@@ -279,13 +282,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
       {
         key: 'roundtable-required',
         label: '圆桌主设定',
+        description: '这里控制圆桌自动收束，不限制继续发言。填 0 表示一直按席位轮流讨论。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
         ],
       },
       {
         key: 'roundtable-advanced',
         label: '圆桌规则',
+        description: '圆桌默认更克制；需要角色私下交换观点时可以打开私下线程。',
         fields: [
           { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
         ],
@@ -308,13 +313,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
       {
         key: 'debate-required',
         label: '辩论主设定',
+        description: '这里控制攻防自动收束。填 0 表示持续攻防，直到你手动总结或进入收束。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
         ],
       },
       {
         key: 'debate-advanced',
         label: '辩论规则',
+        description: '结盟会让角色更容易形成阵营；尖锐交锋会提高反驳、质疑和冲突表达强度。',
         fields: [
           { key: 'allowCliques', label: '允许结盟', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
           { key: 'allowMockery', label: '允许尖锐交锋', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
@@ -338,13 +345,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
       {
         key: 'brainstorm-required',
         label: '共创主设定',
+        description: '这里控制创意发散自动收束。填 0 表示一直发散，后续再手动总结筛选。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
         ],
       },
       {
         key: 'brainstorm-advanced',
         label: '共创规则',
+        description: '私下小组讨论允许角色派生小范围思路碰撞；默认关闭评价冲突，优先发散。',
         fields: [
           { key: 'allowPrivateThreads', label: '允许私下小组讨论', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
         ],
@@ -367,8 +376,9 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
       {
         key: 'retrospective-required',
         label: '复盘主设定',
+        description: '这里控制复盘自动收束。填 0 表示持续复盘，直到你手动总结行动项。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '目标轮次', kind: 'number', required: true },
+          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
         ],
       },
     ],
