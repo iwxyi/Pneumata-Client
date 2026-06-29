@@ -202,6 +202,24 @@ function buildStoryChat(): GroupChat {
   };
 }
 
+function buildDiscussionChat(): GroupChat {
+  return {
+    ...buildStoryChat(),
+    id: 'discussion-chat',
+    mode: 'group_discussion',
+    sessionKind: { family: 'analysis', scenarioId: 'group-discussion', surfaceProfile: 'text', topology: 'group' },
+    name: '讨论房',
+    topic: `${uuidA} 是否要重构推荐系统`,
+    scenarioState: {
+      phase: 'synthesis',
+      discussionMode: 'open',
+      goals: [{ goalId: 'discussion-goal', label: `${uuidA} 是否要重构推荐系统`, status: 'active', progress: 1 }],
+      progress: [{ key: 'speeches', label: '发言轮次', value: 3, target: 4 }],
+      summaryText: `${uuidA} 建议先拆召回层，${uuidB} 担心排序链路风险。`,
+    },
+  };
+}
+
 async function renderPanel(rightPanelTab: string, chat: GroupChat = buildStoryChat()) {
   const { default: ChatSidebarPanel } = await import('./ChatSidebarPanel');
   return renderToStaticMarkup(
@@ -221,6 +239,17 @@ async function renderPanel(rightPanelTab: string, chat: GroupChat = buildStoryCh
 }
 
 describe('ChatSidebarPanel story room panels', () => {
+  it('renders discussion phase and summary in the runtime sidebar without raw ids', async () => {
+    const html = await renderPanel('world', buildDiscussionChat());
+
+    expect(html).toContain('阶段 总结收束');
+    expect(html).toContain('议题 林医生 是否要重构推荐系统');
+    expect(html).toContain('目标轮次 3/4');
+    expect(html).toContain('讨论总结 林医生 建议先拆召回层，护士 担心排序链路风险。');
+    expect(html).not.toContain(uuidA);
+    expect(html).not.toContain(uuidB);
+  });
+
   it('uses story-specific tabs instead of ordinary group chat tabs', async () => {
     const { default: ChatSidebarPanel } = await import('./ChatSidebarPanel');
     const html = renderToStaticMarkup(

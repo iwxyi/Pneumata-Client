@@ -172,6 +172,7 @@ export interface ScenarioState {
   factions?: Array<{ factionId: string; label: string }>;
   phase?: string;
   discussionMode?: DiscussionMode;
+  summaryText?: string;
   goals?: ScenarioGoalState[];
   progress?: ScenarioProgressState[];
   branches?: ScenarioBranchState[];

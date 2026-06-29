@@ -70,6 +70,8 @@ describe('conversation capability resolver', () => {
     expect(isAutoRunnableSessionAction({ type: 'unmute_member' })).toBe(false);
     expect(isAutoRunnableSessionAction({ type: 'start_private_thread' })).toBe(false);
     expect(isAutoRunnableSessionAction({ type: 'assign_study_task' })).toBe(true);
+    expect(isAutoRunnableSessionAction({ type: 'summarize_discussion', autoRun: false })).toBe(false);
+    expect(isAutoRunnableSessionAction({ type: 'shift_to_synthesis', autoRun: false })).toBe(false);
     expect(isAutoRunnableSessionAction({ type: 'mute_member', autoRun: true })).toBe(true);
     expect(isAutoRunnableSessionAction({ type: 'assign_study_task', autoRun: false })).toBe(false);
   });

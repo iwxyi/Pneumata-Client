@@ -11,6 +11,7 @@ import { projectSessionParticipantTopology } from '../../services/sessionPartici
 import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildScrollableRegionSx, compactPillChipSx } from '../../styles/interaction';
+import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
@@ -61,10 +62,29 @@ function memberName(id: string | null | undefined, members: AICharacter[]) {
   return members.find((member) => member.id === id)?.name || '成员';
 }
 
+function formatDiscussionPhaseLabel(phase: string | null | undefined, mode: string | null | undefined) {
+  if (phase === 'synthesis') return '总结收束';
+  if (mode === 'roundtable') return '圆桌发言';
+  if (mode === 'debate') return '观点攻防';
+  if (mode === 'brainstorm') return '创意发散';
+  if (mode === 'retrospective') return '复盘改进';
+  return '开放讨论';
+}
+
 function ChatScenarioCard({ chat, members }: { chat: GroupChat; members: AICharacter[] }) {
   const rows = [] as string[];
   const topology = projectSessionParticipantTopology(chat, members, true);
   const nonMemberOperators = (chat.operatorIds || []).filter((id) => !chat.memberIds.includes(id));
+  const isDiscussionRoom = chat.sessionKind?.family === 'analysis';
+  const displayMembers = [{ id: 'user', name: '我' }, ...members.map((member) => ({ id: member.id, name: member.name }))];
+  const clean = (text: string) => sanitizeUserFacingText(text, displayMembers);
+  if (isDiscussionRoom) {
+    const progress = chat.scenarioState?.progress?.find((item) => item.key === 'speeches' || item.key === 'analysis-progress');
+    rows.push(`阶段 ${formatDiscussionPhaseLabel(chat.scenarioState?.phase, chat.scenarioState?.discussionMode || chat.mode)}`);
+    if (chat.scenarioState?.goals?.[0]?.label || chat.topic) rows.push(`议题 ${clean(String(chat.scenarioState?.goals?.[0]?.label || chat.topic))}`);
+    if (progress?.target) rows.push(`目标轮次 ${progress.value || 0}/${progress.target}`);
+    if (chat.scenarioState?.summaryText) rows.push(`讨论总结 ${clean(chat.scenarioState.summaryText)}`);
+  }
   if (chat.scenarioState?.roleAssignments?.length) {
     rows.push(`角色位 ${chat.scenarioState.roleAssignments.slice(0, 4).map((item) => `${memberName(item.actorId, members)}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId)}` : ''}`).join(' / ')}`);
   }

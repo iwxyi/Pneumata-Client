@@ -195,6 +195,8 @@ describe('DISCUSSION_ENGINE', () => {
     expect(DISCUSSION_ENGINE.getPhaseDefinitions?.(chat).find((phase) => phase.key === 'discussion')?.allowedActions).toContain('summarize_discussion');
     expect(schema?.title).toBe('讨论动作');
     expect(schema?.actions.map((action) => action.type)).toEqual(['summarize_discussion', 'shift_to_synthesis', 'mute_member']);
+    expect(schema?.actions.find((action) => action.type === 'summarize_discussion')?.autoRun).toBe(false);
+    expect(schema?.actions.find((action) => action.type === 'shift_to_synthesis')?.autoRun).toBe(false);
     expect(schema?.actions.find((action) => action.type === 'summarize_discussion')?.fields?.[0]?.key).toBe('focus');
     expect(synthesisSchema?.actions.map((action) => action.type)).toEqual(['summarize_discussion', 'mute_member']);
   });

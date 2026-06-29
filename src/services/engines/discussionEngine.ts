@@ -166,6 +166,7 @@ function getActionSchema(context: SessionEngineActionContext) {
         ? '补充或更新当前讨论的收束结论。'
         : '把当前讨论的主要观点、分歧和下一步整理成总结。',
       visibility: 'public' as const,
+      autoRun: false,
       fields: [
         {
           key: 'focus',
@@ -182,6 +183,7 @@ function getActionSchema(context: SessionEngineActionContext) {
           label: '进入收束',
           description: '手动结束发散或攻防阶段，进入总结收束。',
           visibility: 'public' as const,
+          autoRun: false,
         }]),
   ];
   return mergeGovernanceActionSchema({ title: '讨论动作', actions }, context);
