@@ -26,8 +26,8 @@ type DeepSeekPricingForm = {
 };
 
 const DEFAULT_DEEPSEEK_PRICING_FORM: DeepSeekPricingForm = {
-  pointValueCny: '1',
-  billingMultiplier: '2',
+  pointValueCny: '0.01',
+  billingMultiplier: '1.5',
   prompt: '1',
   completion: '2',
   cacheHit: '0.1',
@@ -36,6 +36,13 @@ const DEFAULT_DEEPSEEK_PRICING_FORM: DeepSeekPricingForm = {
 
 const USER_USAGE_PAGE_SIZE = 100;
 const USAGE_STATS_PAGE_SIZE = 100;
+const USAGE_STATS_GROUP_STORAGE_KEY_PREFIX = 'pneumata.admin.aiProvider.usageStatsGroupBy';
+const USER_STATS_GROUP_STORAGE_KEY_PREFIX = 'pneumata.admin.aiProvider.userStatsGroupBy';
+const USAGE_STATS_GROUP_BY_VALUES = ['usage_type', 'model', 'user', 'day'] as const;
+const USER_STATS_GROUP_BY_VALUES = ['usage_type', 'model', 'day'] as const;
+
+type UsageStatsGroupBy = typeof USAGE_STATS_GROUP_BY_VALUES[number];
+type UserStatsGroupBy = typeof USER_STATS_GROUP_BY_VALUES[number];
 
 const AI_USAGE_TYPE_LABELS: Record<string, string> = {
   direct_chat: '单聊回复',
@@ -88,10 +95,24 @@ type UsageStatsResult = {
   limit?: unknown;
 };
 
-const LEDGER_ENTRY_TYPE_LABELS: Record<string, string> = {
-  grant: '额度增加',
-  adjustment: '额度调整',
-  consume: '调用消耗',
+type UsageStatsFilters = {
+  groupBy: UsageStatsGroupBy;
+  usageType: string;
+  model: string;
+  search: string;
+  status: string;
+  from: string;
+  to: string;
+};
+
+const DEFAULT_USAGE_STATS_FILTERS: UsageStatsFilters = {
+  groupBy: 'usage_type',
+  usageType: '',
+  model: '',
+  search: '',
+  status: '',
+  from: '',
+  to: '',
 };
 
 const LEDGER_SOURCE_TYPE_LABELS: Record<string, string> = {
@@ -104,6 +125,48 @@ const LEDGER_SOURCE_TYPE_LABELS: Record<string, string> = {
 
 function getRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function isUsageStatsGroupBy(value: unknown): value is UsageStatsGroupBy {
+  return USAGE_STATS_GROUP_BY_VALUES.includes(value as UsageStatsGroupBy);
+}
+
+function isUserStatsGroupBy(value: unknown): value is UserStatsGroupBy {
+  return USER_STATS_GROUP_BY_VALUES.includes(value as UserStatsGroupBy);
+}
+
+function readStoredUsageStatsGroupBy(providerCode: string): UsageStatsGroupBy {
+  if (typeof window === 'undefined') return 'usage_type';
+  const value = window.localStorage.getItem(`${USAGE_STATS_GROUP_STORAGE_KEY_PREFIX}.${providerCode}`);
+  return isUsageStatsGroupBy(value) ? value : 'usage_type';
+}
+
+function readStoredUserStatsGroupBy(providerCode: string): UserStatsGroupBy {
+  if (typeof window === 'undefined') return 'usage_type';
+  const value = window.localStorage.getItem(`${USER_STATS_GROUP_STORAGE_KEY_PREFIX}.${providerCode}`);
+  return isUserStatsGroupBy(value) ? value : 'usage_type';
+}
+
+function writeStoredUsageStatsGroupBy(providerCode: string, groupBy: UsageStatsGroupBy) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(`${USAGE_STATS_GROUP_STORAGE_KEY_PREFIX}.${providerCode}`, groupBy);
+}
+
+function writeStoredUserStatsGroupBy(providerCode: string, groupBy: UserStatsGroupBy) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(`${USER_STATS_GROUP_STORAGE_KEY_PREFIX}.${providerCode}`, groupBy);
+}
+
+function parseRecord(value: unknown): Record<string, unknown> {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return getRecord(parsed);
+  } catch {
+    return {};
+  }
 }
 
 function numberText(value: unknown, fallback: string) {
@@ -134,7 +197,7 @@ function toDeepSeekPricingForm(value: unknown): DeepSeekPricingForm {
   };
 }
 
-function buildDeepSeekTokenPricing(form: DeepSeekPricingForm) {
+function buildInternalLedgerTokenPricing(providerCode: string, form: DeepSeekPricingForm) {
   const modelPricing = {
     prompt: toNonNegativeNumber(form.prompt, Number(DEFAULT_DEEPSEEK_PRICING_FORM.prompt)),
     completion: toNonNegativeNumber(form.completion, Number(DEFAULT_DEEPSEEK_PRICING_FORM.completion)),
@@ -149,8 +212,10 @@ function buildDeepSeekTokenPricing(form: DeepSeekPricingForm) {
     billingMultiplier: toPositiveNumber(form.billingMultiplier, Number(DEFAULT_DEEPSEEK_PRICING_FORM.billingMultiplier)),
     models: {
       default: modelPricing,
-      'deepseek-chat': modelPricing,
-      'deepseek-reasoner': modelPricing,
+      ...(providerCode === 'deepseek' ? {
+        'deepseek-chat': modelPricing,
+        'deepseek-reasoner': modelPricing,
+      } : {}),
     },
   };
 }
@@ -181,6 +246,13 @@ function serializePackages(packages: QuotaPackageForm[]) {
 
 function formatBalance(balance: Record<string, unknown> | null, providerCode: string) {
   const raw = balance?.availableBalance ?? balance?.available_balance;
+  const currencyUnit = String(balance?.currencyUnit ?? balance?.currency_unit ?? '').toLowerCase();
+  if (currencyUnit === 'moacode_balance') {
+    return typeof raw === 'number' && Number.isFinite(raw) ? `余额 ${formatPlainNumber(raw, 2)}` : '已获取';
+  }
+  if (currencyUnit === 'moacode_usage' && (balance?.raw || Object.keys(balance || {}).length > 0)) {
+    return typeof raw === 'number' && Number.isFinite(raw) ? `成本 ${formatPlainNumber(raw, 2)}` : '已获取';
+  }
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return '未获取';
   return formatAiBalanceAmount(balance, providerCode);
 }
@@ -211,6 +283,14 @@ function formatUsageType(value: unknown) {
   return AI_USAGE_TYPE_LABELS[key] || key;
 }
 
+function formatBillingSource(value: unknown) {
+  const key = String(value || '');
+  if (key === 'provider_reported') return '上游返回';
+  if (key === 'provider_public_pricing') return '公开价格表';
+  if (key === 'pricing_table_estimate') return '价格表估算';
+  return '-';
+}
+
 function parseDateTimeInput(value: string) {
   if (!value.trim()) return undefined;
   const timestamp = new Date(value).getTime();
@@ -222,26 +302,128 @@ function formatCount(value: unknown) {
   return Number.isFinite(parsed) ? String(Math.round(parsed)) : '0';
 }
 
+function formatPlainNumber(value: unknown, maximumFractionDigits = 0) {
+  const parsed = Number(value ?? 0);
+  if (!Number.isFinite(parsed)) return '-';
+  return new Intl.NumberFormat('zh-CN', {
+    maximumFractionDigits,
+    minimumFractionDigits: 0,
+    useGrouping: true,
+  }).format(parsed);
+}
+
+function formatOptionalPlainNumber(value: unknown, maximumFractionDigits = 2) {
+  if (value == null || value === '') return '-';
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return '-';
+  return formatPlainNumber(parsed, maximumFractionDigits);
+}
+
+type PublicModelGroup = {
+  modelName: string;
+  displayName: string;
+  rows: Array<Record<string, unknown>>;
+};
+
+function toPublicModelString(value: unknown, fallback = '-') {
+  const text = String(value ?? '').trim();
+  return text || fallback;
+}
+
+function getPublicModelRowModelName(row: Record<string, unknown>) {
+  return toPublicModelString(row.modelName ?? row.model_name);
+}
+
+function getPublicModelRowDisplayName(row: Record<string, unknown>) {
+  const displayName = toPublicModelString(row.displayName ?? row.display_name, '');
+  const modelName = getPublicModelRowModelName(row);
+  return displayName && displayName !== modelName ? displayName : '';
+}
+
+function getPublicModelRowProviderLabel(row: Record<string, unknown>) {
+  return toPublicModelString(row.providerDisplay ?? row.provider_display ?? row.providerName ?? row.provider_name);
+}
+
+function getPublicModelRowProviderCode(row: Record<string, unknown>) {
+  return toPublicModelString(row.providerName ?? row.provider_name ?? row.providerId ?? row.provider_id, '');
+}
+
+function comparePublicModelProviderRows(left: Record<string, unknown>, right: Record<string, unknown>) {
+  const leftProvider = getPublicModelRowProviderLabel(left);
+  const rightProvider = getPublicModelRowProviderLabel(right);
+  const providerComparison = leftProvider.localeCompare(rightProvider, 'zh-CN', { numeric: true, sensitivity: 'base' });
+  if (providerComparison !== 0) return providerComparison;
+  return getPublicModelRowProviderCode(left).localeCompare(getPublicModelRowProviderCode(right), 'zh-CN', { numeric: true, sensitivity: 'base' });
+}
+
+function buildPublicModelGroups(rows: Array<Record<string, unknown>>): PublicModelGroup[] {
+  const groups = new Map<string, PublicModelGroup>();
+  for (const row of rows) {
+    const modelName = getPublicModelRowModelName(row);
+    const displayName = getPublicModelRowDisplayName(row);
+    const group = groups.get(modelName);
+    if (group) {
+      if (!group.displayName && displayName) group.displayName = displayName;
+      group.rows.push(row);
+      continue;
+    }
+    groups.set(modelName, {
+      modelName,
+      displayName,
+      rows: [row],
+    });
+  }
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    rows: [...group.rows].sort(comparePublicModelProviderRows),
+  }));
+}
+
+function getFirstDefinedValue(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    if (record[key] !== undefined && record[key] !== null) return record[key];
+  }
+  return undefined;
+}
+
+function formatOptionalBoolean(value: unknown) {
+  if (typeof value !== 'boolean') return '-';
+  return value ? '开启' : '关闭';
+}
+
+function getMoacodeBalanceSummary(balance: Record<string, unknown> | null) {
+  const summary = getRecord(balance?.balanceSummary ?? balance?.balance_summary);
+  if (Object.keys(summary).length) return summary;
+  const raw = getRecord(balance?.raw);
+  return getRecord(raw.balance);
+}
+
+function getMoacodeUsageSummary(balance: Record<string, unknown> | null) {
+  const summary = getRecord(balance?.usageSummary ?? balance?.usage_summary);
+  if (Object.keys(summary).length) return summary;
+  const raw = getRecord(balance?.raw);
+  const rawUsage = getRecord(raw.usage);
+  return Object.keys(rawUsage).length ? rawUsage : raw;
+}
+
+function getMoacodeUsageModels(summary: Record<string, unknown>): Array<Record<string, unknown>> {
+  if (Array.isArray(summary.models)) {
+    return summary.models.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item));
+  }
+  return Object.entries(getRecord(summary.model_stats)).map(([model, value]) => ({
+    model,
+    ...getRecord(value),
+  })).sort((left, right) => Number((right as Record<string, unknown>).cost || 0) - Number((left as Record<string, unknown>).cost || 0)) as Array<Record<string, unknown>>;
+}
+
 function toAmountNumber(value: unknown) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function formatLedgerEntryType(value: unknown) {
-  const key = String(value || '');
-  return LEDGER_ENTRY_TYPE_LABELS[key] || key || '-';
-}
-
 function formatLedgerSourceType(value: unknown) {
   const key = String(value || '');
   return LEDGER_SOURCE_TYPE_LABELS[key] || key || '-';
-}
-
-function formatLedgerDirection(value: unknown) {
-  const amount = toAmountNumber(value);
-  if (amount > 0) return '增加';
-  if (amount < 0) return '扣除';
-  return '无变化';
 }
 
 function getLedgerAmountSx(value: unknown) {
@@ -251,12 +433,59 @@ function getLedgerAmountSx(value: unknown) {
   return { color: 'text.secondary', fontWeight: 700 };
 }
 
+function formatLedgerNonInvocationSource(row: Record<string, unknown>, amount: number) {
+  const sourceType = String(row.source_type || '');
+  const packageCode = String(row.package_code || '').trim();
+  if (sourceType === 'admin_transfer') return amount >= 0 ? '后台增额' : '后台扣除';
+  if (sourceType === 'manual_adjustment') return amount >= 0 ? '手动增加' : '手动扣除';
+  if (sourceType === 'purchase_order') return packageCode ? `订单购买：${packageCode}` : '订单购买';
+  return formatLedgerSourceType(sourceType);
+}
+
+function getLedgerSourcePresentation(row: Record<string, unknown>) {
+  const amount = toAmountNumber(row.amount);
+  const sourceType = String(row.source_type || '');
+  const entryType = String(row.entry_type || '');
+  const metadata = parseRecord(row.metadata);
+  const aiUsage = getRecord(metadata.aiUsage ?? metadata.ai_usage);
+  const isInvocationConsume = sourceType === 'ai_invocation' || entryType === 'consume';
+
+  if (isInvocationConsume) {
+    const usageType = String(aiUsage.type || row.usage_type || '').trim();
+    const usageTypeLabel = usageType ? AI_USAGE_TYPE_LABELS[usageType] || usageType : '';
+    const usageLabel = String(aiUsage.label || '').trim();
+    const model = String(metadata.model || row.model || '').trim();
+    const primary = usageLabel || usageTypeLabel || 'AI 调用';
+    const secondary = [
+      usageLabel && usageTypeLabel && usageLabel !== usageTypeLabel ? usageTypeLabel : '',
+      model ? `模型 ${model}` : '',
+    ].filter(Boolean).join(' / ');
+    return {
+      label: primary,
+      secondary,
+      sx: { fontWeight: 800 },
+    };
+  }
+
+  const label = formatLedgerNonInvocationSource(row, amount);
+  const sourceTypeLabel = formatLedgerSourceType(sourceType);
+  const secondary = sourceTypeLabel !== label ? sourceTypeLabel : '';
+  return {
+    label,
+    secondary,
+    sx: amount > 0 ? { color: '#1b5e20', fontWeight: 800 } : { fontWeight: 800 },
+  };
+}
+
 export default function AdminAIProviderPage() {
   const { providerCode: routeProviderCode } = useParams();
   const providerCode = routeProviderCode || 'api2d';
   const isApi2d = providerCode === 'api2d';
   const isDeepSeek = providerCode === 'deepseek';
-  const providerDisplayName = isApi2d ? 'API2D' : providerCode === 'deepseek' ? 'DeepSeek' : providerCode.toUpperCase();
+  const isMoacode = providerCode === 'moacode';
+  const providerDisplayName = isApi2d ? 'API2D' : isDeepSeek ? 'DeepSeek' : isMoacode ? 'Moacode' : providerCode.toUpperCase();
+  const canQueryAccountBalance = isApi2d || isDeepSeek || isMoacode;
+  const accountBalanceTitle = isMoacode ? '主账号余额与用量' : '主账号总余额';
   const [tab, setTab] = useState(0);
   const [providerConfig, setProviderConfig] = useState<Record<string, unknown> | null>(null);
   const [form, setForm] = useState({
@@ -293,19 +522,14 @@ export default function AdminAIProviderPage() {
   const [selectedInvocationPage, setSelectedInvocationPage] = useState(0);
   const [selectedLedgerPage, setSelectedLedgerPage] = useState(0);
   const [selectedUserStats, setSelectedUserStats] = useState<UsageStatsResult | null>(null);
-  const [selectedUserStatsGroupBy, setSelectedUserStatsGroupBy] = useState('usage_type');
+  const [selectedUserStatsGroupBy, setSelectedUserStatsGroupBy] = useState<UserStatsGroupBy>(() => readStoredUserStatsGroupBy(providerCode));
   const [selectedUserStatsPage, setSelectedUserStatsPage] = useState(0);
   const [userPointDraft, setUserPointDraft] = useState('');
   const [usageStats, setUsageStats] = useState<UsageStatsResult | null>(null);
-  const [usageStatsFilters, setUsageStatsFilters] = useState({
-    groupBy: 'usage_type',
-    usageType: '',
-    model: '',
-    search: '',
-    status: '',
-    from: '',
-    to: '',
-  });
+  const [usageStatsFilters, setUsageStatsFilters] = useState<UsageStatsFilters>(() => ({
+    ...DEFAULT_USAGE_STATS_FILTERS,
+    groupBy: readStoredUsageStatsGroupBy(providerCode),
+  }));
   const [usageStatsPage, setUsageStatsPage] = useState(0);
   const [usageStatsRowsPerPage, setUsageStatsRowsPerPage] = useState(USAGE_STATS_PAGE_SIZE);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
@@ -320,10 +544,42 @@ export default function AdminAIProviderPage() {
   const [accountBalance, setAccountBalance] = useState<Record<string, unknown> | null>(null);
   const [accountBalanceLoading, setAccountBalanceLoading] = useState(false);
   const [accountBalanceError, setAccountBalanceError] = useState<string | null>(null);
+  const [publicModelSearch, setPublicModelSearch] = useState('');
+  const [publicModels, setPublicModels] = useState<Array<Record<string, unknown>>>([]);
+  const [publicModelTotal, setPublicModelTotal] = useState(0);
+  const [publicModelLoading, setPublicModelLoading] = useState(false);
+  const [publicModelError, setPublicModelError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [usageStatsError, setUsageStatsError] = useState<string | null>(null);
-  const usesInternalLedger = isDeepSeek || String(providerConfig?.billingMode || '') === 'internal_ledger';
+  const usesInternalLedger = isDeepSeek || isMoacode || String(providerConfig?.billingMode || '') === 'internal_ledger';
+  const moacodeBalanceSummary = isMoacode ? getMoacodeBalanceSummary(accountBalance) : {};
+  const moacodeUsageSummary = isMoacode ? getMoacodeUsageSummary(accountBalance) : {};
+  const moacodeUsageModels = isMoacode ? getMoacodeUsageModels(moacodeUsageSummary).slice(0, 8) : [];
+  const publicModelGroups = buildPublicModelGroups(publicModels);
+  const publicModelTabIndex = isMoacode ? 1 : -1;
+  const userManagementTabIndex = isMoacode ? 2 : 1;
+  const usageStatsTabIndex = isMoacode ? 3 : 2;
+
+  const loadPublicModels = async (search = publicModelSearch) => {
+    if (!isMoacode) return;
+    setPublicModelLoading(true);
+    setPublicModelError(null);
+    try {
+      const result = await adminApi.getAiProviderPublicModels(providerCode, {
+        search: search.trim(),
+        all: true,
+      });
+      setPublicModels(result.items || []);
+      setPublicModelTotal(toPageTotal(result.total));
+    } catch (loadError) {
+      setPublicModels([]);
+      setPublicModelTotal(0);
+      setPublicModelError(getAdminErrorMessage(loadError));
+    } finally {
+      setPublicModelLoading(false);
+    }
+  };
 
   const loadAccountBalance = async () => {
     setAccountBalanceLoading(true);
@@ -368,7 +624,7 @@ export default function AdminAIProviderPage() {
         deepseekPricing: toDeepSeekPricingForm(config.tokenPricing),
       });
       setQuotaPackages(Array.isArray(config.quotaPackages) ? (config.quotaPackages as Array<Record<string, unknown>>).map(toPackageForm) : []);
-      if (config.forwardKeyConfigured || (!isApi2d && config.adminTokenConfigured)) void loadAccountBalance();
+      if (canQueryAccountBalance && (isApi2d ? config.forwardKeyConfigured : isMoacode ? config.forwardKeyConfigured : config.adminTokenConfigured)) void loadAccountBalance();
       else {
         setAccountBalance(null);
         setAccountBalanceError(null);
@@ -381,6 +637,7 @@ export default function AdminAIProviderPage() {
   };
 
   useEffect(() => {
+    setTab(0);
     void loadConfig();
     setKeys([]);
     setUserBalances([]);
@@ -392,20 +649,28 @@ export default function AdminAIProviderPage() {
     setSelectedInvocationPage(0);
     setSelectedLedgerPage(0);
     setSelectedUserStats(null);
-    setSelectedUserStatsGroupBy('usage_type');
+    setSelectedUserStatsGroupBy(readStoredUserStatsGroupBy(providerCode));
     setSelectedUserStatsPage(0);
     setUsageStats(null);
     setUsageStatsPage(0);
     setUsageStatsRowsPerPage(USAGE_STATS_PAGE_SIZE);
+    setUsageStatsFilters({
+      ...DEFAULT_USAGE_STATS_FILTERS,
+      groupBy: readStoredUsageStatsGroupBy(providerCode),
+    });
     setUsageStatsError(null);
+    setPublicModels([]);
+    setPublicModelTotal(0);
+    setPublicModelError(null);
   }, [providerCode]);
 
   useEffect(() => {
-    if (tab === 1) {
+    if (isMoacode && tab === publicModelTabIndex) void loadPublicModels();
+    if (tab === userManagementTabIndex) {
       if (usesInternalLedger) void loadUserBalances();
       else void loadKeys();
     }
-    if (tab === 2) void loadUsageStats();
+    if (tab === usageStatsTabIndex) void loadUsageStats();
   }, [tab, providerCode, usesInternalLedger]);
 
   const saveConfig = async () => {
@@ -429,7 +694,7 @@ export default function AdminAIProviderPage() {
           : null,
         quotaPackages: serializePackages(quotaPackages),
       };
-      if (isDeepSeek) payload.tokenPricing = buildDeepSeekTokenPricing(form.deepseekPricing);
+      if (usesInternalLedger) payload.tokenPricing = buildInternalLedgerTokenPricing(providerCode, form.deepseekPricing);
       const nextAdminToken = form.adminToken.trim();
       const nextForwardKey = form.forwardKey.trim();
       if (nextAdminToken !== loadedSecrets.adminToken) payload.adminToken = nextAdminToken;
@@ -577,11 +842,12 @@ export default function AdminAIProviderPage() {
     setSelectedInvocationPage(0);
     setSelectedLedgerPage(0);
     setSelectedUserStats(null);
-    setSelectedUserStatsGroupBy('usage_type');
+    const groupBy = readStoredUserStatsGroupBy(providerCode);
+    setSelectedUserStatsGroupBy(groupBy);
     setSelectedUserStatsPage(0);
     setUserPointDraft('');
     void loadSelectedUserUsage(userId, 0, 0);
-    void loadSelectedUserStats(userId, 0, 'usage_type');
+    void loadSelectedUserStats(userId, 0, groupBy);
   };
 
   const transferUserPoints = async () => {
@@ -697,27 +963,20 @@ export default function AdminAIProviderPage() {
     <Stack spacing={2} sx={{ pb: 10 }}>
       <Tabs value={tab} onChange={(_event, value) => setTab(value)}>
         <Tab label="配置" />
-        <Tab label={usesInternalLedger ? '用户额度' : 'Key 查询'} />
+        {isMoacode ? <Tab label="模型价格" /> : null}
+        <Tab label={usesInternalLedger ? '用户点数' : 'Key 查询'} />
         <Tab label="用量统计" />
       </Tabs>
       <AdminRequestState
-        loading={loading || saving || keyLoading || userBalanceLoading || userUsageLoading || selectedUserStatsLoading || usageStatsLoading}
-        error={tab === 0 ? error : tab === 1 ? keyError : usageStatsError}
-        onRetry={tab === 0 ? () => void loadConfig() : tab === 1 ? (usesInternalLedger ? () => void loadUserBalances() : () => void loadKeys()) : () => void loadUsageStats()}
+        loading={loading || saving || keyLoading || userBalanceLoading || userUsageLoading || selectedUserStatsLoading || usageStatsLoading || publicModelLoading}
+        error={tab === 0 ? error : tab === publicModelTabIndex ? publicModelError : tab === userManagementTabIndex ? keyError : usageStatsError}
+        onRetry={tab === 0 ? () => void loadConfig() : tab === publicModelTabIndex ? () => void loadPublicModels() : tab === userManagementTabIndex ? (usesInternalLedger ? () => void loadUserBalances() : () => void loadKeys()) : () => void loadUsageStats()}
       />
 
       {tab === 0 ? (
         <Stack spacing={1.25}>
           <AdminDetailCard title="主账号配置">
             <Stack spacing={1.25}>
-              <Alert severity={providerConfig?.adminTokenConfigured ? 'success' : 'warning'}>
-                {providerDisplayName} 主账号 Key：{providerConfig?.adminTokenConfigured ? String(providerConfig.adminToken || '') : '未配置'}
-              </Alert>
-              {isApi2d ? (
-                <Alert severity={providerConfig?.forwardKeyConfigured ? 'success' : 'warning'}>
-                  主账号 ForwardKey：{providerConfig?.forwardKeyConfigured ? String(providerConfig.forwardKey || '') : '未配置'}
-                </Alert>
-              ) : null}
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                 <TextField label="名称" value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} fullWidth />
                 <TextField select label="状态" value={form.status} onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value }))} sx={{ minWidth: 140 }}>
@@ -743,43 +1002,124 @@ export default function AdminAIProviderPage() {
                   onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
                   fullWidth
                 />
-                {isApi2d ? (
+                {isApi2d || isMoacode ? (
                   <TextField
-                    label="API2D 主账号 ForwardKey（用于余额查询）"
+                    label={isMoacode ? 'Moacode Cookie（用于余额和用量查询）' : 'API2D 主账号 ForwardKey（用于余额查询）'}
                     value={form.forwardKey}
                     onChange={(e) => setForm((prev) => ({ ...prev, forwardKey: e.target.value }))}
                     fullWidth
                   />
                 ) : null}
-              <Stack
-                direction={{ xs: 'column', sm: 'row' }}
-                spacing={1.25}
-                sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
-              >
-                <Box>
-                  <Typography variant="caption" color="text.secondary">主账号总余额</Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                    {accountBalanceLoading ? '查询中' : formatBalance(accountBalance, providerCode)}
-                  </Typography>
-                  {accountBalanceError ? <Typography variant="caption" color="error">{accountBalanceError}</Typography> : null}
-                </Box>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => void loadAccountBalance()}
-                  disabled={!(isApi2d ? providerConfig?.forwardKeyConfigured : providerConfig?.adminTokenConfigured) || accountBalanceLoading}
+              {canQueryAccountBalance ? (
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  spacing={1.25}
+                  sx={{ alignItems: { xs: 'stretch', sm: 'center' }, justifyContent: 'space-between' }}
                 >
-                  刷新余额
-                </Button>
-              </Stack>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">{accountBalanceTitle}</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                      {accountBalanceLoading ? '查询中' : formatBalance(accountBalance, providerCode)}
+                    </Typography>
+                    {accountBalanceError ? <Typography variant="caption" color="error">{accountBalanceError}</Typography> : null}
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    onClick={() => void loadAccountBalance()}
+                    disabled={!(isApi2d || isMoacode ? providerConfig?.forwardKeyConfigured : providerConfig?.adminTokenConfigured) || accountBalanceLoading}
+                  >
+                    刷新余额
+                  </Button>
+                </Stack>
+              ) : null}
+              {isMoacode && accountBalance ? (
+                <Stack spacing={1}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+                      gap: 1,
+                    }}
+                  >
+                    {[
+                      { label: '总余额', value: formatOptionalPlainNumber(getFirstDefinedValue(moacodeBalanceSummary, ['totalBalance', 'total_balance', 'balance']), 2) },
+                      { label: '订阅余额', value: formatOptionalPlainNumber(getFirstDefinedValue(moacodeBalanceSummary, ['subscriptionBalance', 'subscription_balance']), 2) },
+                      { label: 'PAYG 余额', value: formatOptionalPlainNumber(getFirstDefinedValue(moacodeBalanceSummary, ['payAsYouGoBalance', 'pay_as_you_go_balance']), 2) },
+                      { label: '本周限额', value: formatOptionalPlainNumber(getFirstDefinedValue(moacodeBalanceSummary, ['weeklyLimit', 'weekly_limit']), 2) },
+                      { label: '本周已用', value: formatOptionalPlainNumber(getFirstDefinedValue(moacodeBalanceSummary, ['weeklySpentBalance', 'weekly_spent_balance']), 2) },
+                      { label: '扣费偏好', value: String(getFirstDefinedValue(moacodeBalanceSummary, ['balancePreference', 'balance_preference']) ?? '-') },
+                      { label: '自动 PAYG', value: formatOptionalBoolean(getFirstDefinedValue(moacodeBalanceSummary, ['autoSwitchToPaygEnabled', 'auto_switch_to_payg_enabled'])) },
+                    ].map((item) => (
+                      <Box key={item.label} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
+                        <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 800 }}>{item.value}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))' },
+                      gap: 1,
+                    }}
+                  >
+                    {[
+                      { label: '总请求', value: formatOptionalPlainNumber(moacodeUsageSummary.totalRequests ?? moacodeUsageSummary.total_requests, 0) },
+                      { label: '输入 tokens', value: formatOptionalPlainNumber(moacodeUsageSummary.totalInputTokens ?? moacodeUsageSummary.total_input_tokens, 0) },
+                      { label: '输出 tokens', value: formatOptionalPlainNumber(moacodeUsageSummary.totalOutputTokens ?? moacodeUsageSummary.total_output_tokens, 0) },
+                      { label: '缓存读取 tokens', value: formatOptionalPlainNumber(moacodeUsageSummary.totalCacheReadTokens ?? moacodeUsageSummary.total_cache_read_tokens, 0) },
+                      { label: '总成本', value: formatOptionalPlainNumber(moacodeUsageSummary.totalCost ?? moacodeUsageSummary.total_cost, 4) },
+                    ].map((item) => (
+                      <Box key={item.label} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 1 }}>
+                        <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 800 }}>{item.value}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                  <Typography variant="caption" color="text.secondary">
+                    首次请求：{String(moacodeUsageSummary.firstRequestAt ?? moacodeUsageSummary.first_request_at ?? '-')}；最近请求：{String(moacodeUsageSummary.lastRequestAt ?? moacodeUsageSummary.last_request_at ?? '-')}
+                  </Typography>
+                  {moacodeUsageModels.length ? (
+                    <AdminResponsiveTable minWidth={760}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>模型</TableCell>
+                            <TableCell>请求</TableCell>
+                            <TableCell>输入</TableCell>
+                            <TableCell>输出</TableCell>
+                            <TableCell>缓存创建</TableCell>
+                            <TableCell>缓存读取</TableCell>
+                            <TableCell>成本</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {moacodeUsageModels.map((row) => (
+                            <TableRow key={String(row.model || '')}>
+                              <TableCell>{String(row.model || '-')}</TableCell>
+                              <TableCell>{formatPlainNumber(row.requests)}</TableCell>
+                              <TableCell>{formatPlainNumber(row.inputTokens ?? row.input_tokens)}</TableCell>
+                              <TableCell>{formatPlainNumber(row.outputTokens ?? row.output_tokens)}</TableCell>
+                              <TableCell>{formatPlainNumber(row.cacheCreationTokens ?? row.cache_creation_tokens)}</TableCell>
+                              <TableCell>{formatPlainNumber(row.cacheReadTokens ?? row.cache_read_tokens)}</TableCell>
+                              <TableCell>{formatPlainNumber(row.cost, 4)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </AdminResponsiveTable>
+                  ) : null}
+                </Stack>
+              ) : null}
               </Stack>
           </AdminDetailCard>
 
-          {isDeepSeek ? (
-            <AdminDetailCard title="DeepSeek 扣费配置">
+          {usesInternalLedger ? (
+            <AdminDetailCard title={`${providerDisplayName} 扣费配置`}>
               <Stack spacing={1.25}>
                 <Alert severity="info">
-                  扣费按 DeepSeek 官方元价计算成本，再换算为用户 P。默认 1P=1元，计费倍率 2 表示官方成本价加 1 倍。
+                  扣费按上游成本价计算，再换算为用户 P。默认 1P=0.01元，计费倍率 1.5 表示成本价加 50%。
                 </Alert>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                   <TextField
@@ -792,19 +1132,19 @@ export default function AdminAIProviderPage() {
                     label="计费倍率"
                     value={form.deepseekPricing.billingMultiplier}
                     onChange={(e) => updateDeepSeekPricing('billingMultiplier', e.target.value)}
-                    helperText="2 表示官方成本价加 1 倍"
+                    helperText="1.5 表示成本价加 50%"
                     fullWidth
                   />
                 </Stack>
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                   <TextField
-                    label="输入价格（元/百万 tokens）"
+                    label="输入成本价（元/百万 tokens）"
                     value={form.deepseekPricing.prompt}
                     onChange={(e) => updateDeepSeekPricing('prompt', e.target.value)}
                     fullWidth
                   />
                   <TextField
-                    label="输出价格（元/百万 tokens）"
+                    label="输出成本价（元/百万 tokens）"
                     value={form.deepseekPricing.completion}
                     onChange={(e) => updateDeepSeekPricing('completion', e.target.value)}
                     fullWidth
@@ -920,7 +1260,111 @@ export default function AdminAIProviderPage() {
             </Stack>
           </AdminDetailCard>
         </Stack>
-      ) : tab === 1 ? (
+      ) : isMoacode && tab === publicModelTabIndex ? (
+        <Stack spacing={1.5}>
+          <AdminDetailCard title="Moacode 公开价格表">
+            <Stack spacing={1.25}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
+                <TextField
+                  size="small"
+                  label="搜索模型或供应商"
+                  value={publicModelSearch}
+                  onChange={(event) => setPublicModelSearch(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void loadPublicModels(publicModelSearch);
+                  }}
+                  sx={{ minWidth: { xs: '100%', sm: 260 } }}
+                />
+                <Button
+                  variant="contained"
+                  disabled={publicModelLoading}
+                  onClick={() => void loadPublicModels(publicModelSearch)}
+                  sx={{ height: 40 }}
+                >
+                  查询
+                </Button>
+                <Button
+                  variant="outlined"
+                  disabled={publicModelLoading}
+                  onClick={() => void loadPublicModels(publicModelSearch)}
+                  sx={{ height: 40 }}
+                >
+                  刷新
+                </Button>
+                <Typography variant="caption" color="text.secondary">
+                  同一模型可能有多家上游；扣费估算会按当前 token 构成取最高价。
+                </Typography>
+              </Stack>
+              {publicModelError ? <Alert severity="error">{publicModelError}</Alert> : null}
+              {publicModels.length ? (
+                <Alert severity="info">
+                  共 {publicModelTotal} 条价格，按 {publicModelGroups.length} 个模型分组显示。
+                </Alert>
+              ) : null}
+              {!publicModels.length && !publicModelLoading && !publicModelError ? <Alert severity="info">暂无公开价格表</Alert> : null}
+              {publicModels.length ? (
+                <AdminResponsiveTable minWidth={980}>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ width: 260 }}>模型</TableCell>
+                        <TableCell>供应商</TableCell>
+                        <TableCell>倍率</TableCell>
+                        <TableCell>输入/百万</TableCell>
+                        <TableCell>输出/百万</TableCell>
+                        <TableCell>缓存写入/百万</TableCell>
+                        <TableCell>缓存读取/百万</TableCell>
+                        <TableCell>请求价</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {publicModelGroups.flatMap((group) => group.rows.map((row, rowIndex) => (
+                        <TableRow key={String(row.id || `${group.modelName}-${getPublicModelRowProviderCode(row) || getPublicModelRowProviderLabel(row)}-${rowIndex}`)}>
+                          {rowIndex === 0 ? (
+                            <TableCell
+                              rowSpan={group.rows.length}
+                              sx={{
+                                verticalAlign: 'top',
+                                borderRight: 1,
+                                borderRightColor: 'divider',
+                                bgcolor: 'action.hover',
+                              }}
+                            >
+                              <Typography variant="body2" sx={{ fontWeight: 800, wordBreak: 'break-word' }}>
+                                {group.modelName}
+                              </Typography>
+                              {group.displayName ? (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25, wordBreak: 'break-word' }}>
+                                  {group.displayName}
+                                </Typography>
+                              ) : null}
+                              {group.rows.length > 1 ? (
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                  {group.rows.length} 家上游
+                                </Typography>
+                              ) : null}
+                            </TableCell>
+                          ) : null}
+                          <TableCell>
+                            <Typography variant="body2">{getPublicModelRowProviderLabel(row)}</Typography>
+                            <Typography variant="caption" color="text.secondary">{getPublicModelRowProviderCode(row)}</Typography>
+                          </TableCell>
+                          <TableCell>{formatOptionalPlainNumber(row.rateMultiplier ?? row.rate_multiplier, 4)}</TableCell>
+                          <TableCell>{formatOptionalPlainNumber(row.inputTokenPrice ?? row.input_token_price, 6)}</TableCell>
+                          <TableCell>{formatOptionalPlainNumber(row.outputTokenPrice ?? row.output_token_price, 6)}</TableCell>
+                          <TableCell>{formatOptionalPlainNumber(row.cacheCreationTokenPrice ?? row.cache_creation_token_price, 6)}</TableCell>
+                          <TableCell>{formatOptionalPlainNumber(row.cacheReadTokenPrice ?? row.cache_read_token_price, 6)}</TableCell>
+                          <TableCell>{formatOptionalPlainNumber(row.requestPrice ?? row.request_price, 6)}</TableCell>
+                        </TableRow>
+                      )))}
+                    </TableBody>
+                  </Table>
+                </AdminResponsiveTable>
+              ) : null}
+            </Stack>
+          </AdminDetailCard>
+        </Stack>
+      ) : tab === userManagementTabIndex ? (
         usesInternalLedger ? (
           <Stack spacing={1.5}>
             <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
@@ -933,8 +1377,8 @@ export default function AdminAIProviderPage() {
                   <TableRow>
                     <TableCell>用户</TableCell>
                     <TableCell>手机号</TableCell>
-                    <TableCell>剩余额度</TableCell>
-                    <TableCell>已使用额度</TableCell>
+                    <TableCell>剩余点数</TableCell>
+                    <TableCell>已用点数</TableCell>
                     <TableCell>请求数</TableCell>
                     <TableCell>最近调用</TableCell>
                   </TableRow>
@@ -1028,7 +1472,11 @@ export default function AdminAIProviderPage() {
               size="small"
               label="分组"
               value={usageStatsFilters.groupBy}
-              onChange={(e) => setUsageStatsFilters((prev) => ({ ...prev, groupBy: e.target.value }))}
+              onChange={(e) => {
+                const nextGroupBy = isUsageStatsGroupBy(e.target.value) ? e.target.value : 'usage_type';
+                writeStoredUsageStatsGroupBy(providerCode, nextGroupBy);
+                setUsageStatsFilters((prev) => ({ ...prev, groupBy: nextGroupBy }));
+              }}
               sx={{ width: 140 }}
             >
               <MenuItem value="usage_type">用途</MenuItem>
@@ -1086,7 +1534,7 @@ export default function AdminAIProviderPage() {
               disabled={usageStatsLoading}
               onClick={() => {
                 const nextFilters = {
-                  groupBy: 'usage_type',
+                  ...DEFAULT_USAGE_STATS_FILTERS,
                   usageType: '',
                   model: '',
                   search: '',
@@ -1094,6 +1542,7 @@ export default function AdminAIProviderPage() {
                   from: '',
                   to: '',
                 };
+                writeStoredUsageStatsGroupBy(providerCode, nextFilters.groupBy);
                 setUsageStatsFilters(nextFilters);
                 void loadUsageStats(0, usageStatsRowsPerPage, nextFilters);
               }}
@@ -1191,18 +1640,37 @@ export default function AdminAIProviderPage() {
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
             {selectedBalanceUser ? (
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} sx={{ alignItems: { xs: 'stretch', md: 'center' } }}>
-                <Box sx={{ flex: 1 }}>
+              <Stack
+                direction="row"
+                spacing={1.25}
+                sx={{
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: { xs: 'wrap', sm: 'nowrap' },
+                }}
+              >
+                <Box sx={{ flex: '1 1 220px', minWidth: 0 }}>
                   <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{String(selectedBalanceUser.nickname || selectedBalanceUser.id || '-')}</Typography>
                   <Typography variant="body2" color="text.secondary">{String(selectedBalanceUser.phone || '-')}</Typography>
                 </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">剩余额度</Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatPoint(selectedBalanceUser.balanceAmount ?? selectedBalanceUser.balance_amount, providerCode)}</Typography>
-                </Box>
-                <Box>
-                  <Typography variant="caption" color="text.secondary">已使用额度</Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatPoint(selectedBalanceUser.usedAmount ?? selectedBalanceUser.used_amount, providerCode)}</Typography>
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: { xs: 1.5, sm: 3 },
+                    ml: 'auto',
+                    flex: '0 0 auto',
+                  }}
+                >
+                  <Box sx={{ textAlign: 'right', minWidth: 92 }}>
+                    <Typography variant="caption" color="text.secondary">剩余额度</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.15, whiteSpace: 'nowrap' }}>{formatPoint(selectedBalanceUser.balanceAmount ?? selectedBalanceUser.balance_amount, providerCode)}</Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right', minWidth: 92 }}>
+                    <Typography variant="caption" color="text.secondary">已使用额度</Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.15, whiteSpace: 'nowrap' }}>{formatPoint(selectedBalanceUser.usedAmount ?? selectedBalanceUser.used_amount, providerCode)}</Typography>
+                  </Box>
                 </Box>
               </Stack>
             ) : null}
@@ -1228,12 +1696,10 @@ export default function AdminAIProviderPage() {
               <Stack spacing={1}>
                 {!selectedUserUsage?.quotaLedger.length && !userUsageLoading ? <Alert severity="info">暂无额度流水</Alert> : null}
                 {selectedUserUsage?.quotaLedger.length ? (
-                  <AdminResponsiveTable minWidth={860}>
+                  <AdminResponsiveTable minWidth={720}>
                     <Table size="small">
                       <TableHead>
                         <TableRow>
-                          <TableCell>方向</TableCell>
-                          <TableCell>类型</TableCell>
                           <TableCell>来源</TableCell>
                           <TableCell>额度</TableCell>
                           <TableCell>余额</TableCell>
@@ -1241,16 +1707,22 @@ export default function AdminAIProviderPage() {
                         </TableRow>
                       </TableHead>
                       <TableBody>
-                        {selectedUserUsage.quotaLedger.map((row) => (
-                          <TableRow key={String(row.id)}>
-                            <TableCell>{formatLedgerDirection(row.amount)}</TableCell>
-                            <TableCell>{formatLedgerEntryType(row.entry_type)}</TableCell>
-                            <TableCell>{formatLedgerSourceType(row.source_type)}</TableCell>
-                            <TableCell><Typography variant="body2" sx={getLedgerAmountSx(row.amount)}>{formatPoint(row.amount, providerCode)}</Typography></TableCell>
-                            <TableCell>{row.balance_after == null ? '-' : formatPoint(row.balance_after, providerCode)}</TableCell>
-                            <TableCell>{formatTime(row.created_at)}</TableCell>
-                          </TableRow>
-                        ))}
+                        {selectedUserUsage.quotaLedger.map((row) => {
+                          const source = getLedgerSourcePresentation(row);
+                          return (
+                            <TableRow key={String(row.id)}>
+                              <TableCell>
+                                <Typography variant="body2" sx={source.sx}>{source.label}</Typography>
+                                {source.secondary ? (
+                                  <Typography variant="caption" color="text.secondary">{source.secondary}</Typography>
+                                ) : null}
+                              </TableCell>
+                              <TableCell><Typography variant="body2" sx={getLedgerAmountSx(row.amount)}>{formatPoint(row.amount, providerCode)}</Typography></TableCell>
+                              <TableCell>{row.balance_after == null ? '-' : formatPoint(row.balance_after, providerCode)}</TableCell>
+                              <TableCell>{formatTime(row.created_at)}</TableCell>
+                            </TableRow>
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </AdminResponsiveTable>
@@ -1277,7 +1749,7 @@ export default function AdminAIProviderPage() {
                 </Typography>
                 {!selectedUserUsage?.invocations.length && !userUsageLoading ? <Alert severity="info">暂无调用记录</Alert> : null}
                 {selectedUserUsage?.invocations.length ? (
-                  <AdminResponsiveTable minWidth={920}>
+                  <AdminResponsiveTable minWidth={1080}>
                     <Table size="small">
                       <TableHead>
                         <TableRow>
@@ -1285,8 +1757,11 @@ export default function AdminAIProviderPage() {
                           <TableCell>模型</TableCell>
                           <TableCell>输入</TableCell>
                           <TableCell>输出</TableCell>
+                          <TableCell>缓存命中</TableCell>
+                          <TableCell>缓存写入</TableCell>
                           <TableCell>总量</TableCell>
                           <TableCell>扣费</TableCell>
+                          <TableCell>计费来源</TableCell>
                           <TableCell>耗时</TableCell>
                           <TableCell>时间</TableCell>
                         </TableRow>
@@ -1298,8 +1773,11 @@ export default function AdminAIProviderPage() {
                             <TableCell>{String(row.model || '-')}</TableCell>
                             <TableCell>{String(row.input_tokens ?? '-')}</TableCell>
                             <TableCell>{String(row.output_tokens ?? '-')}</TableCell>
+                            <TableCell>{String(row.prompt_cache_hit_tokens ?? '-')}</TableCell>
+                            <TableCell>{String(row.prompt_cache_miss_tokens ?? '-')}</TableCell>
                             <TableCell>{String(row.total_tokens ?? '-')}</TableCell>
                             <TableCell>{row.charged_amount == null ? '-' : formatPoint(row.charged_amount, providerCode)}</TableCell>
+                            <TableCell>{formatBillingSource(row.billing_source)}</TableCell>
                             <TableCell>{String(row.latency_ms ?? '-')}</TableCell>
                             <TableCell>{formatTime(row.created_at)}</TableCell>
                           </TableRow>
@@ -1332,7 +1810,8 @@ export default function AdminAIProviderPage() {
                     label="分组"
                     value={selectedUserStatsGroupBy}
                     onChange={(event) => {
-                      const nextGroupBy = event.target.value;
+                      const nextGroupBy = isUserStatsGroupBy(event.target.value) ? event.target.value : 'usage_type';
+                      writeStoredUserStatsGroupBy(providerCode, nextGroupBy);
                       setSelectedUserStatsGroupBy(nextGroupBy);
                       setSelectedUserStatsPage(0);
                       if (selectedBalanceUser?.id) void loadSelectedUserStats(String(selectedBalanceUser.id), 0, nextGroupBy);

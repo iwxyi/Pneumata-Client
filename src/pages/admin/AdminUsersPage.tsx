@@ -4,7 +4,7 @@ import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
-import { formatAiBalanceAmount } from '../../utils/aiPoints';
+import { formatAiAmount, formatAiBalanceAmount } from '../../utils/aiPoints';
 
 type KeyDraft = {
   apiKey: string;
@@ -15,6 +15,16 @@ type KeyDraft = {
   minuteTimes: string;
   requestLimit: string;
   note: string;
+};
+
+type AdminUserListItem = {
+  id: string;
+  phone: string;
+  nickname: string;
+  created_at: number;
+  aiBalanceAmount?: unknown;
+  aiUsedAmount?: unknown;
+  aiRequestCount?: unknown;
 };
 
 function formatTime(value: unknown) {
@@ -39,6 +49,13 @@ function numberOrNull(value: string) {
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatUserAiQuota(item: AdminUserListItem) {
+  return {
+    balance: formatAiAmount(item.aiBalanceAmount ?? 0, 'deepseek'),
+    used: formatAiAmount(item.aiUsedAmount ?? 0, 'deepseek'),
+  };
 }
 
 function mergeAiKeyIntoUser(user: Record<string, unknown> | null, key: Record<string, unknown>) {
@@ -98,7 +115,7 @@ export default function AdminUsersPage() {
   const theme = useTheme();
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'));
   const [search, setSearch] = useState('');
-  const [items, setItems] = useState<Array<{ id: string; phone: string; nickname: string; created_at: number }>>([]);
+  const [items, setItems] = useState<AdminUserListItem[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<Record<string, unknown> | null>(null);
   const [selectedRestrictions, setSelectedRestrictions] = useState<Array<Record<string, unknown>>>([]);
@@ -128,7 +145,7 @@ export default function AdminUsersPage() {
     setError(null);
     try {
       const result = await adminApi.getUsers(search);
-      setItems(result.items as Array<{ id: string; phone: string; nickname: string; created_at: number }>);
+      setItems(result.items as AdminUserListItem[]);
     } catch (loadError) {
       setError(getAdminErrorMessage(loadError));
     } finally {
@@ -383,12 +400,13 @@ export default function AdminUsersPage() {
     <Stack spacing={2}>
       <TextField value={search} onChange={(e) => setSearch(e.target.value)} label="搜索手机号或昵称" />
       <AdminRequestState loading={loading} error={error} onRetry={() => void loadUsers()} />
-      <AdminResponsiveTable minWidth={640}>
+      <AdminResponsiveTable minWidth={760}>
         <Table>
           <TableHead>
             <TableRow>
               <TableCell>昵称</TableCell>
               <TableCell>手机号</TableCell>
+              <TableCell>用户额度</TableCell>
               <TableCell>创建时间</TableCell>
               <TableCell align="right">详情</TableCell>
             </TableRow>
@@ -396,21 +414,30 @@ export default function AdminUsersPage() {
           <TableBody>
             {!items.length && !loading ? (
               <TableRow>
-                <TableCell colSpan={4}>
+                <TableCell colSpan={5}>
                   <Alert severity="info">暂无用户</Alert>
                 </TableCell>
               </TableRow>
             ) : null}
-            {items.map((item) => (
-              <TableRow key={item.id} hover onClick={() => setSelectedUserId(item.id)} sx={{ cursor: 'pointer' }}>
-                <TableCell>{item.nickname}</TableCell>
-                <TableCell>{item.phone}</TableCell>
-                <TableCell>{new Date(item.created_at).toLocaleString()}</TableCell>
-                <TableCell align="right">
-                  <Typography variant="body2" color="primary">查看</Typography>
-                </TableCell>
-              </TableRow>
-            ))}
+            {items.map((item) => {
+              const aiQuota = formatUserAiQuota(item);
+              return (
+                <TableRow key={item.id} hover onClick={() => setSelectedUserId(item.id)} sx={{ cursor: 'pointer' }}>
+                  <TableCell>{item.nickname}</TableCell>
+                  <TableCell>{item.phone}</TableCell>
+                  <TableCell>
+                    <Stack spacing={0.25}>
+                      <Typography variant="body2" sx={{ fontWeight: 700 }}>剩余 {aiQuota.balance}</Typography>
+                      <Typography variant="caption" color="text.secondary">已用 {aiQuota.used}</Typography>
+                    </Stack>
+                  </TableCell>
+                  <TableCell>{new Date(item.created_at).toLocaleString()}</TableCell>
+                  <TableCell align="right">
+                    <Typography variant="body2" color="primary">查看</Typography>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </AdminResponsiveTable>

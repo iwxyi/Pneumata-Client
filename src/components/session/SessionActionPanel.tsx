@@ -1015,6 +1015,8 @@ function getActionLabel(action: SessionActionDefinition) {
   if (action.type === 'ask_question') return '提问动作';
   if (action.type === 'director_intervention') return '导演干预';
   if (action.type === 'start_private_thread') return '发起AI私聊';
+  if (action.type === 'mute_member') return '禁言成员';
+  if (action.type === 'unmute_member') return '解除禁言';
   if (action.type === 'wolf_vote') return '夜晚袭击';
   if (action.type === 'inspect_player') return '夜晚查验';
   if (action.type === 'vote_player') return '白天投票';
@@ -1027,6 +1029,8 @@ function getActionHint(action: SessionActionDefinition) {
   if (action.type === 'ask_question') return '验证非聊天动作流：推进一个问题/环节，而不是直接发消息。';
   if (action.type === 'director_intervention') return '主持/导演对房间状态做一次明确干预。';
   if (action.type === 'start_private_thread') return '派生AI私聊或双边互动。';
+  if (action.type === 'mute_member') return '暂时禁止指定成员被自动调度发言。';
+  if (action.type === 'unmute_member') return '恢复指定成员的自动发言资格。';
   if (action.type === 'wolf_vote') return '狼人夜晚协商并选择刀口。';
   if (action.type === 'inspect_player') return '预言家夜晚查验一名目标。';
   if (action.type === 'vote_player') return '白天公开投票并附带理由。';

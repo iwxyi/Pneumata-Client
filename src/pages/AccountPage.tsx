@@ -18,6 +18,7 @@ import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '.
 import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
 import { api } from '../services/api';
 import { formatAiBalanceAmount } from '../utils/aiPoints';
+import AiUsageDialog from '../components/account/AiUsageDialog';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 512;
@@ -129,6 +130,7 @@ export default function AccountPage() {
   const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(isCloudSyncEnabled);
   const [aiBalance, setAiBalance] = useState<Record<string, unknown> | null>(null);
   const [aiBalanceLoading, setAiBalanceLoading] = useState(false);
+  const [aiUsageDialogOpen, setAiUsageDialogOpen] = useState(false);
   const cloudSyncAvailable = authMode !== 'local' && user?.cloudSyncEntitled !== false;
 
   useEffect(() => {
@@ -150,7 +152,7 @@ export default function AccountPage() {
     }
     let cancelled = false;
     setAiBalanceLoading(true);
-    api.getAiBalance()
+    api.getAiBalance('moacode')
       .then((balance) => {
         if (!cancelled) setAiBalance(balance);
       })
@@ -538,9 +540,19 @@ export default function AccountPage() {
 
         <Card variant="outlined">
           <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
-              {i18n.language.startsWith('zh') ? 'AI点数' : 'AI points'}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+              <Typography variant="subtitle1" sx={{ fontWeight: 700 }}>
+                {i18n.language.startsWith('zh') ? 'AI点数' : 'AI points'}
+              </Typography>
+              <Button
+                variant="outlined"
+                size="small"
+                disabled={authMode === 'local'}
+                onClick={() => setAiUsageDialogOpen(true)}
+              >
+                {i18n.language.startsWith('zh') ? '查看消耗' : 'Usage'}
+              </Button>
+            </Box>
             <Typography variant="body2" color="text.secondary">
               {authMode === 'local'
                 ? (i18n.language.startsWith('zh') ? '登录后查看点数' : 'Sign in to view points')
@@ -548,6 +560,8 @@ export default function AccountPage() {
             </Typography>
           </CardContent>
         </Card>
+
+        <AiUsageDialog open={aiUsageDialogOpen} onClose={() => setAiUsageDialogOpen(false)} />
 
         <Card variant="outlined">
           <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>

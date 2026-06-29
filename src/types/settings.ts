@@ -2,7 +2,7 @@ import type { RuntimeEvolutionIntensity } from './chat';
 import type { ArtifactAppearanceSettings } from './artifactAppearance';
 import { DEFAULT_ARTIFACT_APPEARANCE_SETTINGS } from './artifactAppearance';
 
-export type AIProvider = 'official' | 'official-deepseek' | 'official-gpt' | 'openai' | 'anthropic' | 'google' | 'xai' | 'deepseek' | 'alibaba' | 'zhipu' | 'moonshot' | 'minimax' | 'bytedance' | 'microsoft' | 'custom';
+export type AIProvider = 'official' | 'official-deepseek' | 'official-gpt' | 'official-moacode' | 'openai' | 'anthropic' | 'google' | 'xai' | 'deepseek' | 'alibaba' | 'zhipu' | 'moonshot' | 'minimax' | 'bytedance' | 'microsoft' | 'custom';
 export type AIModelType = 'text' | 'image' | 'audio' | 'document';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type Language = 'zh' | 'en';
@@ -150,7 +150,7 @@ export function getAttachmentUiCapabilitySummary(profile?: Pick<AIModelProfile, 
 
 export function getInputCapabilitySource(profile?: Pick<AIModelProfile, 'provider' | 'model'> | null) {
   if (!profile) return 'none' as const;
-  if (profile.provider === 'official' || profile.provider === 'official-deepseek' || profile.provider === 'official-gpt') return 'official' as const;
+  if (profile.provider === 'official' || profile.provider === 'official-deepseek' || profile.provider === 'official-gpt' || profile.provider === 'official-moacode') return 'official' as const;
   if (profile.provider === 'anthropic' || profile.provider === 'google') return 'official' as const;
   return inferTextInputCapabilities(profile.provider, profile.model).imageInput || inferTextInputCapabilities(profile.provider, profile.model).fileInput
     ? 'third-party-inferred' as const
@@ -877,7 +877,7 @@ export const DEFAULT_CHAT_APPEARANCE_SETTINGS: ChatAppearanceSettings = {
 export type AppSettingsWithMemory = AppSettings & { memoryUI: { showDeveloperMemory?: boolean } };
 
 export const DEFAULT_API_CONFIG: APIConfig = {
-  provider: 'official-gpt',
+  provider: 'official-moacode',
   apiKey: '',
   baseUrl: '/api/ai',
   model: 'gpt-5.5',
@@ -925,7 +925,7 @@ export function getPreferredAIProfile(aiProfiles: AIModelProfile[], type: AIMode
 export function isAIProfileUsable<T extends Pick<APIConfig, 'apiKey' | 'model'>>(profile: T | null | undefined): profile is T {
   if (!profile?.model?.trim()) return false;
   const provider = 'provider' in profile ? (profile as T & Pick<APIConfig, 'provider'>).provider : null;
-  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt' || Boolean(profile.apiKey?.trim());
+  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt' || provider === 'official-moacode' || Boolean(profile.apiKey?.trim());
 }
 
 export function getUsablePreferredAIProfile(aiProfiles: AIModelProfile[], type: AIModelType) {

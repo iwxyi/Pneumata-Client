@@ -138,6 +138,10 @@ class AdminApiClient {
     return this.request<Record<string, unknown>>('POST', `/ai/providers/${encodeURIComponent(providerCode)}/account-balance`);
   }
 
+  getAiProviderPublicModels(providerCode: string, params?: { search?: string; page?: number; limit?: number; all?: boolean }) {
+    return this.request<{ items: Array<Record<string, unknown>>; page: number; limit: number; total: number }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/public-models${this.buildQuery({ search: params?.search, page: params?.page, limit: params?.limit, all: params?.all ? 'true' : undefined })}`);
+  }
+
   updateAiProviderConfig(providerCode: string, payload: Record<string, unknown>) {
     return this.request<Record<string, unknown>>('PUT', `/ai/providers/${encodeURIComponent(providerCode)}/config`, payload);
   }

@@ -21,7 +21,7 @@ function getSessionEngine(chat: Pick<GroupChat, 'mode' | 'sessionKind'>) {
   return loadSessionEngine(chat);
 }
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
-import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
+import { calculateWeights, getSpeakerSelectionResult, isChatMemberMuted, resolvePendingReplyContext, selectSpeaker } from './scheduler';
 import { deriveSpeakIntentFromContext, describeIntentForPrompt, type SpeakIntent } from './intentEngine';
 import { describeDirectorIntent, type DirectorIntent } from './directorIntent';
 import type { NarrativeLineProjection } from './narrativeProjection';
@@ -2687,6 +2687,31 @@ function resolveRecentTargetIdForSpeaker(chat: GroupChat, speaker: AICharacter, 
   return undefined;
 }
 
+function resolveRoundtableTurnSpeaker(chat: GroupChat, chatMembers: AICharacter[]) {
+  if (chat.sessionKind?.scenarioId !== 'roundtable-discussion' && chat.mode !== 'roundtable') return null;
+  if (chat.scenarioState?.phase === 'synthesis') return null;
+  const turnOrder = (chat.scenarioState?.turnOrder?.length ? chat.scenarioState.turnOrder : chat.memberIds)
+    .filter((memberId) => memberId && memberId !== 'user');
+  const startIndex = Math.max(0, turnOrder.indexOf(chat.scenarioState?.currentTurnActorId || ''));
+  const orderedCandidateIds = turnOrder.length
+    ? [...turnOrder.slice(startIndex), ...turnOrder.slice(0, startIndex)]
+    : [];
+  const speaker = orderedCandidateIds
+    .map((memberId) => chatMembers.find((member) => member.id === memberId))
+    .find((member): member is AICharacter => Boolean(member && !isChatMemberMuted(chat, member.id)));
+  if (!speaker) return null;
+  return {
+    speakerId: speaker.id,
+    reason: null,
+    bypassNotice: null,
+    policy: {
+      source: 'roundtable_turn_order',
+      scenarioId: chat.sessionKind?.scenarioId,
+      phase: chat.scenarioState?.phase || null,
+    },
+  };
+}
+
 export async function generateSpeakerMessage(params: {
   chat: GroupChat;
   speaker: AICharacter;
@@ -3059,6 +3084,7 @@ export const runOneRound = async (
   const storyNarrator = chat.sessionKind?.scenarioId === 'story-reader'
     ? chatMembers.find((member) => member.id === 'narrator')
     : null;
+  const roundtableTurnSpeaker = resolveRoundtableTurnSpeaker(chat, chatMembers);
   const speakerSelection = storyNarrator
     ? {
       speakerId: storyNarrator.id,
@@ -3080,6 +3106,8 @@ export const runOneRound = async (
         lockedActorIds: directorIntent?.targetActorIds || directorIntent?.userGuidance?.actorIds || [lockedGuidanceSpeaker.id],
       },
     }
+    : roundtableTurnSpeaker
+      ? roundtableTurnSpeaker
     : getSpeakerSelectionResult(chatMembers, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, candidates);
   const selectionElapsedMs = Number((nowMs() - roundStartedAt).toFixed(2));
   logDeveloperDiagnostic('chat-run:speaker-selection-ready', {

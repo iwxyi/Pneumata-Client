@@ -8,7 +8,8 @@ type FormatAiAmountOptions = {
 
 function normalizeProviderCode(provider: unknown) {
   const value = String(provider || '').toLowerCase();
-  if (value === 'official' || value === 'official-gpt' || value === 'gpt') return 'api2d';
+  if (value === 'official' || value === 'official-moacode' || value === 'moacode') return 'moacode';
+  if (value === 'official-gpt' || value === 'gpt') return 'api2d';
   if (value === 'official-deepseek' || value === 'ds') return 'deepseek';
   return value;
 }

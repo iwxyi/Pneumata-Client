@@ -53,6 +53,27 @@ const OFFICIAL_DEEPSEEK_TEXT_MODELS = [
   'deepseek-reasoner',
 ];
 
+const OFFICIAL_MOACODE_CODE_MODELS = [
+  'claude-sonnet-4-5',
+  'claude-sonnet-4-0',
+  'claude-opus-4-1',
+  'claude-opus-4-0',
+  'claude-3-7-sonnet-latest',
+  'claude-3-5-sonnet-latest',
+  'claude-3-5-haiku-latest',
+  'gpt-5-codex',
+  'codex-mini-latest',
+];
+const OFFICIAL_MOACODE_TEXT_MODELS = [
+  'gpt-5.5',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+  'gpt-5.2',
+  'gpt-5.3-codex',
+  'gpt-5.3-codex-spark',
+  ...OFFICIAL_MOACODE_CODE_MODELS,
+];
+
 export interface ProviderTypeDefaults {
   baseUrl: string;
   model: string;
@@ -64,6 +85,7 @@ export interface AIProviderCatalogEntry {
   family: string;
   defaults: Partial<Record<AIModelType, ProviderTypeDefaults>>;
   popularModels: Partial<Record<AIModelType, string[]>>;
+  hidden?: boolean;
 }
 
 export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
@@ -81,9 +103,22 @@ export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
     },
   },
   {
+    key: 'official-moacode',
+    label: '官方2（Moacode）',
+    family: 'Pneumata Moacode',
+    defaults: {
+      text: { baseUrl: '/api/ai', model: 'gpt-5.5' },
+      document: { baseUrl: '/api/ai', model: 'gpt-5.5' },
+    },
+    popularModels: {
+      text: OFFICIAL_MOACODE_TEXT_MODELS,
+      document: OFFICIAL_MOACODE_TEXT_MODELS,
+    },
+  },
+  {
     key: 'official-gpt',
-    label: '官方2（GPT）',
-    family: 'Pneumata GPT',
+    label: '官方4（API2D）',
+    family: 'Pneumata API2D',
     defaults: {
       text: { baseUrl: '/api/ai', model: 'gpt-5.5' },
       document: { baseUrl: '/api/ai', model: 'gpt-5.5' },
@@ -92,6 +127,7 @@ export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
       text: OFFICIAL_TEXT_MODELS,
       document: OFFICIAL_TEXT_MODELS,
     },
+    hidden: true,
   },
   {
     key: 'openai',
@@ -276,12 +312,12 @@ export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
 ];
 
 export function getProviderCatalogEntry(provider: AIProvider) {
-  if (provider === 'official') return AI_PROVIDER_CATALOG.find((item) => item.key === 'official-gpt') || AI_PROVIDER_CATALOG[0];
+  if (provider === 'official') return AI_PROVIDER_CATALOG.find((item) => item.key === 'official-moacode') || AI_PROVIDER_CATALOG[0];
   return AI_PROVIDER_CATALOG.find((item) => item.key === provider) || AI_PROVIDER_CATALOG[0];
 }
 
-export function getProvidersForType(type: AIModelType) {
-  return AI_PROVIDER_CATALOG.filter((item) => item.defaults[type]);
+export function getProvidersForType(type: AIModelType, options: { includeHidden?: boolean } = {}) {
+  return AI_PROVIDER_CATALOG.filter((item) => item.defaults[type] && (options.includeHidden || !item.hidden));
 }
 
 export function getProviderDefaults(provider: AIProvider, type: AIModelType) {

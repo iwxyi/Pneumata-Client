@@ -40,6 +40,62 @@ export interface TopicAdaptationResult {
   recommendedCharacters?: TopicAdaptationCharacterSuggestion[];
 }
 
+export interface OfficialAiProviderInfo {
+  code: string;
+  name: string;
+  officialProvider: string;
+  label: string;
+  family: string;
+  defaultModel: string;
+  hidden?: boolean;
+  sortOrder?: number;
+  defaultForAssignment?: boolean;
+  billingMode?: string;
+  capabilities?: Record<string, unknown>;
+}
+
+export interface AiUsageRecordItem {
+  id: string;
+  usageType?: string | null;
+  usageLabel?: string | null;
+  sourceType?: string | null;
+  model?: string | null;
+  amount: number;
+  balanceAfter?: number | null;
+  chargedAmount?: number | null;
+  billingUnit?: string | null;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  createdAt: number;
+}
+
+export interface AiUsageRecordsResponse {
+  page: number;
+  limit: number;
+  total: number;
+  items: AiUsageRecordItem[];
+}
+
+export interface AiUsageSummaryItem {
+  groupKey: string;
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  chargedAmount: number;
+  lastUsedAt?: number | null;
+}
+
+export interface AiUsageSummaryResponse {
+  groupBy: 'day' | 'month';
+  page: number;
+  limit: number;
+  total: number;
+  totals?: Record<string, unknown>;
+  items: AiUsageSummaryItem[];
+}
+
 export interface CharacterArtifactSyncEntry {
   id: string;
   kind: 'birth_letter' | 'diary' | 'final_letter';
@@ -266,8 +322,27 @@ class ApiClient {
     return request;
   }
 
+  async getAiUsageRecords(params: { page?: number; limit?: number } = {}) {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    const suffix = query.toString();
+    return this.request<AiUsageRecordsResponse>('GET', `/ai/usage/records${suffix ? `?${suffix}` : ''}`);
+  }
+
+  async getAiUsageSummary(params: { groupBy: 'day' | 'month'; page?: number; limit?: number }) {
+    const query = new URLSearchParams({ groupBy: params.groupBy });
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    return this.request<AiUsageSummaryResponse>('GET', `/ai/usage/stats?${query.toString()}`);
+  }
+
   async assignAiProviderKey(providerCode: string) {
     return this.request<Record<string, unknown>>('POST', '/ai/keys/assign', { providerCode });
+  }
+
+  async getOfficialAiProviders() {
+    return this.request<{ items: OfficialAiProviderInfo[] }>('GET', '/ai/providers');
   }
 
   async getCharacters() {

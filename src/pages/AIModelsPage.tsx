@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type MouseEvent } from 'react';
 import {
   Box, Typography, TextField, Button,
   FormControl, InputLabel, Select, MenuItem,
@@ -16,7 +16,7 @@ import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { isLikelyBrowserCorsError, listAvailableModels, testConnection } from '../services/aiClient';
-import { api } from '../services/api';
+import { api, type OfficialAiProviderInfo } from '../services/api';
 import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType, AIProvider } from '../types/settings';
 import { normalizeImageCapabilities, normalizeInputCapabilities, inferTextInputCapabilities, buildTextInputCapabilityPatch, getInputCapabilityLockState, getAttachmentUiCapabilitySummary, getInputCapabilityBadge, getInputCapabilityWarning, shouldShowInputCapabilityWarning } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
@@ -25,7 +25,7 @@ import PageSection from '../components/common/PageSection';
 import SurfaceCard from '../components/common/SurfaceCard';
 import AppSnackbar from '../components/common/AppSnackbar';
 import ExpandableFab from '../components/common/ExpandableFab';
-import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
+import { getPopularModels, getProviderCatalogEntry, getProvidersForType, inferImageCapabilities, type AIProviderCatalogEntry } from '../constants/aiModelCatalog';
 import { motion, transition } from '../styles/motion';
 import { formatAiAmount } from '../utils/aiPoints';
 
@@ -33,6 +33,10 @@ type AiBalanceView =
   | { status: 'idle' | 'loading' }
   | { status: 'guest' | 'unassigned' | 'error' }
   | { status: 'ready'; points: number };
+
+type AIProviderOption = AIProviderCatalogEntry & {
+  unavailableReason?: string;
+};
 
 function maskSecret(value: string) {
   if (!value) return '';
@@ -221,16 +225,48 @@ function getAiBalanceLabel(view: AiBalanceView, providerKey: string, zh: boolean
 }
 
 function isOfficialProviderKey(provider: string) {
-  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt';
+  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt' || provider === 'official-moacode';
+}
+
+function isKnownOfficialProviderKey(provider: string): provider is AIProvider {
+  return provider === 'official-deepseek' || provider === 'official-gpt' || provider === 'official-moacode';
 }
 
 function resolveOfficialBackendProvider(provider: string) {
-  return provider === 'official-deepseek' ? 'deepseek' : 'api2d';
+  if (provider === 'official-deepseek') return 'deepseek';
+  if (provider === 'official') return 'moacode';
+  if (provider === 'official-moacode') return 'moacode';
+  return 'api2d';
 }
 
-function resolveSelectableProviderKey(provider: string, type: AIModelType) {
-  const providerOptions = getProvidersForType(type);
+function buildOnlineOfficialProviderOption(provider: OfficialAiProviderInfo): (AIProviderOption & { sortOrder: number }) | null {
+  if (!isKnownOfficialProviderKey(provider.officialProvider)) return null;
+  const catalogEntry = getProviderCatalogEntry(provider.officialProvider);
+  const textDefault = catalogEntry.defaults.text;
+  const documentDefault = catalogEntry.defaults.document;
+  const defaultModel = provider.defaultModel || textDefault?.model || documentDefault?.model || '';
+  return {
+    ...catalogEntry,
+    label: provider.label || catalogEntry.label,
+    family: provider.family || catalogEntry.family,
+    hidden: Boolean(provider.hidden),
+    defaults: {
+      ...catalogEntry.defaults,
+      ...(textDefault ? { text: { ...textDefault, model: defaultModel || textDefault.model } } : {}),
+      ...(documentDefault ? { document: { ...documentDefault, model: defaultModel || documentDefault.model } } : {}),
+    },
+    sortOrder: typeof provider.sortOrder === 'number' ? provider.sortOrder : 999,
+  };
+}
+
+function getProviderDefaultsFromOptions(provider: AIProvider, type: AIModelType, providerOptions: AIProviderOption[]) {
+  const entry = providerOptions.find((item) => item.key === provider) || getProviderCatalogEntry(provider);
+  return entry.defaults[type] || { baseUrl: '', model: '' };
+}
+
+function resolveSelectableProviderKey(provider: string, type: AIModelType, providerOptions: AIProviderOption[] = getProvidersForType(type)) {
   const catalogProvider = getProviderCatalogEntry(provider as AIProvider);
+  if (catalogProvider.defaults[type]) return catalogProvider.key;
   return providerOptions.find((item) => item.key === provider)?.key
     || providerOptions.find((item) => item.key === catalogProvider.key)?.key
     || providerOptions[0]?.key
@@ -260,6 +296,9 @@ export default function AIModelsPage() {
   const [aiBalances, setAiBalances] = useState<Record<string, Record<string, unknown> | null>>({});
   const [aiBalanceLoadingIds, setAiBalanceLoadingIds] = useState<Record<string, boolean>>({});
   const [aiBalanceStatuses, setAiBalanceStatuses] = useState<Record<string, 'idle' | 'guest' | 'unassigned' | 'error'>>({});
+  const [officialProviders, setOfficialProviders] = useState<OfficialAiProviderInfo[]>([]);
+  const [officialProvidersLoading, setOfficialProvidersLoading] = useState(true);
+  const [officialProvidersError, setOfficialProvidersError] = useState<string | null>(null);
   const modelInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const fetchingModelKeysRef = useRef<Record<string, string>>({});
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
@@ -323,6 +362,43 @@ export default function AIModelsPage() {
     popular: i18n.language.startsWith('zh') ? '推荐模型' : 'Recommended models',
     remote: i18n.language.startsWith('zh') ? '远程可用模型' : 'Available from provider',
   } as const;
+  const onlineOfficialProviderOptions = useMemo(() => officialProviders
+    .map(buildOnlineOfficialProviderOption)
+    .filter((item): item is AIProviderOption & { sortOrder: number } => Boolean(item))
+    .sort((left, right) => left.sortOrder - right.sortOrder || left.label.localeCompare(right.label)), [officialProviders]);
+  const getProviderOptionsForType = useCallback((type: AIModelType, selectedProvider?: string): AIProviderOption[] => {
+    const nonOfficialOptions = getProvidersForType(type).filter((item) => !isOfficialProviderKey(item.key));
+    const visibleOfficialOptions = officialProvidersError
+      ? []
+      : onlineOfficialProviderOptions.filter((item) => item.defaults[type] && (!item.hidden || item.key === selectedProvider));
+    const selectedOfficialOption = selectedProvider && isOfficialProviderKey(selectedProvider)
+      ? getProviderCatalogEntry(selectedProvider as AIProvider)
+      : null;
+    const selectedOfficialIsListed = selectedOfficialOption
+      ? visibleOfficialOptions.some((item) => item.key === selectedOfficialOption.key)
+      : true;
+    if (selectedOfficialOption?.defaults[type] && !selectedOfficialIsListed) {
+      const reason = officialProvidersLoading
+        ? (i18n.language.startsWith('zh') ? '正在确认可用性' : 'checking availability')
+        : officialProvidersError
+          ? (i18n.language.startsWith('zh') ? '在线列表获取失败' : 'online list failed')
+          : (i18n.language.startsWith('zh') ? '后台未启用' : 'disabled by backend');
+      return [
+        {
+          ...selectedOfficialOption,
+          hidden: false,
+          label: `${selectedOfficialOption.label} (${reason})`,
+          unavailableReason: reason,
+        },
+        ...visibleOfficialOptions,
+        ...nonOfficialOptions,
+      ];
+    }
+    return [
+      ...visibleOfficialOptions,
+      ...nonOfficialOptions,
+    ];
+  }, [i18n.language, officialProvidersError, officialProvidersLoading, onlineOfficialProviderOptions]);
 
   useEffect(() => {
     setHeaderTitle(t('nav.models'));
@@ -336,6 +412,28 @@ export default function AIModelsPage() {
       setHeaderActions(null);
     };
   }, [setHeaderActions, setHeaderBackAction, setHeaderTitle, setHideMobileBottomNav, t]);
+
+  useEffect(() => {
+    let active = true;
+    setOfficialProvidersLoading(true);
+    setOfficialProvidersError(null);
+    api.getOfficialAiProviders()
+      .then((result) => {
+        if (!active) return;
+        setOfficialProviders(Array.isArray(result.items) ? result.items : []);
+      })
+      .catch((error) => {
+        if (!active) return;
+        setOfficialProviders([]);
+        setOfficialProvidersError(extractConnectionErrorMessage(error) || (i18n.language.startsWith('zh') ? '官方 AI 平台列表获取失败' : 'Failed to load official AI providers'));
+      })
+      .finally(() => {
+        if (active) setOfficialProvidersLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [i18n.language]);
 
   const handleModelInputChange = useCallback((profileId: string, value: string) => {
     const profile = settings.aiProfiles.find((item) => item.id === profileId);
@@ -586,6 +684,11 @@ export default function AIModelsPage() {
           {settings.syncError}
         </Alert>
       ) : null}
+      {officialProvidersError ? (
+        <Alert severity="error" variant="outlined">
+          {i18n.language.startsWith('zh') ? `官方 AI 平台列表获取失败：${officialProvidersError}` : `Failed to load official AI providers: ${officialProvidersError}`}
+        </Alert>
+      ) : null}
 
       <Box
         sx={{
@@ -603,10 +706,11 @@ export default function AIModelsPage() {
               <SurfaceCard key={profile.id} sx={modelCardSx()} contentSx={{ display: 'flex', flexDirection: 'column', gap: 1.75 }}>
                   {(() => {
                     const activeType = profile.type || 'text';
-                    const providerOptions = getProvidersForType(activeType);
-                    const selectedProviderKey = resolveSelectableProviderKey(profile.provider, activeType);
+                    const providerOptions = getProviderOptionsForType(activeType, profile.provider);
+                    const selectedProviderKey = resolveSelectableProviderKey(profile.provider, activeType, providerOptions);
                     const selectedProvider = providerOptions.find((item) => item.key === selectedProviderKey) || getProviderCatalogEntry(selectedProviderKey);
-                    const providerDefaults = getProviderDefaults(selectedProvider.key, activeType);
+                    const selectedProviderUnavailable = Boolean((selectedProvider as AIProviderOption).unavailableReason);
+                    const providerDefaults = getProviderDefaultsFromOptions(selectedProvider.key, activeType, providerOptions);
                     const usesOfficialProxy = isOfficialProviderKey(selectedProvider.key);
                     const fetchedModels = remoteModelOptions[profile.id] || [];
                     const popularModels = usesOfficialProxy && fetchedModels.length > 0 ? [] : getPopularModels(selectedProvider.key, activeType);
@@ -653,8 +757,9 @@ export default function AIModelsPage() {
                           MenuProps={{ slotProps: { paper: { sx: solidPopupPaperSx() } } }}
                           onChange={(e) => {
                             const type = e.target.value as AIModelType;
-                            const nextProvider = resolveSelectableProviderKey(profile.provider, type);
-                            const nextDefaults = getProviderDefaults(nextProvider, type);
+                            const nextProviderOptions = getProviderOptionsForType(type, profile.provider);
+                            const nextProvider = resolveSelectableProviderKey(profile.provider, type, nextProviderOptions);
+                            const nextDefaults = getProviderDefaultsFromOptions(nextProvider, type, nextProviderOptions);
                             setFetchedModelKeys((prev) => {
                               const next = { ...prev };
                               delete next[profile.id];
@@ -716,7 +821,7 @@ export default function AIModelsPage() {
                       MenuProps={{ slotProps: { paper: { sx: solidPopupPaperSx() } } }}
                       onChange={(e) => {
                         const provider = e.target.value as typeof selectedProvider.key;
-                        const nextDefaults = getProviderDefaults(provider, activeType);
+                        const nextDefaults = getProviderDefaultsFromOptions(provider, activeType, providerOptions);
                         setFetchedModelKeys((prev) => {
                           const next = { ...prev };
                           delete next[profile.id];
@@ -738,7 +843,7 @@ export default function AIModelsPage() {
                       }}
                     >
                       {providerOptions.map((option) => (
-                        <MenuItem key={option.key} value={option.key}>{option.label}</MenuItem>
+                        <MenuItem key={option.key} value={option.key} disabled={Boolean(option.unavailableReason)}>{option.label}</MenuItem>
                       ))}
                     </Select>
                   </FormControl>
@@ -875,7 +980,7 @@ export default function AIModelsPage() {
                     <Button
                       variant="outlined"
                       onClick={() => handleFetchModels(profile.id)}
-                      disabled={fetchingModels || !profile.apiKey}
+                      disabled={fetchingModels || selectedProviderUnavailable || (!usesOfficialProxy && !profile.apiKey)}
                       sx={{ minWidth: 64, height: 40, px: 1.5, flexShrink: 0 }}
                     >
                       {fetchingModels
@@ -1017,7 +1122,7 @@ export default function AIModelsPage() {
                         variant="outlined"
                         startIcon={<CloudSyncIcon />}
                         onClick={() => handleTestConnection(profile.id)}
-                        disabled={testingId === profile.id || (!usesOfficialProxy && !profile.apiKey)}
+                        disabled={testingId === profile.id || selectedProviderUnavailable || (!usesOfficialProxy && !profile.apiKey)}
                       >
                         {testingId === profile.id ? t('common.loading') : (i18n.language.startsWith('zh') ? '测试并保存' : 'Test & save')}
                       </Button>
@@ -1041,7 +1146,7 @@ export default function AIModelsPage() {
                         disabled={Boolean(aiBalanceLoadingIds[selectedProvider.key])}
                         sx={{ minHeight: 30, px: 1, color: 'text.secondary', flexShrink: 0 }}
                       >
-                        {getAiBalanceLabel(balanceView, profile.provider, i18n.language.startsWith('zh'))}
+                        {getAiBalanceLabel(balanceView, selectedProvider.key, i18n.language.startsWith('zh'))}
                       </Button>
                     ) : null}
                   </Box>

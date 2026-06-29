@@ -53,11 +53,14 @@ export type GenerateResponseOptions = {
 };
 
 function isOfficialProvider(provider: APIConfig['provider']) {
-  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt';
+  return provider === 'official' || provider === 'official-deepseek' || provider === 'official-gpt' || provider === 'official-moacode';
 }
 
 function resolveOfficialBackendProvider(provider: APIConfig['provider']) {
-  return provider === 'official-deepseek' ? 'deepseek' : 'api2d';
+  if (provider === 'official-deepseek') return 'deepseek';
+  if (provider === 'official') return 'moacode';
+  if (provider === 'official-moacode') return 'moacode';
+  return 'api2d';
 }
 
 export interface AvailableModelInfo {
@@ -782,6 +785,7 @@ const providerHandlers: Partial<Record<APIConfig['provider'], typeof generateOpe
   official: generateOfficialResponse,
   'official-deepseek': generateOfficialResponse,
   'official-gpt': generateOfficialResponse,
+  'official-moacode': generateOfficialResponse,
   openai: generateOpenAICompatibleResponse,
   anthropic: generateAnthropicResponse,
   google: generateGeminiResponse,

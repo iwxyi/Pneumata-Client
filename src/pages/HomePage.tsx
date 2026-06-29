@@ -50,7 +50,7 @@ interface HomeOverviewCard {
   attention?: boolean;
 }
 
-type OfficialBalanceProvider = 'official-deepseek' | 'official-gpt';
+type OfficialBalanceProvider = 'official-internal' | 'official-gpt';
 
 interface ArtifactHomeState {
   jobs: LocalOutboxArtifactJobLike[];
@@ -80,16 +80,16 @@ const EMPTY_ARTIFACT_HOME_STATE: ArtifactHomeState = {
 
 const OFFICIAL_BALANCE_PROVIDERS: Array<{
   key: OfficialBalanceProvider;
-  backendProvider: 'deepseek' | 'api2d';
+  backendProvider: 'deepseek' | 'api2d' | 'moacode';
   label: string;
 }> = [
-  { key: 'official-deepseek', backendProvider: 'deepseek', label: 'DS余额' },
+  { key: 'official-internal', backendProvider: 'moacode', label: 'AI点数' },
   { key: 'official-gpt', backendProvider: 'api2d', label: 'GPT点数' },
 ];
 
 function normalizeOfficialBalanceProvider(provider: string): OfficialBalanceProvider | null {
-  if (provider === 'official-deepseek') return 'official-deepseek';
-  if (provider === 'official' || provider === 'official-gpt') return 'official-gpt';
+  if (provider === 'official-deepseek' || provider === 'official-moacode' || provider === 'official') return 'official-internal';
+  if (provider === 'official-gpt') return 'official-gpt';
   return null;
 }
 
