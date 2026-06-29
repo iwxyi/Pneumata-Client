@@ -789,6 +789,11 @@ export function getRoomTemplateKernel(templateOrKey: RoomTemplateDefinition | Ro
 
 const PUBLIC_ROOM_TEMPLATE_KERNEL_KEYS = new Set<RoomTemplateKey>([
   'open_chat',
+  'group_discussion',
+  'roundtable_discussion',
+  'debate_arena',
+  'brainstorm_workshop',
+  'retrospective_room',
   'story_reader',
 ]);
 

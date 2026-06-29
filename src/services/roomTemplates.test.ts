@@ -127,9 +127,13 @@ describe('roomTemplates story seeds', () => {
 
     expect(standardTemplateKeys).toContain('open_chat');
     expect(standardTemplateKeys).toContain('story_reader');
+    expect(standardTemplateKeys).toContain('group_discussion');
+    expect(standardTemplateKeys).toContain('roundtable_discussion');
+    expect(standardTemplateKeys).toContain('debate_arena');
+    expect(standardTemplateKeys).toContain('brainstorm_workshop');
+    expect(standardTemplateKeys).toContain('retrospective_room');
     expect(standardTemplateKeys).toContain('free_chat_preset');
     expect(standardTemplateKeys).toContain('default_mystery_story');
-    expect(standardTemplateKeys).not.toContain('group_discussion');
     expect(standardTemplateKeys).not.toContain('ielts_coach');
     expect(standardTemplateKeys).not.toContain('single_agent_workflow');
     expect(standardTemplateKeys).not.toContain('board_game');
