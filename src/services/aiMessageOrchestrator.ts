@@ -7,6 +7,12 @@ import { createStreamingLocalMessage } from './chatCommitMessage';
 import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
 import { generateSpeakerMessage, type LocalInterceptionEvent } from './chatEngine';
 import { attachMessageToActiveBranch } from './messageBranching';
+import { GenerationCancelledError, isGenerationCancelledError } from './generationCancellation';
+
+function ensureGenerationStillCurrent(params: { signal?: AbortSignal; shouldContinue?: () => boolean }) {
+  if (params.signal?.aborted) throw new GenerationCancelledError();
+  if (params.shouldContinue && !params.shouldContinue()) throw new GenerationCancelledError('生成所属分支已切换');
+}
 
 export async function generateAndCommitAiMessage(params: {
   api: APIConfig;
@@ -19,6 +25,8 @@ export async function generateAndCommitAiMessage(params: {
   timestamp?: number;
   streamingMessage?: Message | null;
   onChunk?: (content: string) => void;
+  signal?: AbortSignal;
+  shouldContinue?: () => boolean;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   generationContext?: {
     promptContext?: SessionGenerationPromptContext | null;
@@ -43,6 +51,7 @@ export async function generateAndCommitAiMessage(params: {
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
 }) {
+  ensureGenerationStillCurrent(params);
   const placeholder = params.streamingMessage || createStreamingLocalMessage(attachMessageToActiveBranch(params.chat, params.currentMessages, {
     chatId: params.chatId,
     type: 'ai',
@@ -54,41 +63,51 @@ export async function generateAndCommitAiMessage(params: {
   let streamingMessage = { ...placeholder, isStreaming: true };
   params.upsertMessage(streamingMessage);
 
-  const message = await generateSpeakerMessage({
-    chat: params.chat,
-    speaker: params.speaker,
-    characters: params.characters,
-    messages: params.currentMessages,
-    apiConfig: params.aiProfiles.length ? params.aiProfiles : params.api,
-    profiles: params.aiProfiles,
-    generationContext: params.generationContext,
-    onLocalInterception: params.onLocalInterception,
-    onChunk: (content) => {
-      streamingMessage = { ...streamingMessage, content, isStreaming: true };
-      params.upsertMessage(streamingMessage);
-      params.onChunk?.(content);
-    },
-  });
+  try {
+    const message = await generateSpeakerMessage({
+      chat: params.chat,
+      speaker: params.speaker,
+      characters: params.characters,
+      messages: params.currentMessages,
+      apiConfig: params.aiProfiles.length ? params.aiProfiles : params.api,
+      profiles: params.aiProfiles,
+      generationContext: params.generationContext,
+      onLocalInterception: params.onLocalInterception,
+      signal: params.signal,
+      onChunk: (content) => {
+        ensureGenerationStillCurrent(params);
+        streamingMessage = { ...streamingMessage, content, isStreaming: true };
+        params.upsertMessage(streamingMessage);
+        params.onChunk?.(content);
+      },
+    });
 
-  return commitGeneratedMessageTurn({
-    api: params.api,
-    chatId: params.chatId,
-    chat: params.chat,
-    characters: params.characters,
-    message,
-    streamingMessage,
-    currentMessages: params.currentMessages,
-    onCommit: params.onCommit,
-    upsertMessage: params.upsertMessage,
-    updateCharacter: params.updateCharacter,
-    updateCharacters: params.updateCharacters,
-    appendEventMessage: params.appendEventMessage,
-    appendEventMessages: params.appendEventMessages,
-    updateChat: params.updateChat,
-    applyChatRuntimeDelta: params.applyChatRuntimeDelta,
-    recordSpeak: params.recordSpeak,
-    aiProfiles: params.aiProfiles,
-    getCurrentChat: params.getCurrentChat,
-    getCurrentCharacters: params.getCurrentCharacters,
-  });
+    ensureGenerationStillCurrent(params);
+    return commitGeneratedMessageTurn({
+      api: params.api,
+      chatId: params.chatId,
+      chat: params.chat,
+      characters: params.characters,
+      message,
+      streamingMessage,
+      currentMessages: params.currentMessages,
+      onCommit: params.onCommit,
+      upsertMessage: params.upsertMessage,
+      updateCharacter: params.updateCharacter,
+      updateCharacters: params.updateCharacters,
+      appendEventMessage: params.appendEventMessage,
+      appendEventMessages: params.appendEventMessages,
+      updateChat: params.updateChat,
+      applyChatRuntimeDelta: params.applyChatRuntimeDelta,
+      recordSpeak: params.recordSpeak,
+      aiProfiles: params.aiProfiles,
+      getCurrentChat: params.getCurrentChat,
+      getCurrentCharacters: params.getCurrentCharacters,
+    });
+  } catch (error) {
+    if (isGenerationCancelledError(error)) {
+      params.upsertMessage({ ...streamingMessage, content: '', isDeleted: true, isStreaming: false });
+    }
+    throw error;
+  }
 }

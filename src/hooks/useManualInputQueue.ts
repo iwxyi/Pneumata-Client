@@ -1,4 +1,5 @@
 import { useCallback, useRef } from 'react';
+import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
 
 export interface ManualInputQueueController {
   enqueueManualInput: (task: () => Promise<void>) => Promise<void>;
@@ -18,20 +19,40 @@ export function useManualInputQueue(params: {
 
   const waitForCurrentTurnToSettle = useCallback(async () => {
     const startedAt = Date.now();
+    let loggedWaitStart = false;
     while (hasPendingTurnWork() && Date.now() - startedAt < waitTimeoutMs) {
+      if (!loggedWaitStart) {
+        loggedWaitStart = true;
+        logDeveloperDiagnostic('manual-input:wait-turn-start', {
+          waitTimeoutMs,
+        }, 'info', 'chat-run');
+      }
       await new Promise((resolve) => window.setTimeout(resolve, 80));
     }
     if (hasPendingTurnWork()) {
+      logDeveloperDiagnostic('manual-input:wait-turn-timeout', {
+        elapsedMs: Date.now() - startedAt,
+        waitTimeoutMs,
+      }, 'warn', 'chat-run');
       throw new Error('当前发言一直没有结束，请稍后重试');
+    }
+    if (loggedWaitStart) {
+      logDeveloperDiagnostic('manual-input:wait-turn-finished', {
+        elapsedMs: Date.now() - startedAt,
+      }, 'info', 'chat-run');
     }
   }, [hasPendingTurnWork, waitTimeoutMs]);
 
   const enqueueManualInput = useCallback((task: () => Promise<void>) => {
+    const enqueuedAt = Date.now();
     const queued = queueRef.current
       .catch(() => undefined)
       .then(async () => {
         pendingRef.current = true;
         try {
+          logDeveloperDiagnostic('manual-input:task-start', {
+            queueWaitMs: Date.now() - enqueuedAt,
+          }, 'debug', 'chat-run');
           await waitForCurrentTurnToSettle();
           if (isRunningRef.current && !isPausedRef.current) {
             isPausedRef.current = true;
@@ -39,6 +60,9 @@ export function useManualInputQueue(params: {
           }
           await task();
         } finally {
+          logDeveloperDiagnostic('manual-input:task-finished', {
+            totalElapsedMs: Date.now() - enqueuedAt,
+          }, 'debug', 'chat-run');
           pendingRef.current = false;
         }
       });

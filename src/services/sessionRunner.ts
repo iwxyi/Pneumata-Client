@@ -306,6 +306,13 @@ export async function runSessionLoop(params: {
         draft: params.getUserDraftActivity?.() || null,
       });
       if (inputHold.shouldHold) {
+        logDeveloperDiagnostic('chat-run:input-hold', {
+          chatId: params.chatId,
+          loopId: params.loopId,
+          reason: inputHold.reason,
+          delayMs: inputHold.delayMs,
+          elapsedMs: Number((nowMs() - turnStartedAt).toFixed(2)),
+        }, 'info', 'chat-run');
         turnWorkActive = false;
         params.onTurnWorkFinished?.();
         markSessionLoop(params.loopId, { phase: 'sleeping' });
@@ -365,6 +372,13 @@ export async function runSessionLoop(params: {
 
       markSessionLoop(params.loopId, { phase: 'running_round' });
       const roundStartedAt = nowMs();
+      logDeveloperDiagnostic('chat-run:round-start', {
+        chatId: params.chatId,
+        loopId: params.loopId,
+        messageCount: currentMessages.length,
+        characterCount: effectiveCharacters.length,
+        elapsedMs: Number((roundStartedAt - turnStartedAt).toFixed(2)),
+      }, 'info', 'chat-run');
       let firstChunkLogged = false;
       await runOneRound(
         currentChat,

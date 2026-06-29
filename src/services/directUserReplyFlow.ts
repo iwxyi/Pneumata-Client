@@ -17,6 +17,13 @@ import { resolveDirectCompanionshipAssessmentEvents } from './directCompanionshi
 import { resolveCompanionshipRitualEventsFromDirectUserMessage } from './directCompanionshipRitual';
 import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
 import { reportRecoverableError } from './diagnostics';
+import { GenerationCancelledError } from './generationCancellation';
+import { logDeveloperDiagnostic } from './developerDiagnostics';
+
+function ensureDirectReplyStillCurrent(params: { signal?: AbortSignal; shouldContinue?: () => boolean }) {
+  if (params.signal?.aborted) throw new GenerationCancelledError();
+  if (params.shouldContinue && !params.shouldContinue()) throw new GenerationCancelledError('单聊回复所属分支已切换');
+}
 
 export async function runDirectUserReplyFlow(params: {
   api: APIConfig | APIConfig[];
@@ -35,13 +42,33 @@ export async function runDirectUserReplyFlow(params: {
   applyChatRuntimeDelta?: (id: string, delta: NonNullable<DriverMessageCommitResult['chatRuntimeDelta']>, patch?: Partial<GroupChat>) => Promise<void>;
   recordSpeak: (characterId: string) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
+  signal?: AbortSignal;
+  shouldContinue?: () => boolean;
+  deferRuntimePersistenceUntilCommit?: boolean;
 }) {
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const elapsed = () => Number(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt).toFixed(2));
+  logDeveloperDiagnostic('direct-reply:start', {
+    chatId: params.chatId,
+    userMessageId: params.userMessage.id,
+    branchNodeId: params.userMessage.metadata?.branching?.nodeId || null,
+  }, 'info', 'chat-run');
+  ensureDirectReplyStillCurrent(params);
   const directCharacterId = params.chat.memberIds[0];
   const cachedDirectCharacter = params.characters.find((item) => item.id === directCharacterId);
+  const characterLoadStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
   const directCharacter = (cachedDirectCharacter?.characterDetailLoaded === false
     ? await useCharacterStore.getState().loadCharacter(directCharacterId)
     : cachedDirectCharacter) || cachedDirectCharacter;
+  logDeveloperDiagnostic('direct-reply:character-ready', {
+    chatId: params.chatId,
+    characterId: directCharacterId,
+    loadedDetail: cachedDirectCharacter?.characterDetailLoaded === false,
+    elapsedMs: Number(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - characterLoadStartedAt).toFixed(2)),
+    totalElapsedMs: elapsed(),
+  }, 'info', 'chat-run');
   if (!directCharacter) return;
+  ensureDirectReplyStillCurrent(params);
   const generationCharacters = useCharacterStore.getState().characters.length
     ? useCharacterStore.getState().characters
     : params.characters;
@@ -55,6 +82,7 @@ export async function runDirectUserReplyFlow(params: {
   const chatForGeneration = params.chat;
   const scheduleDirectRuntimeAssessment = () => {
     void (async () => {
+      if (params.signal?.aborted || (params.shouldContinue && !params.shouldContinue())) return;
       const latestChat = useChatStore.getState().chats.find((item) => item.id === params.chat.id) || params.chat;
       const latestCharacter = useCharacterStore.getState().characters.find((item) => item.id === directCharacter.id) || directCharacter;
       const recentMessages = getProjectedMessages();
@@ -80,6 +108,7 @@ export async function runDirectUserReplyFlow(params: {
       });
       const companionshipEvents = [...baseCompanionshipEvents, ...sharedPhraseEvents];
       if (!companionshipEvents.length) return;
+      if (params.signal?.aborted || (params.shouldContinue && !params.shouldContinue())) return;
       const currentChat = useChatStore.getState().chats.find((item) => item.id === params.chat.id) || latestChat;
       const runtimeEventsV2 = [
         ...(currentChat.runtimeEventsV2 || []).filter((event) => !event.evidenceMessageIds?.includes(params.userMessage.id)),
@@ -112,21 +141,35 @@ export async function runDirectUserReplyFlow(params: {
   const generationCharactersForTurn = generationCharacters.map((character) =>
     character.id === directCharacter.id ? { ...character, ...directRuntimePatch } : character
   );
-  void params.updateCharacter(directCharacter.id, directRuntimePatch).catch((error) => {
-    reportRecoverableError({
-      location: 'direct-user-reply.runtime-persist',
-      error,
-      userMessage: '单聊运行态保存失败，当前回复不受影响。',
-      extra: { chatId: params.chatId, characterId: directCharacter.id },
+  const persistDirectRuntimePatch = () => {
+    void params.updateCharacter(directCharacter.id, directRuntimePatch).catch((error) => {
+      reportRecoverableError({
+        location: 'direct-user-reply.runtime-persist',
+        error,
+        userMessage: '单聊运行态保存失败，当前回复不受影响。',
+        extra: { chatId: params.chatId, characterId: directCharacter.id },
+      });
     });
-  });
+  };
+  if (!params.deferRuntimePersistenceUntilCommit) persistDirectRuntimePatch();
 
   const [{ generateAndCommitAiMessage }, { resolveSessionEngine }] = await Promise.all([
     import('./aiMessageOrchestrator'),
     import('./sessionEngineRegistry'),
   ]);
+  logDeveloperDiagnostic('direct-reply:modules-ready', {
+    chatId: params.chatId,
+    totalElapsedMs: elapsed(),
+  }, 'debug', 'chat-run');
+  ensureDirectReplyStillCurrent(params);
   const sessionEngine = resolveSessionEngine(params.chat);
   const projectedMessagesForGeneration = getProjectedMessages();
+  logDeveloperDiagnostic('direct-reply:generation-start', {
+    chatId: params.chatId,
+    characterId: directCharacter.id,
+    projectedMessages: projectedMessagesForGeneration.length,
+    totalElapsedMs: elapsed(),
+  }, 'info', 'chat-run');
 
   await generateAndCommitAiMessage({
     api: textApiConfig,
@@ -138,6 +181,8 @@ export async function runDirectUserReplyFlow(params: {
     timestamp: params.userMessage.timestamp + 1,
     currentMessages: projectedMessagesForGeneration,
     onLocalInterception: params.onLocalInterception,
+    signal: params.signal,
+    shouldContinue: params.shouldContinue,
     generationContext: {
       buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
         conversation: chatForGeneration,
@@ -171,5 +216,12 @@ export async function runDirectUserReplyFlow(params: {
       );
     },
   });
+  ensureDirectReplyStillCurrent(params);
+  if (params.deferRuntimePersistenceUntilCommit) persistDirectRuntimePatch();
+  logDeveloperDiagnostic('direct-reply:finished', {
+    chatId: params.chatId,
+    characterId: directCharacter.id,
+    totalElapsedMs: elapsed(),
+  }, 'info', 'chat-run');
   scheduleDirectRuntimeAssessment();
 }

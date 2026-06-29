@@ -305,6 +305,34 @@ describe('directUserReplyFlow companionship phase events', () => {
 });
 
 describe('runDirectUserReplyFlow', () => {
+  it('does not start generation or persist direct runtime when the branch reply is stale', async () => {
+    const directChat = chat('direct');
+    const directCharacter = character();
+    const updateCharacter = vi.fn(async () => undefined);
+
+    await expect(runDirectUserReplyFlow({
+      api: DEFAULT_API_CONFIG,
+      aiProfiles: [],
+      chatId: directChat.id,
+      chat: directChat,
+      userMessage: message('改到新分支。'),
+      content: '改到新分支。',
+      characters: [directCharacter],
+      updateCharacter,
+      updateCharacters: vi.fn(async () => undefined),
+      upsertMessage: vi.fn(),
+      appendEventMessage: vi.fn(async () => undefined),
+      appendEventMessages: vi.fn(async () => undefined),
+      updateChat: vi.fn(async () => undefined),
+      recordSpeak: vi.fn(),
+      shouldContinue: () => false,
+      deferRuntimePersistenceUntilCommit: true,
+    })).rejects.toThrow('单聊回复所属分支已切换');
+
+    expect(updateCharacter).not.toHaveBeenCalled();
+    expect(directFlowMocks.generateAndCommitAiMessage).not.toHaveBeenCalled();
+  });
+
   it('uses current-turn runtime state for generation without waiting for persistence', async () => {
     const directChat = chat('direct');
     const directCharacter = character();

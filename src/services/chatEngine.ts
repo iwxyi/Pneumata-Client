@@ -2746,7 +2746,9 @@ export async function generateSpeakerMessage(params: {
   }
 
   const characterMap = new Map(effectiveMembers.map((character) => [character.id, character]));
+  const promptPrepStartedAt = nowMs();
   const scenarioPromptContext = params.generationContext?.buildPromptContext?.(params.speaker) || params.generationContext?.promptContext;
+  const promptContextReadyAt = nowMs();
   const stylePromptContext = resolveStyleProfilePromptContext(params.chat);
   const enginePromptContext = mergePromptContexts(scenarioPromptContext, stylePromptContext);
   const promptPrefix = enginePromptContext?.promptPrefix ? `${enginePromptContext.promptPrefix.trim()}\n\n` : '';
@@ -2791,7 +2793,9 @@ export async function generateSpeakerMessage(params: {
   const personaActivation = resolvePersonaActivation({ chat: params.chat, speaker: params.speaker, messages: activeMessages });
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
+  const memoryTraceReadyAt = nowMs();
   const companionshipTrace = await buildCompanionshipTraceIfNeeded({ chat: params.chat, character: params.speaker, messages: activeMessages });
+  const companionshipTraceReadyAt = nowMs();
   const userGuidance = effectiveDirectorIntent?.userGuidance || null;
   const worldInfluenceSnapshot = buildWorldEventInfluenceSnapshot({
     chat: params.chat,
@@ -2833,6 +2837,17 @@ Current speaking intent:
     chatType: params.chat.type,
   });
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
+  const promptPrepElapsedMs = Number((nowMs() - promptPrepStartedAt).toFixed(2));
+  logDeveloperDiagnostic('chat-run:prompt-prep-ready', {
+    chatId: params.chat.id,
+    speakerId: params.speaker.id,
+    speakerName: params.speaker.name,
+    promptContextMs: Number((promptContextReadyAt - promptPrepStartedAt).toFixed(2)),
+    memoryTraceMs: Number((memoryTraceReadyAt - promptContextReadyAt).toFixed(2)),
+    companionshipTraceMs: Number((companionshipTraceReadyAt - memoryTraceReadyAt).toFixed(2)),
+    totalMs: promptPrepElapsedMs,
+    activeMessages: activeMessages.length,
+  }, promptPrepElapsedMs >= 500 ? 'info' : 'debug', 'chat-run');
   logDeveloperDiagnostic('chat-run:generation-context-ready', {
     chatId: params.chat.id,
     speakerId: params.speaker.id,
@@ -3018,6 +3033,7 @@ export const runOneRound = async (
   },
   cooldownMap?: Record<string, number>
 ): Promise<void> => {
+  const roundStartedAt = nowMs();
   const chatMembers = resolveEffectiveChatMembers(chat, characters);
   if (chatMembers.length === 0) {
     callbacks.onError(new Error('No AI members in this chat'));
@@ -3065,6 +3081,26 @@ export const runOneRound = async (
       },
     }
     : getSpeakerSelectionResult(chatMembers, effectiveCooldownMap, chat.speed, BASE_COOLDOWN_MS, candidates);
+  const selectionElapsedMs = Number((nowMs() - roundStartedAt).toFixed(2));
+  logDeveloperDiagnostic('chat-run:speaker-selection-ready', {
+    chatId: chat.id,
+    type: chat.type,
+    scenarioId: resolveSessionDefinition(chat).kind.scenarioId,
+    speakerId: speakerSelection.speakerId,
+    reason: speakerSelection.reason,
+    candidateCount: candidates.length,
+    topCandidates: candidates
+      .slice()
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 5)
+      .map((candidate) => ({
+        characterId: candidate.characterId,
+        speakerName: chatMembers.find((member) => member.id === candidate.characterId)?.name || candidate.characterId,
+        weight: Number(candidate.weight.toFixed(4)),
+        reasons: candidate.scoreBreakdown?.reasons || [],
+      })),
+    elapsedMs: selectionElapsedMs,
+  }, selectionElapsedMs >= 500 ? 'info' : 'debug', 'chat-run');
   if (isSchedulerDebugEnabled() && chat.type === 'group' && !speakerSelection.speakerId) {
     console.info('[group-loop:idle]', {
       chatId: chat.id,
@@ -3124,6 +3160,13 @@ export const runOneRound = async (
     logDeveloperDiagnostic('group-loop:selection', selectionDebug);
   }
   if (!speakerSelection.speakerId) {
+    logDeveloperDiagnostic('chat-run:speaker-selection-idle', {
+      chatId: chat.id,
+      type: chat.type,
+      scenarioId: resolveSessionDefinition(chat).kind.scenarioId,
+      reason: speakerSelection.reason,
+      elapsedMs: selectionElapsedMs,
+    }, 'info', 'chat-run');
     if (speakerSelection.reason) callbacks.onIdle?.(speakerSelection.reason);
     return;
   }

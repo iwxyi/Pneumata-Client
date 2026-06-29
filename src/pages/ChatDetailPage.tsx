@@ -51,6 +51,7 @@ import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
+import { isGenerationCancelledError } from '../services/generationCancellation';
 import { buildStoryBranchOptions, getStoryChoiceGateState, normalizeStoryChoiceSuggestions, resolveStoryReaderRole, sanitizeStoryChoicePrompt } from '../services/storyChoices';
 import { resolveSessionScrollCapabilities } from '../services/sessionScrollCapabilities';
 import { messagesShareIdentity } from '../services/messageIdentity';
@@ -674,6 +675,8 @@ export default function ChatDetailPage() {
   const activeChatIdRef = useRef<string | null>(id ?? null);
   const isManualInputPendingRef = useRef<() => boolean>(() => false);
   const userDraftActivityRef = useRef<UserDraftActivity | null>(null);
+  const directReplyAbortRef = useRef<AbortController | null>(null);
+  const directReplyEpochRef = useRef(0);
   const upsertMessageWithLiveReveal = useCallback((message: Message) => {
     const revealKeys = getNarrativeRevealIdentityKeys(message);
     if (revealKeys.length && shouldRegisterLiveNarrativeReveal(message)) {
@@ -1288,6 +1291,9 @@ export default function ChatDetailPage() {
     if (!chat || !id || !isMessageBranchingEnabled(chat)) return;
     const trimmedContent = nextContent.trim();
     if (!trimmedContent) return;
+    directReplyAbortRef.current?.abort();
+    const directReplyEpoch = directReplyEpochRef.current + 1;
+    directReplyEpochRef.current = directReplyEpoch;
 
     await enqueueManualInput(async () => {
       const cancelledRunningLoop = isRunningRef.current;
@@ -1346,18 +1352,81 @@ export default function ChatDetailPage() {
           sourceTimestamp: createdRevision.timestamp,
         });
       }
-      if (createdRevision.type === 'user' || createdRevision.type === 'god') {
+      if (chat.type === 'direct' && createdRevision.type === 'user') {
+        const directReplyAbortController = new AbortController();
+        directReplyAbortRef.current = directReplyAbortController;
+        const shouldContinueDirectRevision = () => {
+          if (directReplyAbortController.signal.aborted) return false;
+          if (directReplyEpochRef.current !== directReplyEpoch) return false;
+          const latestChat = useChatStore.getState().chats.find((item) => item.id === id) || nextChat;
+          if (latestChat.messageBranchState?.selectedRevisionByRootId?.[revisionRootId] !== revisionNodeId) return false;
+          const messageState = useMessageStore.getState();
+          const latestMessages = projectMergedChatMessages({
+            chatId: id,
+            activeMessages: messageState.messages,
+            cachedWindow: messageState.messageWindowsByChatId[id],
+          });
+          return projectActiveBranchMessages(latestChat, latestMessages).some((message) => message.id === createdRevision.id);
+        };
+        void (async () => {
+          const { runDirectUserReplyFlow } = await import('../services/directUserReplyFlow');
+          try {
+            await runDirectUserReplyFlow({
+              api,
+              aiProfiles,
+              chatId: id,
+              chat: nextChat,
+              userMessage: createdRevision,
+              content: trimmedContent,
+              characters,
+              updateCharacter,
+              updateCharacters,
+              upsertMessage: upsertMessageStable,
+              appendEventMessage: appendEventMessageStable,
+              appendEventMessages: appendEventMessagesStable,
+              updateChat,
+              applyChatRuntimeDelta,
+              recordSpeak,
+              onLocalInterception: appendLocalInterceptionHint,
+              signal: directReplyAbortController.signal,
+              shouldContinue: shouldContinueDirectRevision,
+              deferRuntimePersistenceUntilCommit: true,
+            });
+          } catch (error) {
+            if (!isGenerationCancelledError(error)) {
+              console.error('[direct-reply:revision-error]', error);
+              showErrorToast(error instanceof Error ? error.message : String(error));
+            }
+          } finally {
+            if (directReplyAbortRef.current === directReplyAbortController) directReplyAbortRef.current = null;
+          }
+        })();
+      } else if (createdRevision.type === 'user' || createdRevision.type === 'god') {
         await commitPersistedManualRuntime(createdRevision, activeMessagesAfterRevision);
+        if (chat.type === 'ai_direct') {
+          const { applyAiDirectFeedback } = await import('../services/directSessionRuntime');
+          await applyAiDirectFeedback({
+            chat: nextChat,
+            chats,
+            characters,
+            content: trimmedContent,
+            updateCharacter,
+            updateChat,
+            appendEventMessage,
+          });
+        }
       }
       if (cancelledRunningLoop) {
         setSnackbar({ open: true, message: '已切换到新分支，当前生成已重启', severity: 'success' });
       }
-      startConversationLoopIfNeeded(nextChat, { immediate: true });
+      if (chat.type !== 'direct') startConversationLoopIfNeeded(nextChat, { immediate: true });
     });
-  }, [addAnchoredMessage, cancelActiveConversationLoop, chat, commitPersistedManualRuntime, currentChatAllMessages, enqueueManualInput, getNextMessageTimestamp, id, setSnackbar, startConversationLoopIfNeeded, updateChat]);
+  }, [addAnchoredMessage, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, cancelActiveConversationLoop, characters, chat, chats, commitPersistedManualRuntime, currentChatAllMessages, enqueueManualInput, getNextMessageTimestamp, id, recordSpeak, setSnackbar, showErrorToast, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
   const handleSwitchMessageRevision = useCallback(async (sourceMessage: Message, direction: -1 | 1) => {
     if (!chat || !id || !isMessageBranchingEnabled(chat)) return;
+    directReplyAbortRef.current?.abort();
+    directReplyEpochRef.current += 1;
     const cancelledRunningLoop = isRunningRef.current;
     if (cancelledRunningLoop) cancelActiveConversationLoop('message_revision_switched');
     const scrollRestoreRequest = captureMessageListScrollRequest('branch-switch', sourceMessage.id);
@@ -1461,6 +1530,9 @@ export default function ChatDetailPage() {
       resetRunLoopUiState();
       discardStreamingMessage();
       closeChatWindow(id, { clearActiveOnly: true });
+      directReplyAbortRef.current?.abort();
+      directReplyAbortRef.current = null;
+      directReplyEpochRef.current += 1;
       stop();
     };
   }, [closeChatWindow, discardStreamingMessage, id, resetRunLoopUiState, stop]);
@@ -1482,25 +1554,43 @@ export default function ChatDetailPage() {
       void updateChat(id, { lastMessageAt: userMessage.timestamp, latestMessage: userMessage });
       const recentMessagesWithUser = [...recentMessages.filter((message) => message.id !== userMessage.id), userMessage];
       if (chat.type === 'direct') {
-        const { runDirectUserReplyFlow } = await import('../services/directUserReplyFlow');
-        await runDirectUserReplyFlow({
-          api,
-          aiProfiles,
-          chatId: id,
-          chat,
-          userMessage,
-          content,
-          characters,
-          updateCharacter,
-          updateCharacters,
-          upsertMessage: upsertMessageStable,
-          appendEventMessage: appendEventMessageStable,
-          appendEventMessages: appendEventMessagesStable,
-          updateChat,
-          applyChatRuntimeDelta,
-          recordSpeak,
-          onLocalInterception: appendLocalInterceptionHint,
-        });
+        directReplyAbortRef.current?.abort();
+        const directReplyEpoch = directReplyEpochRef.current + 1;
+        directReplyEpochRef.current = directReplyEpoch;
+        const directReplyAbortController = new AbortController();
+        directReplyAbortRef.current = directReplyAbortController;
+        void (async () => {
+          const { runDirectUserReplyFlow } = await import('../services/directUserReplyFlow');
+          try {
+            await runDirectUserReplyFlow({
+              api,
+              aiProfiles,
+              chatId: id,
+              chat,
+              userMessage,
+              content,
+              characters,
+              updateCharacter,
+              updateCharacters,
+              upsertMessage: upsertMessageStable,
+              appendEventMessage: appendEventMessageStable,
+              appendEventMessages: appendEventMessagesStable,
+              updateChat,
+              applyChatRuntimeDelta,
+              recordSpeak,
+              onLocalInterception: appendLocalInterceptionHint,
+              signal: directReplyAbortController.signal,
+              shouldContinue: () => !directReplyAbortController.signal.aborted && directReplyEpochRef.current === directReplyEpoch,
+            });
+          } catch (error) {
+            if (!isGenerationCancelledError(error)) {
+              console.error('[direct-reply:send-error]', error);
+              showErrorToast(error instanceof Error ? error.message : String(error));
+            }
+          } finally {
+            if (directReplyAbortRef.current === directReplyAbortController) directReplyAbortRef.current = null;
+          }
+        })();
         return;
       }
       await commitPersistedManualRuntime(userMessage, recentMessagesWithUser);
@@ -1512,7 +1602,7 @@ export default function ChatDetailPage() {
       }
       startConversationLoopIfNeeded(chat);
     });
-  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, getNextMessageTimestamp, id, recordSpeak, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
+  }, [addMessageStable, aiProfiles, api, appendEventMessage, appendEventMessageStable, appendEventMessagesStable, appendLocalInterceptionHint, applyChatRuntimeDelta, characters, chat, chats, commitPersistedManualRuntime, currentChatMessages, currentUser?.nickname, enqueueManualInput, getNextMessageTimestamp, id, recordSpeak, showErrorToast, startConversationLoopIfNeeded, updateCharacter, updateCharacters, updateChat, upsertMessageStable]);
 
   const handleGuideSend = useCallback(async (content: string, attachments: MessageAttachment[] = []) => {
     if (!chat || !id) return;
