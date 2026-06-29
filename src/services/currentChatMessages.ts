@@ -5,6 +5,7 @@ import { isMessageBranchingEnabled, projectActiveBranchMessages } from './messag
 
 export interface MessageWindowLike {
   messages?: Message[];
+  activeLimit?: number;
 }
 
 function shouldKeepExistingMessage(existing: Message, incoming: Message) {
@@ -13,13 +14,19 @@ function shouldKeepExistingMessage(existing: Message, incoming: Message) {
 
 function mergeProjectedMessage(existing: Message, incoming: Message) {
   if (shouldKeepExistingMessage(existing, incoming)) return existing;
+  const nextMetadata = incoming.metadata && Object.keys(incoming.metadata).length
+    ? {
+        ...(existing.metadata || {}),
+        ...incoming.metadata,
+      }
+    : existing.metadata;
   return {
     ...existing,
     ...incoming,
     id: existing.clientKey ? existing.id : incoming.id || existing.id,
     clientKey: existing.clientKey || incoming.clientKey,
     serverId: incoming.serverId || existing.serverId,
-    metadata: incoming.metadata && Object.keys(incoming.metadata).length ? incoming.metadata : existing.metadata,
+    metadata: nextMetadata,
     timestamp: existing.clientKey ? existing.timestamp : incoming.timestamp,
   };
 }
@@ -95,18 +102,40 @@ function removeHydratedCacheDuplicates(cachedMessages: Message[], activeMessages
   });
 }
 
-function sharesIdentityWithAnyActiveMessage(message: Message, activeMessages: Message[]) {
-  const keys = buildMessageIdentityKeys(message);
-  if (!keys.length) return false;
-  return activeMessages.some((active) => {
-    const activeKeys = new Set(buildMessageIdentityKeys(active));
-    return keys.some((key) => activeKeys.has(key));
-  });
+function buildMessageIdentitySet(messages: Message[]) {
+  const keys = new Set<string>();
+  for (const message of messages) {
+    for (const key of buildMessageIdentityKeys(message)) keys.add(key);
+  }
+  return keys;
 }
 
-export function projectCurrentChatMessages(params: {
+function sharesIdentityWithAnyActiveMessage(message: Message, activeIdentityKeys: Set<string>) {
+  const keys = buildMessageIdentityKeys(message);
+  if (!keys.length) return false;
+  return keys.some((key) => activeIdentityKeys.has(key));
+}
+
+function getMessageRange(messages: Message[]) {
+  if (!messages.length) return null;
+  return messages.reduce((range, message) => ({
+    min: Math.min(range.min, message.timestamp),
+    max: Math.max(range.max, message.timestamp),
+  }), { min: messages[0]?.timestamp ?? 0, max: messages[0]?.timestamp ?? 0 });
+}
+
+function shouldUseCachedWindowBase(cachedMessages: Message[], activeMessages: Message[]) {
+  if (!cachedMessages.length) return false;
+  if (!activeMessages.length) return true;
+  if (cachedMessages.length <= activeMessages.length) return false;
+  const cachedRange = getMessageRange(cachedMessages);
+  const activeRange = getMessageRange(activeMessages);
+  if (!cachedRange || !activeRange) return false;
+  return activeRange.max >= cachedRange.min;
+}
+
+export function projectMergedChatMessages(params: {
   chatId: string;
-  chat?: Pick<GroupChat, 'sessionKind' | 'messageBranchState'> & Partial<Pick<GroupChat, 'mode'>> | null;
   activeMessages: Message[];
   cachedWindow?: MessageWindowLike | null;
 }) {
@@ -116,11 +145,17 @@ export function projectCurrentChatMessages(params: {
     for (const key of buildMessageIdentityKeys(message)) identityIndex.set(key, identity);
   };
   const activeMessages = params.activeMessages.filter((message) => message.chatId === params.chatId);
+  const cachedWindowLimit = params.cachedWindow?.activeLimit && params.cachedWindow.activeLimit > 0
+    ? params.cachedWindow.activeLimit
+    : 40;
+  const cachedWindowMessages = (params.cachedWindow?.messages || [])
+    .filter((message) => message.chatId === params.chatId)
+    .slice(-cachedWindowLimit);
+  const activeIdentityKeys = buildMessageIdentitySet(activeMessages);
   const cachedMessages = removeHydratedCacheDuplicates(
-    (params.cachedWindow?.messages || [])
-      .filter((message) => message.chatId === params.chatId)
-      .filter((message) => !activeMessages.length || sharesIdentityWithAnyActiveMessage(message, activeMessages))
-      .slice(-40),
+    shouldUseCachedWindowBase(cachedWindowMessages, activeMessages)
+      ? cachedWindowMessages
+      : cachedWindowMessages.filter((message) => sharesIdentityWithAnyActiveMessage(message, activeIdentityKeys)),
     activeMessages,
   );
   const candidates = [
@@ -148,7 +183,16 @@ export function projectCurrentChatMessages(params: {
     indexMessage(nextIdentity, merged);
   }
 
-  const projected = Array.from(byId.values()).sort(compareByTimeline);
+  return Array.from(byId.values()).sort(compareByTimeline);
+}
+
+export function projectCurrentChatMessages(params: {
+  chatId: string;
+  chat?: Pick<GroupChat, 'sessionKind' | 'messageBranchState'> & Partial<Pick<GroupChat, 'mode'>> | null;
+  activeMessages: Message[];
+  cachedWindow?: MessageWindowLike | null;
+}) {
+  const projected = projectMergedChatMessages(params);
   return isMessageBranchingEnabled(params.chat)
     ? projectActiveBranchMessages(params.chat, projected)
     : projected;

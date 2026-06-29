@@ -6,7 +6,7 @@ import { persistStreamingMessage } from './chatCommitMessage';
 import { buildChatCommitContext } from './chatCommitContext';
 import { finalizeChatCommitRuntime } from './chatCommitRuntime';
 import { applyChatCommitRuntime } from './chatCommitApply';
-import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
+import { createRuntimeMemoryTimer } from './runtimeMemoryTimer';
 import { isLocalOnlyMediaMode, processRichMessageMedia } from './richMessageMedia';
 import { parseRuntimeEvent } from './runtimeEventFactory';
 import { attachMessageToActiveBranch } from './messageBranching';

@@ -27,6 +27,7 @@ import AppSnackbar from '../components/common/AppSnackbar';
 import ExpandableFab from '../components/common/ExpandableFab';
 import { getPopularModels, getProviderCatalogEntry, getProviderDefaults, getProvidersForType, inferImageCapabilities } from '../constants/aiModelCatalog';
 import { motion, transition } from '../styles/motion';
+import { formatAiAmount } from '../utils/aiPoints';
 
 type AiBalanceView =
   | { status: 'idle' | 'loading' }
@@ -210,9 +211,9 @@ function resolveAiBalanceView(balance: Record<string, unknown> | null, loading: 
   return { status: 'unassigned' };
 }
 
-function getAiBalanceLabel(view: AiBalanceView, zh: boolean) {
+function getAiBalanceLabel(view: AiBalanceView, providerKey: string, zh: boolean) {
   if (view.status === 'loading') return zh ? '点数刷新中' : 'Refreshing points';
-  if (view.status === 'ready') return `${view.points}P`;
+  if (view.status === 'ready') return formatAiAmount(view.points, resolveOfficialBackendProvider(providerKey));
   if (view.status === 'guest') return zh ? '登录后查看点数' : 'Sign in to view points';
   if (view.status === 'unassigned') return zh ? '未分配点数' : 'No points assigned';
   if (view.status === 'error') return zh ? '登录后查看点数' : 'Sign in to view points';
@@ -349,7 +350,7 @@ export default function AIModelsPage() {
     const backendProvider = resolveOfficialBackendProvider(providerKey);
     setAiBalanceLoadingIds((prev) => ({ ...prev, [providerKey]: true }));
     try {
-      const balance = await api.getAiBalance(backendProvider);
+      const balance = await api.getAiBalance(backendProvider, { force: true });
       setAiBalances((prev) => ({ ...prev, [providerKey]: balance }));
       const raw = balance.availableBalance ?? balance.available_balance;
       setAiBalanceStatuses((prev) => ({ ...prev, [providerKey]: typeof raw === 'number' && Number.isFinite(raw) ? 'idle' : 'unassigned' }));
@@ -1040,7 +1041,7 @@ export default function AIModelsPage() {
                         disabled={Boolean(aiBalanceLoadingIds[selectedProvider.key])}
                         sx={{ minHeight: 30, px: 1, color: 'text.secondary', flexShrink: 0 }}
                       >
-                        {getAiBalanceLabel(balanceView, i18n.language.startsWith('zh'))}
+                        {getAiBalanceLabel(balanceView, profile.provider, i18n.language.startsWith('zh'))}
                       </Button>
                     ) : null}
                   </Box>

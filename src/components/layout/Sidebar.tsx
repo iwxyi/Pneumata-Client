@@ -11,14 +11,15 @@ import {
   Badge,
   Avatar,
 } from '@mui/material';
+import { useEffect, useState } from 'react';
 import AccountIcon from '@mui/icons-material/AccountCircle';
 import CollapseIcon from '@mui/icons-material/ChevronLeft';
 import ExpandIcon from '@mui/icons-material/ChevronRight';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
-import { useCharacterArtifactStore } from '../../stores/useCharacterArtifactStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { motion, transition } from '../../styles/motion';
 import { isImageAvatar } from '../../utils/avatar';
@@ -43,16 +44,52 @@ const navItems: NavItem[] = [
 const introNavItem: NavItem = { path: '/intro', iconKind: 'intro', labelKey: 'nav.intro' };
 const settingsNavItem: NavItem = { path: '/settings', iconKind: 'settings', labelKey: 'nav.settings' };
 
+function useDeferredUnreadLetterCount(enabled: boolean) {
+  const [count, setCount] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) {
+      setCount(0);
+      return undefined;
+    }
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    const load = () => {
+      void import('../../stores/useCharacterArtifactStore').then(({ useCharacterArtifactStore }) => {
+        if (cancelled) return;
+        setCount((current) => {
+          const next = useCharacterArtifactStore.getState().unreadLetterCount;
+          return current === next ? current : next;
+        });
+        unsubscribe = useCharacterArtifactStore.subscribe((state) => {
+          setCount((current) => current === state.unreadLetterCount ? current : state.unreadLetterCount);
+        });
+      });
+    };
+    const handle = window.setTimeout(load, 0);
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      window.clearTimeout(handle);
+    };
+  }, [enabled]);
+
+  return count;
+}
+
 export default function Sidebar({ collapsed }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
   const { isDesktop } = useResponsive();
-  const { toggleSidebar, setSidebarOpen } = useUIStore();
-  const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
+  const { toggleSidebar, setSidebarOpen } = useUIStore(useShallow((state) => ({
+    toggleSidebar: state.toggleSidebar,
+    setSidebarOpen: state.setSidebarOpen,
+  })));
   const user = useAuthStore((state) => state.user);
   const authMode = useAuthStore((state) => state.authMode);
   const isAccountActive = location.pathname.startsWith('/account');
+  const unreadLetterCount = useDeferredUnreadLetterCount(location.pathname.startsWith('/letters'));
   const accountTitle = user?.nickname || (authMode === 'cloud' ? t('nav.account') : t('nav.localMode'));
   const accountSubtitle = user?.phone || (authMode === 'cloud' ? t('nav.account') : t('nav.signInSync'));
   const accountAvatar = user?.avatar;

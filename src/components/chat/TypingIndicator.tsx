@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import type { BubbleStyleDefinition } from '../../types/bubbleStyle';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
+import { reducedMotionSx } from '../../styles/motion';
 
 const bounce = keyframes`
   0%, 60%, 100% { transform: translateY(0); }
@@ -80,6 +81,7 @@ export default function TypingIndicator({ characterName, avatar, bubbleStyle, bu
                     bgcolor: 'text.disabled',
                     animation: `${bounce} 1.4s ease-in-out infinite`,
                     animationDelay: `${i * 0.2}s`,
+                    ...reducedMotionSx,
                   }}
                 />
               ))}

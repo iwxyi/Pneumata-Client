@@ -5,16 +5,15 @@ import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import SurfaceCard from '../common/SurfaceCard';
 import SectionHeader from '../common/SectionHeader';
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { Message } from '../../types/message';
-import type { UserBondState } from '../../types/companionship';
+import type { CompanionshipProjection, UserBondState } from '../../types/companionship';
 import type { RelationshipAxisReason, RelationshipLedgerEntry } from '../../types/runtimeEvent';
 import { buildRelationshipDisplaySummary, formatSignedRelationshipNumber, isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from '../../services/relationshipLedger';
 import { buildPresentedRelationshipLedger } from '../../services/relationshipPresentation';
 import { projectRelationshipPanelData, type RelationshipPanelDiagnosticItem } from '../../services/relationshipPanelProjection';
-import { buildUserCompanionshipProjection } from '../../services/companionshipProjection';
 import { compactPillChipSx } from '../../styles/interaction';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 
@@ -537,10 +536,21 @@ export default function RelationshipPanel({ chat, members, messages = [] }: Rela
     [chat, members, reverseLedger],
   );
   const directCharacter = chat.type === 'direct' ? members.find((member) => chat.memberIds.includes(member.id)) || members[0] || null : null;
-  const directCompanionship = useMemo(
-    () => directCharacter ? buildUserCompanionshipProjection({ chat, character: directCharacter, messages }) : null,
-    [chat, directCharacter, messages],
-  );
+  const [directCompanionship, setDirectCompanionship] = useState<CompanionshipProjection | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!directCharacter) {
+      setDirectCompanionship(null);
+      return undefined;
+    }
+    void import('../../services/companionshipProjection').then((module) => {
+      if (cancelled) return;
+      setDirectCompanionship(module.buildUserCompanionshipProjection({ chat, character: directCharacter, messages }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [chat, directCharacter, messages]);
   const directUserBond = directCompanionship?.userBond || null;
   const groupedLedgerSections = chat.type === 'direct' ? [] : projected.ledgerSections;
   const fallbackSections = chat.type === 'direct' ? [] : projected.fallbackSections;

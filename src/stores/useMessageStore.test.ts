@@ -6,6 +6,17 @@ const getMessagesMock = vi.hoisted(() => vi.fn());
 const getSyncChangesMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../services/api', () => ({
+  ApiError: class ApiError extends Error {
+    code?: string;
+    status?: number;
+
+    constructor(message: string, options?: { code?: string; status?: number }) {
+      super(message);
+      this.name = 'ApiError';
+      this.code = options?.code;
+      this.status = options?.status;
+    }
+  },
   api: {
     getSyncChanges: getSyncChangesMock,
     getMessages: getMessagesMock,
@@ -55,6 +66,20 @@ function buildMessage(index: number, chatId = 'chat-1'): Message {
     timestamp: index,
     isDeleted: false,
   };
+}
+
+async function waitForAssertion(assertion: () => void, attempts = 20) {
+  let lastError: unknown = null;
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  }
+  throw lastError;
 }
 
 describe('useMessageStore', () => {
@@ -192,7 +217,10 @@ describe('useMessageStore', () => {
     const chatId = 'chat-1';
     const persistedMessages = Array.from({ length: 7 }, (_, index) => buildMessage(index + 994, chatId));
     const fetchedMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 961, chatId));
-    getMessagesMock.mockResolvedValueOnce(fetchedMessages);
+    let resolveFetchedMessages!: (messages: Message[]) => void;
+    getMessagesMock.mockReturnValueOnce(new Promise<Message[]>((resolve) => {
+      resolveFetchedMessages = resolve;
+    }));
 
     useMessageStore.setState({
       messages: [],
@@ -211,13 +239,128 @@ describe('useMessageStore', () => {
       hasMore: false,
     });
 
-    await useMessageStore.getState().openChatWindow(chatId, { limit: 40, revalidate: true });
+    const openPromise = useMessageStore.getState().openChatWindow(chatId, { limit: 40, revalidate: true });
+    await waitForAssertion(() => {
+      expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: undefined });
+    });
+
+    expect(useMessageStore.getState().messages).toHaveLength(7);
+    expect(useMessageStore.getState().messages[0]?.id).toBe('message-994');
+    expect(useMessageStore.getState().isLoading).toBe(true);
+
+    resolveFetchedMessages(fetchedMessages);
+    await openPromise;
 
     const state = useMessageStore.getState();
     expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: undefined });
     expect(state.messages[0]?.id).toBe('message-961');
     expect(state.messages).toHaveLength(40);
     expect(state.hasMore).toBe(true);
+  });
+
+  it('shows a complete local cache immediately while cloud revalidation is still pending', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const cachedMessages = Array.from({ length: 80 }, (_, index) => buildMessage(index + 1, chatId));
+    let resolveFetchedMessages!: (messages: Message[]) => void;
+    getMessagesMock.mockReturnValueOnce(new Promise<Message[]>((resolve) => {
+      resolveFetchedMessages = resolve;
+    }));
+
+    useMessageStore.setState({
+      messages: [],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: cachedMessages,
+          lastSyncedAt: Date.now() - 60_000,
+          updatedAt: cachedMessages.at(-1)?.timestamp ?? 0,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: null,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: false,
+    });
+
+    const openPromise = useMessageStore.getState().openChatWindow(chatId, { limit: 40, revalidate: true });
+
+    await waitForAssertion(() => {
+      expect(useMessageStore.getState().messages).toHaveLength(40);
+      expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: undefined });
+    });
+    expect(useMessageStore.getState().messages[0]?.id).toBe('message-41');
+    expect(useMessageStore.getState().messages.at(-1)?.id).toBe('message-80');
+
+    resolveFetchedMessages(cachedMessages.slice(-40));
+    await openPromise;
+
+    const state = useMessageStore.getState();
+    expect(state.messages).toHaveLength(40);
+    expect(state.messages[0]?.id).toBe('message-41');
+    expect(state.messages.at(-1)?.id).toBe('message-80');
+    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(80);
+  });
+
+  it('refreshes cached story narrative metadata when blocks were compacted away', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'story-chat';
+    const compactedStoryMessage: Message = {
+      ...buildMessage(1, chatId),
+      id: 'story-1',
+      senderId: 'narrator',
+      senderName: '旁白',
+      content: '旁白。角色：“台词。”',
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-1',
+          turnKind: 'narrative_beat',
+          povActorId: 'narrator',
+          blockCount: 2,
+        } as unknown as NonNullable<Message['metadata']>['narrativeTurn'],
+      },
+    };
+    const refreshedStoryMessage: Message = {
+      ...compactedStoryMessage,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-1',
+          turnKind: 'narrative_beat',
+          povActorId: 'narrator',
+          blocks: [
+            { id: 'block-1', actorId: 'narrator', actorKind: 'narrator', kind: 'prose', displayMode: 'paragraph', text: '旁白。' },
+            { id: 'block-2', actorId: 'character-1', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', characterId: 'character-1', text: '台词。' },
+          ],
+        },
+      },
+    };
+    getMessagesMock.mockResolvedValueOnce([refreshedStoryMessage]);
+
+    useMessageStore.setState({
+      messages: [],
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: [compactedStoryMessage],
+          lastSyncedAt: Date.now(),
+          updatedAt: compactedStoryMessage.timestamp,
+          remoteExhausted: true,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: null,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: false,
+    });
+
+    await useMessageStore.getState().openChatWindow(chatId, { limit: 40, revalidate: false });
+
+    expect(getSyncChangesMock).not.toHaveBeenCalled();
+    expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: undefined });
+    expect(useMessageStore.getState().messages[0]?.metadata?.narrativeTurn?.blocks).toHaveLength(2);
+    expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages[0]?.metadata?.narrativeTurn?.blocks).toHaveLength(2);
   });
 
   it('does not persist transient streaming flags in cached message windows', async () => {
@@ -321,6 +464,66 @@ describe('useMessageStore', () => {
     expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, before: undefined });
     expect(useMessageStore.getState().messages).toHaveLength(40);
     expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages).toHaveLength(80);
+  });
+
+  it('keeps the cached tail window visible when cloud changes only include sparse recent messages', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const cachedMessages = Array.from({ length: 80 }, (_, index) => buildMessage(index + 1, chatId));
+    const changedMessages = cachedMessages.slice(-3).map((message) => ({
+      ...message,
+      content: `${message.content} 已刷新`,
+    }));
+    getSyncChangesMock.mockResolvedValueOnce({
+      status: 'modified',
+      scope: `messages.window:${chatId}`,
+      cursor: 'messages.window:rev-2',
+      revision: 'messages.window:rev-2',
+      changes: changedMessages.map((message) => ({
+        entity: 'message_window_message',
+        op: 'upsert',
+        id: message.id,
+        patch: {
+          chatId: message.chatId,
+          type: message.type,
+          senderId: message.senderId,
+          senderName: message.senderName,
+          content: message.content,
+          metadata: message.metadata,
+          emotion: message.emotion,
+          timestamp: message.timestamp,
+          isDeleted: message.isDeleted,
+        },
+      })),
+    });
+
+    useMessageStore.setState({
+      messages: cachedMessages.slice(-3),
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: cachedMessages,
+          lastSyncedAt: Date.now() - 60_000,
+          updatedAt: cachedMessages.at(-1)?.timestamp ?? 0,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    await useMessageStore.getState().loadMessages(chatId, { limit: 40 });
+
+    const state = useMessageStore.getState();
+    expect(getMessagesMock).not.toHaveBeenCalled();
+    expect(state.messages).toHaveLength(40);
+    expect(state.messages[0]?.id).toBe('message-41');
+    expect(state.messages.at(-1)?.id).toBe('message-80');
+    expect(state.messages.at(-1)?.content).toBe('消息 80 已刷新');
+    expect(state.messageWindowsByChatId[chatId]?.messages).toHaveLength(80);
+    expect(state.messageWindowsByChatId[chatId]?.messages.at(-1)?.content).toBe('消息 80 已刷新');
   });
 
   it('strips non-message fields when merging fetched and persisted messages', async () => {
@@ -482,13 +685,15 @@ describe('useMessageStore', () => {
       hasMore: true,
     });
 
+    const windowBeforeStreaming = useMessageStore.getState().messageWindowsByChatId[chatId];
     useMessageStore.getState().upsertMessage(streaming);
 
     const state = useMessageStore.getState();
     expect(state.messages.map((message) => message.id)).toEqual(['previous-message-1', 'streaming-message-2']);
     expect(state.messages[0]?.isStreaming).toBe(false);
     expect(state.messages[1]?.isStreaming).toBe(true);
-    expect(state.messageWindowsByChatId[chatId]?.messages.map((message) => message.id)).toEqual(['previous-message-1', 'streaming-message-2']);
+    expect(state.messageWindowsByChatId[chatId]).toBe(windowBeforeStreaming);
+    expect(state.messageWindowsByChatId[chatId]?.messages.map((message) => message.id)).toEqual(['previous-message-1']);
   });
 
   it('keeps repeated committed same-speaker content as distinct messages', async () => {
@@ -695,6 +900,47 @@ describe('useMessageStore', () => {
     expect(state.messages.at(-1)?.id).toBe('message-560');
     expect(state.hasMoreNewer).toBe(true);
     expect(state.isLoadingNewer).toBe(false);
+  });
+
+  it('stops newer pagination after an empty cloud page even when cached messages have later timestamps', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-1';
+    const activeMessages = Array.from({ length: 40 }, (_, index) => buildMessage(index + 481, chatId));
+    const offPathCachedTail = [
+      ...activeMessages,
+      buildMessage(999, chatId),
+    ];
+    getMessagesMock.mockResolvedValueOnce([]);
+
+    useMessageStore.setState({
+      messages: activeMessages,
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: offPathCachedTail,
+          lastSyncedAt: Date.now(),
+          updatedAt: offPathCachedTail.at(-1)?.timestamp ?? 0,
+          remoteExhausted: false,
+          remoteNewerExhausted: false,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      isLoadingNewer: false,
+      hasMore: true,
+      hasMoreNewer: true,
+    });
+
+    await useMessageStore.getState().loadMessages(chatId, { append: true, after: 520, limit: 40 });
+
+    const state = useMessageStore.getState();
+    expect(getMessagesMock).toHaveBeenCalledWith(chatId, { limit: 40, after: 520 });
+    expect(state.messages).toHaveLength(40);
+    expect(state.messages.at(-1)?.id).toBe('message-520');
+    expect(state.hasMoreNewer).toBe(false);
+    expect(state.messageWindowsByChatId[chatId]?.messages.some((message) => message.id === 'message-999')).toBe(true);
   });
 
 });

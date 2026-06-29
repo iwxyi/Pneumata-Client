@@ -8,6 +8,7 @@ import ClearAllIcon from '@mui/icons-material/ClearAll';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import SortIcon from '@mui/icons-material/Sort';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
@@ -82,11 +83,27 @@ export default function CharacterLibraryPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const settings = useSettingsStore();
+  const { aiProfiles, avatarGeneration } = useSettingsStore(useShallow((state) => ({
+    aiProfiles: state.aiProfiles,
+    avatarGeneration: state.avatarGeneration,
+  })));
   const pane = usePaneLayout();
   const isMasterPane = pane.role === 'master';
-  const { chats, addChat } = useChatStore();
-  const { characters, loadCharacters, markCharactersWarm, prefetchCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, isLoading } = useCharacterStore();
+  const { chats, addChat } = useChatStore(useShallow((state) => ({
+    chats: state.chats,
+    addChat: state.addChat,
+  })));
+  const { characters, loadCharacters, markCharactersWarm, prefetchCharacters, deleteCharacter, deleteCharacters, updateCharactersGroup, importCharacters, isLoading } = useCharacterStore(useShallow((state) => ({
+    characters: state.characters,
+    loadCharacters: state.loadCharacters,
+    markCharactersWarm: state.markCharactersWarm,
+    prefetchCharacters: state.prefetchCharacters,
+    deleteCharacter: state.deleteCharacter,
+    deleteCharacters: state.deleteCharacters,
+    updateCharactersGroup: state.updateCharactersGroup,
+    importCharacters: state.importCharacters,
+    isLoading: state.isLoading,
+  })));
   const [tab, setTab] = useState(() => readPersistentUiValue(CHARACTER_LIBRARY_TAB_KEY, 0, isCharacterLibraryTab));
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>(() => readPersistentUiValue(CHARACTER_LIBRARY_GROUP_KEY, 'all', isCharacterLibraryGroup));
@@ -148,8 +165,8 @@ export default function CharacterLibraryPage() {
     writePersistentUiValue(CHARACTER_LIBRARY_SORT_GROUP_FIRST_KEY, sortGroupFirst);
   }, [sortGroupFirst]);
 
-  const presets = characters.filter((c) => c.isPreset);
-  const custom = characters.filter((c) => !c.isPreset);
+  const presets = useMemo(() => characters.filter((c) => c.isPreset), [characters]);
+  const custom = useMemo(() => characters.filter((c) => !c.isPreset), [characters]);
   const customGroups = useMemo(() => getCharacterGroupList(custom), [custom]);
   const customGroupOptions = useMemo(() => customGroups.map((group) => ({
     value: group,
@@ -158,13 +175,18 @@ export default function CharacterLibraryPage() {
   })), [custom, customGroups]);
   const duplicateCharacterCount = useMemo(() => getDuplicateCharacterCount(custom), [custom]);
   const duplicateCharacterBannerText = useMemo(() => getDuplicateCharacterBannerText(custom, i18n.language), [custom, i18n.language]);
-  const filteredCustom = selectedGroup === 'all' ? custom : getCharactersInGroup(custom, selectedGroup);
+  const filteredCustom = useMemo(() => (
+    selectedGroup === 'all' ? custom : getCharactersInGroup(custom, selectedGroup)
+  ), [custom, selectedGroup]);
   const displayChars = useMemo(
     () => sortCharactersForLibrary(tab === 0 ? filteredCustom : presets, sortField, sortDirection, sortGroupFirst),
     [filteredCustom, presets, sortDirection, sortField, sortGroupFirst, tab]
   );
-  const selectedIdSet = new Set(selectedIds);
-  const selectedCustomCharacters = custom.filter((character) => selectedIdSet.has(character.id));
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedCustomCharacters = useMemo(
+    () => custom.filter((character) => selectedIdSet.has(character.id)),
+    [custom, selectedIdSet],
+  );
 
   useEffect(() => {
     if (selectedGroup === 'all') return;
@@ -222,9 +244,9 @@ export default function CharacterLibraryPage() {
     try {
       const queued = enqueueAvatarGenerationForCharacters(
         selectedCustomCharacters,
-        settings.aiProfiles,
+        aiProfiles,
         i18n.language.startsWith('zh') ? 'zh' : 'en',
-        settings.avatarGeneration,
+        avatarGeneration,
       );
       setSnackbar({
         open: true,
@@ -243,7 +265,7 @@ export default function CharacterLibraryPage() {
   };
 
   const handleBulkGenerateBubbles = async () => {
-    const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
+    const profile = getPreferredAIProfile(aiProfiles, 'text');
     if (!profile?.apiKey || !profile?.model) {
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
       return;

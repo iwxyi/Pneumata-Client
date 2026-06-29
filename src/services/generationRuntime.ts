@@ -1,7 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import type { SessionExecutionTrace, SessionExpressionPlan, SessionGenerationPromptContext, SessionGenerationRuntimeBundle, SessionRealizationPlan, SessionTargetScope, SessionTurnPlan } from '../types/sessionEngine';
+import type { SessionEngineDefinition, SessionExecutionTrace, SessionExpressionPlan, SessionGenerationPromptContext, SessionGenerationRuntimeBundle, SessionRealizationPlan, SessionTargetScope, SessionTurnPlan } from '../types/sessionEngine';
 import { resolveDuplicateValidator } from './duplicateValidatorRegistry';
 import type { ChatStyleProfile } from './styleProfileRegistry';
 import { resolveSessionDefinition } from '../types/sessionEngine';
@@ -251,6 +251,7 @@ export function buildGenerationRuntimeBundle(params: {
   speaker: AICharacter;
   messages: Message[];
   promptContext?: SessionGenerationPromptContext | null;
+  sessionEngine?: SessionEngineDefinition | null;
 }) : SessionGenerationRuntimeBundle {
   const latest = latestVisibleMessage(params.messages);
   const scenarioDecision = buildScenarioRuntimeDecision({
@@ -259,6 +260,7 @@ export function buildGenerationRuntimeBundle(params: {
     messages: params.messages,
     speaker: params.speaker,
     promptContext: params.promptContext,
+    sessionEngine: params.sessionEngine,
   });
   const capabilities = resolveEffectiveCapabilities(params.chat, params.promptContext);
   const styleProfile = (params.promptContext?.styleProfile as ChatStyleProfile | undefined) || resolveDefaultStyleProfile({

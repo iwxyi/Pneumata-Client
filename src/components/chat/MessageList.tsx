@@ -1,20 +1,25 @@
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Box, Chip, CircularProgress, Fab, Stack, Typography, keyframes } from '@mui/material';
-import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Message, MessageAttachment, NarrativeBlock, NarrativeTurnMetadata } from '../../types/message';
 import type { AICharacter } from '../../types/character';
 import MessageBubble from './MessageBubble';
 import EventMessageItem from './EventMessageItem';
-import { getNarrativeDisplayBlocks, type NarrativeStoryChoiceOption } from './messageBubblePresentation';
+import { shouldRenderEventMessage, type EventRenderFlags } from './eventMessagePresentation';
+import type { NarrativeStoryChoiceOption } from './messageBubblePresentation';
 import SystemMessageItem from './SystemMessageItem';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 import { buildChatRenderItems, type ChatRenderItem } from './chatRenderModel';
+import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed } from './messageListPresentation';
 import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import ImageLightbox from '../common/ImageLightbox';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
 import { buildStoryNodeProgress, type StoryNodeProgressChip } from '../../services/storyNodeProgress';
 import type { MessageBranchVersionInfo } from '../../services/messageBranching';
+import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
+import { prefersReducedMotion } from '../../styles/motion';
 
 const TOP_PREFETCH_THRESHOLD = 520;
 const BOTTOM_STICKY_THRESHOLD = 96;
@@ -32,14 +37,13 @@ type ResponsiveInset = number | string | Record<string, number | string>;
 interface ScrollAnchorSnapshot {
   messageId: string;
   offsetTop: number;
+  sourceTimestamp?: number;
 }
 export interface MessageListScrollPosition extends ScrollAnchorSnapshot {
   pinned: boolean;
-  sourceTimestamp?: number;
 }
 export interface MessageListScrollRequest extends ScrollAnchorSnapshot {
   key: string;
-  sourceTimestamp?: number;
   behavior?: ScrollBehavior;
   highlight?: boolean;
 }
@@ -84,6 +88,39 @@ interface MessageListProps {
   narrativeRevealMessageKeys?: ReadonlySet<string>;
   onNarrativeRevealComplete?: (message: Message) => void;
   autoStickToBottom?: boolean;
+}
+
+type MessageListRenderKind =
+  | ChatRenderItem['renderKind']
+  | 'narrative-block'
+  | 'narrative-progress'
+  | 'story-choice';
+
+interface MessageListRenderItem {
+  key: string;
+  message: Message;
+  sourceItem: ChatRenderItem;
+  pending: boolean;
+  renderKind: MessageListRenderKind;
+  block?: NarrativeBlock;
+  blockIndex?: number;
+  completeNarrativeReveal?: boolean;
+}
+
+function buildChatImageTimeline(messages: Message[]) {
+  return messages
+    .filter((message) => !message.isDeleted)
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .flatMap((message) => (message.metadata?.attachments || [])
+      .filter((attachment) => attachment.kind === 'image' && attachment.status === 'ready' && Boolean(attachment.url))
+      .map((attachment) => ({
+        key: `${message.id}-${attachment.id}`,
+        messageId: message.id,
+        attachmentId: attachment.id,
+        src: attachment.url as string,
+        fullSrc: attachment.url as string,
+        alt: attachment.altText || message.senderName,
+      })));
 }
 
 function ChoiceMeta({ label, value }: { label: string; value: string }) {
@@ -282,23 +319,234 @@ function buildNarrativeBlockMessage(parent: Message, block: NarrativeBlock, turn
   };
 }
 
-export function isNarrativeRevealAllowed(params: {
-  item: ChatRenderItem;
-  revealMessageKeys?: ReadonlySet<string>;
-}) {
-  const keys = params.revealMessageKeys;
-  if (!keys?.size) return false;
-  return [
-    params.item.key,
-    params.item.message.id,
-    params.item.message.clientKey,
-    params.item.message.serverId,
-  ].some((key) => Boolean(key && keys.has(key)));
+function getStoryReaderFontFamily(fontFamily: string | undefined) {
+  if (fontFamily === 'serif') return 'Georgia, "Times New Roman", "Noto Serif SC", "Songti SC", serif';
+  if (fontFamily === 'sans') return 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  return undefined;
 }
 
-export function getVisibleNarrativeDisplayBlocks(message: Message, showDeveloperDetails: boolean) {
-  return getNarrativeDisplayBlocks(message)
-    .filter((block) => block.displayMode !== 'system_panel' || showDeveloperDetails);
+function getHistoricalBubbleShadow(shadow: string | undefined) {
+  if (!shadow || shadow === 'none') return '0 1px 3px rgba(0,0,0,0.10)';
+  return '0 1px 3px rgba(0,0,0,0.10)';
+}
+
+const LightweightNarrativeBlock = memo(function LightweightNarrativeBlock({
+  block,
+  character,
+  characters,
+  maxContentWidth,
+  storyReaderFontFamily,
+  storyReaderFontSize,
+  storyReaderLineHeight,
+  customBubbleStyles,
+  onCharacterAvatarClick,
+}: {
+  block: NarrativeBlock;
+  character?: AICharacter | null;
+  characters: AICharacter[];
+  maxContentWidth: string | number;
+  storyReaderFontFamily?: string;
+  storyReaderFontSize: number;
+  storyReaderLineHeight: number;
+  customBubbleStyles: ReturnType<typeof useSettingsStore.getState>['customBubbleStyles'];
+  onCharacterAvatarClick?: (character: AICharacter, anchorEl: HTMLElement) => void;
+}) {
+  if (block.displayMode === 'bubble') {
+    const resolvedStyle = character
+      ? resolveCharacterBubbleStyle({ bubbleStyle: character.bubbleStyle, bubbleStyleId: character.bubbleStyleId, customStyles: customBubbleStyles })
+      : null;
+    const bubblePreview = resolvedStyle ? buildBubblePreview(resolvedStyle, false) : null;
+    const senderName = character?.name || block.actorName || '角色';
+    const avatarText = senderName.slice(0, 1);
+    const wrapperStyle: CSSProperties = {
+      display: 'flex',
+      alignItems: 'flex-start',
+      gap: 10,
+      padding: '6px 16px',
+      width: '100%',
+      boxSizing: 'border-box',
+    };
+    const contentStyle: CSSProperties = {
+      maxWidth: typeof maxContentWidth === 'number' ? maxContentWidth : maxContentWidth,
+      minWidth: 0,
+      display: 'grid',
+      gap: 3,
+      justifyItems: 'start',
+    };
+    const avatarStyle: CSSProperties = {
+      width: 34,
+      height: 34,
+      borderRadius: '50%',
+      flex: '0 0 auto',
+      display: 'grid',
+      placeItems: 'center',
+      background: resolvedStyle?.backgroundColor || '#6366f1',
+      color: resolvedStyle?.textColor || '#fff',
+      fontSize: 14,
+      fontWeight: 700,
+      cursor: character && onCharacterAvatarClick ? 'pointer' : 'default',
+      userSelect: 'none',
+    };
+    const nameStyle: CSSProperties = {
+      color: 'rgba(100, 116, 139, 0.92)',
+      fontSize: 12,
+      lineHeight: '18px',
+      fontWeight: 500,
+      padding: '0 4px',
+      maxWidth: '100%',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    };
+    const bubbleStyle: CSSProperties = {
+      padding: '8px 12px',
+      borderRadius: bubblePreview?.borderRadius || '18px',
+      background: bubblePreview?.background || '#fff',
+      color: bubblePreview?.color || '#1f2937',
+      border: bubblePreview?.border || '1px solid rgba(15, 23, 42, 0.08)',
+      boxShadow: getHistoricalBubbleShadow(bubblePreview?.boxShadow),
+      fontSize: 14,
+      lineHeight: 1.85,
+      whiteSpace: 'pre-wrap',
+      overflowWrap: 'anywhere',
+      userSelect: 'text',
+    };
+    return (
+      <div style={wrapperStyle}>
+        <div
+          style={avatarStyle}
+          onClick={(event) => {
+            if (character && onCharacterAvatarClick) onCharacterAvatarClick(character, event.currentTarget);
+          }}
+        >
+          {avatarText}
+        </div>
+        <div style={contentStyle}>
+          <div style={nameStyle}>{senderName}</div>
+          <div style={bubbleStyle}>{block.text}</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (block.displayMode === 'system_panel') {
+    const lines = block.text.split('\n').map((line) => line.trim()).filter(Boolean);
+    const title = lines[0] || '章节回顾';
+    const body = lines.slice(1).join('\n');
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 24px', width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ width: '100%', maxWidth: maxContentWidth, border: '1px solid rgba(14,165,233,0.24)', borderRadius: 8, background: 'rgba(240,249,255,0.72)', padding: '10px 13px', boxSizing: 'border-box' }}>
+          <div style={{ color: 'rgba(100, 116, 139, 0.96)', fontSize: 12, fontWeight: 700, lineHeight: 1.5, marginBottom: body ? 5 : 0 }}>{title}</div>
+          {body ? <div style={{ color: '#1f2937', fontSize: 14, lineHeight: 1.75, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{body}</div> : null}
+        </div>
+      </div>
+    );
+  }
+
+  if (block.displayMode === 'choice_card') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 24px', width: '100%', boxSizing: 'border-box' }}>
+        <div style={{ width: '100%', maxWidth: maxContentWidth, border: '1px solid rgba(99,102,241,0.22)', borderRadius: 8, background: 'rgba(238,242,255,0.62)', padding: '10px 13px', boxSizing: 'border-box' }}>
+          <div style={{ color: 'rgba(100, 116, 139, 0.96)', fontSize: 12, fontWeight: 700, lineHeight: 1.5, marginBottom: 4 }}>你选择了</div>
+          <div style={{ color: '#1f2937', fontSize: 14, lineHeight: 1.75, fontWeight: 700, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{block.text}</div>
+        </div>
+      </div>
+    );
+  }
+
+  const paragraphStyle: CSSProperties = {
+    width: '100%',
+    maxWidth: maxContentWidth,
+    padding: '4px 4px',
+    boxSizing: 'border-box',
+    fontFamily: storyReaderFontFamily,
+    fontSize: storyReaderFontSize,
+    lineHeight: storyReaderLineHeight,
+    color: '#1f2937',
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+    userSelect: 'text',
+  };
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 24px', width: '100%', boxSizing: 'border-box' }}>
+      <div style={paragraphStyle}>{block.text}</div>
+    </div>
+  );
+});
+
+export function buildMessageListRenderItems(params: {
+  messages: Message[];
+  eventRenderFlags: EventRenderFlags;
+  showDeveloperDetails: boolean;
+  storyChoiceMessageId?: string | null;
+  storyChoiceOptions?: NarrativeStoryChoiceOption[];
+}): MessageListRenderItem[] {
+  const baseItems = buildChatRenderItems(params.messages)
+    .filter((item) => item.renderKind !== 'event' || shouldRenderEventMessage(item.message, params.eventRenderFlags));
+  const flattened: MessageListRenderItem[] = [];
+
+  for (const item of baseItems) {
+    if (item.renderKind !== 'narrative') {
+      flattened.push({
+        key: item.key,
+        message: item.message,
+        sourceItem: item,
+        pending: item.pending,
+        renderKind: item.renderKind,
+      });
+      continue;
+    }
+
+    const showStoryChoices = item.message.id === params.storyChoiceMessageId
+      && (params.storyChoiceOptions?.length ?? 0) > 0;
+    const blocks = getVisibleNarrativeDisplayBlocks(item.message, params.showDeveloperDetails);
+    if (!blocks.length) {
+      if (showStoryChoices) {
+        flattened.push({
+          key: `${item.key}:story-choice`,
+          message: item.message,
+          sourceItem: item,
+          pending: item.pending,
+          renderKind: 'story-choice',
+        });
+      }
+      continue;
+    }
+
+    blocks.forEach((block, index) => {
+      const blockKey = `${item.key}:block:${block.id || index}`;
+      flattened.push({
+        key: blockKey,
+        message: item.message,
+        sourceItem: item,
+        pending: item.pending,
+        renderKind: 'narrative-block',
+        block,
+        blockIndex: index,
+        completeNarrativeReveal: index === 0,
+      });
+    });
+    if (buildStoryNodeProgress(item.message)) {
+      flattened.push({
+        key: `${item.key}:story-progress`,
+        message: item.message,
+        sourceItem: item,
+        pending: item.pending,
+        renderKind: 'narrative-progress',
+      });
+    }
+    if (showStoryChoices) {
+      flattened.push({
+        key: `${item.key}:story-choice`,
+        message: item.message,
+        sourceItem: item,
+        pending: item.pending,
+        renderKind: 'story-choice',
+      });
+    }
+  }
+
+  return flattened;
 }
 
 export default function MessageList({
@@ -342,13 +590,46 @@ export default function MessageList({
   onNarrativeRevealComplete,
   autoStickToBottom = true,
 }: MessageListProps) {
-  const renderItems = useMemo(() => buildChatRenderItems(messages), [messages]);
   const developerMode = useSettingsStore((state) => state.developerMode);
-  const storyRevealMode = useSettingsStore((state) => state.chatAppearance.storyReader.revealMode);
+  const developerUI = useSettingsStore((state) => state.developerUI);
+  const eventRenderFlags = useMemo<EventRenderFlags>(() => ({
+    developerMode,
+    showRelationshipEvents: developerUI.showRelationshipEvents,
+    showAffectEvents: developerUI.showAffectEvents,
+    showConflictEvents: developerUI.showConflictEvents,
+    showStateEvents: developerUI.showStateEvents,
+    showMemoryDistillationEvents: developerUI.showMemoryDistillationEvents,
+    showCalendarEvents: developerUI.showCalendarEvents,
+    showMemoryDebug: developerUI.showMemoryDebug,
+    showLocalInterceptionHints: developerUI.showLocalInterceptionHints,
+  }), [
+    developerMode,
+    developerUI.showAffectEvents,
+    developerUI.showCalendarEvents,
+    developerUI.showConflictEvents,
+    developerUI.showLocalInterceptionHints,
+    developerUI.showMemoryDebug,
+    developerUI.showMemoryDistillationEvents,
+    developerUI.showRelationshipEvents,
+    developerUI.showStateEvents,
+  ]);
+  const renderItems = useMemo(() => buildMessageListRenderItems({
+    messages,
+    eventRenderFlags,
+    showDeveloperDetails: developerMode,
+    storyChoiceMessageId,
+    storyChoiceOptions,
+  }), [developerMode, eventRenderFlags, messages, storyChoiceMessageId, storyChoiceOptions]);
+  const chatAppearance = useSettingsStore((state) => state.chatAppearance);
+  const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
+  const storyRevealMode = chatAppearance.storyReader.revealMode;
+  const storyReaderFontFamily = useMemo(() => getStoryReaderFontFamily(chatAppearance.storyReader.fontFamily), [chatAppearance.storyReader.fontFamily]);
+  const contentMaxWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const [viewerKey, setViewerKey] = useState<string | null>(null);
   const [showJumpToBottom, setShowJumpToBottom] = useState(false);
+  const showJumpToBottomRef = useRef(false);
   const topLoadTriggeredRef = useRef(false);
   const bottomLoadTriggeredRef = useRef(false);
   const shouldStickToBottomRef = useRef(true);
@@ -378,19 +659,15 @@ export default function MessageList({
     storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceSubmittingValue || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
   });
 
-  const chatImageTimeline = useMemo(() => messages
-    .filter((message) => !message.isDeleted)
-    .sort((left, right) => left.timestamp - right.timestamp)
-    .flatMap((message) => (message.metadata?.attachments || [])
-      .filter((attachment) => attachment.kind === 'image' && attachment.status === 'ready' && Boolean(attachment.url))
-      .map((attachment) => ({
-        key: `${message.id}-${attachment.id}`,
-        messageId: message.id,
-        attachmentId: attachment.id,
-        src: attachment.url as string,
-        fullSrc: attachment.url as string,
-        alt: attachment.altText || message.senderName,
-      }))), [messages]);
+  const chatImageTimeline = useMemo(() => buildChatImageTimeline(messages), [messages]);
+  const messageVirtualizer = useVirtualizer({
+    count: renderItems.length,
+    getScrollElement: () => containerRef.current,
+    getItemKey: (index) => renderItems[index]?.key || index,
+    estimateSize: () => 108,
+    overscan: 2,
+  });
+  const virtualMessageItems = messageVirtualizer.getVirtualItems();
 
   const viewerIndex = viewerKey ? chatImageTimeline.findIndex((item) => item.key === viewerKey) : -1;
   const viewerOpen = viewerIndex >= 0;
@@ -428,7 +705,7 @@ export default function MessageList({
     />
   ), [branchVersionInfoByMessageId, characters, currentUser, onAnalyzeMessage, onCharacterAvatarClick, onCreateRevision, onDeleteMessage, onExpressionFeedback, onRetryMedia, onSwitchRevision, openChatImage, privateConversation, selfMemberId]);
 
-  const renderMessageItem = useCallback((item: ChatRenderItem) => {
+  const renderMessageItem = useCallback((item: MessageListRenderItem) => {
     const anchorProps = {
       'data-message-id': item.message.id,
       'data-message-client-key': item.message.clientKey || undefined,
@@ -441,64 +718,77 @@ export default function MessageList({
     if (item.renderKind === 'event') {
       return <Box key={item.key} {...anchorProps}><EventMessageItem message={item.message} members={characters} /></Box>;
     }
-    const showStoryChoices = item.renderKind === 'narrative'
-      && item.message.id === storyChoiceMessageId
-      && storyChoiceOptions.length > 0
-      && (Boolean(onChooseStoryChoice) || Boolean(storyChoiceSubmittingValue));
-    const blocks = item.renderKind === 'narrative'
-      ? getVisibleNarrativeDisplayBlocks(item.message, developerMode)
-      : [];
-    if (!blocks.length) {
-      if (showStoryChoices) {
-        return (
-          <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
-            <Box data-scroll-anchor={`${item.message.id}:story-choice`} data-scroll-timestamp={item.message.timestamp}>
-              <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
-            </Box>
+    if (item.renderKind === 'story-choice') {
+      return (
+        <Box key={item.key} {...anchorProps} sx={{ display: 'grid' }}>
+          <Box data-scroll-anchor={`${item.message.id}:story-choice`} data-scroll-timestamp={item.message.timestamp}>
+            <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
           </Box>
+        </Box>
+      );
+    }
+    if (item.renderKind === 'narrative-progress') {
+      return <Box key={item.key} {...anchorProps}><StoryNodeProgressBar message={item.message} /></Box>;
+    }
+    if (item.renderKind === 'narrative-block') {
+      const block = item.block;
+      const index = item.blockIndex ?? 0;
+      if (!block) return null;
+      const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item: item.sourceItem, revealMessageKeys: narrativeRevealMessageKeys });
+      const shouldFadeNode = recentNarrative && storyRevealMode === 'fade' && !prefersReducedMotion();
+      const character = block.displayMode === 'bubble' ? resolveNarrativeBlockCharacter(block, characters) : undefined;
+      if (!item.pending) {
+        return (
+          <div
+            key={item.key}
+            {...anchorProps}
+            data-scroll-anchor={buildNarrativeBlockScrollAnchor(item.message, block, index)}
+            onAnimationEnd={shouldFadeNode && item.completeNarrativeReveal ? () => onNarrativeRevealComplete?.(item.message) : undefined}
+            style={{
+              display: 'grid',
+              ...(shouldFadeNode ? {
+                animation: `${storyNodeFadeIn} 220ms ease-out both`,
+              } : {}),
+            }}
+          >
+            <LightweightNarrativeBlock
+              block={block}
+              character={character}
+              characters={characters}
+              maxContentWidth={contentMaxWidth}
+              storyReaderFontFamily={storyReaderFontFamily}
+              storyReaderFontSize={chatAppearance.storyReader.fontSize}
+              storyReaderLineHeight={chatAppearance.storyReader.lineHeight}
+              customBubbleStyles={customBubbleStyles}
+              onCharacterAvatarClick={onCharacterAvatarClick}
+            />
+          </div>
         );
       }
-      if (item.renderKind === 'narrative') return null;
-      return <Box key={item.key} {...anchorProps}>{renderBubble(item)}</Box>;
-    }
-    const recentNarrative = !item.pending && isNarrativeRevealAllowed({ item, revealMessageKeys: narrativeRevealMessageKeys });
-    const shouldFadeNode = recentNarrative && storyRevealMode === 'fade';
-    const renderedBlocks = blocks.map((block, index) => {
-      const character = block.displayMode === 'bubble' ? resolveNarrativeBlockCharacter(block, characters) : undefined;
       const blockMessage = buildNarrativeBlockMessage(item.message, block, item.message.metadata?.narrativeTurn, index, character);
-      const blockKey = `${item.key}:block:${block.id || index}`;
       return (
-        <Box key={blockKey} data-scroll-anchor={buildNarrativeBlockScrollAnchor(item.message, block, index)} data-scroll-timestamp={item.message.timestamp}>
-          {renderBubble(item, {
-            key: `${blockKey}:bubble`,
+        <Box
+          key={item.key}
+          {...anchorProps}
+          data-scroll-anchor={buildNarrativeBlockScrollAnchor(item.message, block, index)}
+          onAnimationEnd={shouldFadeNode && item.completeNarrativeReveal ? () => onNarrativeRevealComplete?.(item.message) : undefined}
+          sx={{
+            display: 'grid',
+            ...(shouldFadeNode ? {
+              animation: `${storyNodeFadeIn} 220ms ease-out both`,
+            } : {}),
+          }}
+        >
+          {renderBubble(item.sourceItem, {
+            key: `${item.key}:bubble`,
             message: blockMessage,
             character: character || (blockMessage.type === 'ai' ? resolveCharacterOrDeleted(characters, blockMessage.senderId, blockMessage.senderName) : undefined),
           })}
         </Box>
       );
-    });
-    return (
-      <Box
-        key={item.key}
-        {...anchorProps}
-        onAnimationEnd={shouldFadeNode ? () => onNarrativeRevealComplete?.(item.message) : undefined}
-        sx={{
-          display: 'grid',
-          ...(shouldFadeNode ? {
-            animation: `${storyNodeFadeIn} 220ms ease-out both`,
-          } : {}),
-        }}
-      >
-        {renderedBlocks}
-        <StoryNodeProgressBar message={item.message} />
-        {showStoryChoices ? (
-          <Box data-scroll-anchor={`${item.message.id}:story-choice`} data-scroll-timestamp={item.message.timestamp}>
-            <StoryChoicePanel options={storyChoiceOptions} onChoose={onChooseStoryChoice} showDeveloperDetails={developerMode} submittingValue={storyChoiceSubmittingValue} />
-          </Box>
-        ) : null}
-      </Box>
-    );
-  }, [characters, developerMode, narrativeRevealMessageKeys, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, storyRevealMode]);
+    }
+    return <Box key={item.key} {...anchorProps}>{renderBubble(item.sourceItem)}</Box>;
+  }, [characters, chatAppearance.storyReader.fontSize, chatAppearance.storyReader.lineHeight, contentMaxWidth, customBubbleStyles, developerMode, narrativeRevealMessageKeys, onCharacterAvatarClick, onChooseStoryChoice, onNarrativeRevealComplete, renderBubble, storyChoiceOptions, storyChoiceSubmittingValue, storyReaderFontFamily, storyRevealMode]);
 
   const topStatusText = useMemo(() => {
     if (messages.length === 0) return null;
@@ -513,6 +803,12 @@ export default function MessageList({
   const shouldShowJumpToBottomButton = useCallback((element: HTMLDivElement) => (
     getDistanceFromBottom(element) > element.clientHeight * JUMP_TO_BOTTOM_PAGE_MULTIPLIER
   ), [getDistanceFromBottom]);
+
+  const updateJumpToBottomVisibility = useCallback((visible: boolean) => {
+    if (showJumpToBottomRef.current === visible) return;
+    showJumpToBottomRef.current = visible;
+    setShowJumpToBottom(visible);
+  }, []);
 
   const getAdaptiveBottomThreshold = useCallback((element: HTMLDivElement) => (
     element.clientHeight * adaptiveBottomPagesRef.current
@@ -581,10 +877,17 @@ export default function MessageList({
     const container = containerRef.current;
     if (!container) return false;
     const containerRect = container.getBoundingClientRect();
-    const target = Array.from(container.querySelectorAll<HTMLElement>('[data-scroll-anchor], [data-message-id]'))
+    const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-scroll-anchor], [data-message-id]'));
+    const target = nodes
       .find((node) => getElementScrollAnchorId(node) === snapshot.messageId);
-    if (!target) return false;
-    const currentOffset = target.getBoundingClientRect().top - containerRect.top;
+    const fallbackTarget = target || (snapshot.sourceTimestamp !== undefined
+      ? nodes
+        .map((node) => ({ node, timestamp: getElementScrollTimestamp(node) }))
+        .filter((item): item is { node: HTMLElement; timestamp: number } => item.timestamp !== undefined)
+        .sort((left, right) => Math.abs(left.timestamp - snapshot.sourceTimestamp!) - Math.abs(right.timestamp - snapshot.sourceTimestamp!))[0]?.node
+      : null);
+    if (!fallbackTarget) return false;
+    const currentOffset = fallbackTarget.getBoundingClientRect().top - containerRect.top;
     const delta = currentOffset - snapshot.offsetTop;
     if (Math.abs(delta) >= 1) {
       if ('behavior' in snapshot && snapshot.behavior && snapshot.behavior !== 'auto') {
@@ -675,7 +978,7 @@ export default function MessageList({
     if (storyRevealMode !== 'instant' || !onNarrativeRevealComplete) return;
     if (!narrativeRevealMessageKeys?.size) return;
     renderItems.forEach((item) => {
-      if (item.renderKind === 'narrative' && isNarrativeRevealAllowed({ item, revealMessageKeys: narrativeRevealMessageKeys })) {
+      if (item.renderKind === 'narrative-block' && item.completeNarrativeReveal && isNarrativeRevealAllowed({ item: item.sourceItem, revealMessageKeys: narrativeRevealMessageKeys })) {
         onNarrativeRevealComplete(item.message);
       }
     });
@@ -686,14 +989,14 @@ export default function MessageList({
     if (!container) return false;
     const distance = getDistanceFromBottom(container);
     const pinned = distance <= BOTTOM_STICKY_THRESHOLD && !hasMoreNewer;
-    setShowJumpToBottom(shouldShowJumpToBottomButton(container));
+    updateJumpToBottomVisibility(shouldShowJumpToBottomButton(container));
     shouldStickToBottomRef.current = pinned;
     if (lastReportedBottomPinnedRef.current !== pinned) {
       lastReportedBottomPinnedRef.current = pinned;
       onBottomPinnedChange?.(pinned);
     }
     return pinned;
-  }, [getDistanceFromBottom, hasMoreNewer, onBottomPinnedChange, shouldShowJumpToBottomButton]);
+  }, [getDistanceFromBottom, hasMoreNewer, onBottomPinnedChange, shouldShowJumpToBottomButton, updateJumpToBottomVisibility]);
 
   const stopFollowScrollAnimation = useCallback(() => {
     if (followScrollAnimationRef.current == null) return;
@@ -707,11 +1010,10 @@ export default function MessageList({
     stopFollowScrollAnimation();
     const top = Math.max(0, container.scrollHeight - container.clientHeight);
     const distance = Math.abs(top - container.scrollTop);
-    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    const effectiveBehavior = prefersReducedMotion || distance > SMOOTH_SCROLL_DISTANCE_LIMIT ? 'auto' : behavior;
+    const effectiveBehavior = prefersReducedMotion() || distance > SMOOTH_SCROLL_DISTANCE_LIMIT ? 'auto' : behavior;
     container.scrollTo({ top, behavior: effectiveBehavior });
     shouldStickToBottomRef.current = !hasMoreNewer;
-    setShowJumpToBottom(false);
+    updateJumpToBottomVisibility(false);
     if (!hasMoreNewer && lastReportedBottomPinnedRef.current !== true) {
       lastReportedBottomPinnedRef.current = true;
       onBottomPinnedChange?.(true);
@@ -719,17 +1021,16 @@ export default function MessageList({
     if (effectiveBehavior === 'auto') {
       lastScrollTopRef.current = top;
     }
-  }, [hasMoreNewer, onBottomPinnedChange, stopFollowScrollAnimation]);
+  }, [hasMoreNewer, onBottomPinnedChange, stopFollowScrollAnimation, updateJumpToBottomVisibility]);
 
-  const followScrollToBottom = useCallback(() => {
+  const followScrollToBottom = useCallback((options?: { animate?: boolean }) => {
     const container = containerRef.current;
     if (!container) return;
     stopFollowScrollAnimation();
-    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     const startTop = container.scrollTop;
     const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
     const distance = targetTop - startTop;
-    if (prefersReducedMotion || Math.abs(distance) > SMOOTH_SCROLL_DISTANCE_LIMIT) {
+    if (options?.animate === false || prefersReducedMotion() || Math.abs(distance) > SMOOTH_SCROLL_DISTANCE_LIMIT) {
       container.scrollTop = targetTop;
       lastScrollTopRef.current = targetTop;
       return;
@@ -765,12 +1066,12 @@ export default function MessageList({
     latestScrollAnchorRef.current = snapshot;
     shouldStickToBottomRef.current = false;
     const container = containerRef.current;
-    if (container) setShowJumpToBottom(shouldShowJumpToBottomButton(container));
+    if (container) updateJumpToBottomVisibility(shouldShowJumpToBottomButton(container));
     if (lastReportedBottomPinnedRef.current !== false) {
       lastReportedBottomPinnedRef.current = false;
       onBottomPinnedChange?.(false);
     }
-  }, [autoStickToBottom, captureScrollAnchor, onBottomPinnedChange, shouldShowJumpToBottomButton, stopFollowScrollAnimation]);
+  }, [autoStickToBottom, captureScrollAnchor, onBottomPinnedChange, shouldShowJumpToBottomButton, stopFollowScrollAnimation, updateJumpToBottomVisibility]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -782,7 +1083,7 @@ export default function MessageList({
       frame = window.requestAnimationFrame(() => {
         frame = null;
         if (shouldStickToBottomRef.current && autoStickToBottom) {
-          followScrollToBottom();
+          followScrollToBottom({ animate: false });
           return;
         }
         const snapshot = latestScrollAnchorRef.current;
@@ -963,7 +1264,7 @@ export default function MessageList({
       return;
     }
 
-    followScrollToBottom();
+    followScrollToBottom({ animate: false });
   }, [autoStickToBottom, followScrollToBottom, renderItems, restoreScrollAnchor, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
 
   useLayoutEffect(() => {
@@ -1028,7 +1329,7 @@ export default function MessageList({
         lastScrollTopRef.current = container.scrollTop;
         if (!autoStickToBottom && !hasUserScrollIntentRef.current) {
           shouldStickToBottomRef.current = false;
-          setShowJumpToBottom(shouldShowJumpToBottomButton(container));
+          updateJumpToBottomVisibility(shouldShowJumpToBottomButton(container));
           if (lastReportedBottomPinnedRef.current !== false) {
             lastReportedBottomPinnedRef.current = false;
             onBottomPinnedChange?.(false);
@@ -1038,7 +1339,7 @@ export default function MessageList({
         }
         if (isScrollingUp) {
           shouldStickToBottomRef.current = false;
-          setShowJumpToBottom(shouldShowJumpToBottomButton(container));
+          updateJumpToBottomVisibility(shouldShowJumpToBottomButton(container));
           if (hasUserScrollIntentRef.current) reportNearBottomState(container);
           if (lastReportedBottomPinnedRef.current !== false) {
             lastReportedBottomPinnedRef.current = false;
@@ -1105,7 +1406,36 @@ export default function MessageList({
 
       <Box ref={contentRef}>
         {messages.length === 0 && emptyContent ? emptyContent : null}
-        {renderItems.map(renderMessageItem)}
+        {renderItems.length > 0 ? (
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              height: `${messageVirtualizer.getTotalSize()}px`,
+            }}
+          >
+            {virtualMessageItems.map((virtualItem) => {
+              const item = renderItems[virtualItem.index];
+              if (!item) return null;
+              return (
+                <div
+                  key={virtualItem.key}
+                  data-index={virtualItem.index}
+                  ref={messageVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: `${virtualItem.start}px`,
+                    left: 0,
+                    width: '100%',
+                    contain: 'layout paint style',
+                  }}
+                >
+                  {renderMessageItem(item)}
+                </div>
+              );
+            })}
+          </div>
+        ) : null}
         {isLoadingNewer ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', px: 2, py: 1, minHeight: 34 }}>
             <CircularProgress size={16} thickness={4} sx={{ color: 'text.secondary' }} />

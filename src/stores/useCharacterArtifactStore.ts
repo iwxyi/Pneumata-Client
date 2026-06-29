@@ -6,7 +6,6 @@ import { getUsableDefaultTextAIProfile, hasUsableDefaultTextAI, isAIProfileUsabl
 import { createScopedIndexedDbBufferedJsonStorage, createScopedIndexedDbStorage } from './storePersistenceScope';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { CLIENT_STORE_SCHEMA_VERSION } from './storeMigrations';
-import { buildCharacterBirthLetterContext, buildCharacterDailyDiaryContext, buildCharacterExperienceArtifactContext, buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact, generateCharacterDailyDiaryArtifact, generateCharacterExperienceArtifact, looksLikeRawArtifactContext } from '../services/characterExperienceArtifacts';
 import { buildDiaryCompanionshipReflectionEvents, pickChatsForDiaryCompanionshipBackflow } from '../services/diaryCompanionshipBackflow';
 import { useSettingsStore } from './useSettingsStore';
 import { useChatStore } from './useChatStore';
@@ -88,6 +87,7 @@ interface CharacterArtifactStore extends ArtifactSnapshot {
     character?: Partial<AICharacter> | null;
     relatedCharacters?: Array<{ id: string; name: string }>;
   }) => Promise<CharacterArtifactEntry>;
+  ensureArtifactDetail: (itemId: string) => Promise<void>;
   syncCloud: (query?: CharacterArtifactQuery) => Promise<void>;
   getSyncScopeStates: () => SyncScopeSnapshot[];
   resumeProcessing: () => Promise<void>;
@@ -149,6 +149,7 @@ const artifactSyncScopes = createSyncScopeMetadata(ARTIFACT_SYNC_TTL_MS, {
   getStorageKey: () => scopedStorageKey(`artifact-sync-scopes-${getLocalDataUserId()}`),
 });
 let artifactSyncLifecycleRegistered = false;
+let artifactHydrationPromise: Promise<void> | null = null;
 
 export function clearPersistedCharacterArtifactStore() {
   void useCharacterArtifactStore.persist.clearStorage();
@@ -165,6 +166,14 @@ export function resetCharacterArtifactStoreForAccountBoundary() {
     isProcessing: false,
     unreadLetterCount: 0,
   });
+}
+
+export function ensureCharacterArtifactStoreHydrated() {
+  if (useCharacterArtifactStore.persist.hasHydrated()) return Promise.resolve();
+  artifactHydrationPromise ??= Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).finally(() => {
+    artifactHydrationPromise = null;
+  });
+  return artifactHydrationPromise;
 }
 
 function artifactSyncScope(query: CharacterArtifactQuery = {}) {
@@ -303,6 +312,26 @@ function isBirthLetterEntry(item: CharacterArtifactEntry) {
   return item.kind === 'birth_letter';
 }
 
+function unwrapMarkdownFence(text: string) {
+  const trimmed = text.trim();
+  const match = trimmed.match(/^```(?:json|markdown|md|text)?\s*([\s\S]*?)\s*```$/i);
+  return match ? match[1].trim() : trimmed;
+}
+
+function looksLikeRawArtifactContext(text: string) {
+  const normalized = unwrapMarkdownFence(text);
+  try {
+    const parsed = JSON.parse(normalized) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== 'object') return false;
+    const rawKeys = ['profile', 'memories', 'relationships', 'sharedAnchors', 'emotions', 'innerResidues', 'growthSignals', 'identityAnchors'];
+    const matchedKeys = rawKeys.filter((key) => key in parsed).length;
+    return matchedKeys >= 2 || ('dateKey' in parsed && ('highlights' in parsed || 'privateLenses' in parsed));
+  } catch {
+    return /"profile"\s*:/.test(normalized)
+      && (/"memories"\s*:/.test(normalized) || /"relationships"\s*:/.test(normalized) || /"innerResidues"\s*:/.test(normalized));
+  }
+}
+
 function computeUnreadLetterCount(items: CharacterArtifactEntry[]) {
   return items.filter((item) => item.deletedAt == null && (isFinalLetterEntry(item) || isBirthLetterEntry(item)) && item.unread).length;
 }
@@ -320,6 +349,9 @@ function chooseBetterArtifactEntry(a: CharacterArtifactEntry, b: CharacterArtifa
   const aRaw = looksLikeRawArtifactContext(a.text);
   const bRaw = looksLikeRawArtifactContext(b.text);
   if (aRaw !== bRaw) return aRaw ? b : a;
+  const aHasText = hasArtifactText(a);
+  const bHasText = hasArtifactText(b);
+  if (aHasText !== bHasText) return aHasText ? a : b;
   return (b.updatedAt || b.createdAt || 0) > (a.updatedAt || a.createdAt || 0) ? b : a;
 }
 
@@ -357,6 +389,25 @@ function shouldFetchArtifactDetail(summary: CharacterArtifactSummaryEntry, local
   if (!local) return true;
   if (!hasArtifactText(local)) return true;
   return (summary.updatedAt || 0) > (local.updatedAt || 0);
+}
+
+function artifactSummaryToPlaceholder(summary: CharacterArtifactSummaryEntry): CharacterArtifactEntry {
+  return {
+    id: summary.id,
+    kind: summary.kind,
+    characterId: summary.characterId,
+    characterName: summary.characterName,
+    dateKey: summary.dateKey ?? null,
+    sourceKey: summary.sourceKey ?? null,
+    title: summary.title,
+    text: '',
+    source: summary.source,
+    unread: summary.unread,
+    createdAt: summary.createdAt,
+    updatedAt: summary.updatedAt,
+    deletedAt: summary.deletedAt ?? null,
+    revision: summary.revision,
+  };
 }
 
 function shouldUploadArtifactItem(local: CharacterArtifactEntry, summary: CharacterArtifactSummaryEntry | undefined) {
@@ -397,30 +448,15 @@ function compactArtifactCharacterSnapshot(character: Partial<AICharacter> | unde
     speakingStyle: compactString(character.speakingStyle, 1000),
     expertise: (character.expertise || []).slice(0, 12),
     group: character.group,
-    relationships: (character.relationships || []).slice(-24),
-    memory: character.memory ? {
-      shortTermSummary: compactString(character.memory.shortTermSummary, 1200),
-      longTerm: (character.memory.longTerm || []).slice(-24),
-      secrets: (character.memory.secrets || []).slice(-12),
-      obsessions: (character.memory.obsessions || []).slice(-12),
-      tabooTopics: (character.memory.tabooTopics || []).slice(-12),
-      userMemories: (character.memory.userMemories || []).slice(-24),
-    } : undefined,
-    layeredMemories: (character.layeredMemories || []).slice(-40).map((memory) => ({
-      ...memory,
-      text: compactString(memory.text, 600),
-      evidenceText: compactString(memory.evidenceText, 600),
-      evidenceTrail: (memory.evidenceTrail || []).slice(-3).map((trail) => ({
-        ...trail,
-        text: compactString(trail.text, 400),
-        memoryText: compactString(trail.memoryText, 400),
-        sourceEventIds: (trail.sourceEventIds || []).slice(-8),
-      })),
-      sourceEventIds: (memory.sourceEventIds || []).slice(-12),
-    })),
     emotionalState: character.emotionalState,
     soulState: character.soulState,
-    coreProfile: character.coreProfile,
+    coreProfile: character.coreProfile ? {
+      coreDesire: compactString(character.coreProfile.coreDesire, 500),
+      coreFear: compactString(character.coreProfile.coreFear, 500),
+      socialMask: compactString(character.coreProfile.socialMask, 500),
+      attachmentStyle: compactString(character.coreProfile.attachmentStyle, 200),
+      conflictStyle: compactString(character.coreProfile.conflictStyle, 200),
+    } : undefined,
     visualIdentity: character.visualIdentity ? {
       description: compactString(character.visualIdentity.description, 1000),
       styleHint: compactString(character.visualIdentity.styleHint, 500),
@@ -441,10 +477,6 @@ function compactArtifactCharacterSnapshot(character: Partial<AICharacter> | unde
         createdAt: image.createdAt,
       })),
     } : undefined,
-    runtimeTimeline: (character.runtimeTimeline || []).slice(-24).map((entry) => ({
-      ...entry,
-      text: compactString(entry.text, 500),
-    })),
     createdAt: character.createdAt,
     updatedAt: character.updatedAt,
   };
@@ -591,44 +623,11 @@ function buildGenerationSnapshot(
 ): CharacterArtifactGenerationSnapshot {
   return {
     promptVersion: 'character-experience-artifacts-v2',
-    character: {
-      id: character.id,
-      name: character.name,
-      background: character.background,
-      speakingStyle: character.speakingStyle,
-      expertise: character.expertise,
-      group: character.group,
-      relationships: character.relationships,
-      memory: character.memory,
-      layeredMemories: character.layeredMemories,
-      emotionalState: character.emotionalState,
-      soulState: character.soulState,
-      coreProfile: character.coreProfile,
-      visualIdentity: character.visualIdentity ? {
-        description: character.visualIdentity.description,
-        styleHint: character.visualIdentity.styleHint,
-        negativePrompt: character.visualIdentity.negativePrompt,
-        seed: character.visualIdentity.seed,
-        primaryReferenceImageId: character.visualIdentity.primaryReferenceImageId,
-        defaults: character.visualIdentity.defaults,
-        referenceImages: character.visualIdentity.referenceImages?.map((image) => ({
-          id: image.id,
-          assetId: image.assetId,
-          url: '',
-          mimeType: image.mimeType,
-          sizeBytes: image.sizeBytes,
-          checksum: image.checksum,
-          label: image.label,
-          source: image.source,
-          isPrimary: image.isPrimary,
-          createdAt: image.createdAt,
-        })),
-      } : undefined,
-      runtimeTimeline: character.runtimeTimeline,
-      createdAt: character.createdAt,
-      updatedAt: character.updatedAt,
-    },
-    relatedCharacters,
+    character: compactArtifactCharacterSnapshot(character) || {},
+    relatedCharacters: relatedCharacters.slice(0, 32).map((item) => ({
+      id: compactString(item.id, 191),
+      name: compactString(item.name, 120),
+    })),
     generatedAt: now(),
   };
 }
@@ -651,15 +650,18 @@ function hasMeaningfulBirthSignals(character: Partial<AICharacter>) {
   return Boolean(normalizeString(character.name)) && score >= 3;
 }
 
-function deriveDiaryText(character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>, dateKey: string, recentDiaryTexts: string[] = []) {
+async function deriveDiaryText(character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>, dateKey: string, recentDiaryTexts: string[] = []) {
+  const { buildCharacterDailyDiaryContext, buildLocalCharacterExperienceArtifact } = await import('../services/characterExperienceArtifacts');
   return buildLocalCharacterExperienceArtifact('diary', buildCharacterDailyDiaryContext(character, relatedCharacters, dateKey, recentDiaryTexts));
 }
 
-function deriveBirthLetterText(character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>) {
+async function deriveBirthLetterText(character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>) {
+  const { buildCharacterBirthLetterContext, buildLocalCharacterExperienceArtifact } = await import('../services/characterExperienceArtifacts');
   return buildLocalCharacterExperienceArtifact('birth_letter', buildCharacterBirthLetterContext(character, relatedCharacters));
 }
 
-function deriveFinalLetterText(character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>) {
+async function deriveFinalLetterText(character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>) {
+  const { buildCharacterFinalLetterContext, buildLocalCharacterExperienceArtifact } = await import('../services/characterExperienceArtifacts');
   return buildLocalCharacterExperienceArtifact('final_letter', buildCharacterFinalLetterContext(character, relatedCharacters));
 }
 
@@ -671,10 +673,11 @@ async function generateLetterArtifactText(
 ) {
   if (!isAIProfileUsable(modelProfile)) {
     return kind === 'birth_letter'
-      ? deriveBirthLetterText(character, relatedCharacters)
-      : deriveFinalLetterText(character, relatedCharacters);
+      ? await deriveBirthLetterText(character, relatedCharacters)
+      : await deriveFinalLetterText(character, relatedCharacters);
   }
 
+  const { generateCharacterExperienceArtifact } = await import('../services/characterExperienceArtifacts');
   return generateCharacterExperienceArtifact({
     config: modelProfile,
     kind,
@@ -738,6 +741,7 @@ async function generateArtifactText(
     return deriveDiaryText(character, relatedCharacters, dateKey || dateKeyOf(now() - 24 * 60 * 60 * 1000), recentDiaryTexts);
   }
   if (kind === 'diary') {
+    const { generateCharacterDailyDiaryArtifact } = await import('../services/characterExperienceArtifacts');
     return generateCharacterDailyDiaryArtifact({
       config: modelProfile,
       character,
@@ -748,6 +752,7 @@ async function generateArtifactText(
     });
   }
 
+  const { generateCharacterExperienceArtifact } = await import('../services/characterExperienceArtifacts');
   return generateCharacterExperienceArtifact({
     config: modelProfile,
     kind: 'final_letter',
@@ -765,6 +770,7 @@ async function backfillDiaryCompanionshipRuntimeEvents(params: {
 }) {
   if (params.entry.kind !== 'diary' || !params.character.id) return;
   try {
+    const { buildCharacterDailyDiaryContext } = await import('../services/characterExperienceArtifacts');
     const context = buildCharacterDailyDiaryContext(
       params.character,
       params.relatedCharacters,
@@ -815,6 +821,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
       let cloudSyncPending = false;
       let cloudSyncPendingQuery: CharacterArtifactQuery | undefined;
       let cloudSyncDirty = false;
+      let processingPromise: Promise<void> | null = null;
 
       const scheduleCloudSync = () => {
         if (!isCloudMode()) return;
@@ -849,95 +856,103 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
       };
 
       const processNext = async () => {
-        if (get().isProcessing) return;
-        await mirrorLocalOutboxWorkerQueue('artifact', get().jobs);
-        const nextJob = get().jobs.find((job) => job.status === 'pending');
-        if (!nextJob) return;
+        if (processingPromise) return processingPromise;
 
-        set((state) => ({
-          jobs: state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'running', updatedAt: now() } : job),
-          isProcessing: true,
-        }));
-        markLocalOutboxWorkerOperation({ id: nextJob.id, status: 'syncing', attemptCount: nextJob.attempts });
+        processingPromise = (async () => {
+          await mirrorLocalOutboxWorkerQueue('artifact', get().jobs);
+          for (;;) {
+            const nextJob = get().jobs.find((job) => job.status === 'pending');
+            if (!nextJob) break;
 
-        const modelProfile = getUsableDefaultTextAIProfile(useSettingsStore.getState().aiProfiles);
-        if (isLetterKind(nextJob.kind) && !modelProfile) {
-          set((state) => ({
-            jobs: state.jobs.filter((job) => job.id !== nextJob.id),
-            isProcessing: false,
-          }));
-          removeLocalOutboxWorkerOperation(nextJob.id);
-          void processNext();
-          return;
-        }
-        try {
-          const recentDiaryTexts = nextJob.kind === 'diary'
-            ? get().items
-                .filter((item) => item.kind === 'diary' && item.characterId === nextJob.characterId && item.dateKey !== nextJob.dateKey)
-                .sort((a, b) => b.createdAt - a.createdAt)
-                .slice(0, 5)
-                .map((item) => item.text)
-            : [];
-          const text = (await generateArtifactText(nextJob.kind, nextJob.snapshot, nextJob.relatedCharacters, nextJob.dateKey || null, modelProfile, recentDiaryTexts)).trim();
-          const characterName = normalizeString(nextJob.snapshot.name) || '角色';
-          const entry = createArtifactEntry({
-            kind: nextJob.kind,
-            characterId: nextJob.characterId,
-            characterName,
-            dateKey: nextJob.dateKey,
-            sourceKey: nextJob.sourceKey,
-            title: nextJob.kind === 'birth_letter'
-              ? buildBirthLetterTitle(characterName)
-              : nextJob.kind === 'diary'
-                ? buildDiaryTitle(characterName, nextJob.dateKey || dateKeyOf(now()))
-                : buildFinalLetterTitle(characterName),
-            text,
-            source: isAIProfileUsable(modelProfile) ? 'ai' : 'local',
-            unread: nextJob.kind === 'final_letter' || nextJob.kind === 'birth_letter',
-            generationSnapshot: buildGenerationSnapshot(nextJob.snapshot, nextJob.relatedCharacters),
-          });
+            set((state) => ({
+              jobs: state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'running', updatedAt: now() } : job),
+              isProcessing: true,
+            }));
+            markLocalOutboxWorkerOperation({ id: nextJob.id, status: 'syncing', attemptCount: nextJob.attempts });
 
-          set((state) => {
-            const remainingJobs = state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'succeeded' as const, updatedAt: now() } : job);
-            const staleRawItems = state.items.filter((item) => (
-              item.kind === entry.kind
-              && item.characterId === entry.characterId
-              && (item.dateKey || null) === (entry.dateKey || null)
-              && looksLikeRawArtifactContext(item.text)
-            ));
-            const preservedItems = staleRawItems.length
-              ? state.items.filter((item) => !staleRawItems.some((stale) => stale.id === item.id))
-              : state.items;
-            return {
-              items: [entry, ...preservedItems].sort((a, b) => b.createdAt - a.createdAt),
-              jobs: removeCompletedJobs(remainingJobs),
-              unreadLetterCount: computeUnreadLetterCount([entry, ...preservedItems]),
-            };
-          });
-          await backfillDiaryCompanionshipRuntimeEvents({
-            entry,
-            character: nextJob.snapshot,
-            relatedCharacters: nextJob.relatedCharacters,
-            recentDiaryTexts,
-          });
-          completeLocalOutboxWorkerOperation(nextJob.id);
-          window.setTimeout(() => removeLocalOutboxWorkerOperation(nextJob.id), 1500);
-          scheduleCloudSync();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          set((state) => ({
-            jobs: state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'failed' as const, error: message, attempts: job.attempts + 1, updatedAt: now() } : job),
-          }));
-          markLocalOutboxWorkerOperation({
-            id: nextJob.id,
-            status: 'failed',
-            attemptCount: nextJob.attempts + 1,
-            lastError: message,
-          });
-        } finally {
+            const modelProfile = getUsableDefaultTextAIProfile(useSettingsStore.getState().aiProfiles);
+            if (isLetterKind(nextJob.kind) && !modelProfile) {
+              set((state) => ({
+                jobs: state.jobs.filter((job) => job.id !== nextJob.id),
+                isProcessing: false,
+              }));
+              removeLocalOutboxWorkerOperation(nextJob.id);
+              continue;
+            }
+            try {
+              const recentDiaryTexts = nextJob.kind === 'diary'
+                ? get().items
+                    .filter((item) => item.kind === 'diary' && item.characterId === nextJob.characterId && item.dateKey !== nextJob.dateKey)
+                    .sort((a, b) => b.createdAt - a.createdAt)
+                    .slice(0, 5)
+                    .map((item) => item.text)
+                : [];
+              const text = (await generateArtifactText(nextJob.kind, nextJob.snapshot, nextJob.relatedCharacters, nextJob.dateKey || null, modelProfile, recentDiaryTexts)).trim();
+              const characterName = normalizeString(nextJob.snapshot.name) || '角色';
+              const entry = createArtifactEntry({
+                kind: nextJob.kind,
+                characterId: nextJob.characterId,
+                characterName,
+                dateKey: nextJob.dateKey,
+                sourceKey: nextJob.sourceKey,
+                title: nextJob.kind === 'birth_letter'
+                  ? buildBirthLetterTitle(characterName)
+                  : nextJob.kind === 'diary'
+                    ? buildDiaryTitle(characterName, nextJob.dateKey || dateKeyOf(now()))
+                    : buildFinalLetterTitle(characterName),
+                text,
+                source: isAIProfileUsable(modelProfile) ? 'ai' : 'local',
+                unread: nextJob.kind === 'final_letter' || nextJob.kind === 'birth_letter',
+                generationSnapshot: buildGenerationSnapshot(nextJob.snapshot, nextJob.relatedCharacters),
+              });
+
+              set((state) => {
+                const remainingJobs = state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'succeeded' as const, updatedAt: now() } : job);
+                const staleRawItems = state.items.filter((item) => (
+                  item.kind === entry.kind
+                  && item.characterId === entry.characterId
+                  && (item.dateKey || null) === (entry.dateKey || null)
+                  && looksLikeRawArtifactContext(item.text)
+                ));
+                const preservedItems = staleRawItems.length
+                  ? state.items.filter((item) => !staleRawItems.some((stale) => stale.id === item.id))
+                  : state.items;
+                return {
+                  items: [entry, ...preservedItems].sort((a, b) => b.createdAt - a.createdAt),
+                  jobs: removeCompletedJobs(remainingJobs),
+                  unreadLetterCount: computeUnreadLetterCount([entry, ...preservedItems]),
+                };
+              });
+              await backfillDiaryCompanionshipRuntimeEvents({
+                entry,
+                character: nextJob.snapshot,
+                relatedCharacters: nextJob.relatedCharacters,
+                recentDiaryTexts,
+              });
+              completeLocalOutboxWorkerOperation(nextJob.id);
+              window.setTimeout(() => removeLocalOutboxWorkerOperation(nextJob.id), 1500);
+              scheduleCloudSync();
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              set((state) => ({
+                jobs: state.jobs.map((job) => job.id === nextJob.id ? { ...job, status: 'failed' as const, error: message, attempts: job.attempts + 1, updatedAt: now() } : job),
+              }));
+              markLocalOutboxWorkerOperation({
+                id: nextJob.id,
+                status: 'failed',
+                attemptCount: nextJob.attempts + 1,
+                lastError: message,
+              });
+            } finally {
+              set({ isProcessing: false });
+            }
+          }
+        })().finally(() => {
+          processingPromise = null;
           set({ isProcessing: false });
-          void processNext();
-        }
+        });
+
+        return processingPromise;
       };
 
       return {
@@ -1079,11 +1094,27 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           scheduleCloudSync();
           return nextEntry;
         },
+        ensureArtifactDetail: async (itemId) => {
+          const existing = get().items.find((item) => item.id === itemId);
+          if (!existing || hasArtifactText(existing) || existing.deletedAt != null) return;
+          const detail = (await api.getCharacterArtifactItem(itemId)).item as CharacterArtifactEntry;
+          set((state) => {
+            const items = mergeArtifactItems(
+              state.items,
+              [detail],
+            );
+            return {
+              items,
+              unreadLetterCount: computeUnreadLetterCount(items),
+            };
+          });
+        },
         syncCloud: async (query = {}) => {
           if (!isCloudMode()) return;
           const scope = artifactSyncScope(query);
           const forceSync = cloudSyncDirty;
-          if (!forceSync && artifactSyncScopes.isFresh(scope)) return;
+          const forceFullProbe = get().items.length === 0;
+          if (!forceSync && !forceFullProbe && artifactSyncScopes.isFresh(scope)) return;
           if (cloudSyncRunning) {
             cloudSyncPending = true;
             cloudSyncPendingQuery = query;
@@ -1093,7 +1124,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
           cloudSyncDirty = false;
           try {
             const syncScope = scope as SyncChangeScope;
-            const changeProbe = !forceSync ? await probeArtifactSummaryChanges(syncScope, { forceFull: get().items.length === 0 }) : null;
+            const changeProbe = !forceSync ? await probeArtifactSummaryChanges(syncScope, { forceFull: forceFullProbe }) : null;
             if (changeProbe?.status === 'not_modified') {
               artifactSyncScopes.markChecked(scope, {
                 cursor: changeProbe.cursor,
@@ -1113,7 +1144,7 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
             const localById = new Map(localItems.map((item) => [item.id, item]));
             const remoteSummaryById = new Map((remote.items || []).map((item) => [item.id, item]));
             const remoteDeletedSummaries = (remote.items || []).filter((summary) => summary.deletedAt != null);
-            const shouldFetchDetails = Boolean(query.kind || query.characterId || query.dateFrom || query.dateTo);
+            const shouldFetchDetails = Boolean(query.characterId || query.dateFrom || query.dateTo);
             const remoteDetails = shouldFetchDetails
               ? await Promise.all((remote.items || [])
                   .filter((summary) => summary.deletedAt == null)
@@ -1127,8 +1158,12 @@ export const useCharacterArtifactStore = create<CharacterArtifactStore>()(
                     }
                   }))
               : [];
+            const remotePlaceholders = (remote.items || [])
+              .filter((summary) => summary.deletedAt == null)
+              .map(artifactSummaryToPlaceholder);
             const mergedItems = mergeArtifactItems(
               localItems,
+              remotePlaceholders,
               remoteDetails.filter((item): item is CharacterArtifactEntry => Boolean(item)),
             );
             const projectedItems = applyRemoteDeletedArtifactSummaries(mergedItems, remoteDeletedSummaries);

@@ -24,7 +24,7 @@ vi.mock('./chatCommitApply', () => ({
   applyChatCommitRuntime: (...args: unknown[]) => applyChatCommitRuntimeMock(...args),
 }));
 
-vi.mock('./runtimeMemoryMonitor', () => ({
+vi.mock('./runtimeMemoryTimer', () => ({
   createRuntimeMemoryTimer: (...args: unknown[]) => createRuntimeMemoryTimerMock(...args),
 }));
 

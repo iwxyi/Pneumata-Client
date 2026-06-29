@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { getAttachmentErrorText, getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../services/messageAttachmentDisplay';
-import { getNarrativeDisplayBlocks, getNarrativeParagraphBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeDisplayBlocks, getNarrativeParagraphBlocks, hasNarrativeReaderBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 import { buildEventDisplayText, buildMemoryDistillationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
 
 describe('MessageBubble event rendering', () => {
@@ -214,6 +214,70 @@ describe('MessageBubble event rendering', () => {
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph' }),
       expect.objectContaining({ actorKind: 'character', displayMode: 'bubble', characterId: 'lin' }),
       expect.objectContaining({ actorKind: 'system', displayMode: 'system_panel' }),
+    ]);
+    expect(hasNarrativeReaderBlocks(getNarrativeDisplayBlocks(message))).toBe(true);
+  });
+
+  it('does not route story character-only bubble blocks through the paragraph reader', () => {
+    const message: Message = {
+      id: 'm-story-bubbles',
+      chatId: 'c1',
+      senderId: 'narrator',
+      senderName: '旁白',
+      type: 'ai',
+      content: '',
+      timestamp: 1,
+      emotion: 0,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-bubbles',
+          turnKind: 'narrative_beat',
+          povActorId: 'narrator',
+          blocks: [
+            { id: 'b1', actorId: 'lin', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', characterId: 'lin', text: '别出声。' },
+            { id: 'b2', actorId: 'chen', actorKind: 'character', kind: 'dialogue', displayMode: 'bubble', characterId: 'chen', text: '灯又灭了。' },
+          ],
+        },
+      },
+    };
+
+    expect(isNarrativeParagraphMessage(message)).toBe(true);
+    expect(getNarrativeDisplayBlocks(message)).toEqual([
+      expect.objectContaining({ displayMode: 'bubble', text: '别出声。' }),
+      expect.objectContaining({ displayMode: 'bubble', text: '灯又灭了。' }),
+    ]);
+    expect(hasNarrativeReaderBlocks(getNarrativeDisplayBlocks(message))).toBe(false);
+  });
+
+  it('falls back to message content when compacted narrative metadata omits blocks', () => {
+    const message: Message = {
+      id: 'm-compacted-story',
+      chatId: 'c1',
+      senderId: 'narrator',
+      senderName: '旁白',
+      type: 'ai',
+      content: '井口的青石重新合上，雨声压低了整条走廊。',
+      timestamp: 1,
+      emotion: 0,
+      isDeleted: false,
+      metadata: {
+        narrativeTurn: {
+          turnId: 'turn-compacted',
+          turnKind: 'narrative_beat',
+          povActorId: 'narrator',
+          blocks: [],
+        },
+      },
+    };
+
+    expect(isNarrativeParagraphMessage(message)).toBe(true);
+    expect(getNarrativeDisplayBlocks(message)).toEqual([
+      expect.objectContaining({
+        actorKind: 'narrator',
+        displayMode: 'paragraph',
+        text: '井口的青石重新合上，雨声压低了整条走廊。',
+      }),
     ]);
   });
 

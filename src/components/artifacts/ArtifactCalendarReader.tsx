@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TouchEvent } from 'react';
-import { Box, Button, Card, CardContent, Chip, IconButton, Typography } from '@mui/material';
+import { Box, Button, Card, CardContent, Chip, CircularProgress, IconButton, Typography } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
@@ -32,6 +32,7 @@ interface ArtifactCalendarReaderProps {
   emptyDescription: string;
   getMeta?: (item: CharacterArtifactEntry) => string;
   onRegenerateDebug?: (item: CharacterArtifactEntry) => Promise<void> | void;
+  onEnsureDetail?: (itemId: string) => Promise<void> | void;
 }
 
 function getEntryDateKey(item: CharacterArtifactEntry) {
@@ -104,6 +105,7 @@ export default function ArtifactCalendarReader({
   emptyDescription,
   getMeta,
   onRegenerateDebug,
+  onEnsureDetail,
 }: ArtifactCalendarReaderProps) {
   const isZh = language.startsWith('zh');
   const [selectedId, setSelectedId] = useState<string | null>(items[0]?.id || null);
@@ -114,6 +116,7 @@ export default function ArtifactCalendarReader({
   const selectedDate = selectedItem ? parseDateKey(getEntryDateKey(selectedItem)) : null;
   const [calendarExpanded, setCalendarExpanded] = useState(true);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [loadingDetailId, setLoadingDetailId] = useState<string | null>(null);
   const swipeRef = useRef<ReaderSwipeState | null>(null);
   const itemsByDate = useMemo(() => {
     const map = new Map<string, CharacterArtifactEntry>();
@@ -186,6 +189,19 @@ export default function ArtifactCalendarReader({
       setRegeneratingId(null);
     }
   };
+
+  useEffect(() => {
+    if (!selectedItem || selectedItem.deletedAt != null || selectedItem.text || !onEnsureDetail) return;
+    let cancelled = false;
+    setLoadingDetailId(selectedItem.id);
+    void Promise.resolve(onEnsureDetail(selectedItem.id))
+      .finally(() => {
+        if (!cancelled) setLoadingDetailId((current) => current === selectedItem.id ? null : current);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [onEnsureDetail, selectedItem]);
 
   if (!items.length && !selectedDeletedItem) {
     return (
@@ -276,7 +292,13 @@ export default function ArtifactCalendarReader({
             </Box>
           ) : null}
           <Box className="paper-surface-content" sx={{ mt: 1, typography: 'body2', userSelect: 'text', WebkitUserSelect: 'text', flex: 1, minHeight: 0, overflow: 'auto', pr: { xs: 0.5, sm: 1 } }}>
-            <MarkdownText text={selectedItem?.text || ''} />
+            {selectedItem && loadingDetailId === selectedItem.id && !selectedItem.text ? (
+              <Box sx={{ height: '100%', minHeight: 180, display: 'grid', placeItems: 'center' }}>
+                <CircularProgress size={24} />
+              </Box>
+            ) : (
+              <MarkdownText text={selectedItem?.text || ''} />
+            )}
           </Box>
           {onRegenerateDebug && selectedItem && !selectedItemDeleted ? (
             <Box className="paper-surface-content" sx={{ pt: 1.25, display: 'flex', justifyContent: 'flex-start', flexShrink: 0 }}>

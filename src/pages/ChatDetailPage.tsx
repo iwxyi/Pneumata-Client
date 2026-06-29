@@ -11,6 +11,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SettingsIcon from '@mui/icons-material/Settings';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
@@ -21,11 +22,9 @@ import { useUIStore } from '../stores/useUIStore';
 import { type DriverMessageCommitResult, type GroupChat, type MessageBranchState, type StoryChapterState } from '../types/chat';
 import MessageList, { type MessageListScrollPosition, type MessageListScrollRequest } from '../components/chat/MessageList';
 import type { NarrativeStoryChoiceOption } from '../components/chat/messageBubblePresentation';
-import { MessageAnalysisDialog } from '../components/chat/MessageAnalysisDialog';
 import SessionComposerHost from '../components/session/SessionComposerHost';
 import RightPanel from '../components/layout/RightPanel';
 import GlassHeader from '../components/layout/GlassHeader';
-import ProfilePreviewOverlay from '../components/chat/ProfilePreviewOverlay';
 import { buildRuntimeEventMessageContent, normalizeRuntimeEvent } from '../services/runtimeEventFactory';
 import { persistLocalFirstMessage, persistLocalFirstMessages } from '../services/chatCommitMessage';
 import { buildPrivateSessionEvent } from '../services/directSessionHelpers';
@@ -34,7 +33,6 @@ import type { Message, MessageAttachment } from '../types/message';
 import type { AICharacter } from '../types/character';
 import { buildExpressionFeedbackPatch, getExpressionFeedbackLabel, type ExpressionFeedbackKind } from '../services/characterExpressionFeedback';
 import { useAuthStore } from '../stores/useAuthStore';
-import { useCurrentChatMessages } from '../hooks/useCurrentChatMessages';
 import { useManualInputQueue } from '../hooks/useManualInputQueue';
 import { useStreamingMessageState } from '../hooks/useStreamingMessageState';
 import { getConversationLoopStartBlockReason, useChatRunLoop } from '../hooks/useChatRunLoop';
@@ -42,8 +40,6 @@ import { useChatSidebarProjection } from '../hooks/useChatSidebarProjection';
 import { useMessageAnalysis } from '../hooks/useMessageAnalysis';
 import { useChatSurfaceActions } from '../hooks/useChatSurfaceActions';
 import { useChatAutoSocialFlow } from '../hooks/useChatAutoSocialFlow';
-import { runDirectUserReplyFlow } from '../services/directUserReplyFlow';
-import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import { getSyncableCharacterMemberIds } from '../services/pageSyncScopeContract';
 import SessionInfoCards from '../components/chat/SessionInfoCards';
 import { projectSessionInfoCards } from '../services/sessionInfoProjection';
@@ -51,7 +47,6 @@ import { useResponsive } from '../hooks/useResponsive';
 import type { UserDraftActivity } from '../services/userInputBuffer';
 import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
-import WorldCalendarPanel from '../components/calendar/WorldCalendarPanel';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
 import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
@@ -60,12 +55,16 @@ import { buildStoryBranchOptions, getStoryChoiceGateState, normalizeStoryChoiceS
 import { resolveSessionScrollCapabilities } from '../services/sessionScrollCapabilities';
 import { messagesShareIdentity } from '../services/messageIdentity';
 import { buildStoryRoomOpeningPreview, type StoryRoomOpeningPreview } from '../services/storyRoomOpeningPreview';
+import { prefersReducedMotion } from '../styles/motion';
 import type { StoryReaderRole } from '../types/chat';
-import { attachMessageToActiveBranch, createMessageRevisionDraft, getBranchRevisionGroup, getMessageBranchVersionInfo, isMessageBranchingEnabled, projectActiveBranchMessages, resolveMessageBranchNodes } from '../services/messageBranching';
-import { projectCurrentChatMessages } from '../services/currentChatMessages';
+import { attachMessageToActiveBranch, buildMessageBranchVersionInfoByMessageId, createMessageRevisionDraft, getBranchRevisionGroup, getMessageBranchVersionInfo, isMessageBranchingEnabled, projectActiveBranchMessages, resolveMessageBranchNodes } from '../services/messageBranching';
+import { projectMergedChatMessages } from '../services/currentChatMessages';
 
 const ChatSidebarPanel = lazy(() => import('../components/chat/ChatSidebarPanel'));
 const SessionActionPanel = lazy(() => import('../components/session/SessionActionPanel'));
+const MessageAnalysisDialog = lazy(() => import('../components/chat/MessageAnalysisDialog').then((module) => ({ default: module.MessageAnalysisDialog })));
+const ProfilePreviewOverlay = lazy(() => import('../components/chat/ProfilePreviewOverlay'));
+const WorldCalendarPanel = lazy(() => import('../components/calendar/WorldCalendarPanel'));
 const CHAT_MESSAGE_WINDOW_SIZE = 40;
 const STORY_CHOICE_COLLAPSE_MS = 420;
 const STORY_READING_POSITION_SAVE_MS = 700;
@@ -79,6 +78,47 @@ type PendingStoryChoiceVisual = {
   selectedValue: string;
   options: NarrativeStoryChoiceOption[];
 };
+
+function getMessageListElementScrollTimestamp(element: HTMLElement) {
+  const raw = element.dataset.scrollTimestamp || element.closest<HTMLElement>('[data-scroll-timestamp]')?.dataset.scrollTimestamp;
+  const value = raw ? Number(raw) : Number.NaN;
+  return Number.isFinite(value) ? value : undefined;
+}
+
+function getMessageListElementScrollAnchor(element: HTMLElement) {
+  return element.dataset.scrollAnchor || element.dataset.messageId || '';
+}
+
+function captureMessageListScrollRequest(keyPrefix: string, preferredMessageId?: string): MessageListScrollRequest | null {
+  const container = document.querySelector<HTMLElement>('[data-chat-message-list]');
+  if (!container) return null;
+  const containerRect = container.getBoundingClientRect();
+  const nodes = Array.from(container.querySelectorAll<HTMLElement>('[data-scroll-anchor], [data-message-id]'));
+  if (!nodes.length) return null;
+  const preferredNode = preferredMessageId
+    ? nodes.find((node) => getMessageListElementScrollAnchor(node) === preferredMessageId)
+    : null;
+  const visibleNodes = preferredNode ? [] : nodes.filter((node) => {
+    const rect = node.getBoundingClientRect();
+    return rect.bottom > containerRect.top + 1 && rect.top < containerRect.bottom - 1;
+  });
+  const candidates = visibleNodes.length ? visibleNodes : nodes;
+  const targetLine = preferredNode
+    ? preferredNode.getBoundingClientRect().top
+    : containerRect.top + containerRect.height * 0.42;
+  const anchorNode = preferredNode || candidates
+    .map((node) => ({ node, distance: Math.abs(node.getBoundingClientRect().top - targetLine) }))
+    .sort((left, right) => left.distance - right.distance)[0]?.node;
+  const messageId = anchorNode ? getMessageListElementScrollAnchor(anchorNode) : '';
+  if (!anchorNode || !messageId) return null;
+  return {
+    key: `${keyPrefix}:${messageId}:${Date.now()}`,
+    messageId,
+    offsetTop: anchorNode.getBoundingClientRect().top - containerRect.top,
+    sourceTimestamp: getMessageListElementScrollTimestamp(anchorNode),
+    behavior: 'auto',
+  };
+}
 
 function PanelFallback() {
   return null;
@@ -530,6 +570,26 @@ function buildLocalInterceptionSummary(event: LocalInterceptionEvent) {
 type SidebarTabValue = 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities';
 const EMPTY_MESSAGES: never[] = [];
 
+function buildBranchTopologySignature(messages: Message[]) {
+  return messages.map((message) => {
+    const branching = message.metadata?.branching;
+    return [
+      message.id,
+      message.clientKey || '',
+      message.serverId || '',
+      message.isDeleted ? 1 : 0,
+      branching?.nodeId || '',
+      branching?.parentNodeId ?? '',
+      branching?.revisionRootId || '',
+      branching?.revisionOfMessageId || '',
+    ].join(':');
+  }).join('|');
+}
+
+function buildVisibleMessageIdSignature(messages: Message[]) {
+  return messages.map((message) => message.id).join('|');
+}
+
 export default function ChatDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -541,9 +601,37 @@ export default function ChatDetailPage() {
   const isSplitDetailPane = pane.role === 'detail';
   const { setHideMobileBottomNav } = useLayoutHeaderActions();
 
-  const { chats, updateChat, applyChatRuntimeDelta, loadChat, restoreLocalChats, markChatsWarm, isLoading: chatsLoading, remoteDeletedChatIds, remoteDeletedChats } = useChatStore();
-  const { characters, updateCharacter, updateCharacters, loadCharacter, markCharactersWarm } = useCharacterStore();
-  const { messages, messageWindowsByChatId, hydrateMessagesFromCache, openChatWindow, closeChatWindow, loadMessages, addMessage, upsertMessage, upsertMessages, deleteMessage, hasMore, hasMoreNewer, isLoadingOlder, isLoadingNewer } = useMessageStore();
+  const chats = useChatStore((state) => state.chats);
+  const updateChat = useChatStore((state) => state.updateChat);
+  const applyChatRuntimeDelta = useChatStore((state) => state.applyChatRuntimeDelta);
+  const loadChat = useChatStore((state) => state.loadChat);
+  const restoreLocalChats = useChatStore((state) => state.restoreLocalChats);
+  const markChatsWarm = useChatStore((state) => state.markChatsWarm);
+  const chatsLoading = useChatStore((state) => state.isLoading);
+  const remoteDeletedChatIds = useChatStore((state) => state.remoteDeletedChatIds);
+  const remoteDeletedChats = useChatStore((state) => state.remoteDeletedChats);
+  const characters = useCharacterStore((state) => state.characters);
+  const updateCharacter = useCharacterStore((state) => state.updateCharacter);
+  const updateCharacters = useCharacterStore((state) => state.updateCharacters);
+  const loadCharacter = useCharacterStore((state) => state.loadCharacter);
+  const markCharactersWarm = useCharacterStore((state) => state.markCharactersWarm);
+  const messages = useMessageStore(useShallow((state) => (
+    id ? state.messages.filter((message) => message.chatId === id) : EMPTY_MESSAGES
+  )));
+  const rawCurrentMessageWindow = useMessageStore((state) => (id ? state.messageWindowsByChatId[id] : undefined));
+  const hydrateMessagesFromCache = useMessageStore((state) => state.hydrateMessagesFromCache);
+  const openChatWindow = useMessageStore((state) => state.openChatWindow);
+  const closeChatWindow = useMessageStore((state) => state.closeChatWindow);
+  const loadMessages = useMessageStore((state) => state.loadMessages);
+  const addMessage = useMessageStore((state) => state.addMessage);
+  const upsertMessage = useMessageStore((state) => state.upsertMessage);
+  const upsertMessages = useMessageStore((state) => state.upsertMessages);
+  const deleteMessage = useMessageStore((state) => state.deleteMessage);
+  const hasMore = useMessageStore((state) => state.hasMore);
+  const hasMoreNewer = useMessageStore((state) => state.hasMoreNewer);
+  const isLoading = useMessageStore((state) => state.isLoading);
+  const isLoadingOlder = useMessageStore((state) => state.isLoadingOlder);
+  const isLoadingNewer = useMessageStore((state) => state.isLoadingNewer);
   const { isRunning, isPaused, start, stop, pause, resume, setCurrentSpeaker, recordSpeak, resetAllCooldowns, loopToken } = useSchedulerStore();
   const api = useSettingsStore((s) => s.api);
   const aiProfiles = useSettingsStore((s) => s.aiProfiles);
@@ -554,6 +642,7 @@ export default function ChatDetailPage() {
   const dramaBoost = useSettingsStore((s) => s.developerUI.dramaBoost);
   const showLocalInterceptionHints = useSettingsStore((s) => s.developerMode && s.developerUI.showLocalInterceptionHints);
   const currentUser = useAuthStore((s) => s.user);
+  const authMode = useAuthStore((s) => s.authMode);
   const isRemoteDeletedChat = Boolean(id && remoteDeletedChatIds.includes(id));
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' }>({ open: false, message: '', severity: 'error' });
@@ -625,7 +714,7 @@ export default function ChatDetailPage() {
     if (!id) return;
     if (!useChatStore.persist.hasHydrated()) void useChatStore.persist.rehydrate();
     if (!useCharacterStore.persist.hasHydrated()) void useCharacterStore.persist.rehydrate();
-    void hydrateMessagesFromCache(id);
+    void hydrateMessagesFromCache(id, { limit: CHAT_MESSAGE_WINDOW_SIZE });
   }, [hydrateMessagesFromCache, id]);
 
   useEffect(() => {
@@ -664,23 +753,57 @@ export default function ChatDetailPage() {
     () => sessionInfoCards.filter((card) => card.key !== 'ai-direct-source-chat'),
     [sessionInfoCards]
   );
-  const currentChatMessages = useCurrentChatMessages({ chatId: id, chat, activeMessages: messages, cachedWindows: messageWindowsByChatId });
   const currentChatAllMessages = useMemo(() => (id
-    ? projectCurrentChatMessages({
+    ? projectMergedChatMessages({
       chatId: id,
       activeMessages: messages,
-      cachedWindow: messageWindowsByChatId[id],
+      cachedWindow: rawCurrentMessageWindow,
     })
-    : []), [id, messages, messageWindowsByChatId]);
+    : []), [id, messages, rawCurrentMessageWindow]);
+  const currentChatMessages = useMemo(() => (
+    chat && isMessageBranchingEnabled(chat)
+      ? projectActiveBranchMessages(chat, currentChatAllMessages)
+      : currentChatAllMessages
+  ), [chat, currentChatAllMessages]);
+  const messageWindowDebugSignatureRef = useRef('');
+  useEffect(() => {
+    if (!id || typeof console === 'undefined') return;
+    const signature = [
+      id,
+      authMode,
+      messages.length,
+      rawCurrentMessageWindow?.messages?.length || 0,
+      currentChatMessages.length,
+      isLoading,
+    ].join('|');
+    if (messageWindowDebugSignatureRef.current === signature) return;
+    messageWindowDebugSignatureRef.current = signature;
+    logDeveloperDiagnostic('message-window:page-projection', {
+      chatId: id,
+      authMode,
+      activeMessages: messages.length,
+      cachedWindowMessages: rawCurrentMessageWindow?.messages?.length || 0,
+      cachedWindowActiveLimit: rawCurrentMessageWindow?.activeLimit,
+      projectedMessages: currentChatMessages.length,
+      isLoading,
+    }, 'debug', 'message-window');
+  }, [authMode, currentChatMessages.length, id, isLoading, messages.length, rawCurrentMessageWindow?.activeLimit, rawCurrentMessageWindow?.messages?.length]);
+  const branchTopologySignature = useMemo(
+    () => buildBranchTopologySignature(currentChatAllMessages),
+    [currentChatAllMessages],
+  );
+  const visibleMessageIdSignature = useMemo(
+    () => buildVisibleMessageIdSignature(currentChatMessages),
+    [currentChatMessages],
+  );
   const branchVersionInfoByMessageId = useMemo(() => {
     if (!chat || !isMessageBranchingEnabled(chat)) return {} as Record<string, NonNullable<ReturnType<typeof getMessageBranchVersionInfo>>>;
-    const next: Record<string, NonNullable<ReturnType<typeof getMessageBranchVersionInfo>>> = {};
-    for (const message of currentChatMessages) {
-      const info = getMessageBranchVersionInfo(chat, currentChatAllMessages, message.id);
-      if (info) next[message.id] = info;
-    }
-    return next;
-  }, [chat, currentChatAllMessages, currentChatMessages]);
+    return buildMessageBranchVersionInfoByMessageId(
+      chat,
+      currentChatAllMessages,
+      currentChatMessages.map((message) => message.id),
+    ) as Record<string, NonNullable<ReturnType<typeof getMessageBranchVersionInfo>>>;
+  }, [branchTopologySignature, chat?.messageBranchState, chat?.mode, chat?.sessionKind?.scenarioId, visibleMessageIdSignature]);
   const sidebarMessages = sidebarMessagesReady ? currentChatMessages : EMPTY_MESSAGES;
   const {
     analysisDialogOpen,
@@ -1069,6 +1192,7 @@ export default function ChatDetailPage() {
       return;
     }
     try {
+      const { buildDirectChatDraft } = await import('../services/chatDraftBuilder');
       const directChat = await useChatStore.getState().addChat(buildDirectChatDraft(character.id, character.name));
       navigate(`/chats/${directChat.id}?fromTab=1`);
     } catch (error) {
@@ -1166,6 +1290,9 @@ export default function ChatDetailPage() {
     if (!trimmedContent) return;
 
     await enqueueManualInput(async () => {
+      const cancelledRunningLoop = isRunningRef.current;
+      if (cancelledRunningLoop) cancelActiveConversationLoop('message_revision_created');
+      const scrollRestoreRequest = captureMessageListScrollRequest('branch-create', sourceMessage.id);
       const sourceNode = resolveMessageBranchNodes(currentChatAllMessages)
         .find((node) => node.message.id === sourceMessage.id || node.nodeId === sourceMessage.id);
       if (!sourceNode) return;
@@ -1211,15 +1338,29 @@ export default function ChatDetailPage() {
         lastMessageAt: createdRevision.timestamp,
         latestMessage: createdRevision,
       });
+      if (scrollRestoreRequest) {
+        setMessageScrollRequest({
+          ...scrollRestoreRequest,
+          key: `branch-create:${createdRevision.id}:${Date.now()}`,
+          messageId: createdRevision.id,
+          sourceTimestamp: createdRevision.timestamp,
+        });
+      }
       if (createdRevision.type === 'user' || createdRevision.type === 'god') {
         await commitPersistedManualRuntime(createdRevision, activeMessagesAfterRevision);
       }
+      if (cancelledRunningLoop) {
+        setSnackbar({ open: true, message: '已切换到新分支，当前生成已重启', severity: 'success' });
+      }
       startConversationLoopIfNeeded(nextChat, { immediate: true });
     });
-  }, [addAnchoredMessage, chat, commitPersistedManualRuntime, currentChatAllMessages, enqueueManualInput, getNextMessageTimestamp, id, startConversationLoopIfNeeded, updateChat]);
+  }, [addAnchoredMessage, cancelActiveConversationLoop, chat, commitPersistedManualRuntime, currentChatAllMessages, enqueueManualInput, getNextMessageTimestamp, id, setSnackbar, startConversationLoopIfNeeded, updateChat]);
 
   const handleSwitchMessageRevision = useCallback(async (sourceMessage: Message, direction: -1 | 1) => {
     if (!chat || !id || !isMessageBranchingEnabled(chat)) return;
+    const cancelledRunningLoop = isRunningRef.current;
+    if (cancelledRunningLoop) cancelActiveConversationLoop('message_revision_switched');
+    const scrollRestoreRequest = captureMessageListScrollRequest('branch-switch', sourceMessage.id);
     const group = getBranchRevisionGroup(currentChatAllMessages, sourceMessage.id);
     const currentIndex = group.findIndex((message) => message.id === sourceMessage.id);
     const target = group[currentIndex + direction];
@@ -1256,7 +1397,18 @@ export default function ChatDetailPage() {
         activeLeafNodeId: activeTail?.metadata?.branching?.nodeId || activeTail?.id || targetNodeId,
       },
     });
-  }, [chat, currentChatAllMessages, id, updateChat]);
+    if (scrollRestoreRequest) {
+      setMessageScrollRequest({
+        ...scrollRestoreRequest,
+        key: `branch-switch:${target.id}:${Date.now()}`,
+        messageId: target.id,
+        sourceTimestamp: target.timestamp,
+      });
+    }
+    if (cancelledRunningLoop) {
+      setSnackbar({ open: true, message: '已切换分支，当前生成已停止', severity: 'success' });
+    }
+  }, [cancelActiveConversationLoop, chat, currentChatAllMessages, id, setSnackbar, updateChat]);
 
   useEffect(() => {
     if (id) {
@@ -1330,6 +1482,7 @@ export default function ChatDetailPage() {
       void updateChat(id, { lastMessageAt: userMessage.timestamp, latestMessage: userMessage });
       const recentMessagesWithUser = [...recentMessages.filter((message) => message.id !== userMessage.id), userMessage];
       if (chat.type === 'direct') {
+        const { runDirectUserReplyFlow } = await import('../services/directUserReplyFlow');
         await runDirectUserReplyFlow({
           api,
           aiProfiles,
@@ -1854,7 +2007,7 @@ export default function ChatDetailPage() {
       await waitForNextFrame();
     }
     const scrollContainer = document.querySelector<HTMLElement>('[data-chat-message-list]');
-    scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
+    scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   }, [hasMoreNewer, id, openChatWindow]);
 
   const fromTab = useMemo(() => new URLSearchParams(window.location.search).get('fromTab'), []);
@@ -1875,7 +2028,7 @@ export default function ChatDetailPage() {
       messageId,
       offsetTop: isSplitDetailPane ? 84 : 96,
       sourceTimestamp: chapter.openedAt,
-      behavior: 'smooth',
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
       highlight: true,
     });
     logDeveloperDiagnostic('story-chapter:jump-request', {
@@ -1888,6 +2041,15 @@ export default function ChatDetailPage() {
 
   const handleMessageScrollRequestResolved = useCallback((request: MessageListScrollRequest, resolved: boolean) => {
     if (resolved) return;
+    if (request.key.startsWith('branch-switch:') || request.key.startsWith('branch-create:')) {
+      logDeveloperDiagnostic('chat-scroll:branch-restore-miss', {
+        chatId: id,
+        requestKey: request.key,
+        messageId: request.messageId,
+        sourceTimestamp: request.sourceTimestamp,
+      }, 'debug', 'message-window');
+      return;
+    }
     setSnackbar({ open: true, message: '没有定位到章节起点；当前消息窗口或云端分页里缺少对应消息。', severity: 'error' });
     logDeveloperDiagnostic('chat-scroll:request-miss', {
       chatId: id,
@@ -2423,36 +2585,44 @@ export default function ChatDetailPage() {
       </RightPanel>}
       <ChatPageSettingsDialog open={chatPageSettingsOpen} onClose={() => setChatPageSettingsOpen(false)} isStoryRoom={isStoryRoom} />
 
-      <MessageAnalysisDialog
-        open={analysisDialogOpen}
-        target={analysisTarget}
-        members={members}
-        text={analysisText}
-        loading={analysisLoading}
-        error={analysisError}
-        onClose={closeAnalysisDialog}
-      />
+      {analysisDialogOpen ? (
+        <LazyPanel>
+          <MessageAnalysisDialog
+            open={analysisDialogOpen}
+            target={analysisTarget}
+            members={members}
+            text={analysisText}
+            loading={analysisLoading}
+            error={analysisError}
+            onClose={closeAnalysisDialog}
+          />
+        </LazyPanel>
+      ) : null}
 
-      <ProfilePreviewOverlay
-        open={Boolean(profilePreview)}
-        kind={profilePreview?.kind || 'chat'}
-        anchorRect={profilePreview?.anchorRect || null}
-        anchorElement={profilePreview?.anchorElement || null}
-        character={profilePreview?.kind === 'character' ? profilePreview.character : null}
-        chat={chat}
-        members={members}
-        chatStatusLabel={isRunning && !isPaused ? '运行中' : chat.isActive ? '已暂停' : '未运行'}
-        actionLabel={profilePreview?.kind === 'character' ? '角色详情' : '群聊详情'}
-        actionTiming="immediate"
-        onAction={() => {
-          if (profilePreview?.kind === 'character') {
-            navigate(`/characters/${profilePreview.character.id}/edit?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
-            return;
-          }
-          navigate(`/chats/${chat.id}/edit`);
-        }}
-        onClose={() => setProfilePreview(null)}
-      />
+      {profilePreview ? (
+        <LazyPanel>
+          <ProfilePreviewOverlay
+            open
+            kind={profilePreview.kind}
+            anchorRect={profilePreview.anchorRect}
+            anchorElement={profilePreview.anchorElement}
+            character={profilePreview.kind === 'character' ? profilePreview.character : null}
+            chat={chat}
+            members={members}
+            chatStatusLabel={isRunning && !isPaused ? '运行中' : chat.isActive ? '已暂停' : '未运行'}
+            actionLabel={profilePreview.kind === 'character' ? '角色详情' : '群聊详情'}
+            actionTiming="immediate"
+            onAction={() => {
+              if (profilePreview.kind === 'character') {
+                navigate(`/characters/${profilePreview.character.id}/edit?returnTo=${encodeURIComponent(location.pathname + location.search)}`);
+                return;
+              }
+              navigate(`/chats/${chat.id}/edit`);
+            }}
+            onClose={() => setProfilePreview(null)}
+          />
+        </LazyPanel>
+      ) : null}
 
       <AppSnackbar
         open={snackbar.open}

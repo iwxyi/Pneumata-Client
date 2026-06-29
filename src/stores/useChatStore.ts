@@ -16,7 +16,6 @@ import { createSyncScheduler } from './storeSyncScheduler';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { createGuestUploadFlag } from './storeGuestUpload';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateChatStoreState } from './storeMigrations';
-import { isRuntimeMemoryMonitorEnabled, recordRuntimeMemory } from '../services/runtimeMemoryMonitor';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { completeLocalOutboxWorkerOperation, markLocalOutboxWorkerOperation, mirrorLocalOutboxWorkerQueue, removeLocalOutboxWorkerOperation } from '../services/localOutboxWorkerBridge';
@@ -50,11 +49,22 @@ function applyLocalChatCreate(chatData: Omit<GroupChat, 'id' | 'createdAt' | 'up
   } as GroupChat);
 }
 
-function applyLocalChatUpdate(chat: GroupChat, updates: Partial<GroupChat>) {
+function buildPatchedFieldVersions(chat: GroupChat, updates: Partial<GroupChat>, versionAt: number) {
+  const ignoredFields = new Set(['createdAt', 'updatedAt', 'lastMessageAt', 'latestMessage', 'runtimeDetailLoaded', 'worldRuntimeLoaded']);
+  const fieldVersions = { ...(chat.fieldVersions || {}) };
+  for (const field of Object.keys(updates)) {
+    if (ignoredFields.has(field)) continue;
+    fieldVersions[field] = Math.max(fieldVersions[field] || 0, versionAt);
+  }
+  return fieldVersions;
+}
+
+function applyLocalChatUpdate(chat: GroupChat, updates: Partial<GroupChat>, versionAt = Date.now()) {
   return normalizeConversation({
     ...chat,
     ...updates,
-    updatedAt: Date.now(),
+    fieldVersions: buildPatchedFieldVersions(chat, updates, versionAt),
+    updatedAt: versionAt,
     lastMessageAt: updates.lastMessageAt ?? chat.lastMessageAt,
   });
 }
@@ -319,6 +329,30 @@ function mergeRuntimeEventsForSync(localEvents: RuntimeEventV2[] | undefined, re
   );
 }
 
+function mergeFieldVersionsForSync(local: GroupChat | undefined, remote: GroupChat | undefined) {
+  const result = { ...(remote?.fieldVersions || {}) };
+  for (const [field, version] of Object.entries(local?.fieldVersions || {})) {
+    result[field] = Math.max(result[field] || 0, version || 0);
+  }
+  return result;
+}
+
+function isRemoteChatFieldNewer(local: GroupChat | undefined, remote: GroupChat, field: keyof GroupChat & string) {
+  if (!local) return true;
+  return (remote.fieldVersions?.[field] || 0) > (local.fieldVersions?.[field] || 0);
+}
+
+function mergeMessageBranchStateForSync(local: GroupChat | undefined, remote: GroupChat, fallback: 'local' | 'remote') {
+  if (!local) return remote.messageBranchState ?? null;
+  const localVersion = local.fieldVersions?.messageBranchState || 0;
+  const remoteVersion = remote.fieldVersions?.messageBranchState || 0;
+  if (remoteVersion > localVersion) return remote.messageBranchState ?? null;
+  if (localVersion > remoteVersion) return local.messageBranchState ?? null;
+  if (local.messageBranchState && !remote.messageBranchState) return local.messageBranchState;
+  if (remote.messageBranchState && !local.messageBranchState) return remote.messageBranchState;
+  return fallback === 'remote' ? remote.messageBranchState ?? null : local.messageBranchState ?? null;
+}
+
 function compactRuntimeSeedForPersistence(runtimeSeed: GroupChat['runtimeSeed']): GroupChat['runtimeSeed'] {
   return {
     notes: takeRecentItems(runtimeSeed?.notes, CHAT_RUNTIME_PERSIST_LIMITS.runtimeSeedNotes),
@@ -355,10 +389,22 @@ function compactChatPatchForCloud(patch: PendingChatOperation['patch']) {
   return nextPatch;
 }
 
+function isRuntimeMemoryDiagnosticsEnabled() {
+  return typeof localStorage !== 'undefined'
+    && localStorage.getItem(scopedStorageKey('runtime-memory-monitor')) === '1';
+}
+
+function recordRuntimeMemoryDiagnostic(label: string, params: Parameters<typeof import('../services/runtimeMemoryMonitor')['recordRuntimeMemory']>[1]) {
+  if (!isRuntimeMemoryDiagnosticsEnabled()) return;
+  void import('../services/runtimeMemoryMonitor').then(({ recordRuntimeMemory }) => {
+    recordRuntimeMemory(label, params);
+  });
+}
+
 function buildPersistedChatState(state: PersistedChatState): PersistedChatState {
   if (shouldSkipCloudSync()) return state;
-  if (isRuntimeMemoryMonitorEnabled()) {
-    recordRuntimeMemory('chat-store:partialize:start', {
+  if (isRuntimeMemoryDiagnosticsEnabled()) {
+    recordRuntimeMemoryDiagnostic('chat-store:partialize:start', {
       extra: {
         chatCount: state.chats.length,
         pendingOperationCount: state.pendingOperations.length,
@@ -380,8 +426,8 @@ function buildPersistedChatState(state: PersistedChatState): PersistedChatState 
       .filter((operation) => Object.keys(operation.patch || {}).length > 0),
     fieldConflicts: state.fieldConflicts || [],
   };
-  if (isRuntimeMemoryMonitorEnabled()) {
-    recordRuntimeMemory('chat-store:partialize:finish', {
+  if (isRuntimeMemoryDiagnosticsEnabled()) {
+    recordRuntimeMemoryDiagnostic('chat-store:partialize:finish', {
       extra: {
         chatCount: persisted.chats.length,
         pendingOperationCount: persisted.pendingOperations.length,
@@ -548,13 +594,14 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
       showRoleActions: local.showRoleActions,
       topicSeed: local.topicSeed,
       deletedAt: local.deletedAt,
-      fieldVersions: { ...(remote.fieldVersions || {}), ...(local.fieldVersions || {}) },
+      fieldVersions: mergeFieldVersionsForSync(local, remote),
       createdAt: local.createdAt,
       updatedAt: local.updatedAt,
       lastMessageAt: local.lastMessageAt,
       worldState: local.worldState,
       latestMessage: local.latestMessage,
       runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
+      messageBranchState: mergeMessageBranchStateForSync(local, remote, 'local'),
       runtimeDetailLoaded: true,
     };
   }
@@ -569,6 +616,8 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
       sourceChatId: remote.sourceChatId ?? local.sourceChatId,
       sourceMemberIds: remote.sourceMemberIds?.length ? remote.sourceMemberIds : local.sourceMemberIds,
       runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
+      fieldVersions: mergeFieldVersionsForSync(local, remote),
+      messageBranchState: mergeMessageBranchStateForSync(local, remote, 'remote'),
     };
   }
   return {
@@ -590,13 +639,14 @@ function mergeChatRecord(local: GroupChat | undefined, remote: GroupChat) {
     showRoleActions: remote.showRoleActions,
     topicSeed: remote.topicSeed,
     deletedAt: remote.deletedAt,
-    fieldVersions: remote.fieldVersions,
+    fieldVersions: mergeFieldVersionsForSync(local, remote),
     createdAt: remote.createdAt,
     updatedAt: remote.updatedAt,
     lastMessageAt: remote.lastMessageAt,
     worldState: remote.worldState,
     latestMessage: remote.latestMessage,
     runtimeEventsV2: mergeRuntimeEventsForSync(local.runtimeEventsV2, remote.runtimeEventsV2),
+    messageBranchState: mergeMessageBranchStateForSync(local, remote, 'remote'),
     runtimeDetailLoaded: true,
   };
 }
@@ -621,7 +671,8 @@ function mergeChats(localChats: GroupChat[], remoteChats: GroupChat[], pendingOp
     const local = merged.get(remote.id);
     const fillsMissingDetail = Boolean(remote.runtimeDetailLoaded && !local?.runtimeDetailLoaded);
     const fillsMissingWorldRuntime = Boolean(remote.worldRuntimeLoaded && !local?.worldRuntimeLoaded);
-    if (!local || remote.updatedAt > local.updatedAt || fillsMissingDetail || fillsMissingWorldRuntime) {
+    const remoteBranchStateNewer = isRemoteChatFieldNewer(local, remote, 'messageBranchState');
+    if (!local || remote.updatedAt > local.updatedAt || fillsMissingDetail || fillsMissingWorldRuntime || remoteBranchStateNewer) {
       merged.set(remote.id, normalizeConversation(mergeChatRecord(local, remote)));
     }
   }
@@ -1348,7 +1399,7 @@ export const useChatStore = create<ChatStore>()(
 
         refreshChatSummaryFromCloud: async () => {
           chatSyncScopes.clear(CHAT_SUMMARY_SCOPE);
-          void get().loadChats();
+          await get().loadChats();
         },
 
         prefetchWorldRuntime: async () => {
@@ -1373,12 +1424,15 @@ export const useChatStore = create<ChatStore>()(
             const pendingOperations = operation
               ? mergeChatPatchOperations([...state.pendingOperations, operation])
               : mergeChatPatchOperations(state.pendingOperations);
-            if (isRuntimeMemoryMonitorEnabled()) {
-              recordRuntimeMemory('chat-store:queue-patch', {
+            if (isRuntimeMemoryDiagnosticsEnabled()) {
+              const targetChat = state.chats.find((chat) => chat.id === entityId) || null;
+              recordRuntimeMemoryDiagnostic('chat-store:queue-patch', {
                 chatId: entityId,
-                chat: state.chats.find((chat) => chat.id === entityId) || null,
                 extra: {
                   kind,
+                  runtimeEvents: targetChat?.runtimeEventsV2?.length || 0,
+                  relationshipLedger: targetChat?.relationshipLedger?.length || 0,
+                  layeredMemories: targetChat?.layeredMemories?.length || 0,
                   patchKeys: Object.keys(patch || {}),
                   cloudPatchKeys: Object.keys(cloudPatch || {}),
                   pendingOperationCount: pendingOperations.length,
@@ -1408,7 +1462,9 @@ export const useChatStore = create<ChatStore>()(
             }
             return {
               pendingOperations,
-              chats: state.chats.map((chat) => chat.id === entityId ? applyLocalChatUpdate(chat, patch as Partial<GroupChat>) : chat),
+              chats: state.chats.map((chat) => chat.id === entityId
+                ? applyLocalChatUpdate(chat, patch as Partial<GroupChat>, operation?.clientTimestamp || Date.now())
+                : chat),
               pendingEditSyncCount: pendingOperations.length,
               pendingEditSyncError: latestChatError(pendingOperations),
             };
@@ -1647,6 +1703,7 @@ export const __chatRuntimePersistenceForTests = {
   compactRuntimeEventsForPersistence,
   mergeRuntimeEventsForSync,
   mergeChatRecord,
+  mergeChats,
   mergeWorldRuntimeRecord,
   buildPersistedChatState,
   limits: CHAT_RUNTIME_PERSIST_LIMITS,

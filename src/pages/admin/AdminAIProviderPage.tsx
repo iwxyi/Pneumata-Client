@@ -5,6 +5,7 @@ import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
+import { formatAiAmount, formatAiBalanceAmount } from '../../utils/aiPoints';
 
 type QuotaPackageForm = {
   code: string;
@@ -178,18 +179,14 @@ function serializePackages(packages: QuotaPackageForm[]) {
     }));
 }
 
-function formatBalance(balance: Record<string, unknown> | null) {
+function formatBalance(balance: Record<string, unknown> | null, providerCode: string) {
   const raw = balance?.availableBalance ?? balance?.available_balance;
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return '未获取';
-  const currencyUnit = String(balance?.currencyUnit ?? balance?.currency_unit ?? '').toLowerCase();
-  if (currencyUnit === 'cny' || currencyUnit === 'rmb') return `${Number(raw.toFixed(6))}元`;
-  return `${raw}P`;
+  return formatAiBalanceAmount(balance, providerCode);
 }
 
-function formatPoint(value: unknown) {
-  const amount = Number(value ?? 0);
-  if (!Number.isFinite(amount)) return '-';
-  return `${Number(amount.toFixed(6))}P`;
+function formatPoint(value: unknown, providerCode: string) {
+  return formatAiAmount(value, providerCode);
 }
 
 function formatTime(value: unknown) {
@@ -762,7 +759,7 @@ export default function AdminAIProviderPage() {
                 <Box>
                   <Typography variant="caption" color="text.secondary">主账号总余额</Typography>
                   <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                    {accountBalanceLoading ? '查询中' : formatBalance(accountBalance)}
+                    {accountBalanceLoading ? '查询中' : formatBalance(accountBalance, providerCode)}
                   </Typography>
                   {accountBalanceError ? <Typography variant="caption" color="error">{accountBalanceError}</Typography> : null}
                 </Box>
@@ -954,8 +951,8 @@ export default function AdminAIProviderPage() {
                     <TableRow key={String(item.id)} hover onClick={() => openUserUsageDialog(item)} sx={{ cursor: 'pointer' }}>
                       <TableCell>{String(item.nickname || item.id || '-')}</TableCell>
                       <TableCell>{String(item.phone || '-')}</TableCell>
-                      <TableCell>{formatPoint(item.balanceAmount ?? item.balance_amount)}</TableCell>
-                      <TableCell>{formatPoint(item.usedAmount ?? item.used_amount)}</TableCell>
+                      <TableCell>{formatPoint(item.balanceAmount ?? item.balance_amount, providerCode)}</TableCell>
+                      <TableCell>{formatPoint(item.usedAmount ?? item.used_amount, providerCode)}</TableCell>
                       <TableCell>{String(item.requestCount ?? item.request_count ?? 0)}</TableCell>
                       <TableCell>{formatTime(item.last_used_at)}</TableCell>
                     </TableRow>
@@ -1010,7 +1007,7 @@ export default function AdminAIProviderPage() {
                       <TableCell>{String(item.key || '')}</TableCell>
                       <TableCell>{String(item.type_id || '')}</TableCell>
                       <TableCell>{String(item.enabled ?? '')}</TableCell>
-                      <TableCell>{String(item.point ?? '')}</TableCell>
+                      <TableCell>{formatPoint(item.point, providerCode)}</TableCell>
                       <TableCell>{String(item.daily_quota ?? '')}</TableCell>
                       <TableCell>{String(item.monthly_quota ?? '')}</TableCell>
                       <TableCell>{String(item.note || '')}</TableCell>
@@ -1107,7 +1104,7 @@ export default function AdminAIProviderPage() {
           </Stack>
           {usageStats ? (
             <Alert severity="info">
-              调用 {formatCount(usageStats.totals?.requestCount)}，失败 {formatCount(usageStats.totals?.failedCount)}，输入 {formatCount(usageStats.totals?.inputTokens)}，输出 {formatCount(usageStats.totals?.outputTokens)}，实扣 {formatPoint(usageStats.totals?.chargedAmount)}
+              调用 {formatCount(usageStats.totals?.requestCount)}，失败 {formatCount(usageStats.totals?.failedCount)}，输入 {formatCount(usageStats.totals?.inputTokens)}，输出 {formatCount(usageStats.totals?.outputTokens)}，实扣 {formatPoint(usageStats.totals?.chargedAmount, providerCode)}
             </Alert>
           ) : null}
           <AdminResponsiveTable minWidth={1200}>
@@ -1147,8 +1144,8 @@ export default function AdminAIProviderPage() {
                     <TableCell>{formatCount(row.inputTokens ?? row.input_tokens)}</TableCell>
                     <TableCell>{formatCount(row.outputTokens ?? row.output_tokens)}</TableCell>
                     <TableCell>{formatCount(row.totalTokens ?? row.total_tokens)}</TableCell>
-                    <TableCell>{formatPoint(row.billableAmount ?? row.billable_amount)}</TableCell>
-                    <TableCell>{formatPoint(row.chargedAmount ?? row.charged_amount)}</TableCell>
+                    <TableCell>{formatPoint(row.billableAmount ?? row.billable_amount, providerCode)}</TableCell>
+                    <TableCell>{formatPoint(row.chargedAmount ?? row.charged_amount, providerCode)}</TableCell>
                     <TableCell>{formatCount(row.averageLatencyMs ?? row.average_latency_ms)} ms</TableCell>
                     <TableCell>{formatTime(row.lastUsedAt ?? row.last_used_at)}</TableCell>
                   </TableRow>
@@ -1201,11 +1198,11 @@ export default function AdminAIProviderPage() {
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">剩余额度</Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatPoint(selectedBalanceUser.balanceAmount ?? selectedBalanceUser.balance_amount)}</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatPoint(selectedBalanceUser.balanceAmount ?? selectedBalanceUser.balance_amount, providerCode)}</Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">已使用额度</Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatPoint(selectedBalanceUser.usedAmount ?? selectedBalanceUser.used_amount)}</Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatPoint(selectedBalanceUser.usedAmount ?? selectedBalanceUser.used_amount, providerCode)}</Typography>
                 </Box>
               </Stack>
             ) : null}
@@ -1249,8 +1246,8 @@ export default function AdminAIProviderPage() {
                             <TableCell>{formatLedgerDirection(row.amount)}</TableCell>
                             <TableCell>{formatLedgerEntryType(row.entry_type)}</TableCell>
                             <TableCell>{formatLedgerSourceType(row.source_type)}</TableCell>
-                            <TableCell><Typography variant="body2" sx={getLedgerAmountSx(row.amount)}>{formatPoint(row.amount)}</Typography></TableCell>
-                            <TableCell>{row.balance_after == null ? '-' : formatPoint(row.balance_after)}</TableCell>
+                            <TableCell><Typography variant="body2" sx={getLedgerAmountSx(row.amount)}>{formatPoint(row.amount, providerCode)}</Typography></TableCell>
+                            <TableCell>{row.balance_after == null ? '-' : formatPoint(row.balance_after, providerCode)}</TableCell>
                             <TableCell>{formatTime(row.created_at)}</TableCell>
                           </TableRow>
                         ))}
@@ -1276,7 +1273,7 @@ export default function AdminAIProviderPage() {
             ) : selectedUsageTab === 1 ? (
               <Stack spacing={1}>
                 <Typography variant="caption" color="text.secondary">
-                  合计：{formatPoint(selectedUserUsage?.totals?.charged_amount)} / {String(selectedUserUsage?.totals?.request_count ?? 0)} 次
+                  合计：{formatPoint(selectedUserUsage?.totals?.charged_amount, providerCode)} / {String(selectedUserUsage?.totals?.request_count ?? 0)} 次
                 </Typography>
                 {!selectedUserUsage?.invocations.length && !userUsageLoading ? <Alert severity="info">暂无调用记录</Alert> : null}
                 {selectedUserUsage?.invocations.length ? (
@@ -1302,7 +1299,7 @@ export default function AdminAIProviderPage() {
                             <TableCell>{String(row.input_tokens ?? '-')}</TableCell>
                             <TableCell>{String(row.output_tokens ?? '-')}</TableCell>
                             <TableCell>{String(row.total_tokens ?? '-')}</TableCell>
-                            <TableCell>{row.charged_amount == null ? '-' : formatPoint(row.charged_amount)}</TableCell>
+                            <TableCell>{row.charged_amount == null ? '-' : formatPoint(row.charged_amount, providerCode)}</TableCell>
                             <TableCell>{String(row.latency_ms ?? '-')}</TableCell>
                             <TableCell>{formatTime(row.created_at)}</TableCell>
                           </TableRow>
@@ -1357,7 +1354,7 @@ export default function AdminAIProviderPage() {
                 </Stack>
                 {selectedUserStats ? (
                   <Alert severity="info">
-                    调用 {formatCount(selectedUserStats.totals?.requestCount)}，输入 {formatCount(selectedUserStats.totals?.inputTokens)}，输出 {formatCount(selectedUserStats.totals?.outputTokens)}，实扣 {formatPoint(selectedUserStats.totals?.chargedAmount)}
+                    调用 {formatCount(selectedUserStats.totals?.requestCount)}，输入 {formatCount(selectedUserStats.totals?.inputTokens)}，输出 {formatCount(selectedUserStats.totals?.outputTokens)}，实扣 {formatPoint(selectedUserStats.totals?.chargedAmount, providerCode)}
                   </Alert>
                 ) : null}
                 {!selectedUserStats?.items.length && !selectedUserStatsLoading ? <Alert severity="info">暂无用量统计</Alert> : null}
@@ -1390,8 +1387,8 @@ export default function AdminAIProviderPage() {
                             <TableCell>{formatCount(row.inputTokens ?? row.input_tokens)}</TableCell>
                             <TableCell>{formatCount(row.outputTokens ?? row.output_tokens)}</TableCell>
                             <TableCell>{formatCount(row.totalTokens ?? row.total_tokens)}</TableCell>
-                            <TableCell>{formatPoint(row.billableAmount ?? row.billable_amount)}</TableCell>
-                            <TableCell>{formatPoint(row.chargedAmount ?? row.charged_amount)}</TableCell>
+                            <TableCell>{formatPoint(row.billableAmount ?? row.billable_amount, providerCode)}</TableCell>
+                            <TableCell>{formatPoint(row.chargedAmount ?? row.charged_amount, providerCode)}</TableCell>
                             <TableCell>{formatCount(row.averageLatencyMs ?? row.average_latency_ms)} ms</TableCell>
                             <TableCell>{formatTime(row.lastUsedAt ?? row.last_used_at)}</TableCell>
                           </TableRow>

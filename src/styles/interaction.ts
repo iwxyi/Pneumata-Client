@@ -1,5 +1,5 @@
 import type { Theme } from '@mui/material/styles';
-import { motion, transition } from './motion';
+import { motion, reducedMotionSx, transition } from './motion';
 
 interface InteractiveSurfaceOptions {
   selected?: boolean;
@@ -10,6 +10,7 @@ interface InteractiveSurfaceOptions {
 export function buildInteractiveSurfaceSx({ selected = false, radius = 1, blur = 14 }: InteractiveSurfaceOptions = {}) {
   return {
     position: 'relative',
+    contain: 'layout paint style',
     borderRadius: radius,
     border: '1px solid',
     borderColor: selected
@@ -42,7 +43,17 @@ export function buildInteractiveSurfaceSx({ selected = false, radius = 1, blur =
     '& .MuiCardActionArea-focusHighlight': {
       display: 'none',
     },
+    ...reducedMotionSx,
   };
+}
+
+export function buildScrollableRegionSx() {
+  return {
+    overscrollBehavior: 'contain',
+    WebkitOverflowScrolling: 'touch',
+    touchAction: 'pan-y',
+    contain: 'layout style',
+  } as const;
 }
 
 export function buildSelectionRailSx(selected: boolean, width = 3) {
@@ -57,6 +68,7 @@ export function buildSelectionRailSx(selected: boolean, width = 3) {
     opacity: selected ? 0.9 : 0,
     pointerEvents: 'none',
     transition: transition(['opacity', 'width'], motion.durations.base, motion.softOut),
+    ...reducedMotionSx,
   };
 }
 

@@ -9,6 +9,7 @@ import SaveIcon from '@mui/icons-material/Save';
 import ForumIcon from '@mui/icons-material/Forum';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
@@ -91,9 +92,28 @@ export default function CreateChatPage() {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { chats, addChat, updateChat, deleteChat, prefetchChats, markChatsWarm } = useChatStore();
-  const { characters, addCharacters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
-  const { chatDraftDefaults, aiProfiles, api, developerMode, setChatDraftDefaults, loadSettings } = useSettingsStore();
+  const { chats, addChat, updateChat, deleteChat, prefetchChats, markChatsWarm } = useChatStore(useShallow((state) => ({
+    chats: state.chats,
+    addChat: state.addChat,
+    updateChat: state.updateChat,
+    deleteChat: state.deleteChat,
+    prefetchChats: state.prefetchChats,
+    markChatsWarm: state.markChatsWarm,
+  })));
+  const { characters, addCharacters, prefetchCharacters, markCharactersWarm } = useCharacterStore(useShallow((state) => ({
+    characters: state.characters,
+    addCharacters: state.addCharacters,
+    prefetchCharacters: state.prefetchCharacters,
+    markCharactersWarm: state.markCharactersWarm,
+  })));
+  const { chatDraftDefaults, aiProfiles, api, developerMode, setChatDraftDefaults, loadSettings } = useSettingsStore(useShallow((state) => ({
+    chatDraftDefaults: state.chatDraftDefaults,
+    aiProfiles: state.aiProfiles,
+    api: state.api,
+    developerMode: state.developerMode,
+    setChatDraftDefaults: state.setChatDraftDefaults,
+    loadSettings: state.loadSettings,
+  })));
   const [memberDialogOpen, setMemberDialogOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [clearMessagesConfirmOpen, setClearMessagesConfirmOpen] = useState(false);

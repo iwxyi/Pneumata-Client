@@ -1,6 +1,7 @@
 import { Box, Drawer, IconButton, Typography, Divider } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
 import { storageKey } from '../../constants/brand';
@@ -41,7 +42,14 @@ function getMobileSheetTravelDistance() {
 
 export default function RightPanel({ children, title, hideMobileTitle = false, titleActions }: RightPanelProps) {
   const { isMobile, isDesktop } = useResponsive();
-  const { rightPanelOpen, rightPanelGestureOffset, rightPanelGestureDragging, setRightPanelOpen, setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore();
+  const { rightPanelOpen, rightPanelGestureOffset, rightPanelGestureDragging, setRightPanelOpen, setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore(useShallow((state) => ({
+    rightPanelOpen: state.rightPanelOpen,
+    rightPanelGestureOffset: state.rightPanelGestureOffset,
+    rightPanelGestureDragging: state.rightPanelGestureDragging,
+    setRightPanelOpen: state.setRightPanelOpen,
+    setRightPanelGestureOffset: state.setRightPanelGestureOffset,
+    setRightPanelGestureDragging: state.setRightPanelGestureDragging,
+  })));
   const [panelWidth, setPanelWidth] = useState(getInitialPanelWidth);
   const [mobileDragOffset, setMobileDragOffset] = useState(0);
   const [mobileDragging, setMobileDragging] = useState(false);

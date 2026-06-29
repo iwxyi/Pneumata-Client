@@ -6,6 +6,7 @@ import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 import { createStreamingLocalMessage } from './chatCommitMessage';
 import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
 import { generateSpeakerMessage, type LocalInterceptionEvent } from './chatEngine';
+import { attachMessageToActiveBranch } from './messageBranching';
 
 export async function generateAndCommitAiMessage(params: {
   api: APIConfig;
@@ -42,14 +43,14 @@ export async function generateAndCommitAiMessage(params: {
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
 }) {
-  const placeholder = params.streamingMessage || createStreamingLocalMessage({
+  const placeholder = params.streamingMessage || createStreamingLocalMessage(attachMessageToActiveBranch(params.chat, params.currentMessages, {
     chatId: params.chatId,
     type: 'ai',
     senderId: params.speaker.id,
     senderName: params.speaker.name,
     content: '',
     emotion: 0,
-  }, { timestamp: params.timestamp });
+  }), { timestamp: params.timestamp });
   let streamingMessage = { ...placeholder, isStreaming: true };
   params.upsertMessage(streamingMessage);
 

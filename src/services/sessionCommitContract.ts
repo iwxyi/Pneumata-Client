@@ -3,7 +3,7 @@ import type { AICharacter } from '../types/character';
 import type { DriverCharacterPatch, DriverEventPayload, DriverMessageCommitTransition, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { APIConfig } from '../types/settings';
-import { createRuntimeMemoryTimer } from './runtimeMemoryMonitor';
+import { createRuntimeMemoryTimer } from './runtimeMemoryTimer';
 import { buildApiErrorUserMessage } from './apiErrorMessage';
 import { reportRecoverableError } from './diagnostics';
 

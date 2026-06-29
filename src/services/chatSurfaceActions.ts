@@ -8,7 +8,6 @@ import { buildActionRuntimeContract, buildRuntimeEventContract } from './session
 import { canActorRunSessionAction, resolveMemberActorRef } from './memberActionPolicy';
 import { getUsablePreferredAIProfile } from '../types/settings';
 import { useChatStore } from '../stores/useChatStore';
-import { runSessionActionExecutor } from './sessionActionExecutors/sessionActionExecutorRegistry';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
 
 export interface ChatSurfaceActionContext {
@@ -338,6 +337,7 @@ export async function runSessionActionImpl(
     return;
   }
 
+  const { runSessionActionExecutor } = await import('./sessionActionExecutors/sessionActionExecutorRegistry');
   const executionResult = runSessionActionExecutor(chat, { ...action, payload });
   if (executionResult) {
     logDeveloperDiagnostic('session-action:executed', {

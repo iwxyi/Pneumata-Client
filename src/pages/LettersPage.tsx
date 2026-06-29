@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
-import { useCharacterArtifactStore, type CharacterArtifactEntry } from '../stores/useCharacterArtifactStore';
+import { ensureCharacterArtifactStoreHydrated, useCharacterArtifactStore, type CharacterArtifactEntry } from '../stores/useCharacterArtifactStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import FloatingSegmentedTabs, { buildFloatingTabContainerSx } from '../components/common/FloatingSegmentedTabs';
 import ArtifactCalendarReader from '../components/artifacts/ArtifactCalendarReader';
@@ -46,6 +46,7 @@ export default function LettersPage() {
   const unreadLetterCount = useCharacterArtifactStore((state) => state.unreadLetterCount);
   const markLettersRead = useCharacterArtifactStore((state) => state.markLettersRead);
   const regenerateArtifact = useCharacterArtifactStore((state) => state.regenerateArtifact);
+  const ensureArtifactDetail = useCharacterArtifactStore((state) => state.ensureArtifactDetail);
   const syncArtifactsFromCharacters = useCharacterArtifactStore((state) => state.syncCharacters);
   const syncArtifactCloud = useCharacterArtifactStore((state) => state.syncCloud);
   const resumeArtifactProcessing = useCharacterArtifactStore((state) => state.resumeProcessing);
@@ -70,18 +71,11 @@ export default function LettersPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).then(() => {
+    void ensureCharacterArtifactStoreHydrated().then(() => {
       if (cancelled) return;
       syncArtifactsFromCharacters(useCharacterStore.getState().characters);
       void resumeArtifactProcessing();
-      void (async () => {
-        if (tab === 'letters') {
-          await syncArtifactCloud({ kind: 'birth_letter' });
-          await syncArtifactCloud({ kind: 'final_letter' });
-          return;
-        }
-        await syncArtifactCloud({ kind: 'diary' });
-      })();
+      void syncArtifactCloud();
     });
     return () => {
       cancelled = true;
@@ -234,6 +228,7 @@ export default function LettersPage() {
             : (i18n.language.startsWith('zh') ? '日记不会急着出现。它会等某一天的关系余波、没说出口的话，或一点明天还想继续的理由。' : 'Diaries are not rushed. They wait for relationship residue, unsent words, or one small reason to keep going tomorrow.')}
           getMeta={(item) => `${characterNameMap.get(item.characterId) || item.characterName} · ${item.dateKey || new Date(item.createdAt).toLocaleDateString(i18n.language.startsWith('zh') ? 'zh-CN' : 'en-US')}`}
           onRegenerateDebug={developerMode ? handleRegenerateDebug : undefined}
+          onEnsureDetail={ensureArtifactDetail}
         />
       </Stack>
       <AppSnackbar

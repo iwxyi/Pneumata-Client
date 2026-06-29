@@ -7,7 +7,7 @@ export function useCurrentChatMessages(params: {
   chatId?: string | null;
   chat?: Pick<GroupChat, 'sessionKind' | 'messageBranchState'> & Partial<Pick<GroupChat, 'mode'>> | null;
   activeMessages: Message[];
-  cachedWindows: Record<string, MessageWindowLike | undefined>;
+  cachedWindow?: MessageWindowLike | null;
 }) {
   return useMemo(() => (
     params.chatId
@@ -15,8 +15,8 @@ export function useCurrentChatMessages(params: {
         chatId: params.chatId,
         chat: params.chat,
         activeMessages: params.activeMessages,
-        cachedWindow: params.cachedWindows[params.chatId],
+        cachedWindow: params.cachedWindow,
       })
       : []
-  ), [params.activeMessages, params.cachedWindows, params.chat, params.chatId]);
+  ), [params.activeMessages, params.cachedWindow, params.chat, params.chatId]);
 }

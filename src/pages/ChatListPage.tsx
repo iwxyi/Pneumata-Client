@@ -7,6 +7,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import VerticalSplitIcon from '@mui/icons-material/VerticalSplit';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import ChatCard from '../components/chat/ChatCard';
@@ -36,8 +37,19 @@ export default function ChatListPage() {
   const isThreeColumn = useMediaQuery('(min-width:1280px)');
   const pane = usePaneLayout();
   const isMasterPane = pane.role === 'master';
-  const { chats, deleteChat, prefetchChats, restoreLocalChats, markChatsWarm, isLoading } = useChatStore();
-  const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore();
+  const { chats, deleteChat, prefetchChats, restoreLocalChats, markChatsWarm, isLoading } = useChatStore(useShallow((state) => ({
+    chats: state.chats,
+    deleteChat: state.deleteChat,
+    prefetchChats: state.prefetchChats,
+    restoreLocalChats: state.restoreLocalChats,
+    markChatsWarm: state.markChatsWarm,
+    isLoading: state.isLoading,
+  })));
+  const { characters, prefetchCharacters, markCharactersWarm } = useCharacterStore(useShallow((state) => ({
+    characters: state.characters,
+    prefetchCharacters: state.prefetchCharacters,
+    markCharactersWarm: state.markCharactersWarm,
+  })));
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [detailCollapsed, setDetailCollapsed] = useState(readDetailCollapsedState);
@@ -176,15 +188,15 @@ export default function ChatListPage() {
     params.set('tab', String(tab));
     navigate({ pathname: location.pathname, search: params.toString() }, { replace: true });
   }, [location.pathname, location.search, navigate, tab]);
-  const filteredChats = chats.filter((c) => {
+  const filteredChats = useMemo(() => chats.filter((c) => {
     const summary = (c.layeredMemories || []).slice(-3).map((item) => item.text).join(' ').toLowerCase();
     const recentEvent = (c.worldState?.recentEvent || '').toLowerCase();
     const query = search.toLowerCase();
     return c.name.toLowerCase().includes(query) || c.topic.toLowerCase().includes(query) || recentEvent.includes(query) || summary.includes(query);
-  });
-  const groupedChats = filteredChats.filter((chat) => chat.type === 'group');
-  const userDirectChats = filteredChats.filter((chat) => chat.type === 'direct');
-  const privateChats = filteredChats.filter((chat) => chat.type === 'ai_direct');
+  }), [chats, search]);
+  const groupedChats = useMemo(() => filteredChats.filter((chat) => chat.type === 'group'), [filteredChats]);
+  const userDirectChats = useMemo(() => filteredChats.filter((chat) => chat.type === 'direct'), [filteredChats]);
+  const privateChats = useMemo(() => filteredChats.filter((chat) => chat.type === 'ai_direct'), [filteredChats]);
   const visibleChats = tab === 0 ? groupedChats : tab === 1 ? userDirectChats : privateChats;
   const emptyMessage = tab === 0 ? t('chat.noGroups') : tab === 1 ? '还没有单聊' : '还没有 AI私聊';
   const createPath = tab === 0 ? '/chats/create' : '/direct/create';

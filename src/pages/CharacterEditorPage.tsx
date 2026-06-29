@@ -2,11 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { Box, Button, Typography } from '@mui/material';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
-import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
+import { ensureCharacterArtifactStoreHydrated, useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import CharacterForm from '../components/character/CharacterForm';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import LoadingState from '../components/common/LoadingState';
@@ -22,9 +23,23 @@ export default function CharacterEditorPage() {
   const returnTo = new URLSearchParams(location.search).get('returnTo');
   const isCreate = location.pathname === '/characters/create';
   const editId = isCreate ? null : (id || null);
-  const settings = useSettingsStore();
+  const settings = useSettingsStore(useShallow((state) => ({
+    aiProfiles: state.aiProfiles,
+    avatarGeneration: state.avatarGeneration,
+  })));
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { characters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets, remoteDeletedCharacterIds, markCharactersWarm, prefetchCharacters } = useCharacterStore();
+  const { characters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets, remoteDeletedCharacterIds, markCharactersWarm, prefetchCharacters } = useCharacterStore(useShallow((state) => ({
+    characters: state.characters,
+    loadCharacter: state.loadCharacter,
+    addCharacter: state.addCharacter,
+    updateCharacter: state.updateCharacter,
+    updateCharacters: state.updateCharacters,
+    deleteCharacter: state.deleteCharacter,
+    initializePresets: state.initializePresets,
+    remoteDeletedCharacterIds: state.remoteDeletedCharacterIds,
+    markCharactersWarm: state.markCharactersWarm,
+    prefetchCharacters: state.prefetchCharacters,
+  })));
   const chats = useChatStore((state) => state.chats);
   const updateChatSession = useChatStore((state) => state.updateChat);
   const syncArtifactCloud = useCharacterArtifactStore((state) => state.syncCloud);
@@ -45,6 +60,7 @@ export default function CharacterEditorPage() {
   useLayoutEffect(() => {
     if (!useCharacterStore.persist.hasHydrated()) void useCharacterStore.persist.rehydrate();
     if (!useChatStore.persist.hasHydrated()) void useChatStore.persist.rehydrate();
+    void ensureCharacterArtifactStoreHydrated();
   }, []);
 
   const goBack = useCallback(() => {

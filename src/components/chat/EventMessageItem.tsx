@@ -1,38 +1,9 @@
 import { Box, Chip, Typography } from '@mui/material';
 import type { Message } from '../../types/message';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { parseRuntimeEvent } from '../../services/runtimeEventFactory';
 import type { DisplayTextMember } from '../../services/displayTextSanitizer';
-import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta, shouldHideEmptyConflictEvent } from './messageBubbleEventHelpers';
-
-function isConflictDeveloperEvent(eventType: string | undefined) {
-  return ['conflict_focus_shift', 'conflict_axis_shift'].includes(String(eventType || ''));
-}
-
-function isStateDeveloperEvent(eventType: string | undefined) {
-  return ['world_state_shift', 'room_state_snapshot_v2'].includes(String(eventType || ''));
-}
-
-function isCalendarDeveloperEvent(eventType: unknown) {
-  const value = String(eventType || '');
-  return value === 'calendar_item_patch'
-    || value === 'calendar_patch_apply_result'
-    || value === 'calendar_activity'
-    || value.startsWith('calendar_activity_');
-}
-
-function shouldRenderDeveloperEvent(payload: { eventType?: string }, flags: { showRelationshipEvents: boolean; showAffectEvents: boolean; showConflictEvents: boolean; showStateEvents: boolean; showMemoryDistillationEvents: boolean; showCalendarEvents: boolean; showMemoryDebug: boolean; showLocalInterceptionHints: boolean }) {
-  if (!payload?.eventType) return false;
-  if (['group_relationship_shift', 'relationship_shift'].includes(String(payload.eventType))) return flags.showRelationshipEvents;
-  if (['speaker_drift_shift', 'speaker_emotion_shift', 'target_emotion_shift'].includes(String(payload.eventType))) return flags.showAffectEvents;
-  if (isConflictDeveloperEvent(payload.eventType)) return flags.showConflictEvents;
-  if (isStateDeveloperEvent(payload.eventType)) return flags.showStateEvents;
-  if (payload.eventType === 'memory_distillation') return flags.showMemoryDistillationEvents || flags.showMemoryDebug;
-  if (isCalendarDeveloperEvent(payload.eventType)) return flags.showCalendarEvents;
-  if (payload.eventType === 'memory_reactivation') return flags.showMemoryDebug;
-  if (payload.eventType === 'local_interception') return flags.showLocalInterceptionHints;
-  return false;
-}
+import { buildConflictEventMeta, buildEventDisplayText, buildMemoryDistillationMeta, buildMemoryReactivationMeta } from './messageBubbleEventHelpers';
+import { getRuntimeEventPayload, isConflictDeveloperEvent, shouldRenderEventMessage } from './eventMessagePresentation';
 
 function buildEventTypeChip(payload: { eventType?: string }) {
   if (payload.eventType === 'memory_distillation') return null;
@@ -116,11 +87,9 @@ export default function EventMessageItem({ message, members = [] }: { message: M
   const showCalendarEvents = useSettingsStore((state) => state.developerUI.showCalendarEvents);
   const showLocalInterceptionHints = useSettingsStore((state) => state.developerUI.showLocalInterceptionHints);
 
-  if (!developerMode) return null;
-  const parsed = parseRuntimeEvent(message.content);
-  const payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown } = parsed || { title: '事件', summary: message.content };
-  if (!shouldRenderDeveloperEvent(payload, { showRelationshipEvents, showAffectEvents, showConflictEvents, showStateEvents, showMemoryDistillationEvents, showCalendarEvents, showMemoryDebug, showLocalInterceptionHints })) return null;
-  if (shouldHideEmptyConflictEvent(payload)) return null;
+  const flags = { developerMode, showRelationshipEvents, showAffectEvents, showConflictEvents, showStateEvents, showMemoryDistillationEvents, showCalendarEvents, showMemoryDebug, showLocalInterceptionHints };
+  if (!shouldRenderEventMessage(message, flags)) return null;
+  const payload: { eventType?: string; title?: string; summary?: string; pair?: string[]; metrics?: unknown } = getRuntimeEventPayload(message);
 
   return (
     <Box data-message-id={message.id} data-message-type="event" sx={{ display: 'flex', justifyContent: 'center', py: 0.5, px: { xs: 1, sm: 2 }, width: '100%', minWidth: 0, pointerEvents: 'none' }}>

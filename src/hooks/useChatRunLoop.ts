@@ -7,6 +7,7 @@ import { createStreamingLocalMessage } from '../services/chatCommitMessage';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { projectCurrentChatMessages } from '../services/currentChatMessages';
 import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
+import { attachMessageToActiveBranch } from '../services/messageBranching';
 import { getStoryChoiceGateState } from '../services/storyChoices';
 import type { UserDraftActivity } from '../services/userInputBuffer';
 import { useChatStore } from '../stores/useChatStore';
@@ -110,6 +111,7 @@ export function useChatRunLoop(params: {
   const lastPauseGateLogKeyRef = useRef<string | null>(null);
   const ignoreReaderPositionLoopTokenRef = useRef<string | null>(null);
   const pendingStartChatByLoopTokenRef = useRef<Map<string, GroupChat>>(new Map());
+  const pendingStartTimerByLoopTokenRef = useRef<Map<string, number>>(new Map());
   const activeAbortControllerRef = useRef<AbortController | null>(null);
 
   paramsRef.current = params;
@@ -124,6 +126,8 @@ export function useChatRunLoop(params: {
     const current = paramsRef.current;
     const startedChat = pendingStartChatByLoopTokenRef.current.get(loopId);
     const loopChat = startedChat || current.chat;
+    const pendingTimer = pendingStartTimerByLoopTokenRef.current.get(loopId);
+    if (pendingTimer) pendingStartTimerByLoopTokenRef.current.delete(loopId);
     if (!loopChat || !current.chatId) {
       pendingStartChatByLoopTokenRef.current.delete(loopId);
       return;
@@ -133,11 +137,18 @@ export function useChatRunLoop(params: {
       return;
     }
     activeRunLoopTokenRef.current = loopId;
-    const [{ runChatLoop }, { resolveSessionEngine }] = await Promise.all([
+    const moduleLoadStartedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const [{ runChatLoop }, { loadSessionEngine }] = await Promise.all([
       import('../services/chatLoopRunner'),
-      import('../services/sessionEngineRegistry'),
+      import('../services/sessionEngineLoader'),
     ]);
-    const sessionEngine = resolveSessionEngine(loopChat);
+    const sessionEngine = await loadSessionEngine(loopChat);
+    logDeveloperDiagnostic('chat-run:modules-ready', {
+      chatId: current.chatId,
+      loopId,
+      engineKey: sessionEngine.key,
+      elapsedMs: Number(((typeof performance !== 'undefined' ? performance.now() : Date.now()) - moduleLoadStartedAt).toFixed(2)),
+    }, 'debug', 'chat-run');
     const abortController = new AbortController();
     activeAbortControllerRef.current = abortController;
     try {
@@ -235,14 +246,21 @@ export function useChatRunLoop(params: {
             return;
           }
           const activeSpeaker = speaker || current.activeMembers.find((member) => member.id === charId);
-          const streamingMessage = createStreamingLocalMessage({
+          const latestChat = useChatStore.getState().chats.find((item) => item.id === current.chatId) || loopChat;
+          const latestMessages = projectCurrentChatMessages({
+            chatId: current.chatId!,
+            chat: latestChat,
+            activeMessages: useMessageStore.getState().messages,
+            cachedWindow: useMessageStore.getState().messageWindowsByChatId[current.chatId!],
+          });
+          const streamingMessage = createStreamingLocalMessage(attachMessageToActiveBranch(latestChat, latestMessages, {
             chatId: current.chatId!,
             type: 'ai',
             senderId: charId,
             senderName: activeSpeaker?.name || '',
             content: '',
             emotion: 0,
-          });
+          }));
           const nextStreamingMessage = { ...streamingMessage, isStreaming: true };
           current.updateStreamingMessage(() => nextStreamingMessage, { immediate: true });
           setRunLoopError(null);
@@ -345,6 +363,7 @@ export function useChatRunLoop(params: {
         applyChatRuntimeDelta: current.applyChatRuntimeDelta,
         recordSpeak: current.recordSpeak,
         getCooldownMap: () => useSchedulerStore.getState().lastSpeakTimestamps,
+        resolveSessionEngine: loadSessionEngine,
         signal: abortController.signal,
       });
     } finally {
@@ -421,7 +440,11 @@ export function useChatRunLoop(params: {
     if (startDelayMs <= 0) {
       void run(newLoopToken);
     } else {
-      window.setTimeout(() => void run(newLoopToken), startDelayMs);
+      const timer = window.setTimeout(() => {
+        pendingStartTimerByLoopTokenRef.current.delete(newLoopToken);
+        void run(newLoopToken);
+      }, startDelayMs);
+      pendingStartTimerByLoopTokenRef.current.set(newLoopToken, timer);
     }
     return null;
   }, []);
@@ -440,7 +463,12 @@ export function useChatRunLoop(params: {
     }, 'info');
     activeAbortControllerRef.current?.abort();
     activeRunLoopTokenRef.current = null;
-    if (loopToken) pendingStartChatByLoopTokenRef.current.delete(loopToken);
+    if (loopToken) {
+      const pendingTimer = pendingStartTimerByLoopTokenRef.current.get(loopToken);
+      if (pendingTimer) window.clearTimeout(pendingTimer);
+      pendingStartTimerByLoopTokenRef.current.delete(loopToken);
+      pendingStartChatByLoopTokenRef.current.delete(loopToken);
+    }
     current.loopTokenRef.current = null;
     current.isRunningRef.current = false;
     current.isPausedRef.current = true;
@@ -456,6 +484,8 @@ export function useChatRunLoop(params: {
     activeAbortControllerRef.current?.abort();
     activeAbortControllerRef.current = null;
     activeRunLoopTokenRef.current = null;
+    pendingStartTimerByLoopTokenRef.current.forEach((timer) => window.clearTimeout(timer));
+    pendingStartTimerByLoopTokenRef.current.clear();
     pendingStartChatByLoopTokenRef.current.clear();
     setThinkingId(null);
     setChatError(null);

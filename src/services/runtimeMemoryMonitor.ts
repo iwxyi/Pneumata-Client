@@ -727,6 +727,16 @@ function sizeChatRuntimeFields(chat: GroupChat | null | undefined) {
 }
 
 function sizeChatPatchRuntimeFields(patch: Partial<GroupChat> | null | undefined) {
+  if (!isRuntimeMemoryMonitorVerbose()) {
+    return {
+      patchWorldStateJson: 0,
+      patchRuntimeSeedJson: 0,
+      patchLayeredMemoriesJson: 0,
+      patchRuntimeTimelineJson: 0,
+      patchRuntimeEventsV2Json: 0,
+      patchRelationshipLedgerJson: 0,
+    };
+  }
   return {
     patchWorldStateJson: safeJsonSize(patch?.worldState),
     patchRuntimeSeedJson: safeJsonSize(patch?.runtimeSeed),
@@ -738,6 +748,13 @@ function sizeChatPatchRuntimeFields(patch: Partial<GroupChat> | null | undefined
 }
 
 function sizeRuntimeDelta(delta: DriverMessageCommitTransition['chatRuntimeDelta'] | null | undefined) {
+  if (!isRuntimeMemoryMonitorVerbose()) {
+    return {
+      runtimeDeltaJson: 0,
+      runtimeDeltaEventsJson: 0,
+      runtimeDeltaLedgerJson: 0,
+    };
+  }
   return {
     runtimeDeltaJson: safeJsonSize(delta),
     runtimeDeltaEventsJson: safeJsonSize(delta?.runtimeEventsV2),
@@ -766,10 +783,10 @@ export function summarizeRuntimeMemoryState(params: {
       chatJson: verbose ? safeJsonSize(params.chat) : 0,
       charactersJson: verbose ? safeJsonSize(params.characters) : 0,
       messagesJson: verbose ? safeJsonSize(params.messages) : 0,
-      transitionJson: safeJsonSize(transition),
-      chatPatchJson: safeJsonSize(transition?.chatPatch),
-      characterPatchesJson: safeJsonSize(transition?.characterPatches),
-      runtimeEventsJson: safeJsonSize(transition?.runtimeEvents),
+      transitionJson: verbose ? safeJsonSize(transition) : 0,
+      chatPatchJson: verbose ? safeJsonSize(transition?.chatPatch) : 0,
+      characterPatchesJson: verbose ? safeJsonSize(transition?.characterPatches) : 0,
+      runtimeEventsJson: verbose ? safeJsonSize(transition?.runtimeEvents) : 0,
       ...sizeChatRuntimeFields(params.chat),
       ...sizeChatPatchRuntimeFields(transition?.chatPatch),
       ...sizeRuntimeDelta(transition?.chatRuntimeDelta),

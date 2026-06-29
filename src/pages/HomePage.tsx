@@ -14,12 +14,13 @@ import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
 import SyncProblemIcon from '@mui/icons-material/SyncProblem';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
-import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useMessageStore } from '../stores/useMessageStore';
+import type { SyncScopeSnapshot } from '../stores/syncScopeMetadata';
 import { hasUsableDefaultTextAI } from '../types/settings';
 import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
@@ -27,15 +28,16 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import PageSection from '../components/common/PageSection';
 import SectionHeader from '../components/common/SectionHeader';
 import { avatarGenerationQueue, type AvatarGenerationQueueSummary } from '../services/avatarGenerationQueue';
-import { buildHomeCompanionshipSnapshot } from '../services/companionshipProjection';
+import type { HomeCompanionshipSnapshot } from '../services/companionshipProjection';
 import { shouldShowCompanionshipStatusHints } from '../services/companionshipStatusVisibility';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
 import { buildHomeSyncOverview } from '../services/homeSyncOverview';
-import { buildLocalOutboxProjection } from '../services/localOutboxProjection';
+import { buildLocalOutboxProjection, type LocalOutboxArtifactJobLike } from '../services/localOutboxProjection';
 import { mirrorLocalOutboxQueues } from '../services/localOutboxMirror';
 import { api } from '../services/api';
 import { getRegisteredSyncWorkerEntries } from '../stores/storeSyncScheduler';
 import { motion, transition } from '../styles/motion';
+import { formatAiAmount } from '../utils/aiPoints';
 
 interface HomeOverviewCard {
   label: string;
@@ -50,6 +52,32 @@ interface HomeOverviewCard {
 
 type OfficialBalanceProvider = 'official-deepseek' | 'official-gpt';
 
+interface ArtifactHomeState {
+  jobs: LocalOutboxArtifactJobLike[];
+  syncScopes: SyncScopeSnapshot[];
+}
+
+interface ArtifactStoreSnapshotLike {
+  jobs: Array<{
+    id: string;
+    kind: string;
+    characterId: string;
+    dateKey?: string | null;
+    sourceKey?: string | null;
+    createdAt: number;
+    status: string;
+    attempts: number;
+    error?: string | null;
+    updatedAt: number;
+  }>;
+  getSyncScopeStates: () => SyncScopeSnapshot[];
+}
+
+const EMPTY_ARTIFACT_HOME_STATE: ArtifactHomeState = {
+  jobs: [],
+  syncScopes: [],
+};
+
 const OFFICIAL_BALANCE_PROVIDERS: Array<{
   key: OfficialBalanceProvider;
   backendProvider: 'deepseek' | 'api2d';
@@ -63,10 +91,6 @@ function normalizeOfficialBalanceProvider(provider: string): OfficialBalanceProv
   if (provider === 'official-deepseek') return 'official-deepseek';
   if (provider === 'official' || provider === 'official-gpt') return 'official-gpt';
   return null;
-}
-
-function formatAiPointValue(value: number) {
-  return `${Number(value.toFixed(6))}P`;
 }
 
 function buildStatGridSx() {
@@ -256,20 +280,129 @@ function buildGridSx(columns?: { xs: string; sm: string; lg?: string; xl?: strin
   };
 }
 
+function projectArtifactHomeState(state: ArtifactStoreSnapshotLike): ArtifactHomeState {
+  return {
+    jobs: state.jobs.map((job) => ({
+      id: job.id,
+      kind: job.kind,
+      characterId: job.characterId,
+      dateKey: job.dateKey,
+      sourceKey: job.sourceKey,
+      createdAt: job.createdAt,
+      status: job.status,
+      attempts: job.attempts,
+      error: job.error,
+      updatedAt: job.updatedAt,
+    })),
+    syncScopes: state.getSyncScopeStates(),
+  };
+}
+
+function areArtifactJobsEqual(a: LocalOutboxArtifactJobLike[], b: LocalOutboxArtifactJobLike[]) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => {
+    const other = b[index];
+    return Boolean(other)
+      && item.id === other.id
+      && item.kind === other.kind
+      && item.characterId === other.characterId
+      && item.dateKey === other.dateKey
+      && item.sourceKey === other.sourceKey
+      && item.createdAt === other.createdAt
+      && item.status === other.status
+      && item.attempts === other.attempts
+      && item.error === other.error
+      && item.updatedAt === other.updatedAt;
+  });
+}
+
+function areSyncScopeSnapshotsEqual(a: SyncScopeSnapshot[], b: SyncScopeSnapshot[]) {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => {
+    const other = b[index];
+    return Boolean(other)
+      && item.scope === other.scope
+      && item.lastCheckedAt === other.lastCheckedAt
+      && item.lastAppliedAt === other.lastAppliedAt
+      && item.cursor === other.cursor
+      && item.revision === other.revision
+      && item.lastError === other.lastError
+      && item.errorCount === other.errorCount
+      && item.retryAt === other.retryAt
+      && item.inflight === other.inflight;
+  });
+}
+
+function areArtifactHomeStatesEqual(a: ArtifactHomeState, b: ArtifactHomeState) {
+  return areArtifactJobsEqual(a.jobs, b.jobs) && areSyncScopeSnapshotsEqual(a.syncScopes, b.syncScopes);
+}
+
+function scheduleIdleTask(callback: () => void, timeout = 1200) {
+  const scheduler = (window as typeof window & {
+    requestIdleCallback?: (idleCallback: () => void, options?: { timeout: number }) => number;
+    cancelIdleCallback?: (id: number) => void;
+  }).requestIdleCallback;
+  if (typeof scheduler === 'function') {
+    const idleHandle = scheduler(callback, { timeout });
+    return () => window.cancelIdleCallback?.(idleHandle);
+  }
+  const timeoutHandle = window.setTimeout(callback, Math.min(timeout, 400));
+  return () => window.clearTimeout(timeoutHandle);
+}
+
+function useDeferredArtifactHomeState() {
+  const [artifactState, setArtifactState] = useState<ArtifactHomeState>(EMPTY_ARTIFACT_HOME_STATE);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe: (() => void) | undefined;
+    const cancelScheduled = scheduleIdleTask(() => {
+      void import('../stores/useCharacterArtifactStore').then(({ useCharacterArtifactStore }) => {
+        if (cancelled) return;
+        const applyNextState = (nextState: ArtifactHomeState) => {
+          setArtifactState((prev) => areArtifactHomeStatesEqual(prev, nextState) ? prev : nextState);
+        };
+        applyNextState(projectArtifactHomeState(useCharacterArtifactStore.getState()));
+        unsubscribe = useCharacterArtifactStore.subscribe((state) => {
+          applyNextState(projectArtifactHomeState(state));
+        });
+      });
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+      cancelScheduled();
+    };
+  }, []);
+
+  return artifactState;
+}
+
 export default function HomePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { chats, prefetchChats, markChatsWarm, pendingOperations: chatPendingOperations, getSyncScopeStates: getChatSyncScopeStates } = useChatStore();
-  const { characters, prefetchCharacters, markCharactersWarm, pendingOperations: characterPendingOperations, getSyncScopeStates: getCharacterSyncScopeStates } = useCharacterStore();
+  const { chats, prefetchChats, markChatsWarm, pendingOperations: chatPendingOperations, getSyncScopeStates: getChatSyncScopeStates } = useChatStore(useShallow((state) => ({
+    chats: state.chats,
+    prefetchChats: state.prefetchChats,
+    markChatsWarm: state.markChatsWarm,
+    pendingOperations: state.pendingOperations,
+    getSyncScopeStates: state.getSyncScopeStates,
+  })));
+  const { characters, prefetchCharacters, markCharactersWarm, pendingOperations: characterPendingOperations, getSyncScopeStates: getCharacterSyncScopeStates } = useCharacterStore(useShallow((state) => ({
+    characters: state.characters,
+    prefetchCharacters: state.prefetchCharacters,
+    markCharactersWarm: state.markCharactersWarm,
+    pendingOperations: state.pendingOperations,
+    getSyncScopeStates: state.getSyncScopeStates,
+  })));
   const aiProfiles = useSettingsStore((state) => state.aiProfiles);
   const usageStats = useSettingsStore((state) => state.usageStats);
-  const messages = useMessageStore((state) => state.messages);
-  const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
   const messagePendingOperations = useMessageStore((state) => state.pendingOperations);
   const getMessageSyncScopeStates = useMessageStore((state) => state.getSyncScopeStates);
   const developerMode = useSettingsStore((state) => state.developerMode);
-  const artifactJobs = useCharacterArtifactStore((state) => state.jobs);
-  const getArtifactSyncScopeStates = useCharacterArtifactStore((state) => state.getSyncScopeStates);
+  const { jobs: artifactJobs, syncScopes: artifactSyncScopes } = useDeferredArtifactHomeState();
   const getSettingsSyncScopeStates = useSettingsStore((state) => state.getSyncScopeStates);
   const activeDiaryJobs = artifactJobs.filter((job) => job.kind === 'diary' && (job.status === 'pending' || job.status === 'running')).length;
   const authMode = useAuthStore((state) => state.authMode);
@@ -278,6 +411,15 @@ export default function HomePage() {
   const [cloudSyncEnabled, setCloudSyncEnabledState] = useState(() => isCloudSyncEnabled());
   const [workerEntries, setWorkerEntries] = useState(() => getRegisteredSyncWorkerEntries());
   const [aiBalances, setAiBalances] = useState<Partial<Record<OfficialBalanceProvider, number | null>>>({});
+  const [companionshipSnapshot, setCompanionshipSnapshot] = useState<HomeCompanionshipSnapshot | null>(null);
+  const recentChats = useMemo(() => chats.slice(0, 10), [chats]);
+  const recentChatIds = useMemo(() => new Set(recentChats.map((chat) => chat.id)), [recentChats]);
+  const recentActiveMessages = useMessageStore(useShallow((state) => (
+    state.messages.filter((message) => recentChatIds.has(message.chatId)).slice(-60)
+  )));
+  const recentWindowMessages = useMessageStore(useShallow((state) => (
+    recentChats.flatMap((chat) => (state.messageWindowsByChatId[chat.id]?.messages || []).slice(-20))
+  )));
 
   useEffect(() => {
     markChatsWarm();
@@ -317,7 +459,6 @@ export default function HomePage() {
     };
   }, []);
 
-  const recentChats = chats.slice(0, 10);
   const customCharacters = characters.filter((character) => !character.isPreset);
   const totalDirectChats = chats.filter((chat) => chat.type === 'direct' || chat.type === 'ai_direct').length;
   const totalGroupChats = chats.filter((chat) => chat.type === 'group').length;
@@ -337,35 +478,52 @@ export default function HomePage() {
   const canQueryAiPoints = !needsLogin && enabledOfficialBalanceProviders.length > 0;
   const needsOwnCharacter = characters.length > 0 && customCharacters.length === 0;
   const hasActiveAvatarTasks = avatarQueueSummary.active > 0;
-  const knownMessages = useMemo(() => {
-    const recentChatIds = new Set(recentChats.map((chat) => chat.id));
-    return [
-      ...messages.filter((message) => recentChatIds.has(message.chatId)).slice(-60),
-      ...recentChats.flatMap((chat) => (messageWindowsByChatId[chat.id]?.messages || []).slice(-20)),
-    ];
-  }, [messageWindowsByChatId, messages, recentChats]);
-  const localKnownAiMessageCount = useMemo(() => {
+  const knownMessages = useMemo(() => [
+    ...recentActiveMessages,
+    ...recentWindowMessages,
+  ], [recentActiveMessages, recentWindowMessages]);
+  const recentKnownAiMessageCount = useMemo(() => {
     const keys = new Set<string>();
-    const collect = (message: typeof messages[number]) => {
+    const collect = (message: typeof knownMessages[number]) => {
       if (message.type !== 'ai' || message.isDeleted) return;
       keys.add(message.clientKey || message.serverId || message.id);
     };
-    messages.forEach(collect);
-    Object.values(messageWindowsByChatId).forEach((window) => {
-      (window.messages || []).forEach(collect);
-    });
+    knownMessages.forEach(collect);
     return keys.size;
-  }, [messageWindowsByChatId, messages]);
-  const aiMessageCount = Math.max(usageStats?.aiMessageCount || 0, localKnownAiMessageCount);
+  }, [knownMessages]);
+  const aiMessageCount = Math.max(usageStats?.aiMessageCount || 0, recentKnownAiMessageCount);
   const companionshipSettings = useSettingsStore((state) => state.companionship);
   const showCompanionshipStatusHints = shouldShowCompanionshipStatusHints(companionshipSettings);
-  const companionshipSnapshot = showCompanionshipStatusHints
-    ? buildHomeCompanionshipSnapshot({
-      chats: recentChats,
-      characters,
-      messages: knownMessages,
-    })
-    : null;
+  useEffect(() => {
+    if (!showCompanionshipStatusHints) {
+      setCompanionshipSnapshot(null);
+      return undefined;
+    }
+    let cancelled = false;
+    const now = Date.now();
+    const buildSnapshot = () => {
+      void import('../services/companionshipProjection').then(({ buildHomeCompanionshipSnapshot }) => {
+        if (cancelled) return;
+        setCompanionshipSnapshot(buildHomeCompanionshipSnapshot({
+          chats: recentChats,
+          characters,
+          messages: knownMessages,
+          now,
+        }));
+      });
+    };
+    const scheduler = (window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    }).requestIdleCallback;
+    const idleHandle = typeof scheduler === 'function' ? scheduler(buildSnapshot, { timeout: 1800 }) : null;
+    const timeoutHandle = idleHandle == null ? window.setTimeout(buildSnapshot, 900) : null;
+    return () => {
+      cancelled = true;
+      if (idleHandle != null) window.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle != null) window.clearTimeout(timeoutHandle);
+    };
+  }, [characters, knownMessages, recentChats, showCompanionshipStatusHints]);
   const syncOverview = useMemo(() => buildHomeSyncOverview({
     cloudSyncAvailable: !needsLogin,
     cloudSyncEnabled,
@@ -380,7 +538,7 @@ export default function HomePage() {
       ...getCharacterSyncScopeStates(),
       ...getChatSyncScopeStates(),
       ...getMessageSyncScopeStates(),
-      ...getArtifactSyncScopeStates(),
+      ...artifactSyncScopes,
       ...getSettingsSyncScopeStates(),
     ],
     workerEntries,
@@ -389,7 +547,7 @@ export default function HomePage() {
     characterPendingOperations,
     chatPendingOperations,
     cloudSyncEnabled,
-    getArtifactSyncScopeStates,
+    artifactSyncScopes,
     getCharacterSyncScopeStates,
     getChatSyncScopeStates,
     getMessageSyncScopeStates,
@@ -411,25 +569,35 @@ export default function HomePage() {
     setAiBalances((prev) => Object.fromEntries(
       Object.entries(prev).filter(([providerKey]) => activeProviderKeys.has(providerKey as OfficialBalanceProvider)),
     ) as Partial<Record<OfficialBalanceProvider, number | null>>);
-    enabledOfficialBalanceProviders.forEach((provider) => {
-      api.getAiBalance(provider.backendProvider)
-        .then((balance) => {
-          const raw = balance.availableBalance ?? balance.available_balance;
-          if (!cancelled) {
-            setAiBalances((prev) => ({
-              ...prev,
-              [provider.key]: typeof raw === 'number' && Number.isFinite(raw) ? raw : null,
-            }));
-          }
-        })
-        .catch(() => {
-          if (!cancelled) {
-            setAiBalances((prev) => ({ ...prev, [provider.key]: null }));
-          }
-        });
-    });
+    const loadBalances = () => {
+      enabledOfficialBalanceProviders.forEach((provider) => {
+        api.getAiBalance(provider.backendProvider)
+          .then((balance) => {
+            const raw = balance.availableBalance ?? balance.available_balance;
+            if (!cancelled) {
+              setAiBalances((prev) => ({
+                ...prev,
+                [provider.key]: typeof raw === 'number' && Number.isFinite(raw) ? raw : null,
+              }));
+            }
+          })
+          .catch(() => {
+            if (!cancelled) {
+              setAiBalances((prev) => ({ ...prev, [provider.key]: null }));
+            }
+          });
+      });
+    };
+    const scheduler = (window as typeof window & {
+      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    }).requestIdleCallback;
+    const idleHandle = typeof scheduler === 'function' ? scheduler(loadBalances, { timeout: 2400 }) : null;
+    const timeoutHandle = idleHandle == null ? window.setTimeout(loadBalances, 1200) : null;
     return () => {
       cancelled = true;
+      if (idleHandle != null) window.cancelIdleCallback?.(idleHandle);
+      if (timeoutHandle != null) window.clearTimeout(timeoutHandle);
     };
   }, [canQueryAiPoints, enabledOfficialBalanceProviders]);
 
@@ -554,7 +722,7 @@ export default function HomePage() {
       if (balance === null || balance === undefined) return [];
       return [{
         label: provider.label,
-        value: formatAiPointValue(balance),
+        value: formatAiAmount(balance, provider.backendProvider, { compact: true }),
         icon: <AutoAwesomeIcon />,
         color: 'primary.main',
         onOpen: () => navigate('/models'),

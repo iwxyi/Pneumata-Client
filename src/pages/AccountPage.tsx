@@ -9,7 +9,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useMessageStore } from '../stores/useMessageStore';
-import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
+import { ensureCharacterArtifactStoreHydrated, useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import { scheduleSyncWorkersByPriority } from '../stores/storeSyncScheduler';
 import AppSnackbar from '../components/common/AppSnackbar';
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -17,6 +17,7 @@ import { isCloudSyncEnabled, setCloudSyncEnabled } from '../services/cloudSyncPr
 import { bootstrapLocalDataToCloud, captureLocalCloudBootstrapSnapshot } from '../services/localToCloudBootstrap';
 import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
 import { api } from '../services/api';
+import { formatAiBalanceAmount } from '../utils/aiPoints';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 512;
@@ -31,7 +32,7 @@ function formatSyncTime(value?: number, fallback?: string) {
 function formatAiPoints(balance: Record<string, unknown> | null, loading: boolean, zh: boolean) {
   if (loading) return zh ? 'AI点数：刷新中' : 'AI points: refreshing';
   const raw = balance?.availableBalance ?? balance?.available_balance;
-  if (typeof raw === 'number' && Number.isFinite(raw)) return zh ? `AI点数：${raw}P` : `AI points: ${raw}P`;
+  if (typeof raw === 'number' && Number.isFinite(raw)) return zh ? `AI点数：${formatAiBalanceAmount(balance)}` : `AI points: ${formatAiBalanceAmount(balance)}`;
   return zh ? 'AI点数：未分配点数' : 'AI points: not assigned';
 }
 
@@ -84,11 +85,25 @@ export default function AccountPage() {
   const navigate = useNavigate();
   const { setHeaderTitle, setHeaderBackAction, setHeaderActions } = useLayoutHeaderActions();
   const { user, authMode, updateProfile, sendChangePhoneCode, changePhone, logout } = useAuthStore();
-  const chatStore = useChatStore();
-  const characterStore = useCharacterStore();
-  const settingsStore = useSettingsStore();
-  const messageStore = useMessageStore();
-  const artifactStore = useCharacterArtifactStore();
+  const retryChatFailedOperations = useChatStore((state) => state.retryFailedOperations);
+  const refreshChatSummaryFromCloud = useChatStore((state) => state.refreshChatSummaryFromCloud);
+  const markChatsWarm = useChatStore((state) => state.markChatsWarm);
+  const prefetchChats = useChatStore((state) => state.prefetchChats);
+  const chatLastSyncedAt = useChatStore((state) => state.lastSyncedAt);
+  const chatPendingOperationCount = useChatStore((state) => state.pendingOperations.length);
+  const retryCharacterFailedOperations = useCharacterStore((state) => state.retryFailedOperations);
+  const refreshCharacterSummaryFromCloud = useCharacterStore((state) => state.refreshCharacterSummaryFromCloud);
+  const markCharactersWarm = useCharacterStore((state) => state.markCharactersWarm);
+  const prefetchCharacters = useCharacterStore((state) => state.prefetchCharacters);
+  const characterLastSyncedAt = useCharacterStore((state) => state.lastSyncedAt);
+  const characterPendingOperationCount = useCharacterStore((state) => state.pendingOperations.length);
+  const loadSettings = useSettingsStore((state) => state.loadSettings);
+  const settingsLastSyncedAt = useSettingsStore((state) => state.lastSyncedAt);
+  const retryMessageFailedOperations = useMessageStore((state) => state.retryFailedOperations);
+  const latestMessageSync = useMessageStore((state) => Object.values(state.messageWindowsByChatId || {}).reduce<number>((latest, item) => (
+    Math.max(latest, item.lastSyncedAt || 0)
+  ), 0));
+  const resumeArtifactProcessing = useCharacterArtifactStore((state) => state.resumeProcessing);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [nickname, setNickname] = useState(user?.nickname || '');
   const [avatar, setAvatar] = useState(user?.avatar || '🍵');
@@ -169,10 +184,6 @@ export default function AccountPage() {
     };
   }, [navigate, setHeaderActions, setHeaderBackAction, setHeaderTitle, t]);
 
-  const latestMessageSync = Object.values(messageStore.messageWindowsByChatId || {}).reduce<number>((latest, item) => {
-    return Math.max(latest, item.lastSyncedAt || 0);
-  }, 0);
-
   const handleUploadAll = async () => {
     if (authMode === 'local') {
       navigate('/login');
@@ -188,11 +199,12 @@ export default function AccountPage() {
     }
     setSyncingAll(true);
     try {
-      chatStore.retryFailedOperations();
-      characterStore.retryFailedOperations();
-      messageStore.retryFailedOperations();
+      retryChatFailedOperations();
+      retryCharacterFailedOperations();
+      retryMessageFailedOperations();
       scheduleSyncWorkersByPriority(0);
-      void artifactStore.resumeProcessing();
+      await ensureCharacterArtifactStoreHydrated();
+      void resumeArtifactProcessing();
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已安排后台上传待同步数据' : 'Queued pending uploads in the background', severity: 'success' });
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
@@ -216,11 +228,11 @@ export default function AccountPage() {
     }
     setSyncingAll(true);
     try {
-      chatStore.markChatsWarm();
-      characterStore.markCharactersWarm();
-      void chatStore.refreshChatSummaryFromCloud();
-      void characterStore.refreshCharacterSummaryFromCloud();
-      void settingsStore.loadSettings();
+      markChatsWarm();
+      markCharactersWarm();
+      void refreshChatSummaryFromCloud();
+      void refreshCharacterSummaryFromCloud();
+      void loadSettings();
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '已安排后台拉取云端摘要' : 'Queued cloud summary refresh in the background', severity: 'success' });
     } catch (error) {
       setSnackbar({ open: true, message: error instanceof Error ? error.message : t('common.error'), severity: 'error' });
@@ -432,11 +444,11 @@ export default function AccountPage() {
     try {
       const snapshot = await captureLocalCloudBootstrapSnapshot();
       await runWithCloudSyncBootstrapLock(() => bootstrapLocalDataToCloud(snapshot));
-      chatStore.markChatsWarm();
-      characterStore.markCharactersWarm();
-      void chatStore.prefetchChats();
-      void characterStore.prefetchCharacters();
-      void settingsStore.loadSettings();
+      markChatsWarm();
+      markCharactersWarm();
+      void prefetchChats();
+      void prefetchCharacters();
+      void loadSettings();
       setSnackbar({
         open: true,
         message: i18n.language.startsWith('zh') ? '已开启云同步，并完成本地与云端数据准备。' : 'Cloud sync is on. Local and cloud data are prepared.',
@@ -567,20 +579,20 @@ export default function AccountPage() {
                   : (i18n.language.startsWith('zh') ? '云同步已关闭，当前设备只读写本地缓存，不会自动访问云端数据接口。' : 'Cloud sync is off. This device uses local cache only and will not automatically call cloud data APIs.')}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {i18n.language.startsWith('zh') ? '设置同步' : 'Settings sync'}：{formatSyncTime(settingsStore.lastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
+              {i18n.language.startsWith('zh') ? '设置同步' : 'Settings sync'}：{formatSyncTime(settingsLastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {i18n.language.startsWith('zh') ? '群聊同步' : 'Chats sync'}：{formatSyncTime(chatStore.lastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
+              {i18n.language.startsWith('zh') ? '群聊同步' : 'Chats sync'}：{formatSyncTime(chatLastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {i18n.language.startsWith('zh') ? '角色同步' : 'Characters sync'}：{formatSyncTime(characterStore.lastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
+              {i18n.language.startsWith('zh') ? '角色同步' : 'Characters sync'}：{formatSyncTime(characterLastSyncedAt, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {i18n.language.startsWith('zh') ? '消息缓存刷新' : 'Message cache refresh'}：{formatSyncTime(latestMessageSync, i18n.language.startsWith('zh') ? '未同步' : 'Not synced')}
             </Typography>
-            {'pendingOperations' in characterStore || 'pendingOperations' in chatStore ? (
+            {characterPendingOperationCount + chatPendingOperationCount > 0 ? (
               <Typography variant="body2" color="text.secondary">
-                {i18n.language.startsWith('zh') ? '待同步编辑操作' : 'Queued edit sync operations'}：{[((characterStore as { pendingOperations?: unknown[] }).pendingOperations || []).length + ((chatStore as { pendingOperations?: unknown[] }).pendingOperations || []).length]}
+                {i18n.language.startsWith('zh') ? '待同步编辑操作' : 'Queued edit sync operations'}：{characterPendingOperationCount + chatPendingOperationCount}
               </Typography>
             ) : null}
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>

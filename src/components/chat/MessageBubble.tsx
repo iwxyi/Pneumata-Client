@@ -1,8 +1,12 @@
-import { useMemo, useRef, useState } from 'react';
-import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, DialogActions, Menu, MenuItem, Tooltip, Divider, Button, TextField, Stack, IconButton } from '@mui/material';
+import { memo, useMemo, useRef, useState } from 'react';
+import { Box, Typography, Avatar, Dialog, DialogContent, DialogTitle, DialogActions, Menu, MenuItem, Tooltip, Divider, Button, TextField, Stack, IconButton, ListItemIcon } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
+import InsightsIcon from '@mui/icons-material/Insights';
+import RateReviewIcon from '@mui/icons-material/RateReview';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message, MessageAttachment } from '../../types/message';
 import type { AICharacter } from '../../types/character';
@@ -11,13 +15,12 @@ import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bub
 import { isImageAvatar } from '../../utils/avatar';
 import { rememberFailedAvatarUrl, resolveSafeAvatarSrc } from '../../utils/avatarFallback';
 import { formatTimestamp } from '../../utils/format';
-import { buildGenerationRuntimeDebugRows } from '../../services/generationRuntimePresentation';
 import { MessageContent, NarrativeParagraphContent, PendingTypingDots } from './ChatMessageContent';
 import DebugChip from '../common/DebugChip';
 import AppSnackbar from '../common/AppSnackbar';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import { copyTextToClipboard } from '../../utils/clipboard';
-import { getNarrativeDisplayBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
+import { getNarrativeDisplayBlocks, hasNarrativeReaderBlocks, isNarrativeParagraphMessage, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 
 interface MessageBubbleProps {
   message: Message;
@@ -62,7 +65,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-export default function MessageBubble({ message, character, characters = [], onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onSwitchRevision }: MessageBubbleProps) {
+function MessageBubble({ message, character, characters = [], onDelete, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onSwitchRevision }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -70,14 +73,12 @@ export default function MessageBubble({ message, character, characters = [], onD
   const compactPrivateBubbleMode = useSettingsStore((state) => state.compactPrivateBubbleMode);
   const chatAppearance = useSettingsStore((state) => state.chatAppearance);
   const developerMode = useSettingsStore((state) => state.developerMode);
-  const showMemoryDebug = useSettingsStore((state) => state.developerUI.showMemoryDebug);
-  const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
   const showWithdrawnMessageContent = useSettingsStore((state) => state.developerUI.showWithdrawnMessageContent);
   const navigate = useNavigate();
   const location = useLocation();
   const [viewerOpen, setViewerOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
-  const [feedbackAnchorEl, setFeedbackAnchorEl] = useState<HTMLElement | null>(null);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [revisionEditorOpen, setRevisionEditorOpen] = useState(false);
   const [revisionDraft, setRevisionDraft] = useState(message.content);
@@ -100,7 +101,6 @@ export default function MessageBubble({ message, character, characters = [], onD
   };
 
   const closeMenus = () => {
-    setFeedbackAnchorEl(null);
     setMenuPosition(null);
   };
 
@@ -143,6 +143,12 @@ export default function MessageBubble({ message, character, characters = [], onD
     closeMenus();
   };
 
+  const openFeedbackDialog = () => {
+    if (!canFeedback) return;
+    closeMenus();
+    setFeedbackDialogOpen(true);
+  };
+
   const openRevisionEditor = () => {
     if (!canEditRevision) return;
     setRevisionDraft(message.content);
@@ -162,7 +168,7 @@ export default function MessageBubble({ message, character, characters = [], onD
 
   const handleExpressionFeedback = (kind: ExpressionFeedbackKind) => {
     if (onExpressionFeedback) onExpressionFeedback(message, kind);
-    closeMenus();
+    setFeedbackDialogOpen(false);
   };
 
   const handleAvatarClick = (event: React.MouseEvent<HTMLElement>) => {
@@ -247,7 +253,8 @@ export default function MessageBubble({ message, character, characters = [], onD
   const useNarrativeParagraph = !isFinalWithdrawn && (!pending || isNarrativeParagraphMessage(message));
   const narrativeParagraphBlocks = useNarrativeParagraph ? getNarrativeDisplayBlocks(message) : [];
   const contentMaxWidth = chatAppearance.maxContentWidthUnlimited ? '100%' : chatAppearance.maxContentWidth;
-  if (narrativeParagraphBlocks.length || (pending && useNarrativeParagraph)) {
+  const shouldRenderNarrativeReader = hasNarrativeReaderBlocks(narrativeParagraphBlocks);
+  if (shouldRenderNarrativeReader || (pending && useNarrativeParagraph)) {
     const narrativeCharacters = characters.length ? characters : effectiveCharacter ? [effectiveCharacter] : [];
     const storyReaderFontFamily = chatAppearance.storyReader.fontFamily === 'serif'
       ? 'Georgia, "Times New Roman", "Noto Serif SC", "Songti SC", serif'
@@ -294,7 +301,7 @@ export default function MessageBubble({ message, character, characters = [], onD
         {!isUser ? (
           <Box onClick={handleAvatarClick} sx={{ cursor: message.type === 'ai' && !pending ? 'pointer' : 'default', flexShrink: 0 }}>
             {avatar && isImageAvatar(avatar) ? (
-              <Avatar src={resolveSafeAvatarSrc(avatar)} alt={message.senderName} slotProps={{ img: { onError: () => rememberFailedAvatarUrl(avatar) } }} sx={{ width: 38, height: 38 }} />
+              <Avatar src={resolveSafeAvatarSrc(avatar)} alt={message.senderName} slotProps={{ img: { loading: 'lazy', decoding: 'async', onError: () => rememberFailedAvatarUrl(avatar) } }} sx={{ width: 38, height: 38 }} />
             ) : (
               <Avatar sx={{ width: 38, height: 38, bgcolor: resolvedStyle?.backgroundColor || 'primary.main' }}>{message.senderName.slice(0, 1)}</Avatar>
             )}
@@ -302,34 +309,37 @@ export default function MessageBubble({ message, character, characters = [], onD
         ) : null}
 
         <Box sx={{ maxWidth: contentMaxWidth, minWidth: 0, display: 'grid', gap: 0.35, justifyItems: isUser ? 'end' : 'start' }}>
-          <Tooltip title={formatTimestamp(message.timestamp)} placement="top" arrow>
-            <Stack direction="row" spacing={0.5} sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', maxWidth: '100%', alignItems: 'center' }}>
-              <Typography variant="caption" sx={{ fontWeight: 500, textAlign: isUser ? 'right' : 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {message.senderName}
-              </Typography>
-              {branchVersionInfo && branchVersionInfo.total > 1 && onSwitchRevision ? (
-                <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0, alignItems: 'center' }}>
-                  <Tooltip title="上一版" arrow>
-                    <span>
-                      <IconButton size="small" disabled={branchVersionInfo.index <= 1} onClick={() => onSwitchRevision(message, -1)} sx={{ width: 22, height: 22 }}>
-                        <ChevronLeftIcon fontSize="inherit" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                  <Typography variant="caption" sx={{ fontWeight: 700, minWidth: 24, textAlign: 'center' }}>
-                    {branchVersionInfo.index}/{branchVersionInfo.total}
-                  </Typography>
-                  <Tooltip title="下一版" arrow>
-                    <span>
-                      <IconButton size="small" disabled={branchVersionInfo.index >= branchVersionInfo.total} onClick={() => onSwitchRevision(message, 1)} sx={{ width: 22, height: 22 }}>
-                        <ChevronRightIcon fontSize="inherit" />
-                      </IconButton>
-                    </span>
-                  </Tooltip>
-                </Stack>
-              ) : null}
-            </Stack>
-          </Tooltip>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            title={formatTimestamp(message.timestamp)}
+            sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', maxWidth: '100%', alignItems: 'center' }}
+          >
+            <Typography variant="caption" sx={{ fontWeight: 500, textAlign: isUser ? 'right' : 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {message.senderName}
+            </Typography>
+            {branchVersionInfo && branchVersionInfo.total > 1 && onSwitchRevision ? (
+              <Stack direction="row" spacing={0.25} sx={{ flexShrink: 0, alignItems: 'center' }}>
+                <Tooltip title="上一版" arrow>
+                  <span>
+                    <IconButton size="small" disabled={branchVersionInfo.index <= 1} onClick={() => onSwitchRevision(message, -1)} sx={{ width: 22, height: 22 }}>
+                      <ChevronLeftIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                <Typography variant="caption" sx={{ fontWeight: 700, minWidth: 24, textAlign: 'center' }}>
+                  {branchVersionInfo.index}/{branchVersionInfo.total}
+                </Typography>
+                <Tooltip title="下一版" arrow>
+                  <span>
+                    <IconButton size="small" disabled={branchVersionInfo.index >= branchVersionInfo.total} onClick={() => onSwitchRevision(message, 1)} sx={{ width: 22, height: 22 }}>
+                      <ChevronRightIcon fontSize="inherit" />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+              </Stack>
+            ) : null}
+          </Stack>
           <Box
             {...bubbleHandlers}
             sx={{
@@ -358,7 +368,7 @@ export default function MessageBubble({ message, character, characters = [], onD
         {isUser ? (
           <Box sx={{ flexShrink: 0 }}>
             {selfAvatarValue && isImageAvatar(selfAvatarValue) ? (
-              <Avatar src={resolveSafeAvatarSrc(selfAvatarValue)} alt={selfAvatarAlt} slotProps={{ img: { onError: () => rememberFailedAvatarUrl(selfAvatarValue) } }} sx={{ width: 38, height: 38 }} />
+              <Avatar src={resolveSafeAvatarSrc(selfAvatarValue)} alt={selfAvatarAlt} slotProps={{ img: { loading: 'lazy', decoding: 'async', onError: () => rememberFailedAvatarUrl(selfAvatarValue) } }} sx={{ width: 38, height: 38 }} />
             ) : (
               <Avatar sx={{ width: 38, height: 38, bgcolor: 'primary.dark' }}>{selfAvatar}</Avatar>
             )}
@@ -388,51 +398,58 @@ export default function MessageBubble({ message, character, characters = [], onD
           },
         }}
       >
-        <MenuItem onClick={handleCopy}>复制</MenuItem>
-        {canEditRevision ? <MenuItem onClick={openRevisionEditor}><EditIcon fontSize="small" style={{ marginRight: 8 }} />重新编辑</MenuItem> : null}
-        {onAnalyze ? <MenuItem onClick={handleAnalyze}>AI分析</MenuItem> : null}
-        {canFeedback ? (
-          <MenuItem
-            onMouseEnter={(event) => setFeedbackAnchorEl(event.currentTarget)}
-            onClick={(event) => setFeedbackAnchorEl((prev) => prev ? null : event.currentTarget)}
-            sx={{ display: 'flex', justifyContent: 'space-between', gap: 2 }}
-          >
-            <Typography variant="body2">表达反馈</Typography>
-            <Typography variant="body2" color="text.secondary">›</Typography>
+        <MenuItem onClick={handleCopy}>
+          <ListItemIcon sx={{ minWidth: 32 }}><ContentCopyIcon fontSize="small" /></ListItemIcon>
+          复制
+        </MenuItem>
+        {canEditRevision ? (
+          <MenuItem onClick={openRevisionEditor}>
+            <ListItemIcon sx={{ minWidth: 32 }}><EditIcon fontSize="small" /></ListItemIcon>
+            重新编辑
           </MenuItem>
         ) : null}
-        {canDelete ? <MenuItem onClick={handleDelete}>删除</MenuItem> : null}
+        {onAnalyze ? (
+          <MenuItem onClick={handleAnalyze}>
+            <ListItemIcon sx={{ minWidth: 32 }}><InsightsIcon fontSize="small" /></ListItemIcon>
+            AI分析
+          </MenuItem>
+        ) : null}
+        {canFeedback ? (
+          <MenuItem onClick={openFeedbackDialog}>
+            <ListItemIcon sx={{ minWidth: 32 }}><RateReviewIcon fontSize="small" /></ListItemIcon>
+            表达反馈
+          </MenuItem>
+        ) : null}
+        {canDelete ? (
+          <MenuItem onClick={handleDelete}>
+            <ListItemIcon sx={{ minWidth: 32 }}><DeleteIcon fontSize="small" /></ListItemIcon>
+            删除
+          </MenuItem>
+        ) : null}
       </Menu>
-      <Menu
-        open={Boolean(feedbackAnchorEl)}
-        anchorEl={feedbackAnchorEl}
-        onClose={() => setFeedbackAnchorEl(null)}
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-        slotProps={{
-          paper: {
-            sx: {
-              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(20,22,30,0.76)',
-              backdropFilter: 'blur(24px) saturate(1.18)',
-              WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
-              border: '1px solid',
-              borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.10)' : 'rgba(226,232,240,0.12)',
-            },
-          },
-        }}
-      >
-        {EXPRESSION_FEEDBACK_MENU_GROUPS.map((group, index) => (
-          <Box key={group.key}>
-            {index > 0 ? <Divider /> : null}
-            <Box sx={{ px: 1.5, py: 0.75 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700 }}>{group.title}</Typography>
-            </Box>
-            {group.items.map((item) => (
-              <MenuItem key={item.kind} onClick={() => handleExpressionFeedback(item.kind)}>{item.label}</MenuItem>
+      <Dialog open={feedbackDialogOpen} onClose={() => setFeedbackDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>表达反馈</DialogTitle>
+        <DialogContent sx={{ pt: 0.5 }}>
+          <Stack spacing={1.25}>
+            {EXPRESSION_FEEDBACK_MENU_GROUPS.map((group, index) => (
+              <Box key={group.key}>
+                {index > 0 ? <Divider sx={{ mb: 1.25 }} /> : null}
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, mb: 0.75 }}>{group.title}</Typography>
+                <Stack spacing={0.75}>
+                  {group.items.map((item) => (
+                    <Button key={item.kind} variant="outlined" color={group.key === 'negative' ? 'warning' : 'success'} onClick={() => handleExpressionFeedback(item.kind)} sx={{ justifyContent: 'flex-start' }}>
+                      {item.label}
+                    </Button>
+                  ))}
+                </Stack>
+              </Box>
             ))}
-          </Box>
-        ))}
-      </Menu>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFeedbackDialogOpen(false)}>取消</Button>
+        </DialogActions>
+      </Dialog>
       <AppSnackbar
         open={Boolean(copyStatus)}
         autoHideDuration={1600}
@@ -465,3 +482,24 @@ export default function MessageBubble({ message, character, characters = [], onD
     </>
   );
 }
+
+function areMessageBubblePropsEqual(previous: MessageBubbleProps, next: MessageBubbleProps) {
+  return previous.message === next.message
+    && previous.character === next.character
+    && previous.characters === next.characters
+    && previous.onDelete === next.onDelete
+    && previous.onAnalyze === next.onAnalyze
+    && previous.onExpressionFeedback === next.onExpressionFeedback
+    && previous.onRetryMedia === next.onRetryMedia
+    && previous.onOpenImage === next.onOpenImage
+    && previous.onCharacterAvatarClick === next.onCharacterAvatarClick
+    && previous.pending === next.pending
+    && previous.currentUser === next.currentUser
+    && previous.selfMemberId === next.selfMemberId
+    && previous.privateConversation === next.privateConversation
+    && previous.branchVersionInfo === next.branchVersionInfo
+    && previous.onCreateRevision === next.onCreateRevision
+    && previous.onSwitchRevision === next.onSwitchRevision;
+}
+
+export default memo(MessageBubble, areMessageBubblePropsEqual);

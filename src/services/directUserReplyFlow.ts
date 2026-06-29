@@ -57,19 +57,20 @@ export async function runDirectUserReplyFlow(params: {
     void (async () => {
       const latestChat = useChatStore.getState().chats.find((item) => item.id === params.chat.id) || params.chat;
       const latestCharacter = useCharacterStore.getState().characters.find((item) => item.id === directCharacter.id) || directCharacter;
+      const recentMessages = getProjectedMessages();
       const assessmentEvents = await resolveDirectCompanionshipAssessmentEvents({
         chat: latestChat,
         character: latestCharacter,
         message: params.userMessage,
         textApiConfig,
-        recentMessages: getProjectedMessages(),
+        recentMessages,
       });
       const ritualEvents = await resolveCompanionshipRitualEventsFromDirectUserMessage({
         chat: latestChat,
         character: latestCharacter,
         message: params.userMessage,
         textApiConfig,
-        recentMessages: getProjectedMessages(),
+        recentMessages,
       });
       const baseCompanionshipEvents = [...assessmentEvents, ...ritualEvents].filter((event): event is RuntimeEventV2 => Boolean(event));
       const sharedPhraseEvents = buildSharedPhraseEventsFromCompanionshipEvents({
@@ -125,6 +126,7 @@ export async function runDirectUserReplyFlow(params: {
     import('./sessionEngineRegistry'),
   ]);
   const sessionEngine = resolveSessionEngine(params.chat);
+  const projectedMessagesForGeneration = getProjectedMessages();
 
   await generateAndCommitAiMessage({
     api: textApiConfig,
@@ -134,13 +136,13 @@ export async function runDirectUserReplyFlow(params: {
     speaker: directCharacterForGeneration,
     characters: generationCharactersForTurn,
     timestamp: params.userMessage.timestamp + 1,
-    currentMessages: getProjectedMessages(),
+    currentMessages: projectedMessagesForGeneration,
     onLocalInterception: params.onLocalInterception,
     generationContext: {
       buildPromptContext: (speaker) => sessionEngine.buildGenerationPromptContext?.({
         conversation: chatForGeneration,
         characters: generationCharactersForTurn,
-        messages: getProjectedMessages(),
+        messages: projectedMessagesForGeneration,
         speaker,
       }) || null,
     },

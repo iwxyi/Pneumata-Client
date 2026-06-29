@@ -10,6 +10,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useUIStore } from '../../stores/useUIStore';
 import Sidebar from './Sidebar';
@@ -57,7 +58,10 @@ export default function AppLayout() {
   const { isMobile, isTablet, isDesktop } = useResponsive();
   const isThreeColumn = useMediaQuery('(min-width:1280px)');
   const [detailCollapsed, setDetailCollapsed] = React.useState(readDetailCollapsedState);
-  const { sidebarOpen, setSidebarOpen } = useUIStore();
+  const { sidebarOpen, setSidebarOpen } = useUIStore(useShallow((state) => ({
+    sidebarOpen: state.sidebarOpen,
+    setSidebarOpen: state.setSidebarOpen,
+  })));
   const shouldShowMenuButton = isMobile || isTablet;
   const currentRoute = getRouteMeta(location.pathname);
   const currentTitle = t(currentRoute.titleKey);

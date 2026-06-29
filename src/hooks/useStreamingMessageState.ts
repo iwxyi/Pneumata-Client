@@ -73,7 +73,22 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
   const clearStreamingMessageRef = useCallback(() => {
     stopStreamingFlushTimer();
     const current = streamingMessageRef.current;
-    if (current) upsertMessage({ ...current, isStreaming: false });
+    if (current) {
+      const state = useMessageStore.getState();
+      const persisted = state.messageWindowsByChatId[current.chatId]?.messages.find((message) => message.id === current.id)
+        || state.messages.find((message) => message.id === current.id)
+        || null;
+      upsertMessage({
+        ...current,
+        ...(persisted || {}),
+        content: persisted?.content || current.content,
+        metadata: {
+          ...(current.metadata || {}),
+          ...(persisted?.metadata || {}),
+        },
+        isStreaming: false,
+      });
+    }
     streamingMessageRef.current = null;
     displayedStreamingMessageRef.current = null;
   }, [stopStreamingFlushTimer, upsertMessage]);
@@ -85,4 +100,3 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
     clearStreamingMessageRef,
   };
 }
-

@@ -4,6 +4,7 @@ import { isImageAvatar } from '../utils/avatar';
 import SearchIcon from '@mui/icons-material/Search';
 import ChatIcon from '@mui/icons-material/ChatBubbleOutlined';
 import { useNavigate } from 'react-router-dom';
+import { useShallow } from 'zustand/react/shallow';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
@@ -15,8 +16,11 @@ import { buildInteractiveSurfaceSx, buildListGridSx } from '../styles/interactio
 
 export default function CreateDirectChatPage() {
   const navigate = useNavigate();
-  const { characters } = useCharacterStore();
-  const { chats, addChat } = useChatStore();
+  const characters = useCharacterStore((state) => state.characters);
+  const { chats, addChat } = useChatStore(useShallow((state) => ({
+    chats: state.chats,
+    addChat: state.addChat,
+  })));
   const { setHeaderTitle, setHeaderBackAction, setHeaderActions } = useLayoutHeaderActions();
   const [search, setSearch] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);

@@ -134,6 +134,10 @@ async function readIndexedDbItem(key: string) {
   });
 }
 
+export async function readIndexedDbStorageEntryValue(key: string) {
+  return readIndexedDbItem(key);
+}
+
 async function writeIndexedDbItem(key: string, value: string) {
   const database = await openIndexedDb();
   if (!database) {

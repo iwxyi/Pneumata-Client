@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Box, Button, Chip, LinearProgress, Stack, TextField, Tooltip, Typography } from '@mui/material';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import type { MemoryItem } from '../../services/memoryTypes';
@@ -4863,8 +4864,17 @@ export function CharacterRelationshipInspector({ character }: RuntimeInsightsPan
   const characters = useCharacterStore((state) => state.characters);
   const chats = useChatStore((state) => state.chats);
   const updateChat = useChatStore((state) => state.updateChat);
-  const messages = useMessageStore((state) => state.messages);
-  const messageWindowsByChatId = useMessageStore((state) => state.messageWindowsByChatId);
+  const relatedChatIds = useMemo(() => new Set(chats
+    .filter((chat) => character.id && chat.memberIds.includes(character.id))
+    .map((chat) => chat.id)), [character.id, chats]);
+  const messages = useMessageStore(useShallow((state) => (
+    state.messages.filter((message) => relatedChatIds.has(message.chatId))
+  )));
+  const messageWindowsByChatId = useMessageStore(useShallow((state) => Object.fromEntries(
+    Array.from(relatedChatIds)
+      .map((chatId) => [chatId, state.messageWindowsByChatId[chatId]] as const)
+      .filter(([, window]) => Boolean(window)),
+  )));
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showDeveloperMemory = useSettingsStore((state) => state.developerUI.showMemoryDebug);
   const showCompanionshipDebug = useSettingsStore((state) => state.developerUI.showCompanionshipDebug);

@@ -6,6 +6,35 @@ import {
   buildMemoryReactivationMeta,
   shouldHideEmptyConflictEvent,
 } from './messageBubbleEventHelpers';
+import { buildRuntimeEvent } from '../../services/runtimeEventFactory';
+import { shouldRenderEventMessage, type EventRenderFlags } from './eventMessagePresentation';
+import type { Message } from '../../types/message';
+
+const baseEventFlags: EventRenderFlags = {
+  developerMode: false,
+  showRelationshipEvents: false,
+  showAffectEvents: false,
+  showConflictEvents: false,
+  showStateEvents: false,
+  showMemoryDistillationEvents: false,
+  showCalendarEvents: false,
+  showMemoryDebug: false,
+  showLocalInterceptionHints: false,
+};
+
+function eventMessage(content: string): Message {
+  return {
+    id: 'event-1',
+    chatId: 'chat-1',
+    type: 'event',
+    senderId: 'system',
+    senderName: 'System',
+    content,
+    timestamp: 1,
+    emotion: 0,
+    isDeleted: false,
+  };
+}
 
 describe('messageBubbleEventHelpers', () => {
   it('builds localized memory distillation display text', () => {
@@ -110,5 +139,18 @@ describe('messageBubbleEventHelpers', () => {
       },
     });
     expect(meta).toBeTruthy();
+  });
+
+  it('keeps story progress runtime events out of the visible message list by default', () => {
+    const message = eventMessage(buildRuntimeEvent({
+      eventType: 'story_scene_progress',
+      title: '剧情推进',
+      summary: '沈清婉站在马房门口。',
+      visibilityScope: 'public',
+      channelId: 'public',
+    }));
+
+    expect(shouldRenderEventMessage(message, baseEventFlags)).toBe(false);
+    expect(shouldRenderEventMessage(message, { ...baseEventFlags, developerMode: true })).toBe(false);
   });
 });

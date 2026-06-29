@@ -1,16 +1,201 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { AICharacter } from '../types/character';
-import { buildDefaultSessionSurfaceProjection, type GroupChat } from '../types/chat';
+import type { CompanionshipStatusSignature } from '../types/companionship';
+import { buildDefaultSessionSurfaceProjection, resolveSessionDefinitionForConversation, type GroupChat, type ParticipantInstance, type RuntimeAction, type RuntimePanelDefinition } from '../types/chat';
 import type { Message } from '../types/message';
-import type { SessionActionDefinition } from '../types/sessionEngine';
-import { buildDirectMemoryPanelContext } from '../services/promptBuilder';
-import { buildProjectedSessionActions } from '../services/sessionProjection';
-import { buildCompanionshipStatusSignature } from '../services/companionshipProjection';
+import type { SessionActionDefinition, SessionProjectionContext } from '../types/sessionEngine';
 
 type SessionProjectionData = Awaited<ReturnType<typeof import('../services/sessionEngineKernel')['resolveSessionProjectionData']>>;
 type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionProjection')['buildProjectedChatDetailState']>;
+type ProjectedRuntimeState = ReturnType<typeof import('../services/sessionProjection')['projectRuntimeState']>;
+type ProjectedSessionFrameworkState = ReturnType<typeof import('../services/sessionProjection')['projectSessionFrameworkState']>;
 type ChatWithProjectedRuntime = GroupChat & { primaryRecentEvent?: string };
 type StorySidebarTab = 'narrative' | 'chapters' | 'clues' | 'roles' | 'developer';
+type DirectMemoryPanelContext = {
+  targetName: string | null;
+  targetSummary: string;
+  targetResolutionLabel?: string;
+  memoryVisibility: string;
+  recentMemories: Array<{ id: string; text: string; layer: string; scope: string }>;
+  recentRelationshipChanges: Array<{ type: string; text: string; createdAt: number }>;
+  recentMemoryWrites?: Array<{ id: string; text: string; layer: string; scope: string }>;
+  sourceTagSummary?: string;
+  sourceTagRows?: Array<{ tag: string; count: number; label: string }>;
+  targetResolution?: string;
+  companionshipStatus?: CompanionshipStatusSignature | null;
+};
+
+function createLightweightConversationParticipants(conversation: GroupChat): ParticipantInstance[] {
+  const orderedIds = Array.from(new Set([...(conversation.memberIds || []), ...(conversation.operatorIds || [])]));
+  return orderedIds.map((memberId, index) => {
+    const isUser = memberId === 'user';
+    const isOperator = !conversation.memberIds.includes(memberId);
+    const entityType = isUser ? 'user' : isOperator ? 'system_agent' : 'ai';
+    return {
+      participantId: `${conversation.id}:${memberId}`,
+      conversationId: conversation.id,
+      entityType,
+      entityRefId: memberId,
+      seatIndex: isOperator ? undefined : index,
+      displayName: isUser ? '我' : undefined,
+      canSpeak: true,
+      canAct: true,
+      roleKey: isUser ? 'user_persona' : isOperator ? 'system_agent' : conversation.type === 'direct' ? 'direct_partner' : conversation.type === 'ai_direct' ? 'private_party' : 'participant',
+      faction: null,
+      flags: {
+        channelRole: isOperator ? 'operator' : conversation.type,
+        actorRefKind: isUser ? 'user_persona' : isOperator ? 'system_agent' : 'ai_character',
+        isOperator,
+      },
+    };
+  });
+}
+
+function shouldUseLightweightSidebarProjection(chat: GroupChat, rightPanelTab: string) {
+  if (rightPanelTab === 'activities') return false;
+  const scenarioId = chat.sessionKind?.scenarioId;
+  const family = chat.sessionKind?.family;
+  return !scenarioId
+    || scenarioId === 'open-chat'
+    || scenarioId === 'direct-chat'
+    || scenarioId === 'ai-private-thread'
+    || family === 'conversation'
+    || family === 'simulation';
+}
+
+function createLightweightProjectionContext(chat: GroupChat): SessionProjectionContext {
+  return {
+    conversation: chat,
+    participants: createLightweightConversationParticipants(chat),
+    viewerId: undefined,
+    viewerRole: null,
+    conversationType: chat.type,
+  };
+}
+
+function buildLightweightRuntimeState(chat: GroupChat): ProjectedRuntimeState {
+  const runtimeEventsV2 = chat.runtimeEventsV2 || [];
+  return {
+    worldState: chat.worldState,
+    runtimeTimeline: [],
+    runtimeSeed: {
+      notes: chat.runtimeSeed?.notes || [],
+      artifacts: chat.runtimeSeed?.artifacts || [],
+    },
+    runtimeEventsV2,
+    relationshipLedger: chat.relationshipLedger || [],
+    primaryRecentEvent: chat.worldState?.recentEvent || '',
+    latestEvent: runtimeEventsV2.length ? runtimeEventsV2[runtimeEventsV2.length - 1] : null,
+    timelineCount: runtimeEventsV2.length + (chat.runtimeTimeline?.length || 0),
+  };
+}
+
+function buildLightweightFrameworkState(chat: GroupChat): ProjectedSessionFrameworkState {
+  const definition = resolveSessionDefinitionForConversation(chat);
+  return {
+    definition,
+    surfaces: buildDefaultSessionSurfaceProjection(chat),
+    familyLabel: definition.kind.family,
+    scenarioLabel: definition.scenario.label,
+    topologyLabel: definition.kind.topology,
+  };
+}
+
+function buildLightweightProjectionData(chat: GroupChat) {
+  const context = createLightweightProjectionContext(chat);
+  const actionSchema = null;
+  const visiblePanels: RuntimePanelDefinition[] = [
+    { key: 'members', title: chat.type === 'group' ? '成员' : '角色', type: 'members', tabKey: 'members' },
+    { key: 'runtime', title: '运行态', type: 'runtime', tabKey: 'world' },
+  ];
+  const availableActions: RuntimeAction[] = [{ type: 'speak' }];
+  return {
+    view: { visiblePanels, availableActions },
+    actionSchema,
+    runtimeState: buildLightweightRuntimeState(context.conversation),
+    frameworkState: buildLightweightFrameworkState(context.conversation),
+    privatePayloads: [],
+  };
+}
+
+function buildLightweightProjectedSessionActions(chat: GroupChat, actions: SessionActionDefinition[], members: AICharacter[] = []) {
+  if (chat.type !== 'group') return actions;
+  const chatMemberSet = new Set(chat.memberIds);
+  const scopedMembers = members.filter((member) => chatMemberSet.has(member.id));
+  const canInjectPrivateThread = chat.governance.allowPrivateThreads && scopedMembers.length >= 2;
+  const hasPrivateThreadAction = actions.some((action) => action.type === 'start_private_thread');
+  const startPrivateThread: SessionActionDefinition = {
+    type: 'start_private_thread',
+    label: '发起 AI 私聊',
+    description: '从群聊中手动选择两名成员，派生一条独立 AI 私聊。',
+    fields: [
+      { key: 'actorId', label: '发起者', type: 'single_select', required: true, options: scopedMembers.map((member) => ({ value: member.id, label: member.name })) },
+      { key: 'targetId', label: '对象', type: 'single_select', required: true, options: scopedMembers.map((member) => ({ value: member.id, label: member.name })) },
+    ],
+    visibility: 'public',
+  };
+  return [
+    ...(canInjectPrivateThread && !hasPrivateThreadAction ? [startPrivateThread] : []),
+    ...actions,
+  ];
+}
+
+function buildLightweightProjectedChatDetailState(params: {
+  chat: GroupChat;
+  members: AICharacter[];
+  runtimeState: ProjectedRuntimeState;
+  privatePayloads: Array<{ key: string; title: string; text: string }>;
+  visiblePanels: RuntimePanelDefinition[];
+  rightPanelTab: string;
+  frameworkState: ProjectedSessionFrameworkState;
+  speakAsChar?: { name?: string; layeredMemories?: Array<{ text: string }> } | null;
+}): ProjectedChatDetailState {
+  const memberPanel = params.visiblePanels.find((panel) => panel.tabKey === 'members');
+  const runtimePanel = params.visiblePanels.find((panel) => panel.tabKey === 'world');
+  const showMemberTab = Boolean(memberPanel);
+  const showRuntimeTab = Boolean(runtimePanel);
+  const showActionTab = params.chat.type === 'group';
+  const activeSidebarTab = (showMemberTab && params.rightPanelTab === 'members')
+    ? 'members'
+    : (showRuntimeTab && params.rightPanelTab === 'world')
+      ? 'world'
+      : showActionTab && params.rightPanelTab === 'activities'
+        ? 'actions'
+        : showMemberTab ? 'members' : showRuntimeTab ? 'world' : 'actions';
+  const actionPanelActions = buildLightweightProjectedSessionActions(params.chat, [], params.members);
+  const memorySummary = params.speakAsChar?.layeredMemories?.slice(-2).map((item) => item.text).join(' / ');
+  return {
+    memberPanel,
+    runtimePanel,
+    showMemberTab,
+    showRuntimeTab,
+    showActionTab,
+    activeSidebarTab,
+    sidebarTitle: activeSidebarTab === 'members'
+      ? (memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'))
+      : activeSidebarTab === 'actions'
+        ? '动作'
+        : (runtimePanel?.title || '运行态'),
+    memberTabTitle: memberPanel?.title || (params.chat.type === 'group' ? '成员' : '角色'),
+    runtimeTabTitle: runtimePanel?.title || '运行态',
+    privatePayloadTitle: params.chat.type === 'direct' ? '单聊信息' : '私有信息',
+    sidebarChat: {
+      chat: {
+        ...params.chat,
+        worldState: params.runtimeState.worldState,
+        runtimeSeed: params.runtimeState.runtimeSeed,
+        runtimeEventsV2: params.runtimeState.runtimeEventsV2,
+        relationshipLedger: params.runtimeState.relationshipLedger,
+        primaryRecentEvent: params.runtimeState.primaryRecentEvent,
+      },
+      privatePayloads: params.privatePayloads,
+    },
+    actionPanel: { title: '动作与派生', actions: actionPanelActions },
+    composerSurfaces: params.frameworkState.surfaces.surfaces,
+    compactCharacterMemorySummary: memorySummary,
+    speakAsSummary: params.speakAsChar && memorySummary ? `${params.speakAsChar.name}：${memorySummary}` : null,
+  };
+}
 
 export function enrichParticipantActionOptions(actions: SessionActionDefinition[], members: AICharacter[]): SessionActionDefinition[] {
   if (!actions.length || !members.length) return actions;
@@ -74,6 +259,7 @@ export function useChatSidebarProjection(params: {
   const isZh = language.startsWith('zh');
   const [projectionData, setProjectionData] = useState<SessionProjectionData | null>(null);
   const [projectedDetailState, setProjectedDetailState] = useState<ProjectedChatDetailState | null>(null);
+  const [directMemoryPanelContext, setDirectMemoryPanelContext] = useState<DirectMemoryPanelContext | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,17 +269,34 @@ export function useChatSidebarProjection(params: {
       return undefined;
     }
 
+    if (shouldUseLightweightSidebarProjection(chat, rightPanelTab)) {
+      const nextProjectionData = buildLightweightProjectionData(chat);
+      setProjectionData(nextProjectionData as SessionProjectionData);
+      setProjectedDetailState(nextProjectionData.frameworkState.definition ? buildLightweightProjectedChatDetailState({
+        chat,
+        runtimeState: nextProjectionData.runtimeState,
+        privatePayloads: nextProjectionData.privatePayloads,
+        visiblePanels: nextProjectionData.view.visiblePanels,
+        rightPanelTab,
+        frameworkState: nextProjectionData.frameworkState,
+        speakAsChar,
+        members,
+      }) : null);
+      return undefined;
+    }
+
     void Promise.all([
-      import('../services/sessionEngineRegistry'),
+      import('../services/sessionEngineLoader'),
       import('../services/sessionEngineKernel'),
       import('../services/sessionProjection'),
-    ]).then(([registry, kernel, projection]) => {
+    ]).then(async ([engineLoader, kernel, sessionProjection]) => {
       if (cancelled) return;
-      const engine = registry.resolveSessionEngine(chat);
+      const engine = await engineLoader.loadSessionEngine(chat);
+      if (cancelled) return;
       const runtimeContext = kernel.createSessionRuntimeContext(engine, chat);
       const nextProjectionData = kernel.resolveSessionProjectionData(engine, runtimeContext);
       setProjectionData(nextProjectionData);
-      setProjectedDetailState(nextProjectionData.frameworkState.definition ? projection.buildProjectedChatDetailState({
+      setProjectedDetailState(nextProjectionData.frameworkState.definition ? sessionProjection.buildProjectedChatDetailState({
         chat,
         runtimeState: nextProjectionData.runtimeState,
         privatePayloads: nextProjectionData.privatePayloads,
@@ -111,6 +314,29 @@ export function useChatSidebarProjection(params: {
       cancelled = true;
     };
   }, [chat, members, rightPanelTab, speakAsChar]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!chat || (chat.type !== 'direct' && chat.type !== 'ai_direct') || !activeMembers[0]) {
+      setDirectMemoryPanelContext(null);
+      return undefined;
+    }
+
+    void Promise.all([
+      import('../services/promptBuilder'),
+      import('../services/companionshipProjection'),
+    ]).then(([promptBuilder, companionshipProjection]) => {
+      if (cancelled) return;
+      setDirectMemoryPanelContext({
+        ...promptBuilder.buildDirectMemoryPanelContext(activeMembers[0], currentChatMessages, new Map(characters.map((item) => [item.id, item] as const))),
+        companionshipStatus: companionshipProjection.buildCompanionshipStatusSignature({ chat, character: activeMembers[0], messages: currentChatMessages }),
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeMembers, characters, chat, currentChatMessages]);
 
   const projectedRuntimeState = projectionData?.runtimeState || null;
   const frameworkState = projectionData?.frameworkState || null;
@@ -176,19 +402,14 @@ export function useChatSidebarProjection(params: {
           : runtimeTabTitle);
   const runtimePanelLoading = !projectionData && Boolean(chat);
 
-  const directMemoryPanelContext = useMemo(() => {
-    if (!chat || (chat.type !== 'direct' && chat.type !== 'ai_direct') || !activeMembers[0]) return null;
-    return {
-      ...buildDirectMemoryPanelContext(activeMembers[0], currentChatMessages, new Map(characters.map((item) => [item.id, item] as const))),
-      companionshipStatus: buildCompanionshipStatusSignature({ chat, character: activeMembers[0], messages: currentChatMessages }),
-    };
-  }, [activeMembers, characters, chat, currentChatMessages]);
-
   const sessionActions = useMemo(() => {
     if (!chat) return actionTabActions;
     if (chat.type !== 'group') return actionTabActions;
-    return [calendarDraftApplyAction, ...buildProjectedSessionActions(chat, actionTabActions.filter((action) => action.type !== 'apply_calendar_patch_drafts'), members)];
-  }, [actionTabActions, calendarDraftApplyAction, chat, members]);
+    const actions = projectedDetailState?.actionPanel.actions.length
+      ? projectedDetailState.actionPanel.actions
+      : buildLightweightProjectedSessionActions(chat, actionTabActions.filter((action) => action.type !== 'apply_calendar_patch_drafts'), members);
+    return [calendarDraftApplyAction, ...actions.filter((action) => action.type !== 'apply_calendar_patch_drafts')];
+  }, [actionTabActions, calendarDraftApplyAction, chat, members, projectedDetailState]);
   const projectedSidebarChat = useMemo(
     () => chat ? mergeProjectedRuntimeChat(chat, projectedDetailState?.sidebarChat.chat, projectedRuntimeState?.primaryRecentEvent) : null,
     [chat, projectedDetailState, projectedRuntimeState]

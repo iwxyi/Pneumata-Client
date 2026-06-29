@@ -6,7 +6,7 @@ import { mergeSessionChatPatch } from '../types/sessionEngine';
 import { runChatCommitPipeline } from './chatCommitPipeline';
 import { applyChatCommitRuntime } from './chatCommitApply';
 import { finalizeChatCommitRuntime } from './chatCommitRuntime';
-import { resolveSessionEngine } from './sessionEngineRegistry';
+import { loadSessionEngine } from './sessionEngineLoader';
 import { __flushDeferredMemoryAnalysisForTests, __resetDeferredMemoryAnalysisStateForTests, getDeferredMemoryAnalysisDebugState, scheduleAsyncMemoryAnalysis } from './asyncMemoryAnalysis';
 import { applyRecalledMemoryActivation } from './memoryRecallActivation';
 import { parseRuntimeEvent } from './runtimeEventFactory';
@@ -43,7 +43,7 @@ function isLocalInterceptionMessage(message: Message) {
 function withFrameworkChatPatch(onCommit: SessionCommitHandler): SessionCommitHandler {
   return async (args) => {
     const transition = await onCommit(args);
-    const engine = resolveSessionEngine(args.conversation);
+    const engine = await loadSessionEngine(args.conversation);
     return {
       ...transition,
       chatPatch: mergeSessionChatPatch(engine, args.conversation, transition.chatPatch),

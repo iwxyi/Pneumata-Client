@@ -50,6 +50,29 @@ describe('projectCurrentChatMessages', () => {
     expect(projected.map((item) => item.id)).toEqual(['active-user-1', 'stream-1']);
   });
 
+  it('keeps the cached window when active messages are only a sparse tail refresh', () => {
+    const cached = Array.from({ length: 12 }, (_, index) => message({
+      id: `cached-${index + 1}`,
+      content: `缓存消息 ${index + 1}`,
+      timestamp: index + 1,
+    }));
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      activeMessages: [
+        message({ id: 'cached-10', content: '缓存消息 10 已刷新', timestamp: 10 }),
+        message({ id: 'cached-11', content: '缓存消息 11 已刷新', timestamp: 11 }),
+        message({ id: 'cached-12', content: '缓存消息 12 已刷新', timestamp: 12 }),
+      ],
+      cachedWindow: {
+        messages: cached,
+        activeLimit: 12,
+      },
+    });
+
+    expect(projected).toHaveLength(12);
+    expect(projected.at(-1)?.content).toBe('缓存消息 12 已刷新');
+  });
+
   it('keeps committed streamed content when a delayed streaming frame arrives', () => {
     const projected = projectCurrentChatMessages({
       chatId: 'chat-1',
@@ -197,6 +220,51 @@ describe('projectCurrentChatMessages', () => {
     });
 
     expect(projected.map((item) => item.id)).toEqual(['history-481', 'history-520']);
+  });
+
+  it('keeps branch metadata when a streaming placeholder is replaced by the committed branch message', () => {
+    const chat = {
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' },
+      messageBranchState: {
+        selectedRevisionByRootId: { 'm-b': 'm-b2' },
+        activeChildByParentNodeId: { 'm-a': 'm-b2', 'm-b2': 'local-stream-1' },
+        activeLeafNodeId: 'local-stream-1',
+      },
+    } as const;
+    const projected = projectCurrentChatMessages({
+      chatId: 'chat-1',
+      chat,
+      activeMessages: [
+        message({ id: 'm-a', type: 'user', senderId: 'user', senderName: 'User', content: 'A', timestamp: 1 }),
+        message({ id: 'm-b', content: 'B', timestamp: 2 }),
+        message({
+          id: 'm-b2',
+          content: 'B2',
+          timestamp: 3,
+          metadata: { branching: { parentNodeId: 'm-a', revisionRootId: 'm-b', revisionOfMessageId: 'm-b' } },
+        }),
+        message({
+          id: 'local-stream-1',
+          clientKey: 'local-stream-1',
+          content: '最终提交内容',
+          timestamp: 4,
+          isStreaming: false,
+          metadata: { branching: { parentNodeId: 'm-b2' } },
+        }),
+        message({
+          id: 'local-stream-1',
+          clientKey: 'local-stream-1',
+          content: '最终',
+          timestamp: 4,
+          isStreaming: true,
+        }),
+      ],
+      cachedWindow: null,
+    });
+
+    expect(projected.map((item) => item.id)).toEqual(['m-a', 'm-b2', 'local-stream-1']);
+    expect(projected.at(-1)?.content).toBe('最终提交内容');
+    expect(projected.at(-1)?.metadata?.branching?.parentNodeId).toBe('m-b2');
   });
 
   it('ignores messages from other chats', () => {

@@ -5,6 +5,7 @@ import { getAttachmentStatusDetail, getAttachmentStatusLabel } from '../../servi
 import MarkdownText from '../common/MarkdownText';
 import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { reducedMotionSx } from '../../styles/motion';
 
 const typingBounce = keyframes`
   0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
@@ -24,6 +25,7 @@ export function PendingTypingDots() {
             bgcolor: 'text.disabled',
             animation: `${typingBounce} 1.4s ease-in-out infinite`,
             animationDelay: `${i * 0.18}s`,
+            ...reducedMotionSx,
           }}
         />
       ))}
@@ -94,7 +96,7 @@ function NarrativeSystemPanel({ block, characters }: { block: NarrativeBlock; ch
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontWeight: 700, mb: 0.45 }}>
           {formatNarrativeLineText(title, characters)}
         </Typography>
-        {bodyLines.map((line, index) => (
+        {bodyLines.map((line) => (
           <Typography key={line} component="div" variant="body2" sx={{ lineHeight: 1.75, wordBreak: 'break-word', mt: 0.35 }}>
             <MarkdownText text={formatNarrativeLineText(line, characters)} />
           </Typography>
@@ -163,6 +165,8 @@ export function MessageContent({ message, onRetryMedia, onOpenImage }: {
                   component="img"
                   src={attachment.url}
                   alt={attachment.altText}
+                  loading="lazy"
+                  decoding="async"
                   onClick={() => onOpenImage?.(message, attachment)}
                   sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', cursor: onOpenImage ? 'zoom-in' : 'default' }}
                 />

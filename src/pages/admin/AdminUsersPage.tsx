@@ -4,6 +4,7 @@ import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
+import { formatAiBalanceAmount } from '../../utils/aiPoints';
 
 type KeyDraft = {
   apiKey: string;
@@ -503,7 +504,7 @@ export default function AdminUsersPage() {
                             <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap', rowGap: 0.75, alignItems: 'center' }}>
                               <Chip
                                 size="small"
-                                label={keyBalanceLoading ? '余额查询中' : `余额：${String(keyBalance?.availableBalance ?? keyBalance?.available_balance ?? '-')}`}
+                                label={keyBalanceLoading ? '余额查询中' : `余额：${formatAiBalanceAmount(keyBalance, String(key.provider_code || 'api2d'))}`}
                                 variant="outlined"
                                 sx={{ height: 28 }}
                               />

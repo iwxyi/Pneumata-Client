@@ -20,7 +20,7 @@ function getStoryEventText(message: Message) {
 
 function getNarrativeTurnVisibleBlocks(message: Message) {
   const turn = message.metadata?.narrativeTurn;
-  return turn?.blocks.filter((block) => (block.displayMode === 'paragraph' || block.displayMode === 'bubble' || block.displayMode === 'system_panel') && block.text.trim()) || [];
+  return turn?.blocks?.filter((block) => (block.displayMode === 'paragraph' || block.displayMode === 'bubble' || block.displayMode === 'system_panel') && block.text.trim()) || [];
 }
 
 export function isNarrativeParagraphMessage(message: Message) {
@@ -78,10 +78,14 @@ export function getNarrativeParagraphBlocks(message: Message): NarrativeBlock[] 
 
 export function getNarrativeDisplayBlocks(message: Message): NarrativeBlock[] {
   const turn = message.metadata?.narrativeTurn;
-  if (turn?.povActorId === 'narrator') {
+  if (turn?.povActorId === 'narrator' && turn.blocks?.length) {
     return turn.blocks.filter((block) => block.text.trim() && block.displayMode !== 'hidden');
   }
   return getNarrativeParagraphBlocks(message);
+}
+
+export function hasNarrativeReaderBlocks(blocks: NarrativeBlock[]) {
+  return blocks.some((block) => block.displayMode !== 'bubble');
 }
 
 export function shouldUseCompactMessageBubble(options: {

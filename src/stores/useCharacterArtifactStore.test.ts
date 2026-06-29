@@ -481,6 +481,67 @@ describe('useCharacterArtifactStore', () => {
     expect(artifactStore.getState().unreadLetterCount).toBe(1);
   });
 
+  it('hydrates remote artifact summaries as lightweight placeholders and fetches text on demand', async () => {
+    localStore.set('pneumata-token', 'token');
+    localStore.set('pneumata-auth-mode', 'cloud');
+    artifactStore.setState({
+      items: [],
+      jobs: [],
+      isProcessing: false,
+      unreadLetterCount: 0,
+    });
+    apiMocks.getCharacterArtifactSummaries.mockResolvedValueOnce({
+      updatedAt: 500,
+      items: [{
+        id: 'remote-letter',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '远端信件',
+        source: 'ai',
+        unread: true,
+        createdAt: 100,
+        updatedAt: 500,
+        deletedAt: null,
+        revision: 2,
+      }],
+    });
+    apiMocks.getCharacterArtifactItem.mockResolvedValueOnce({
+      item: {
+        id: 'remote-letter',
+        kind: 'final_letter',
+        characterId: 'c1',
+        characterName: '苏苏',
+        dateKey: null,
+        sourceKey: 'final',
+        title: '远端信件',
+        text: '这是按需加载的远端正文。',
+        source: 'ai',
+        unread: true,
+        createdAt: 100,
+        updatedAt: 500,
+        deletedAt: null,
+        revision: 2,
+      },
+    });
+
+    await artifactStore.getState().syncCloud();
+
+    expect(apiMocks.getCharacterArtifactItem).not.toHaveBeenCalled();
+    expect(artifactStore.getState().items[0]).toMatchObject({
+      id: 'remote-letter',
+      title: '远端信件',
+      text: '',
+    });
+
+    await artifactStore.getState().ensureArtifactDetail('remote-letter');
+
+    expect(apiMocks.getCharacterArtifactItem).toHaveBeenCalledWith('remote-letter');
+    expect(artifactStore.getState().items[0]?.text).toBe('这是按需加载的远端正文。');
+  });
+
   it('submits newer local artifact tombstones with a conditional delete operation', async () => {
     localStore.set('pneumata-token', 'token');
     localStore.set('pneumata-auth-mode', 'cloud');

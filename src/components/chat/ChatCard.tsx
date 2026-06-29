@@ -8,9 +8,6 @@ import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
 import { formatRelativeTime } from '../../utils/format';
 import { useTranslation } from 'react-i18next';
-import { buildCompanionshipStatusSignature } from '../../services/companionshipProjection';
-import { shouldShowCompanionshipStatusHints } from '../../services/companionshipStatusVisibility';
-import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildInteractiveSurfaceSx, buildSelectionRailSx } from '../../styles/interaction';
 import { buildChatSubtitle } from './chatCardSubtitle';
 
@@ -21,6 +18,11 @@ interface ChatCardProps {
   onPrefetch?: () => void;
   selected?: boolean;
 }
+
+const CHAT_CARD_AVATAR_IMG_PROPS = {
+  loading: 'lazy',
+  decoding: 'async',
+} as const;
 
 function isPreviewableMessage(message: Message | null | undefined): message is Message {
   return Boolean(message && !message.isDeleted && message.type !== 'system' && message.type !== 'event');
@@ -34,19 +36,11 @@ function latestByTimestamp(messages: Array<Message | null | undefined>) {
 
 function ChatCard({ chat, characters, onClick, onPrefetch, selected = false }: ChatCardProps) {
   const { t } = useTranslation();
-  const companionshipSettings = useSettingsStore((state) => state.companionship);
-  const showCompanionshipStatusHints = shouldShowCompanionshipStatusHints(companionshipSettings);
   const resolvedLatestMessage = latestByTimestamp([chat.latestMessage]) || null;
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const isDirect = chat.type === 'direct' || chat.type === 'ai_direct';
-  const directKnownMessages = latestByTimestamp([chat.latestMessage])
-    ? [chat.latestMessage as Message]
-    : [];
-  const companionshipStatus = showCompanionshipStatusHints && chat.type === 'direct' && members[0]
-    ? buildCompanionshipStatusSignature({ chat, character: members[0], messages: directKnownMessages })
-    : null;
-  const companionshipPreview = companionshipStatus?.unsentDraft || companionshipStatus?.offlineTrace || companionshipStatus?.text || '';
-  const subtitle = buildChatSubtitle(chat, members, resolvedLatestMessage, companionshipPreview);
+  const visibleAvatarMembers = isDirect ? members.slice(0, 1) : members.slice(0, 5);
+  const subtitle = buildChatSubtitle(chat, members, resolvedLatestMessage);
 
   return (
     <Card
@@ -99,13 +93,26 @@ function ChatCard({ chat, characters, onClick, onPrefetch, selected = false }: C
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {isDirect ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                {members[0] ? <Avatar src={isImageAvatar(members[0].avatar) ? members[0].avatar : undefined} sx={{ width: 28, height: 28, fontSize: '0.85rem', bgcolor: 'primary.light' }}>{isImageAvatar(members[0].avatar) ? undefined : members[0].avatar}</Avatar> : null}
+                {visibleAvatarMembers[0] ? (
+                  <Avatar
+                    src={isImageAvatar(visibleAvatarMembers[0].avatar) ? visibleAvatarMembers[0].avatar : undefined}
+                    slotProps={{ img: CHAT_CARD_AVATAR_IMG_PROPS }}
+                    sx={{ width: 28, height: 28, fontSize: '0.85rem', bgcolor: 'primary.light' }}
+                  >
+                    {isImageAvatar(visibleAvatarMembers[0].avatar) ? undefined : visibleAvatarMembers[0].avatar}
+                  </Avatar>
+                ) : null}
                 <Typography variant="caption" color="text.secondary">{chat.type === 'ai_direct' ? 'AI私聊' : '单聊'}</Typography>
               </Box>
             ) : (
-              <AvatarGroup max={5} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: '0.85rem' } }}>
-                {members.map((m) => (
-                  <Avatar key={m.id} src={isImageAvatar(m.avatar) ? m.avatar : undefined} sx={{ bgcolor: 'primary.light' }}>
+              <AvatarGroup max={5} total={members.length} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: '0.85rem' } }}>
+                {visibleAvatarMembers.map((m) => (
+                  <Avatar
+                    key={m.id}
+                    src={isImageAvatar(m.avatar) ? m.avatar : undefined}
+                    slotProps={{ img: CHAT_CARD_AVATAR_IMG_PROPS }}
+                    sx={{ bgcolor: 'primary.light' }}
+                  >
                     {isImageAvatar(m.avatar) ? undefined : m.avatar}
                   </Avatar>
                 ))}

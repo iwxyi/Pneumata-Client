@@ -7,6 +7,7 @@ import { storageKey } from '../constants/brand';
 import { dispatchAuthSessionExpired } from './authSession';
 
 const API_BASE = '/api';
+const AI_BALANCE_CACHE_TTL_MS = 60_000;
 
 export interface TopicSourceSummary {
   id: string;
@@ -155,6 +156,9 @@ function shouldExpireAuthSession(status: number, code?: string) {
 }
 
 class ApiClient {
+  private aiBalanceCache = new Map<string, { value: Record<string, unknown>; expiresAt: number }>();
+  private aiBalanceInFlight = new Map<string, Promise<Record<string, unknown>>>();
+
   private getToken(): string | null {
     return localStorage.getItem(storageKey('token'));
   }
@@ -233,9 +237,33 @@ class ApiClient {
     return this.request<{ id: string; phone: string; nickname: string; avatar: string; cloudSyncEntitled?: boolean }>('PUT', '/auth/change-phone', { phone, code });
   }
 
-  async getAiBalance(provider?: string) {
+  private getAiBalanceCacheKey(provider?: string) {
+    return `${this.getToken() || 'guest'}:${provider || 'default'}`;
+  }
+
+  async getAiBalance(provider?: string, options: { force?: boolean } = {}) {
     const query = provider ? `?provider=${encodeURIComponent(provider)}` : '';
-    return this.request<Record<string, unknown>>('GET', `/ai/balance${query}`);
+    const cacheKey = this.getAiBalanceCacheKey(provider);
+    const now = Date.now();
+    if (!options.force) {
+      const cached = this.aiBalanceCache.get(cacheKey);
+      if (cached && cached.expiresAt > now) return cached.value;
+      const inFlight = this.aiBalanceInFlight.get(cacheKey);
+      if (inFlight) return inFlight;
+    }
+    const request = this.request<Record<string, unknown>>('GET', `/ai/balance${query}`)
+      .then((value) => {
+        this.aiBalanceCache.set(cacheKey, {
+          value,
+          expiresAt: Date.now() + AI_BALANCE_CACHE_TTL_MS,
+        });
+        return value;
+      })
+      .finally(() => {
+        this.aiBalanceInFlight.delete(cacheKey);
+      });
+    this.aiBalanceInFlight.set(cacheKey, request);
+    return request;
   }
 
   async assignAiProviderKey(providerCode: string) {

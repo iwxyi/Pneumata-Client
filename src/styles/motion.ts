@@ -19,3 +19,26 @@ export const motion = {
 export function transition(properties: string[], duration: number = motion.durations.base, easing: string = motion.standard) {
   return properties.map((property) => `${property} ${duration}ms ${easing}`).join(', ');
 }
+
+export function prefersReducedMotion() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+export const reducedMotionSx = {
+  '@media (prefers-reduced-motion: reduce)': {
+    transition: 'none',
+    animation: 'none',
+    transform: 'none',
+  },
+} as const;
+
+export const reducedMotionDescendantSx = {
+  '@media (prefers-reduced-motion: reduce)': {
+    '&, & *': {
+      transitionDuration: '0.01ms !important',
+      animationDuration: '0.01ms !important',
+      animationIterationCount: '1 !important',
+      scrollBehavior: 'auto !important',
+    },
+  },
+} as const;

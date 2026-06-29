@@ -36,6 +36,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import type { Theme } from '@mui/material/styles';
 import type { AICharacter, PersonalityParams, CharacterBehaviorParams, CharacterMemoryConfig, CharacterInterventionConfig, CharacterSpeechProfile, CharacterVoiceConfig, CharacterCoreProfile, CharacterGenerationPreferences, CharacterGenerationOverride } from '../../types/character';
 import { getCharacterGroupList, normalizeCharacterGroup, normalizeCharacterModelProfileIds, getDuplicateCharacterNameKeys, getDuplicateCharacterWarningText, hasDuplicateCharacterName } from '../../types/character';
@@ -297,7 +298,15 @@ function InlineTagEditor({ value, onChange, placeholder, addLabel }: InlineTagEd
 
 export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, calendarContext, onDiaryTabOpen, onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
-  const settings = useSettingsStore();
+  const settings = useSettingsStore(useShallow((state) => ({
+    aiProfiles: state.aiProfiles,
+    avatarGeneration: state.avatarGeneration,
+    customBubbleStyles: state.customBubbleStyles,
+    artifactAppearance: state.artifactAppearance,
+    developerMode: state.developerMode,
+    developerUI: state.developerUI,
+    setCustomBubbleStyles: state.setCustomBubbleStyles,
+  })));
   const showSpeechStyle = settings.developerMode && settings.developerUI.showSpeechStyle;
   const isEditingExistingCharacter = Boolean(initial?.id);
   const [name, setName] = useState(initial?.name || '');

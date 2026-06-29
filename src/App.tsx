@@ -4,26 +4,9 @@ import { Box, LinearProgress, ThemeProvider, CssBaseline, useMediaQuery } from '
 import { createAppTheme } from './theme';
 import { useSettingsStore } from './stores/useSettingsStore';
 import { useAuthStore } from './stores/useAuthStore';
-import { useCharacterArtifactStore } from './stores/useCharacterArtifactStore';
 import AppLayout from './components/layout/AppLayout';
 import MasterDetailLayout from './components/layout/MasterDetailLayout';
-import HomePage from './pages/HomePage';
-import ChatListPage from './pages/ChatListPage';
-import CreateChatPage from './pages/CreateChatPage';
-import ChatDetailPage from './pages/ChatDetailPage';
-import CreateDirectChatPage from './pages/CreateDirectChatPage';
-import AdminLayout from './components/admin/AdminLayout';
 import AdminPermissionGate from './components/admin/AdminPermissionGate';
-import AdminLoginPage from './pages/admin/AdminLoginPage';
-import AdminDashboardPage from './pages/admin/AdminDashboardPage';
-import AdminUsersPage from './pages/admin/AdminUsersPage';
-import AdminAIPage from './pages/admin/AdminAIPage';
-import AdminAIProviderPage from './pages/admin/AdminAIProviderPage';
-import AdminBillingPage from './pages/admin/AdminBillingPage';
-import AdminModerationPage from './pages/admin/AdminModerationPage';
-import AdminRiskPage from './pages/admin/AdminRiskPage';
-import AdminAuditPage from './pages/admin/AdminAuditPage';
-import AdminNotificationsPage from './pages/admin/AdminNotificationsPage';
 import { useAdminAuthStore } from './stores/useAdminAuthStore';
 import { ADMIN_DASHBOARD_PERMISSIONS, ADMIN_PERMISSION_CODES } from './constants/adminPermissions';
 import { ADMIN_LOGIN_EVENT } from './services/adminApi';
@@ -33,6 +16,11 @@ import PwaUpdatePrompt from './components/common/PwaUpdatePrompt';
 import './i18n';
 
 const routePreloaders = [
+  () => import('./pages/HomePage'),
+  () => import('./pages/ChatListPage'),
+  () => import('./pages/CreateChatPage'),
+  () => import('./pages/ChatDetailPage'),
+  () => import('./pages/CreateDirectChatPage'),
   () => import('./pages/CharacterLibraryPage'),
   () => import('./pages/CharacterEditorPage'),
   () => import('./pages/SettingsPage'),
@@ -47,9 +35,25 @@ const routePreloaders = [
   () => import('./pages/IntroPage'),
   () => import('./pages/LoginPage'),
   () => import('./pages/PublicSharedChatPage'),
+  () => import('./components/admin/AdminLayout'),
+  () => import('./pages/admin/AdminLoginPage'),
+  () => import('./pages/admin/AdminDashboardPage'),
+  () => import('./pages/admin/AdminUsersPage'),
+  () => import('./pages/admin/AdminAIPage'),
+  () => import('./pages/admin/AdminAIProviderPage'),
+  () => import('./pages/admin/AdminBillingPage'),
+  () => import('./pages/admin/AdminModerationPage'),
+  () => import('./pages/admin/AdminRiskPage'),
+  () => import('./pages/admin/AdminAuditPage'),
+  () => import('./pages/admin/AdminNotificationsPage'),
 ];
 
 const [
+  loadHomePage,
+  loadChatListPage,
+  loadCreateChatPage,
+  loadChatDetailPage,
+  loadCreateDirectChatPage,
   loadCharacterLibraryPage,
   loadCharacterEditorPage,
   loadSettingsPage,
@@ -64,8 +68,24 @@ const [
   loadIntroPage,
   loadLoginPage,
   loadPublicSharedChatPage,
+  loadAdminLayout,
+  loadAdminLoginPage,
+  loadAdminDashboardPage,
+  loadAdminUsersPage,
+  loadAdminAIPage,
+  loadAdminAIProviderPage,
+  loadAdminBillingPage,
+  loadAdminModerationPage,
+  loadAdminRiskPage,
+  loadAdminAuditPage,
+  loadAdminNotificationsPage,
 ] = routePreloaders;
 
+const HomePage = lazy(loadHomePage);
+const ChatListPage = lazy(loadChatListPage);
+const CreateChatPage = lazy(loadCreateChatPage);
+const ChatDetailPage = lazy(loadChatDetailPage);
+const CreateDirectChatPage = lazy(loadCreateDirectChatPage);
 const CharacterLibraryPage = lazy(loadCharacterLibraryPage);
 const CharacterEditorPage = lazy(loadCharacterEditorPage);
 const SettingsPage = lazy(loadSettingsPage);
@@ -80,6 +100,17 @@ const MomentsPage = lazy(loadMomentsPage);
 const IntroPage = lazy(loadIntroPage);
 const LoginPage = lazy(loadLoginPage);
 const PublicSharedChatPage = lazy(loadPublicSharedChatPage);
+const AdminLayout = lazy(loadAdminLayout);
+const AdminLoginPage = lazy(loadAdminLoginPage);
+const AdminDashboardPage = lazy(loadAdminDashboardPage);
+const AdminUsersPage = lazy(loadAdminUsersPage);
+const AdminAIPage = lazy(loadAdminAIPage);
+const AdminAIProviderPage = lazy(loadAdminAIProviderPage);
+const AdminBillingPage = lazy(loadAdminBillingPage);
+const AdminModerationPage = lazy(loadAdminModerationPage);
+const AdminRiskPage = lazy(loadAdminRiskPage);
+const AdminAuditPage = lazy(loadAdminAuditPage);
+const AdminNotificationsPage = lazy(loadAdminNotificationsPage);
 
 function RouteFallback() {
   return (
@@ -94,11 +125,7 @@ function RouteElement({ children }: { children: React.ReactNode }) {
 }
 
 function ChatDetailRouteElement() {
-  return (
-    <Suspense fallback={<RouteFallback />}>
-      <ChatDetailPage />
-    </Suspense>
-  );
+  return <RouteElement><ChatDetailPage /></RouteElement>;
 }
 
 function ChatMasterDetailRouteElement({ detail, fallback = 'detail', detailTitle = '会话' }: { detail: React.ReactNode; fallback?: 'master' | 'detail'; detailTitle?: React.ReactNode | null }) {
@@ -206,27 +233,8 @@ function DataLoader({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isLoggedIn || authMode === 'local') {
       void loadSettings();
-      void useCharacterArtifactStore.persist.rehydrate();
     }
   }, [authMode, isLoggedIn, loadSettings]);
-
-  useEffect(() => {
-    if (!isLoggedIn && authMode !== 'local') return;
-    const preload = () => {
-      void loadCharacterLibraryPage();
-      void loadCharacterEditorPage();
-    };
-    const scheduler = (window as typeof window & {
-      requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
-      cancelIdleCallback?: (id: number) => void;
-    }).requestIdleCallback;
-    if (typeof scheduler === 'function') {
-      const handle = scheduler(preload, { timeout: 1600 });
-      return () => window.cancelIdleCallback?.(handle);
-    }
-    const handle = window.setTimeout(preload, 800);
-    return () => window.clearTimeout(handle);
-  }, [authMode, isLoggedIn]);
 
   return <>{children}</>;
 }
@@ -235,21 +243,21 @@ function RoutedApp() {
   return (
     <Routes>
       <Route path="/login" element={<RouteElement><LoginPage /></RouteElement>} />
-      <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route path="/admin/login" element={<RouteElement><AdminLoginPage /></RouteElement>} />
       <Route path="/intro" element={<RouteElement><IntroPage /></RouteElement>} />
       <Route path="/shared/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
       <Route path="/shared/chats/:token" element={<RouteElement><PublicSharedChatPage /></RouteElement>} />
       <Route element={<RequireAdminAuth />}>
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<AdminPermissionGate permissions={ADMIN_DASHBOARD_PERMISSIONS}><AdminDashboardPage /></AdminPermissionGate>} />
-          <Route path="users" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.usersRead]}><AdminUsersPage /></AdminPermissionGate>} />
-          <Route path="ai" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIPage /></AdminPermissionGate>} />
-          <Route path="ai/providers/:providerCode" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIProviderPage /></AdminPermissionGate>} />
-          <Route path="billing" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.billingRead]}><AdminBillingPage /></AdminPermissionGate>} />
-          <Route path="moderation" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.sharesReview]}><AdminModerationPage /></AdminPermissionGate>} />
-          <Route path="notifications" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.notificationsRead]}><AdminNotificationsPage /></AdminPermissionGate>} />
-          <Route path="risk" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.riskRead]}><AdminRiskPage /></AdminPermissionGate>} />
-          <Route path="audit" element={<AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.auditRead]}><AdminAuditPage /></AdminPermissionGate>} />
+        <Route path="/admin" element={<RouteElement><AdminLayout /></RouteElement>}>
+          <Route index element={<RouteElement><AdminPermissionGate permissions={ADMIN_DASHBOARD_PERMISSIONS}><AdminDashboardPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="users" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.usersRead]}><AdminUsersPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="ai" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="ai/providers/:providerCode" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIProviderPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="billing" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.billingRead]}><AdminBillingPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="moderation" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.sharesReview]}><AdminModerationPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="notifications" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.notificationsRead]}><AdminNotificationsPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="risk" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.riskRead]}><AdminRiskPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="audit" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.auditRead]}><AdminAuditPage /></AdminPermissionGate></RouteElement>} />
         </Route>
       </Route>
       <Route element={

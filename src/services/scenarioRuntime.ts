@@ -1,9 +1,8 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import type { SessionGenerationContext, SessionGenerationPromptContext, SessionTurnPlan } from '../types/sessionEngine';
+import type { SessionEngineDefinition, SessionGenerationContext, SessionGenerationPromptContext, SessionTurnPlan } from '../types/sessionEngine';
 import { getCurrentSessionPhase } from './sessionStateMachine';
-import { resolveSessionEngine } from './sessionEngineRegistry';
 import { resolveSessionDefinition } from '../types/sessionEngine';
 
 export interface ScenarioRuntimeDecision {
@@ -48,9 +47,14 @@ function deriveDepth(family: string, scenarioId: string): SessionTurnPlan['depth
   return 'normal';
 }
 
-export function buildScenarioRuntimeDecision(context: SessionGenerationContext & { speaker: AICharacter; promptContext?: SessionGenerationPromptContext | null }): ScenarioRuntimeDecision {
-  const engine = resolveSessionEngine(context.conversation);
-  const phase = getCurrentSessionPhase(engine, context.conversation);
+export function buildScenarioRuntimeDecision(context: SessionGenerationContext & {
+  speaker: AICharacter;
+  promptContext?: SessionGenerationPromptContext | null;
+  sessionEngine?: SessionEngineDefinition | null;
+}): ScenarioRuntimeDecision {
+  const phase = context.sessionEngine
+    ? getCurrentSessionPhase(context.sessionEngine, context.conversation)
+    : { key: 'default', label: 'Default', allowedActions: ['speak'] };
   const session = resolveSessionDefinition(context.conversation);
   const latest = latestVisibleMessage(context.messages);
   const preferredChannelId = resolvePreferredChannelId(context.conversation);

@@ -3,6 +3,7 @@ import { Box, Typography, Button, Checkbox } from '@mui/material';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import RestoreFromTrashIcon from '@mui/icons-material/RestoreFromTrash';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import CharacterCard from '../components/character/CharacterCard';
@@ -42,10 +43,21 @@ function sortByDeletedAt<T extends { deletedAt?: number | null }>(items: T[]) {
 
 export default function RecycleBinPage() {
   const { i18n } = useTranslation();
-  const characterStore = useCharacterStore();
-  const chatStore = useChatStore();
-  const { characters, loadProjectedDeletedCharacters, restoreCharacters, purgeCharacters, emptyDeletedCharacters, loadProjectedCharacters } = characterStore;
-  const { chats, loadProjectedDeletedChats, restoreChats, purgeChats, emptyDeletedChats, loadProjectedChats } = chatStore;
+  const { characters, loadProjectedDeletedCharacters, restoreCharacters, purgeCharacters, emptyDeletedCharacters, loadProjectedCharacters } = useCharacterStore(useShallow((state) => ({
+    characters: state.characters,
+    loadProjectedDeletedCharacters: state.loadProjectedDeletedCharacters,
+    restoreCharacters: state.restoreCharacters,
+    purgeCharacters: state.purgeCharacters,
+    emptyDeletedCharacters: state.emptyDeletedCharacters,
+    loadProjectedCharacters: state.loadProjectedCharacters,
+  })));
+  const { loadProjectedDeletedChats, restoreChats, purgeChats, emptyDeletedChats, loadProjectedChats } = useChatStore(useShallow((state) => ({
+    loadProjectedDeletedChats: state.loadProjectedDeletedChats,
+    restoreChats: state.restoreChats,
+    purgeChats: state.purgeChats,
+    emptyDeletedChats: state.emptyDeletedChats,
+    loadProjectedChats: state.loadProjectedChats,
+  })));
 
   const [tab, setTab] = useState(0);
   const [deletedCharacters, setDeletedCharacters] = useState<AICharacter[]>([]);

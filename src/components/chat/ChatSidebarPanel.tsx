@@ -10,7 +10,7 @@ import { ChatPrivateInfoCard } from './ChatPrivateInfoCard';
 import { projectSessionParticipantTopology } from '../../services/sessionParticipantProjection';
 import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { compactPillChipSx } from '../../styles/interaction';
+import { buildScrollableRegionSx, compactPillChipSx } from '../../styles/interaction';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
@@ -540,7 +540,7 @@ export default function ChatSidebarPanel({
         </Box>
       ) : null}
 
-      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: { xs: 0.25, md: 0.5 }, overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch', touchAction: 'pan-y' }}>
+      <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: { xs: 0.25, md: 0.5 }, ...buildScrollableRegionSx() }}>
         {activePanelTab === 'members' && showMemberTab ? (
           <Stack spacing={2}>
             <MemberList

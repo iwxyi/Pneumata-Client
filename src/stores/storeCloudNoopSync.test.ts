@@ -207,6 +207,52 @@ describe('cloud no-op sync', () => {
     expect(writes).toBe(0);
   });
 
+  it('awaits forced chat summary refresh until loadChats completes', async () => {
+    const { useChatStore } = await import('./useChatStore');
+    await useChatStore.persist.rehydrate();
+    let resolveProbe: (value: unknown) => void = () => {};
+    apiMocks.getSyncChanges.mockReturnValueOnce(new Promise((resolve) => {
+      resolveProbe = resolve;
+    }));
+    useChatStore.setState({
+      chats: [],
+      currentChatId: null,
+      lastSyncedAt: 0,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      chatSummaryLoadedAt: 0,
+      isLoading: false,
+    });
+
+    let settled = false;
+    const refresh = useChatStore.getState().refreshChatSummaryFromCloud().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    resolveProbe({
+      status: 'modified',
+      cursor: 'chats.summary:rev-2',
+      revision: 'chats.summary:rev-2',
+      hasMore: false,
+      changes: [{
+        op: 'upsert',
+        entity: 'chat_summary',
+        id: 'chat-1',
+        revision: 2,
+        patch: chat({ updatedAt: 2, lastMessageAt: 2 }),
+      }],
+    });
+    await refresh;
+
+    expect(settled).toBe(true);
+    expect(useChatStore.getState().chats.map((item) => item.id)).toEqual(['chat-1']);
+  });
+
   it('merges chat summary changes without clearing loaded chat runtime details', async () => {
     apiMocks.getSyncChanges.mockResolvedValueOnce({
       status: 'modified',
@@ -919,6 +965,49 @@ describe('cloud no-op sync', () => {
     expect(loaded?.name).toBe('预设评论家');
     expect(apiMocks.getCharacter).not.toHaveBeenCalled();
     expect(apiMocks.getSyncChanges).not.toHaveBeenCalledWith(expect.objectContaining({ scope: 'characters.detail:preset-critic' }));
+  });
+
+  it('awaits forced character summary refresh until loadCharacters completes', async () => {
+    const { useCharacterStore } = await import('./useCharacterStore');
+    await useCharacterStore.persist.rehydrate();
+    let resolveProbe: (value: unknown) => void = () => {};
+    apiMocks.getSyncChanges.mockReturnValueOnce(new Promise((resolve) => {
+      resolveProbe = resolve;
+    }));
+    useCharacterStore.setState({
+      characters: [],
+      lastSyncedAt: 0,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedCharacterIds: [],
+      isLoading: false,
+    });
+
+    let settled = false;
+    const refresh = useCharacterStore.getState().refreshCharacterSummaryFromCloud().then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+    resolveProbe({
+      status: 'modified',
+      cursor: 'characters.summary:rev-2',
+      revision: 'characters.summary:rev-2',
+      hasMore: false,
+      changes: [{
+        op: 'upsert',
+        entity: 'character_summary',
+        id: 'character-1',
+        revision: 2,
+        patch: character({ updatedAt: 2 }),
+      }],
+    });
+    await refresh;
+
+    expect(settled).toBe(true);
+    expect(useCharacterStore.getState().characters.map((item) => item.id)).toEqual(['character-1']);
   });
 
   it('resolves character remote-delete conflicts by discarding or restoring local edits', async () => {

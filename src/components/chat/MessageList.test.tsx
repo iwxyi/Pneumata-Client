@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { buildChatRenderItems } from './chatRenderModel';
-import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed } from './MessageList';
+import { buildMessageListRenderItems } from './MessageList';
+import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed } from './messageListPresentation';
 
 function buildMessage(id: string, overrides: Partial<Message> = {}): Message {
   return {
@@ -50,6 +51,59 @@ describe('MessageList narrative reveal eligibility', () => {
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['other-message']) })).toBe(false);
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['client-story-live']) })).toBe(true);
     expect(isNarrativeRevealAllowed({ item, revealMessageKeys: new Set(['server-story-live']) })).toBe(true);
+  });
+
+  it('flattens story narrative blocks into separate virtual rows', () => {
+    const items = buildMessageListRenderItems({
+      messages: [
+        buildNarrativeMessage('story-node', {
+          metadata: {
+            narrativeTurn: {
+              turnId: 'story-node',
+              turnKind: 'narrative_beat',
+              povActorId: 'narrator',
+              blocks: [
+                {
+                  id: 'story-node-prose',
+                  actorId: 'narrator',
+                  actorKind: 'narrator',
+                  kind: 'prose',
+                  displayMode: 'paragraph',
+                  text: '雨还在下。',
+                },
+                {
+                  id: 'story-node-line',
+                  actorId: 'char-1',
+                  actorKind: 'character',
+                  kind: 'dialogue',
+                  displayMode: 'bubble',
+                  text: '别回头。',
+                },
+              ],
+            },
+          },
+        }),
+      ],
+      eventRenderFlags: {
+        developerMode: false,
+        showStateEvents: false,
+        showRelationshipEvents: false,
+        showAffectEvents: false,
+        showMemoryDebug: false,
+        showMemoryDistillationEvents: false,
+        showCalendarEvents: false,
+        showLocalInterceptionHints: false,
+        showConflictEvents: false,
+      },
+      showDeveloperDetails: false,
+    });
+
+    expect(items.map((item) => item.renderKind)).toEqual([
+      'narrative-block',
+      'narrative-block',
+    ]);
+    expect(items[0]).toMatchObject({ key: expect.stringContaining(':block:story-node-prose') });
+    expect(items[1]).toMatchObject({ key: expect.stringContaining(':block:story-node-line') });
   });
 
   it('hides developer-only story panels from the normal narrative stream', () => {

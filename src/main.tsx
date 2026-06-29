@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
-import './services/runtimeMemoryMonitor';
+import './services/diagnosticsBootstrap';
 
 const style = document.createElement('style');
 style.textContent = `

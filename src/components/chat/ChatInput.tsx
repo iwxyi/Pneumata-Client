@@ -4,6 +4,7 @@ import SendIcon from '@mui/icons-material/Send';
 import CloseIcon from '@mui/icons-material/Close';
 import ImageIcon from '@mui/icons-material/ImageOutlined';
 import { useTranslation } from 'react-i18next';
+import { useShallow } from 'zustand/react/shallow';
 import { useUIStore } from '../../stores/useUIStore';
 import type { UserDraftActivity } from '../../services/userInputBuffer';
 import type { MessageAttachment } from '../../types/message';
@@ -68,7 +69,10 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   const [isSending, setIsSending] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const { t } = useTranslation();
-  const { setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore();
+  const { setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore(useShallow((state) => ({
+    setRightPanelGestureOffset: state.setRightPanelGestureOffset,
+    setRightPanelGestureDragging: state.setRightPanelGestureDragging,
+  })));
   const capabilities = normalizeInputCapabilities(inputCapabilities);
   const canAttachImages = capabilities.imageInput;
   const maxAttachments = capabilities.multiImageInput ? capabilities.maxAttachments : 1;

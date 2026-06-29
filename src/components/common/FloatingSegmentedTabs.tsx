@@ -1,7 +1,7 @@
 import { Box, ButtonBase } from '@mui/material';
 import type { ReactNode } from 'react';
 import type { Theme } from '@mui/material/styles';
-import { motion, transition } from '../../styles/motion';
+import { motion, reducedMotionSx, transition } from '../../styles/motion';
 
 type FloatingSegmentedTab<T extends string | number> = {
   value: T;
@@ -48,6 +48,7 @@ export function buildFloatingTabGroupSx() {
     overscrollBehaviorX: 'contain',
     scrollbarWidth: 'none',
     '&::-webkit-scrollbar': { display: 'none' },
+    ...reducedMotionSx,
   } as const;
 }
 
@@ -120,6 +121,7 @@ export default function FloatingSegmentedTabs<T extends string | number>({ value
                 '& .MuiTouchRipple-child': {
                   borderRadius: 'inherit',
                 },
+                ...reducedMotionSx,
               }}
             >
               <Box component="span" sx={{ display: 'block', minWidth: 0, whiteSpace: 'nowrap' }}>

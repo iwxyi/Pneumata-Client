@@ -12,7 +12,6 @@ import { createScopedIndexedDbBufferedJsonStorage, createScopedIndexedDbStorage 
 import { createSyncScheduler } from './storeSyncScheduler';
 import { createSyncScopeMetadata, type SyncScopeSnapshot } from './syncScopeMetadata';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateCharacterStoreState } from './storeMigrations';
-import { useCharacterArtifactStore } from './useCharacterArtifactStore';
 import { scopedStorageKey, storageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isReservedNonCharacterActorId } from '../services/actorRefPresentation';
@@ -217,61 +216,69 @@ function buildLocalImportedCharacters(chars: AICharacter[]) {
 }
 
 let artifactHydrationPromise: Promise<void> | null = null;
-let artifactSyncScheduled = false;
+let artifactSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingArtifactSyncCharacters: AICharacter[] | null = null;
+const ARTIFACT_SYNC_BACKGROUND_DELAY_MS = 6000;
 
-function ensureCharacterArtifactStoreHydrated() {
-  if (useCharacterArtifactStore.persist.hasHydrated()) return Promise.resolve();
-  artifactHydrationPromise ??= Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).finally(() => {
-    artifactHydrationPromise = null;
-  });
-  return artifactHydrationPromise;
+async function loadCharacterArtifactStore() {
+  const { useCharacterArtifactStore } = await import('./useCharacterArtifactStore');
+  return useCharacterArtifactStore;
+}
+
+async function ensureCharacterArtifactStoreHydrated() {
+  const useCharacterArtifactStore = await loadCharacterArtifactStore();
+  if (!useCharacterArtifactStore.persist.hasHydrated()) {
+    artifactHydrationPromise ??= Promise.resolve(useCharacterArtifactStore.persist.rehydrate()).finally(() => {
+      artifactHydrationPromise = null;
+    });
+    await artifactHydrationPromise;
+  }
+  return useCharacterArtifactStore;
 }
 
 function syncCharacterArtifacts(characters: AICharacter[]) {
   pendingArtifactSyncCharacters = characters;
-  if (artifactSyncScheduled) return;
-  artifactSyncScheduled = true;
-  queueMicrotask(() => {
-    artifactSyncScheduled = false;
+  if (artifactSyncTimer) clearTimeout(artifactSyncTimer);
+  artifactSyncTimer = setTimeout(() => {
+    artifactSyncTimer = null;
     const nextCharacters = pendingArtifactSyncCharacters;
     pendingArtifactSyncCharacters = null;
     if (!nextCharacters) return;
-    void ensureCharacterArtifactStoreHydrated().then(() => {
+    void ensureCharacterArtifactStoreHydrated().then((useCharacterArtifactStore) => {
       useCharacterArtifactStore.getState().syncCharacters(nextCharacters);
     });
-  });
+  }, ARTIFACT_SYNC_BACKGROUND_DELAY_MS);
 }
 
 function enqueueFinalLettersForDeletion(characters: AICharacter[], ids: string[]) {
   const normalizedIds = new Set(ids);
   const deleted = characters.filter((character) => normalizedIds.has(character.id) && !character.isPreset);
   if (!deleted.length) return;
-    void ensureCharacterArtifactStoreHydrated().then(() => {
-      deleted.forEach((character) => {
-        useCharacterArtifactStore.getState().enqueueLetterArtifact({
-          kind: 'final_letter',
-          character,
-          relatedCharacters: characters.filter((item) => item.id !== character.id).map((item) => ({ id: item.id, name: item.name })),
-          sourceKey: character.deletedAt ? `${character.deletedAt}` : `${Date.now()}`,
-        });
+  void ensureCharacterArtifactStoreHydrated().then((useCharacterArtifactStore) => {
+    deleted.forEach((character) => {
+      useCharacterArtifactStore.getState().enqueueLetterArtifact({
+        kind: 'final_letter',
+        character,
+        relatedCharacters: characters.filter((item) => item.id !== character.id).map((item) => ({ id: item.id, name: item.name })),
+        sourceKey: character.deletedAt ? `${character.deletedAt}` : `${Date.now()}`,
       });
     });
+  });
 }
 
 function enqueueBirthLettersForCreation(createdCharacters: AICharacter[], characters: AICharacter[]) {
   const created = createdCharacters.filter((character) => !character.isPreset && character.deletedAt == null);
   if (!created.length) return;
-    void ensureCharacterArtifactStoreHydrated().then(() => {
-      created.forEach((character) => {
-        useCharacterArtifactStore.getState().enqueueLetterArtifact({
-          kind: 'birth_letter',
-          character,
-          relatedCharacters: characters.filter((item) => item.id !== character.id).map((item) => ({ id: item.id, name: item.name })),
-          sourceKey: `${character.createdAt || Date.now()}`,
-        });
+  void ensureCharacterArtifactStoreHydrated().then((useCharacterArtifactStore) => {
+    created.forEach((character) => {
+      useCharacterArtifactStore.getState().enqueueLetterArtifact({
+        kind: 'birth_letter',
+        character,
+        relatedCharacters: characters.filter((item) => item.id !== character.id).map((item) => ({ id: item.id, name: item.name })),
+        sourceKey: `${character.createdAt || Date.now()}`,
       });
     });
+  });
 }
 
 function normalizeCharacters(items: AICharacter[]) {
@@ -1141,7 +1148,7 @@ export const useCharacterStore = create<CharacterStore>()(
 
         refreshCharacterSummaryFromCloud: async () => {
           characterSyncScopes.clear(CHARACTER_SUMMARY_SCOPE);
-          void get().loadCharacters();
+          await get().loadCharacters();
         },
 
         flushPendingOperations,

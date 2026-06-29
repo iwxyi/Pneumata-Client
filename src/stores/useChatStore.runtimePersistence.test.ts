@@ -280,6 +280,126 @@ describe('chat runtime persistence', () => {
     expect(eventIds).toEqual(expect.arrayContaining(stateEvents.map((event) => event.id)));
   });
 
+  it('keeps remote message branch state when that field version is newer than a locally newer chat record', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { mergeChatRecord } = __chatRuntimePersistenceForTests;
+    const local = chat({
+      updatedAt: 3000,
+      topic: '本机较新的普通字段',
+      fieldVersions: { topic: 3000, messageBranchState: 1000 },
+      messageBranchState: {
+        selectedRevisionByRootId: { root: 'old-revision' },
+        activeChildByParentNodeId: { parent: 'old-revision' },
+        activeLeafNodeId: 'old-revision',
+        updatedAt: 1000,
+      },
+    });
+    const remote = chat({
+      updatedAt: 2000,
+      topic: '远端旧主题',
+      fieldVersions: { topic: 500, messageBranchState: 4000 },
+      messageBranchState: {
+        selectedRevisionByRootId: { root: 'new-revision' },
+        activeChildByParentNodeId: { parent: 'new-revision' },
+        activeLeafNodeId: 'new-revision',
+        updatedAt: 4000,
+      },
+    });
+
+    const merged = mergeChatRecord(local, remote);
+
+    expect(merged.topic).toBe('本机较新的普通字段');
+    expect(merged.messageBranchState?.selectedRevisionByRootId).toMatchObject({ root: 'new-revision' });
+    expect(merged.fieldVersions?.messageBranchState).toBe(4000);
+  });
+
+  it('stamps message branch state field version when a local chat patch is queued', async () => {
+    const { useChatStore } = await import('./useChatStore');
+    const base = chat({ fieldVersions: {}, messageBranchState: null });
+    useChatStore.setState({
+      chats: [base],
+      currentChatId: base.id,
+      lastSyncedAt: 0,
+      pendingOperations: [],
+      pendingEditSyncCount: 0,
+      pendingEditSyncError: null,
+      remoteDeletedChatIds: [],
+      remoteDeletedChats: [],
+      fieldConflicts: [],
+      chatSummaryLoadedAt: 0,
+      isLoading: false,
+    });
+
+    await useChatStore.getState().updateChat(base.id, {
+      messageBranchState: {
+        selectedRevisionByRootId: { root: 'local-revision' },
+        activeChildByParentNodeId: { parent: 'local-revision' },
+        activeLeafNodeId: 'local-revision',
+        updatedAt: 5000,
+      },
+    });
+
+    const updated = useChatStore.getState().chats[0];
+    const operation = useChatStore.getState().pendingOperations[0];
+    expect(updated?.messageBranchState?.activeLeafNodeId).toBe('local-revision');
+    expect(updated?.fieldVersions?.messageBranchState).toBe(operation?.clientTimestamp);
+    expect(operation?.patch.messageBranchState).toBeTruthy();
+  });
+
+  it('merges a stale remote chat when only message branch state has a newer field version', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { mergeChats } = __chatRuntimePersistenceForTests;
+    const local = chat({
+      updatedAt: 3000,
+      fieldVersions: { messageBranchState: 1000 },
+      messageBranchState: {
+        selectedRevisionByRootId: { root: 'old-revision' },
+        activeChildByParentNodeId: { parent: 'old-revision' },
+        activeLeafNodeId: 'old-revision',
+        updatedAt: 1000,
+      },
+    });
+    const remote = chat({
+      updatedAt: 2000,
+      fieldVersions: { messageBranchState: 4000 },
+      messageBranchState: {
+        selectedRevisionByRootId: { root: 'new-revision' },
+        activeChildByParentNodeId: { parent: 'new-revision' },
+        activeLeafNodeId: 'new-revision',
+        updatedAt: 4000,
+      },
+    });
+
+    const [merged] = mergeChats([local], [remote]);
+
+    expect(merged?.updatedAt).toBe(3000);
+    expect(merged?.messageBranchState?.activeLeafNodeId).toBe('new-revision');
+  });
+
+  it('does not overwrite legacy non-null message branch state with null when field versions are missing', async () => {
+    const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
+    const { mergeChatRecord } = __chatRuntimePersistenceForTests;
+    const local = chat({
+      updatedAt: 1000,
+      fieldVersions: {},
+      messageBranchState: {
+        selectedRevisionByRootId: { root: 'legacy-revision' },
+        activeChildByParentNodeId: { parent: 'legacy-revision' },
+        activeLeafNodeId: 'legacy-revision',
+        updatedAt: 1000,
+      },
+    });
+    const remote = chat({
+      updatedAt: 2000,
+      fieldVersions: {},
+      messageBranchState: null,
+    });
+
+    const merged = mergeChatRecord(local, remote);
+
+    expect(merged.messageBranchState?.activeLeafNodeId).toBe('legacy-revision');
+  });
+
   it('preserves recent companionship lifecycle history for the same state key', async () => {
     const { __chatRuntimePersistenceForTests } = await import('./useChatStore');
     const { compactChatPatchForCloud, limits } = __chatRuntimePersistenceForTests;

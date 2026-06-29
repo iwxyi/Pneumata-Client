@@ -13,7 +13,7 @@ import {
   shouldRunLlmCharacterDistillation,
   shouldRunLlmChatDistillation,
 } from './llmMemoryDistillation';
-import { createRuntimeMemoryTimer, recordRuntimeMemory } from './runtimeMemoryMonitor';
+import { createRuntimeMemoryTimer, recordRuntimeMemoryIfEnabled } from './runtimeMemoryTimer';
 import type { MemoryCandidate } from './memoryTypes';
 import { normalizeRuntimeSeedArtifactLines } from './runtimeSeed';
 import { reportRecoverableError } from './diagnostics';
@@ -157,7 +157,7 @@ export async function scheduleAsyncMemoryAnalysis(params: {
   scheduleDeferredMemoryAnalysis(buildAnalysisOwnerKey('chat', params.chat.id), async (state) => {
     const currentChat = getCurrentChat();
     if (!shouldRunLlmChatDistillation(currentChat, 0)) {
-      recordRuntimeMemory('llm-distillation-chat:skip', {
+      recordRuntimeMemoryIfEnabled('llm-distillation-chat:skip', {
         chatId: currentChat.id,
         chat: currentChat,
         characters: getCurrentCharacters(),
@@ -167,7 +167,7 @@ export async function scheduleAsyncMemoryAnalysis(params: {
     }
     const startFingerprint = buildMemoryAnalysisFingerprint(currentChat);
     if (!startFingerprint || state.lastSettledFingerprint === startFingerprint) {
-      recordRuntimeMemory('llm-distillation-chat:skip', {
+      recordRuntimeMemoryIfEnabled('llm-distillation-chat:skip', {
         chatId: currentChat.id,
         chat: currentChat,
         characters: getCurrentCharacters(),
@@ -279,7 +279,7 @@ export async function scheduleAsyncMemoryAnalysis(params: {
     scheduleDeferredMemoryAnalysis(buildAnalysisOwnerKey('character', characterId), async (state) => {
       const currentCharacter = getCurrentCharacters().find((item) => item.id === characterId) || seedCharacter;
       if (!shouldRunLlmCharacterDistillation(currentCharacter, 0)) {
-        recordRuntimeMemory('llm-distillation-character:skip', {
+        recordRuntimeMemoryIfEnabled('llm-distillation-character:skip', {
           chatId: params.chat.id,
           speakerId: characterId,
           characters: [currentCharacter],
@@ -289,7 +289,7 @@ export async function scheduleAsyncMemoryAnalysis(params: {
       }
       const startFingerprint = buildMemoryAnalysisFingerprint(currentCharacter);
       if (!startFingerprint || state.lastSettledFingerprint === startFingerprint) {
-        recordRuntimeMemory('llm-distillation-character:skip', {
+        recordRuntimeMemoryIfEnabled('llm-distillation-character:skip', {
           chatId: params.chat.id,
           speakerId: characterId,
           characters: [currentCharacter],

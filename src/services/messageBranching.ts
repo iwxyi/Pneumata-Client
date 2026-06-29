@@ -1,5 +1,6 @@
 import type { GroupChat, MessageBranchState } from '../types/chat';
 import type { Message, MessageMetadata } from '../types/message';
+import { logDeveloperDiagnostic, measureDeveloperDiagnostic } from './developerDiagnostics';
 
 export interface ResolvedBranchingNode {
   message: Message;
@@ -18,15 +19,18 @@ export interface MessageBranchVersionInfo {
   nodeIds: string[];
 }
 
-const ENABLED_SCENARIO_IDS = new Set([
-  'open-chat',
-  'direct-chat',
-  'ai-private-thread',
-  'group-discussion',
-  'roundtable-discussion',
-  'brainstorm-workshop',
-  'retrospective-room',
-  'debate-arena',
+const DISABLED_SCENARIO_IDS = new Set([
+  'story-reader',
+  'werewolf-classic',
+  'murder-mystery',
+  'board-game',
+]);
+
+const DISABLED_MODES = new Set([
+  'scripted_play',
+  'werewolf',
+  'murder_mystery',
+  'board_game',
 ]);
 
 type BranchableChat = Pick<GroupChat, 'sessionKind' | 'messageBranchState'> & Partial<Pick<GroupChat, 'mode'>>;
@@ -59,7 +63,9 @@ export function isMessageBranchingEnabled(chat: BranchableChat | null | undefine
   if (chat.messageBranchState?.enabled === false) return false;
   const scenarioId = chat.sessionKind?.scenarioId;
   if (!scenarioId) return false;
-  return ENABLED_SCENARIO_IDS.has(scenarioId);
+  if (DISABLED_SCENARIO_IDS.has(scenarioId)) return false;
+  if (chat.mode && DISABLED_MODES.has(chat.mode)) return false;
+  return true;
 }
 
 function getBranchingMetadata(message: Message): NonNullable<MessageMetadata['branching']> | null {
@@ -89,19 +95,26 @@ export function resolveMessageBranchNodes(messages: Message[]) {
     .filter((message) => !isDeletedMessage(message))
     .slice()
     .sort(compareMessageOrder);
-  const nodes: ResolvedBranchingNode[] = [];
+  const rawNodes: ResolvedBranchingNode[] = [];
   let previousNodeId: string | null = null;
   for (const message of visibleMessages) {
     const branching = getBranchingMetadata(message);
     const explicitParent = branching && Object.prototype.hasOwnProperty.call(branching, 'parentNodeId');
     const node = resolveBranchingNode(message, previousNodeId);
-    nodes.push({
+    rawNodes.push({
       ...node,
       parentNodeId: explicitParent ? node.parentNodeId : previousNodeId,
     });
     previousNodeId = node.nodeId;
   }
-  return nodes;
+  const availableNodeIds = new Set(rawNodes.map((node) => node.nodeId));
+  return rawNodes.map((node, index) => {
+    if (!node.parentNodeId || availableNodeIds.has(node.parentNodeId)) return node;
+    return {
+      ...node,
+      parentNodeId: rawNodes[index - 1]?.nodeId || null,
+    };
+  });
 }
 
 function buildChildrenByParent(nodes: ResolvedBranchingNode[]) {
@@ -116,6 +129,10 @@ function buildChildrenByParent(nodes: ResolvedBranchingNode[]) {
     list.sort((left, right) => compareMessageOrder(left.message, right.message));
   }
   return map;
+}
+
+function logBranchProjectionDebug(payload: Record<string, unknown>) {
+  logDeveloperDiagnostic('message-branch:project', payload, 'info', 'message-window');
 }
 
 function resolveSiblingGroupRootId(children: ResolvedBranchingNode[]) {
@@ -136,10 +153,19 @@ function resolveSelectedChildId(
     const byParent = state.activeChildByParentNodeId?.[parentNodeId];
     if (byParent && children.some((child) => child.nodeId === byParent)) return byParent;
   }
-  return children.at(-1)?.nodeId || children[0]?.nodeId || null;
+  const original = children.find((child) => child.nodeId === siblingGroupRootId)
+    || children.find((child) => !child.revisionOfMessageId);
+  return original?.nodeId || children[0]?.nodeId || null;
 }
 
 export function projectActiveBranchMessages(chat: BranchableChat | null | undefined, messages: Message[]) {
+  return measureDeveloperDiagnostic('message-branch:project-duration', () => projectActiveBranchMessagesInternal(chat, messages), {
+    inputMessages: messages.length,
+    branchingEnabled: isMessageBranchingEnabled(chat),
+  }, 'message-window');
+}
+
+function projectActiveBranchMessagesInternal(chat: BranchableChat | null | undefined, messages: Message[]) {
   if (!isMessageBranchingEnabled(chat)) {
     return messages
       .filter((message) => !isDeletedMessage(message))
@@ -149,22 +175,58 @@ export function projectActiveBranchMessages(chat: BranchableChat | null | undefi
   const nodes = resolveMessageBranchNodes(messages);
   if (!nodes.length) return [];
   const childrenByParent = buildChildrenByParent(nodes);
-  const roots = nodes.filter((node) => !node.parentNodeId);
-  const activePath: Message[] = [];
-  const visited = new Set<string>();
-  let current = roots[0] || nodes[0] || null;
-  while (current && !visited.has(current.nodeId)) {
-    visited.add(current.nodeId);
-    activePath.push(current.message);
-    const children = childrenByParent.get(current.nodeId) || [];
-    if (!children.length) break;
-    const siblingRootId = resolveSiblingGroupRootId(children);
-    const selectedChildId = resolveSelectedChildId(chat, current.nodeId, siblingRootId, children);
-    const next = children.find((child) => child.nodeId === selectedChildId) || children[0] || null;
-    if (!next) break;
-    current = next;
+  const nodeById = new Map(nodes.map((node) => [node.nodeId, node]));
+  const revisionGroups = new Map<string, ResolvedBranchingNode[]>();
+  for (const node of nodes) {
+    if (!node.revisionOfMessageId && node.revisionRootId === node.message.id) continue;
+    const group = revisionGroups.get(node.revisionRootId) || [];
+    group.push(node);
+    const rootNode = nodeById.get(node.revisionRootId);
+    if (rootNode && !group.some((item) => item.nodeId === rootNode.nodeId)) group.push(rootNode);
+    revisionGroups.set(node.revisionRootId, group);
   }
-  return activePath;
+
+  const inactiveNodeIds = new Set<string>();
+  for (const [revisionRootId, rawGroup] of revisionGroups.entries()) {
+    const group = Array.from(new Map(rawGroup.map((node) => [node.nodeId, node])).values())
+      .sort((left, right) => compareMessageOrder(left.message, right.message));
+    if (group.length <= 1) continue;
+    const parentNodeId = group.find((node) => node.parentNodeId)?.parentNodeId || null;
+    const selectedNodeId = resolveSelectedChildId(chat, parentNodeId, revisionRootId, group);
+    for (const node of group) {
+      if (node.nodeId !== selectedNodeId) inactiveNodeIds.add(node.nodeId);
+    }
+  }
+
+  const excludedNodeIds = new Set<string>();
+  const excludeSubtree = (nodeId: string) => {
+    if (excludedNodeIds.has(nodeId)) return;
+    excludedNodeIds.add(nodeId);
+    for (const child of childrenByParent.get(nodeId) || []) excludeSubtree(child.nodeId);
+  };
+  for (const nodeId of inactiveNodeIds) excludeSubtree(nodeId);
+
+  const activeMessages = nodes
+    .filter((node) => !excludedNodeIds.has(node.nodeId))
+    .map((node) => node.message)
+    .sort(compareMessageOrder);
+  if (activeMessages.length < Math.min(messages.filter((message) => !isDeletedMessage(message)).length, 10)) {
+    logBranchProjectionDebug({
+      inputMessages: messages.length,
+      nodes: nodes.length,
+      activePathMessages: activeMessages.length,
+      inactiveNodeIds: Array.from(inactiveNodeIds).slice(0, 20),
+      excludedNodeIds: Array.from(excludedNodeIds).slice(0, 20),
+      revisionGroups: Array.from(revisionGroups.entries()).slice(0, 12).map(([rootId, group]) => ({
+        rootId,
+        nodeIds: group.map((node) => node.nodeId),
+      })),
+      activeLeafNodeId: chat?.messageBranchState?.activeLeafNodeId,
+      selectedRevisionByRootId: chat?.messageBranchState?.selectedRevisionByRootId,
+      activeChildByParentNodeId: chat?.messageBranchState?.activeChildByParentNodeId,
+    });
+  }
+  return activeMessages;
 }
 
 export function getActiveBranchTail(chat: BranchableChat | null | undefined, messages: Message[]) {
@@ -210,22 +272,85 @@ export function getBranchRevisionGroup(messages: Message[], messageId: string) {
 }
 
 export function getMessageBranchVersionInfo(chat: BranchableChat | null | undefined, messages: Message[], messageId: string): MessageBranchVersionInfo | null {
-  const activeMessages = projectActiveBranchMessages(chat, messages);
-  const group = getBranchRevisionGroup(messages, messageId);
-  if (!group.length) return null;
-  const sortedGroup = group.slice().sort(compareMessageOrder);
-  const index = sortedGroup.findIndex((message) => message.id === messageId || message.clientKey === messageId || message.serverId === messageId);
-  const activeNodeId = getActiveBranchTail(chat, messages)?.id || '';
-  const target = nodesFromMessages(messages).find((node) => node.message.id === messageId || node.nodeId === messageId);
-  const rootId = target?.revisionRootId || target?.message.id || messageId;
-  return {
-    rootId,
-    index: index >= 0 ? index + 1 : 1,
-    total: sortedGroup.length,
-    isActive: activeMessages.some((message) => message.id === messageId || message.clientKey === messageId || message.serverId === messageId),
-    activeNodeId,
-    nodeIds: sortedGroup.map((message) => message.id),
-  };
+  return buildMessageBranchVersionInfoByMessageId(chat, messages, [messageId])[messageId] || null;
+}
+
+export function buildMessageBranchVersionInfoByMessageId(
+  chat: BranchableChat | null | undefined,
+  messages: Message[],
+  messageIds?: string[],
+) {
+  return measureDeveloperDiagnostic('message-branch:version-info-duration', () => {
+    const nodes = nodesFromMessages(messages);
+    if (!nodes.length) return {} as Record<string, MessageBranchVersionInfo>;
+    const nodesByMessageKey = new Map<string, ResolvedBranchingNode>();
+    const groupsByRootId = new Map<string, ResolvedBranchingNode[]>();
+    for (const node of nodes) {
+      nodesByMessageKey.set(node.message.id, node);
+      if (node.message.clientKey) nodesByMessageKey.set(node.message.clientKey, node);
+      if (node.message.serverId) nodesByMessageKey.set(node.message.serverId, node);
+      nodesByMessageKey.set(node.nodeId, node);
+      const group = groupsByRootId.get(node.revisionRootId) || [];
+      group.push(node);
+      groupsByRootId.set(node.revisionRootId, group);
+    }
+    const branchedRootIds = new Set<string>();
+    for (const [rootId, group] of groupsByRootId.entries()) {
+      const uniqueNodeIds = new Set(group.map((node) => node.nodeId));
+      if (uniqueNodeIds.size > 1) branchedRootIds.add(rootId);
+    }
+    if (!branchedRootIds.size) return {} as Record<string, MessageBranchVersionInfo>;
+
+    const activeMessages = projectActiveBranchMessagesInternal(chat, messages);
+    const activeMessageKeys = new Set<string>();
+    for (const message of activeMessages) {
+      activeMessageKeys.add(message.id);
+      if (message.clientKey) activeMessageKeys.add(message.clientKey);
+      if (message.serverId) activeMessageKeys.add(message.serverId);
+    }
+    const activeNodeId = activeMessages.at(-1)?.id || '';
+    const requestedIds = messageIds?.length ? messageIds : messages.map((message) => message.id);
+    const result: Record<string, MessageBranchVersionInfo> = {};
+    const cachedGroupInfo = new Map<string, { sortedGroup: ResolvedBranchingNode[]; nodeIds: string[] }>();
+    for (const messageId of requestedIds) {
+      const target = nodesByMessageKey.get(messageId);
+      if (!target) continue;
+      const rootId = target.revisionRootId || target.message.id || messageId;
+      if (!branchedRootIds.has(rootId)) continue;
+      let groupInfo = cachedGroupInfo.get(rootId);
+      if (!groupInfo) {
+        const sortedGroup = (groupsByRootId.get(rootId) || [])
+          .filter((node) => node.revisionRootId === rootId || node.message.id === rootId)
+          .sort((left, right) => compareMessageOrder(left.message, right.message));
+        groupInfo = {
+          sortedGroup,
+          nodeIds: sortedGroup.map((node) => node.message.id),
+        };
+        cachedGroupInfo.set(rootId, groupInfo);
+      }
+      if (!groupInfo.sortedGroup.length) continue;
+      const index = groupInfo.sortedGroup.findIndex((node) => (
+        node.message.id === messageId
+        || node.message.clientKey === messageId
+        || node.message.serverId === messageId
+        || node.nodeId === messageId
+      ));
+      result[messageId] = {
+        rootId,
+        index: index >= 0 ? index + 1 : 1,
+        total: groupInfo.sortedGroup.length,
+        isActive: activeMessageKeys.has(target.message.id)
+          || Boolean(target.message.clientKey && activeMessageKeys.has(target.message.clientKey))
+          || Boolean(target.message.serverId && activeMessageKeys.has(target.message.serverId)),
+        activeNodeId,
+        nodeIds: groupInfo.nodeIds,
+      };
+    }
+    return result;
+  }, {
+    inputMessages: messages.length,
+    requestedMessages: messageIds?.length ?? messages.length,
+  }, 'message-window');
 }
 
 function nodesFromMessages(messages: Message[]) {

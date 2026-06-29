@@ -11,10 +11,8 @@ import SurfaceCard from '../components/common/SurfaceCard';
 import { compactPillChipSx } from '../styles/interaction';
 import { sanitizeUserFacingText } from '../services/displayTextSanitizer';
 import { projectWorldMoments } from '../services/worldRuntimeProjection';
-import { buildCompanionshipArtifactSeeds } from '../services/companionshipProjection';
 import { isImageAvatar } from '../utils/avatar';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
-import { updateSourceChatAfterPostMoment } from '../services/directSessionRuntime';
 import type { SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { generateImageWithAdapter, generateTextWithAdapter } from '../services/aiGenerationAdapter';
 import { getPreferredAIProfile } from '../types/settings';
@@ -172,6 +170,7 @@ export default function MomentsPage() {
     const actor = pickedChat.members[Math.floor(Math.random() * pickedChat.members.length)];
     const now = Date.now();
     const mode = now % 3;
+    const { buildCompanionshipArtifactSeeds } = await import('../services/companionshipProjection');
     const companionshipSeeds = buildCompanionshipArtifactSeeds({
       character: actor,
       relatedCharacters: pickedChat.members.filter((member) => member.id !== actor.id),
@@ -271,6 +270,7 @@ export default function MomentsPage() {
         imageError = getErrorMessage(error) || (isZh ? '图片模型不可用' : 'Image model is unavailable');
       }
     }
+    const { updateSourceChatAfterPostMoment } = await import('../services/directSessionRuntime');
     const patch = updateSourceChatAfterPostMoment(pickedChat.chat, payload, actor.name);
     const artifactEvent = (patch.runtimeEventsV2 || []).find((event) => {
       const eventPayload = event.payload as { artifactType?: string; eventKind?: string };

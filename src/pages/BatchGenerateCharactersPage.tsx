@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Box, Button, TextField, Typography, Chip, LinearProgress, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, IconButton, InputLabel, MenuItem, Select } from '@mui/material';
+import { useShallow } from 'zustand/react/shallow';
 import type { AIModelProfile } from '../types/settings';
 import type { AICharacter, CharacterBehaviorParams, PersonalityParams } from '../types/character';
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
@@ -579,8 +580,17 @@ export default function BatchGenerateCharactersPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setHeaderTitle, setHeaderActions, setHeaderBackAction } = useLayoutHeaderActions();
-  const settings = useSettingsStore();
-  const { characters, markCharactersWarm, prefetchCharacters, addCharacters, updateCharacters } = useCharacterStore();
+  const settings = useSettingsStore(useShallow((state) => ({
+    aiProfiles: state.aiProfiles,
+    customBubbleStyles: state.customBubbleStyles,
+  })));
+  const { characters, markCharactersWarm, prefetchCharacters, addCharacters, updateCharacters } = useCharacterStore(useShallow((state) => ({
+    characters: state.characters,
+    markCharactersWarm: state.markCharactersWarm,
+    prefetchCharacters: state.prefetchCharacters,
+    addCharacters: state.addCharacters,
+    updateCharacters: state.updateCharacters,
+  })));
   const [topic, setTopic] = useState('');
   const [description, setDescription] = useState('');
   const [candidateCharacters, setCandidateCharacters] = useState<CandidateCharacter[]>([]);

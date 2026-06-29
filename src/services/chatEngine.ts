@@ -3,23 +3,22 @@ import { resolveShowRoleActions, type GroupChat } from '../types/chat';
 import type { Message, StoryEvent } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { MediaGenerationDecision, MessageAttachment, MessageMetadata, NarrativeBlock } from '../types/message';
-import type { SessionGenerationPromptContext } from '../types/sessionEngine';
+import type { SessionEngineDefinition, SessionGenerationPromptContext } from '../types/sessionEngine';
 import type { MemoryItem } from './memoryTypes';
 import { getPreferredAIProfile } from '../types/settings';
 import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildChatMessages, buildPromptMemoryTrace, type PromptMemoryTrace } from './promptBuilder';
-import { buildCompanionshipRuntimeTrace } from './companionshipProjection';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { resolveSessionDefinition } from '../types/sessionEngine';
-import { resolveSessionEngine } from './sessionEngineRegistry';
+import { loadSessionEngine } from './sessionEngineLoader';
 import { getStyleProfile, resolveDefaultStyleProfile } from './styleProfileRegistry';
 import { getChannelSemantics } from './channelSemanticsRegistry';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
 
 function getSessionEngine(chat: Pick<GroupChat, 'mode' | 'sessionKind'>) {
-  return resolveSessionEngine(chat);
+  return loadSessionEngine(chat);
 }
 import { analyzeEmotion, updateEmotion } from './emotionTracker';
 import { calculateWeights, getSpeakerSelectionResult, resolvePendingReplyContext, selectSpeaker } from './scheduler';
@@ -43,7 +42,7 @@ import { resolvePersonaActivation, type PersonaActivation } from './personaActiv
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { enrichRuntimeBundleWithHumanAppraisal } from './humanAppraisal';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
-import { appendStoryReadingPanelBlock, buildNarrativeTurnFromStoryEvents, buildStoryContinuationState, buildStoryEventsVisibleText, evaluateStoryContinuationQuality, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents, type StoryContinuationState } from './narrativeRuntime';
+import type { StoryContinuationState } from './narrativeRuntime';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
@@ -101,6 +100,44 @@ type GenerationWithGuidanceTrace = {
 
 const MAX_EXTRA_MESSAGES = 4;
 const emotionMap: Record<string, number> = {};
+type NarrativeRuntimeModule = typeof import('./narrativeRuntime');
+
+function loadNarrativeRuntime() {
+  return import('./narrativeRuntime');
+}
+
+function hasCompanionshipRuntimeState(chat: GroupChat, character: AICharacter) {
+  if (
+    character.layeredMemories?.length
+    || character.relationships?.length
+    || character.memory?.userMemories?.length
+  ) {
+    return true;
+  }
+  return (chat.runtimeEventsV2 || []).some((event) => {
+    const payload = event.payload as Record<string, unknown> | undefined;
+    return Boolean(
+      payload?.eventType
+      && typeof payload.eventType === 'string'
+      && payload.eventType.startsWith('companionship_')
+      && payload.characterId === character.id,
+    );
+  });
+}
+
+async function buildCompanionshipTraceIfNeeded(params: {
+  chat: GroupChat;
+  character: AICharacter;
+  messages: Message[];
+}) {
+  if (!hasCompanionshipRuntimeState(params.chat, params.character)) return null;
+  const { buildCompanionshipRuntimeTrace } = await import('./companionshipProjection');
+  return buildCompanionshipRuntimeTrace({
+    chat: params.chat,
+    character: params.character,
+    messages: params.messages,
+  });
+}
 
 class EmptyGeneratedResponseError extends Error {
   localInterceptionReported: boolean;
@@ -281,6 +318,10 @@ function isTestRuntime() {
 
 function sleep(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function nowMs() {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
 function resolveInnerLifeTypingDelayMs(projection: InnerLifeProjection, chat: GroupChat) {
@@ -655,7 +696,8 @@ function validateStoryReaderGeneration(params: {
   narrativeBlocks?: NarrativeBlock[] | null;
   finalResponse?: string;
   rawContent?: string;
-  continuationState?: ReturnType<typeof buildStoryContinuationState>;
+  continuationState?: StoryContinuationState | null;
+  narrativeRuntime: Pick<NarrativeRuntimeModule, 'evaluateStoryContinuationQuality'>;
 }) {
   const storyEvents = params.storyEvents || [];
   const visibleEvents = storyEvents.filter((event) => event.type === 'narration' || event.type === 'speech');
@@ -696,7 +738,7 @@ function validateStoryReaderGeneration(params: {
       message: '故事房生成结果缺少可见 storyEvents narration/speech。',
     };
   }
-  const continuationQuality = evaluateStoryContinuationQuality(storyEvents, params.continuationState);
+  const continuationQuality = params.narrativeRuntime.evaluateStoryContinuationQuality(storyEvents, params.continuationState);
   if (!continuationQuality.ok) {
     return {
       code: 'story_continuity_invalid',
@@ -1965,8 +2007,8 @@ function buildMessageMetadata(params: {
 }): MessageMetadata | undefined {
   const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
-  const storyEvents = params.storyEventsNormalized ? (params.storyEvents || []) : normalizeStoryEvents(params.storyEvents);
-  const storyQuality = params.storyQuality || (storyEvents.length ? evaluateStoryEventQuality(storyEvents) : null);
+  const storyEvents = params.storyEventsNormalized ? (params.storyEvents || []) : [];
+  const storyQuality = params.storyQuality || null;
   if (!decision && !params.runtimeDecision && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const contextText = params.narrativeTurn?.blocks.map((block) => block.text).filter(Boolean).join('\n\n') || params.content;
@@ -2214,12 +2256,38 @@ async function generateWithPrompt(params: {
 }) {
   const streamBridge = createStreamingDisplayBridge(params.speaker, params.showRoleActions, params.onChunk);
   const jsonPrompt = `${params.systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
+  const requestStartedAt = nowMs();
+  let firstRawChunkLogged = false;
+  logDeveloperDiagnostic('chat-run:model-request-start', {
+    chatId: params.chat.id,
+    speakerId: params.speaker.id,
+    speakerName: params.speaker.name,
+    provider: params.resolvedApi.provider,
+    model: params.resolvedApi.model,
+    attempt: params.attempt,
+    streaming: Boolean(params.onChunk),
+    promptLength: jsonPrompt.length,
+    messageCount: params.chatMessages.length,
+  }, 'debug', 'chat-run');
   const response = await generateResponse(
     params.resolvedApi,
     jsonPrompt,
     params.chatMessages,
     params.onChunk
       ? (raw) => {
+          if (!firstRawChunkLogged) {
+            firstRawChunkLogged = true;
+            logDeveloperDiagnostic('chat-run:model-first-raw-chunk', {
+              chatId: params.chat.id,
+              speakerId: params.speaker.id,
+              speakerName: params.speaker.name,
+              provider: params.resolvedApi.provider,
+              model: params.resolvedApi.model,
+              attempt: params.attempt,
+              rawLength: raw.length,
+              elapsedMs: Number((nowMs() - requestStartedAt).toFixed(2)),
+            }, 'info', 'chat-run');
+          }
           streamBridge.push(raw);
       }
       : undefined,
@@ -2234,15 +2302,30 @@ async function generateWithPrompt(params: {
       },
     },
   );
+  logDeveloperDiagnostic('chat-run:model-request-finished', {
+    chatId: params.chat.id,
+    speakerId: params.speaker.id,
+    speakerName: params.speaker.name,
+    provider: params.resolvedApi.provider,
+    model: params.resolvedApi.model,
+    attempt: params.attempt,
+    responseLength: response.length,
+    elapsedMs: Number((nowMs() - requestStartedAt).toFixed(2)),
+  }, 'info', 'chat-run');
   logRawAiResponse({ chat: params.chat, speaker: params.speaker, attempt: params.attempt, response });
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
-  const storyEvents = normalizeStoryEvents(parsedEnvelope?.storyEvents, { previousMessages: params.activeMessages });
-  const storyEventContent = storyEvents.length ? buildStoryEventsVisibleText(storyEvents, params.characters || []) : '';
+  const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
+  const narrativeRuntime = isStoryReader ? await loadNarrativeRuntime() : null;
+  const storyEvents = narrativeRuntime
+    ? narrativeRuntime.normalizeStoryEvents(parsedEnvelope?.storyEvents, { previousMessages: params.activeMessages })
+    : [];
+  const storyEventContent = storyEvents.length && narrativeRuntime
+    ? narrativeRuntime.buildStoryEventsVisibleText(storyEvents, params.characters || [])
+    : '';
   const rawContent = storyEventContent || (parsedEnvelope ? parsedEnvelope.content : isLikelyInlineEnvelopeResponse(response) ? '' : response);
   const rawNarrativeText = typeof parsedEnvelope?.narrativeText === 'string' ? parsedEnvelope.narrativeText : '';
   const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, Boolean(parsedEnvelope?.intentionalRepeat), params.surface);
   const finalizedNarrativeText = rawNarrativeText ? trimHumanChatStyle(rawNarrativeText, true) : '';
-  const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const narrativeBlocks = normalizeStoryNarrativeBlocks({
     blocks: parsedEnvelope?.narrativeBlocks,
     events: parsedEnvelope?.storyEvents,
@@ -2264,7 +2347,7 @@ async function generateWithPrompt(params: {
     turnPlan: params.turnPlan,
   });
   const fullResponse = buildFullTurnResponse(finalResponse, extraMessages);
-  const eventStoryChoices = getStoryChoicesFromEvents(storyEvents);
+  const eventStoryChoices = narrativeRuntime ? narrativeRuntime.getStoryChoicesFromEvents(storyEvents) : [];
   const storyChoices = eventStoryChoices?.length ? eventStoryChoices : normalizeStoryChoiceSuggestions(parsedEnvelope?.storyChoices);
   const fullNarrativeResponse = narrativeBlocks.map((block) => block.text).join('\n\n') || finalizedNarrativeText;
   streamBridge.flush(fullNarrativeResponse || finalResponse);
@@ -2290,9 +2373,10 @@ async function generateNonDuplicateResponse(params: {
   signal?: AbortSignal;
 }): Promise<GenerationWithGuidanceTrace> {
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
+  const narrativeRuntime = isStoryReader ? await loadNarrativeRuntime() : null;
   let prompt = isStoryReader ? buildStoryProtocolPrompt(params.systemPrompt) : params.systemPrompt;
   const storyContinuationState = isStoryReader
-    ? buildStoryContinuationState({ conversation: params.chat, messages: params.activeMessages })
+    ? narrativeRuntime?.buildStoryContinuationState({ conversation: params.chat, messages: params.activeMessages })
     : null;
   let lastParsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope> = null;
   let lastFinalResponse = '';
@@ -2317,7 +2401,7 @@ async function generateNonDuplicateResponse(params: {
     lastExtraMessages = generated.extraMessages || null;
     lastStoryEvents = generated.storyEvents || null;
     lastStoryChoices = generated.storyChoices || null;
-    const storyProtocolIssue = isStoryReader ? validateStoryReaderGeneration({
+    const storyProtocolIssue = isStoryReader && narrativeRuntime ? validateStoryReaderGeneration({
       chat: params.chat,
       parsedEnvelope: generated.parsedEnvelope,
       storyEvents: generated.storyEvents || null,
@@ -2326,6 +2410,7 @@ async function generateNonDuplicateResponse(params: {
       finalResponse: generated.finalResponse,
       rawContent: generated.rawContent,
       continuationState: storyContinuationState,
+      narrativeRuntime,
     }) : null;
     if (storyProtocolIssue) {
       const draft = generated.rawContent || generated.fullResponse;
@@ -2617,12 +2702,14 @@ export async function generateSpeakerMessage(params: {
   generationContext?: {
     promptContext?: SessionGenerationPromptContext | null;
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
+    sessionEngine?: SessionEngineDefinition | null;
   };
   onChunk?: (content: string) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   delay?: (ms: number) => Promise<void>;
   signal?: AbortSignal;
 }): Promise<GeneratedRoundMessage> {
+  const startedAt = nowMs();
   const chatMembers = resolveEffectiveChatMembers(params.chat, params.characters);
   const effectiveMembers = chatMembers.length ? chatMembers : params.characters;
   const activeMessages = params.messages.filter((message) => message.chatId === params.chat.id && !message.isDeleted);
@@ -2635,7 +2722,16 @@ export async function generateSpeakerMessage(params: {
   const recentText = activeMessages.at(-1)?.content || '';
   const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText, effectiveDirectorIntent);
   const innerLife = projectInnerLife({ chat: params.chat, character: params.speaker, messages: activeMessages });
-  await waitForInnerLifeTypingDelay(innerLife, params.chat, params.delay);
+  const typingDelayMs = await waitForInnerLifeTypingDelay(innerLife, params.chat, params.delay);
+  if (typingDelayMs > 0) {
+    logDeveloperDiagnostic('chat-run:typing-delay', {
+      chatId: params.chat.id,
+      speakerId: params.speaker.id,
+      speakerName: params.speaker.name,
+      delayMs: typingDelayMs,
+      elapsedMs: Number((nowMs() - startedAt).toFixed(2)),
+    }, 'debug', 'chat-run');
+  }
   if (params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId) {
     intent.target = params.pendingReplyContext.sourceSpeakerId;
     if (intent.stance === 'deflect') {
@@ -2658,7 +2754,7 @@ export async function generateSpeakerMessage(params: {
   const additionalConstraints = enginePromptContext?.additionalConstraints?.length
     ? `\n- ${enginePromptContext.additionalConstraints.join('\n- ')}`
     : '';
-  const sessionEngine = getSessionEngine(params.chat);
+  const sessionEngine = params.generationContext?.sessionEngine || await getSessionEngine(params.chat);
   const runtimeContextBundle = sessionEngine.buildRuntimeContextBundle?.({
     conversation: params.chat,
     characters: effectiveMembers,
@@ -2670,6 +2766,7 @@ export async function generateSpeakerMessage(params: {
     speaker: params.speaker,
     messages: activeMessages,
     promptContext: enginePromptContext,
+    sessionEngine,
   });
   const runtimeBundle = enrichRuntimeBundleWithHumanAppraisal({
     bundle: baseRuntimeBundle,
@@ -2694,7 +2791,7 @@ export async function generateSpeakerMessage(params: {
   const personaActivation = resolvePersonaActivation({ chat: params.chat, speaker: params.speaker, messages: activeMessages });
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const memoryTrace = buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
-  const companionshipTrace = buildCompanionshipRuntimeTrace({ chat: params.chat, character: params.speaker, messages: activeMessages });
+  const companionshipTrace = await buildCompanionshipTraceIfNeeded({ chat: params.chat, character: params.speaker, messages: activeMessages });
   const userGuidance = effectiveDirectorIntent?.userGuidance || null;
   const worldInfluenceSnapshot = buildWorldEventInfluenceSnapshot({
     chat: params.chat,
@@ -2736,6 +2833,17 @@ Current speaking intent:
     chatType: params.chat.type,
   });
   const resolvedApi = resolveApiConfigForCharacter(params.speaker, params.apiConfig, params.profiles);
+  logDeveloperDiagnostic('chat-run:generation-context-ready', {
+    chatId: params.chat.id,
+    speakerId: params.speaker.id,
+    speakerName: params.speaker.name,
+    provider: resolvedApi.provider,
+    model: resolvedApi.model,
+    activeMessages: activeMessages.length,
+    promptLength: systemPrompt.length,
+    chatMessages: chatMessages.length,
+    elapsedMs: Number((nowMs() - startedAt).toFixed(2)),
+  }, 'debug', 'chat-run');
   const generated = await generateNonDuplicateResponse({
     chat: params.chat,
     resolvedApi,
@@ -2802,11 +2910,12 @@ Current speaking intent:
     } satisfies GuidanceExecutionTrace
     : undefined;
   const storyEvents = generated.storyEvents || [];
-  const storyChoicesFromEvents = getStoryChoicesFromEvents(storyEvents);
+  const narrativeRuntime = storyEvents.length || isStoryReader ? await loadNarrativeRuntime() : null;
+  const storyChoicesFromEvents = narrativeRuntime ? narrativeRuntime.getStoryChoicesFromEvents(storyEvents) : [];
   const legacyStoryChoices = normalizeStoryChoiceSuggestions(generated.parsedEnvelope?.storyChoices || null);
   const storyChoices = storyChoicesFromEvents.length ? storyChoicesFromEvents : legacyStoryChoices;
-  const baseNarrativeTurn = storyEvents.length
-    ? buildNarrativeTurnFromStoryEvents({
+  const baseNarrativeTurn = narrativeRuntime && storyEvents.length
+    ? narrativeRuntime.buildNarrativeTurnFromStoryEvents({
         conversation: params.chat,
         events: storyEvents,
         characters: effectiveMembers,
@@ -2819,11 +2928,11 @@ Current speaking intent:
     content: generated.narrativeText || '',
     blocks: generated.narrativeBlocks || null,
   }) || null;
-  const narrativeTurn = appendStoryReadingPanelBlock({
+  const narrativeTurn = narrativeRuntime ? narrativeRuntime.appendStoryReadingPanelBlock({
     conversation: params.chat,
     narrativeTurn: baseNarrativeTurn,
     choices: storyChoices,
-  });
+  }) : baseNarrativeTurn;
   const completedMessage = buildCompletedMessage({
     chat: params.chat,
     speakerId: params.speaker.id,
@@ -2840,6 +2949,7 @@ Current speaking intent:
         surface: responseSurface,
         storyEvents,
         storyEventsNormalized: true,
+        storyQuality: narrativeRuntime && storyEvents.length ? narrativeRuntime.evaluateStoryEventQuality(storyEvents) : null,
         narrativeTurn,
         storyChoices,
 	      runtimeDecision: buildRuntimeDecisionMetadata({
@@ -2904,6 +3014,7 @@ export const runOneRound = async (
   generationContext?: {
     promptContext?: SessionGenerationPromptContext | null;
     buildPromptContext?: (speaker: AICharacter) => SessionGenerationPromptContext | null | undefined;
+    sessionEngine?: SessionEngineDefinition | null;
   },
   cooldownMap?: Record<string, number>
 ): Promise<void> => {
@@ -3021,7 +3132,15 @@ export const runOneRound = async (
   if (!speaker) return;
   const selectedCandidate = candidates.find((candidate) => candidate.characterId === speaker.id);
   callbacks.onSpeakerSelected(speaker.id, speaker);
+  const hydrateStartedAt = nowMs();
   const hydratedSpeaker = await callbacks.ensureSpeakerDetail?.(speaker.id, speaker);
+  logDeveloperDiagnostic('chat-run:speaker-detail-ready', {
+    chatId: chat.id,
+    speakerId: speaker.id,
+    speakerName: speaker.name,
+    hydrated: Boolean(hydratedSpeaker),
+    elapsedMs: Number((nowMs() - hydrateStartedAt).toFixed(2)),
+  }, 'debug', 'chat-run');
 
   try {
     let activeSpeaker = hydratedSpeaker || speaker;
@@ -3077,7 +3196,16 @@ export const runOneRound = async (
       activeSpeaker = rotated;
       const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
       callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
+      const rotatedHydrateStartedAt = nowMs();
       const hydratedRotated = await callbacks.ensureSpeakerDetail?.(activeSpeaker.id, activeSpeaker);
+      logDeveloperDiagnostic('chat-run:speaker-detail-ready', {
+        chatId: chat.id,
+        speakerId: activeSpeaker.id,
+        speakerName: activeSpeaker.name,
+        hydrated: Boolean(hydratedRotated),
+        rotated: true,
+        elapsedMs: Number((nowMs() - rotatedHydrateStartedAt).toFixed(2)),
+      }, 'debug', 'chat-run');
       if (hydratedRotated) activeSpeaker = hydratedRotated;
       const generationCharacters = activeSpeaker === rotated ? characters : characters.map((item) => item.id === activeSpeaker.id ? activeSpeaker : item);
       completedMessage = await generateSpeakerMessage({

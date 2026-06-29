@@ -7,7 +7,7 @@ import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useMessageStore } from '../stores/useMessageStore';
-import { useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
+import { ensureCharacterArtifactStoreHydrated, useCharacterArtifactStore } from '../stores/useCharacterArtifactStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import EmptyState from '../components/common/EmptyState';
 import { readCloudSyncBootstrapStatus, type CloudSyncBootstrapStatus } from '../services/cloudSyncBootstrapStatus';
@@ -22,6 +22,7 @@ import { classifySyncError, parseSyncErrorClassification, type SyncErrorKind } f
 import { buildLocalOutboxProjection } from '../services/localOutboxProjection';
 import { mirrorLocalOutboxQueues } from '../services/localOutboxMirror';
 import { clearLocalOutboxHistory, listLocalOutboxHistory, type LocalOutboxHistoryEntry } from '../services/localOutboxWorkerBridge';
+import type { Message } from '../types/message';
 
 function clipText(value: unknown, max = 120) {
   if (value == null) return '';
@@ -34,6 +35,13 @@ function summarizePatch(patch: Record<string, unknown> | undefined, isZh: boolea
   const keys = Object.keys(patch || {}).filter((key) => key !== 'updatedAt');
   if (!keys.length) return isZh ? '本地操作没有可展示的字段变更' : 'No displayable field changes in this local operation';
   return isZh ? `变更字段：${keys.slice(0, 8).join('、')}${keys.length > 8 ? '...' : ''}` : `Fields: ${keys.slice(0, 8).join(', ')}${keys.length > 8 ? '...' : ''}`;
+}
+
+function rememberMessageSnapshot(index: Map<string, Message>, message: Message | undefined | null) {
+  if (!message) return;
+  index.set(message.id, message);
+  if (message.clientKey) index.set(message.clientKey, message);
+  if (message.serverId) index.set(message.serverId, message);
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -230,6 +238,10 @@ export default function SyncStatusPage() {
   const recoveryImportInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    void ensureCharacterArtifactStoreHydrated();
+  }, []);
+
+  useEffect(() => {
     const handler = (event: Event) => {
       const status = event instanceof CustomEvent ? event.detail?.status as CloudSyncBootstrapStatus | null : readCloudSyncBootstrapStatus();
       setBootstrapStatus(status || null);
@@ -296,6 +308,32 @@ export default function SyncStatusPage() {
     const chatOperationsById = new Map((chatStore.pendingOperations || []).map((operation) => [operation.id, operation]));
     const messageOperationsById = new Map((messageStore.pendingOperations || []).map((operation) => [operation.id, operation]));
     const artifactJobsById = new Map((artifactStore.jobs || []).map((job) => [job.id, job]));
+    const pendingMessageKeys = new Set<string>();
+    (messageStore.pendingOperations || []).forEach((operation) => {
+      [operation.localMessageId, operation.messageId, operation.payload?.id, operation.payload?.clientKey, operation.payload?.serverId]
+        .filter((key): key is string => Boolean(key))
+        .forEach((key) => pendingMessageKeys.add(key));
+    });
+    localOutboxItems
+      .filter((outboxItem) => outboxItem.scopeType === 'message')
+      .forEach((outboxItem) => {
+        if (outboxItem.targetId) pendingMessageKeys.add(outboxItem.targetId);
+      });
+    const messageSnapshotsByKey = new Map<string, Message>();
+    (messageStore.pendingOperations || []).forEach((operation) => rememberMessageSnapshot(messageSnapshotsByKey, operation.payload));
+    if (pendingMessageKeys.size > 0) {
+      Object.values(messageStore.messageWindowsByChatId || {}).forEach((window) => {
+        (window.messages || []).forEach((message) => {
+          if (
+            pendingMessageKeys.has(message.id)
+            || Boolean(message.clientKey && pendingMessageKeys.has(message.clientKey))
+            || Boolean(message.serverId && pendingMessageKeys.has(message.serverId))
+          ) {
+            rememberMessageSnapshot(messageSnapshotsByKey, message);
+          }
+        });
+      });
+    }
 
     const queueItems = localOutboxItems.map((outboxItem) => {
       if (outboxItem.scopeType === 'character') {
@@ -352,15 +390,9 @@ export default function SyncStatusPage() {
         const operation = messageOperationsById.get(outboxItem.id);
         const chatId = operation?.chatId || outboxItem.summaryKey || '';
         const targetMessage = operation?.payload
-          || Object.values(messageStore.messageWindowsByChatId || {})
-            .flatMap((window) => window.messages || [])
-            .find((message) => (
-              message.id === operation?.localMessageId
-              || message.id === operation?.messageId
-              || message.clientKey === operation?.localMessageId
-              || message.id === outboxItem.targetId
-              || message.clientKey === outboxItem.targetId
-            ));
+          || (operation?.localMessageId ? messageSnapshotsByKey.get(operation.localMessageId) : null)
+          || (operation?.messageId ? messageSnapshotsByKey.get(operation.messageId) : null)
+          || messageSnapshotsByKey.get(outboxItem.targetId);
         const chat = chatStore.chats.find((item) => item.id === chatId);
         return {
           id: outboxItem.id,
