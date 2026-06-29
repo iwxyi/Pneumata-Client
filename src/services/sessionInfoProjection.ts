@@ -65,7 +65,7 @@ export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): 
   if (typeof discussionTarget === 'number') {
     cards.push({
       key: 'discussion-rounds',
-      title: isZh ? '自动收束' : 'Auto synthesis',
+      title: isZh ? '自动收束发言数' : 'Auto synthesis turns',
       description: discussionTarget > 0 ? clean(String(discussionTarget)) : (isZh ? '关闭' : 'Off'),
     });
   }

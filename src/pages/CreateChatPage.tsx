@@ -250,7 +250,7 @@ export default function CreateChatPage() {
       setIncludeUserAsMember((editingChat.memberIds || []).includes('user'));
       setOperatorIdsText((editingChat.operatorIds || []).join(', '));
       setRuntimeEvolutionIntensity(editingChat.runtimeEvolutionIntensity || 'balanced');
-      setDiscussionRoundsTarget(editingChat.scenarioState?.progress?.find((item) => item.key === 'speeches')?.target || 6);
+      setDiscussionRoundsTarget(editingChat.scenarioState?.progress?.find((item) => item.key === 'speeches')?.target ?? 6);
       setStoryBranchMode(editingChat.scenarioState?.branches?.[0]?.status === 'chosen' ? 'open' : 'guided');
       setStoryBackground(String(editingChat.scenarioState?.storyBackground || ''));
       setStoryDirection(String(editingChat.scenarioState?.storyDirection || ''));

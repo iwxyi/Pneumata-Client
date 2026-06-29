@@ -244,14 +244,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'brainstorm',
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入讨论议题，例如：AI 会取代哪些职业？',
+    sellingPoints: ['非固定顺序', '累计AI发言数收束', '适合补充视角'],
     defaults: { discussionRoundsTarget: 6, discussionMode: 'open', initialPhase: 'discussion', goalLabel: '开放讨论', progressLabel: '发言轮次', allowPrivateThreads: true, allowCliques: true, allowMockery: false },
     configGroups: [
       {
         key: 'discussion-required',
         label: '讨论主设定',
-        description: '这里控制自动收束，不限制你继续聊天。填 0 表示一直讨论，之后可手动总结或进入收束。',
+        description: '这里控制累计 AI 发言数达到多少后自动收束，不限制你继续聊天。填 0 表示一直讨论，之后可手动总结或进入收束。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
+          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '统计累计 AI 发言数，不是每个角色各发 N 次；填 0 表示不自动收束。' },
         ],
       },
       {
@@ -277,14 +278,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'debate',
     runtimeEvolutionIntensity: 'balanced',
     topicPlaceholder: '输入圆桌议题，例如：未来教育会如何变化？',
+    sellingPoints: ['按席位轮流发言', '跳过被禁言成员', '适合均衡表达'],
     defaults: { discussionRoundsTarget: 4, discussionMode: 'roundtable', initialPhase: 'roundtable', progressLabel: '圆桌发言', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
     configGroups: [
       {
         key: 'roundtable-required',
         label: '圆桌主设定',
-        description: '这里控制圆桌自动收束，不限制继续发言。填 0 表示一直按席位轮流讨论。',
+        description: '这里控制累计 AI 发言数达到多少后自动收束，不是每个角色各发 N 次。填 0 表示一直按席位轮流讨论。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
+          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '圆桌按席位顺序选择下一位 AI；该数值统计累计 AI 发言数。填 0 表示不自动收束。' },
         ],
       },
       {
@@ -308,14 +310,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'debate',
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入正反命题，例如：AI 应该拥有法律人格吗？',
+    sellingPoints: ['按席位轮流攻防', '自动分配正反/评审', '适合争议命题'],
     defaults: { discussionRoundsTarget: 5, discussionMode: 'debate', initialPhase: 'debate', goalLabel: '观点攻防', progressLabel: '攻防轮次', allowPrivateThreads: false, allowCliques: true, allowMockery: true },
     configGroups: [
       {
         key: 'debate-required',
         label: '辩论主设定',
-        description: '这里控制攻防自动收束。填 0 表示持续攻防，直到你手动总结或进入收束。',
+        description: '这里控制累计 AI 发言数达到多少后自动收束。填 0 表示持续攻防，直到你手动总结或进入收束。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
+          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '辩论按席位顺序推进正反/评审发言；该数值统计累计 AI 发言数。填 0 表示不自动收束。' },
         ],
       },
       {
@@ -340,14 +343,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'brainstorm',
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入创意主题，例如：设计一个未来校园产品',
+    sellingPoints: ['非固定顺序', '每轮多点子', '适合发散共创'],
     defaults: { discussionRoundsTarget: 8, discussionMode: 'brainstorm', initialPhase: 'brainstorm', goalLabel: '创意生成', progressLabel: '点子轮次', allowPrivateThreads: true, allowCliques: false, allowMockery: false },
     configGroups: [
       {
         key: 'brainstorm-required',
         label: '共创主设定',
-        description: '这里控制创意发散自动收束。填 0 表示一直发散，后续再手动总结筛选。',
+        description: '这里控制累计 AI 发言数达到多少后自动收束。填 0 表示一直发散，后续再手动总结筛选。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
+          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '统计累计 AI 发言数，不是每个角色各发 N 次；填 0 表示不自动收束。' },
         ],
       },
       {
@@ -371,14 +375,15 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'debate',
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入要复盘的项目、活动或结果',
+    sellingPoints: ['非固定顺序', '事实/原因/行动项', '适合复盘改进'],
     defaults: { discussionRoundsTarget: 4, discussionMode: 'retrospective', initialPhase: 'retrospective', goalLabel: '复盘改进', progressLabel: '复盘轮次', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
     configGroups: [
       {
         key: 'retrospective-required',
         label: '复盘主设定',
-        description: '这里控制复盘自动收束。填 0 表示持续复盘，直到你手动总结行动项。',
+        description: '这里控制累计 AI 发言数达到多少后自动收束。填 0 表示持续复盘，直到你手动总结行动项。',
         fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束轮次', kind: 'number', helperText: '达到该轮次后自动进入总结收束；填 0 表示不自动收束。' },
+          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '统计累计 AI 发言数，不是每个角色各发 N 次；填 0 表示不自动收束。' },
         ],
       },
     ],

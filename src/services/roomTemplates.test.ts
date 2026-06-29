@@ -143,6 +143,18 @@ describe('roomTemplates story seeds', () => {
     expect(filterRoomTemplatesForAvailability(ROOM_TEMPLATES, { developerMode: true })).toEqual(ROOM_TEMPLATES);
   });
 
+  it('explains discussion template differences and automatic synthesis count semantics', () => {
+    expect(getRoomTemplate('group_discussion').sellingPoints).toEqual(expect.arrayContaining(['非固定顺序', '累计AI发言数收束']));
+    expect(getRoomTemplate('roundtable_discussion').sellingPoints).toEqual(expect.arrayContaining(['按席位轮流发言']));
+    expect(getRoomTemplate('debate_arena').sellingPoints).toEqual(expect.arrayContaining(['按席位轮流攻防', '自动分配正反/评审']));
+    expect(getRoomTemplate('brainstorm_workshop').sellingPoints).toEqual(expect.arrayContaining(['每轮多点子']));
+    expect(getRoomTemplate('retrospective_room').sellingPoints).toEqual(expect.arrayContaining(['事实/原因/行动项']));
+    expect(getRoomTemplate('roundtable_discussion').configGroups?.[0]?.fields[0]).toMatchObject({
+      label: '自动收束发言数',
+      helperText: expect.stringContaining('累计 AI 发言数'),
+    });
+  });
+
   it('provides editable story seeds for every story-room template', () => {
     for (const key of storyPresetTemplateKeys) {
       const template = getRoomTemplate(key);

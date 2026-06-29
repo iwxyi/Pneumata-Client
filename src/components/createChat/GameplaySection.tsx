@@ -224,6 +224,7 @@ export default function GameplaySection(props: GameplaySectionProps) {
   const structureKernels = listAvailableKernelsByStructure(props.roomTemplates, selectedStructure);
   const selectedPresets = listAvailablePresets(props.roomTemplates, selectedKernel.key);
   const selectedPreset = selectedPresets.find((preset) => preset.key === props.roomTemplate) || selectedPresets[0];
+  const selectedSellingPoints = selectedTemplate.sellingPoints || selectedKernel.sellingPoints || [];
   const presetMenuItems = selectedPresets.flatMap((preset, index) => {
     const items = [
       <MenuItem key={preset.key} value={preset.key}>
@@ -334,6 +335,30 @@ export default function GameplaySection(props: GameplaySectionProps) {
               })}
             </Box>
           </Box>
+
+          {selectedSellingPoints.length ? (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.6 }}>
+              {selectedSellingPoints.slice(0, 4).map((point) => (
+                <Chip
+                  key={point}
+                  size="small"
+                  label={point}
+                  variant="outlined"
+                  sx={{
+                    height: 22,
+                    maxWidth: '100%',
+                    '& .MuiChip-label': {
+                      px: 0.85,
+                      fontSize: 11,
+                      maxWidth: 160,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                    },
+                  }}
+                />
+              ))}
+            </Box>
+          ) : null}
 
           {selectedPresets.length > 1 ? (
             <Box sx={{ border: 1, borderColor: 'divider', borderRadius: 2, p: 1.25, bgcolor: 'action.hover' }}>
