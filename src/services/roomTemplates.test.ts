@@ -66,11 +66,11 @@ function materializeDraft(draft: ReturnType<typeof buildStoryDraft>) {
 
 describe('roomTemplates story seeds', () => {
   it('keeps gameplay kernels separate from presets', () => {
-    const conversationStoryKernels = listTemplatesByStructureAndCategory('conversation', 'story').map((template) => template.key);
-    const socialKernels = listTemplatesByStructureAndCategory('conversation', 'social').map((template) => template.key);
+    const storyKernels = listTemplatesByStructureAndCategory('story', 'story').map((template) => template.key);
+    const freeInteractionKernels = listTemplatesByStructureAndCategory('free_interaction', 'free_chat').map((template) => template.key);
 
-    expect(conversationStoryKernels).toEqual(['story_reader']);
-    expect(socialKernels).toEqual(['open_chat']);
+    expect(storyKernels).toEqual(['story_reader']);
+    expect(freeInteractionKernels).toEqual(['open_chat']);
     expect(listRoomTemplatePresets('story_reader').map((template) => template.key)).toEqual([
       'story_reader',
       'default_mystery_story',
@@ -92,11 +92,26 @@ describe('roomTemplates story seeds', () => {
       'tea_roast_lounge',
       'slice_of_life_room',
     ]);
-    expect(listRoomTemplateKernelsByStructure('conversation').map((template) => template.key)).toEqual([
+    expect(listRoomTemplateKernelsByStructure('free_interaction').map((template) => template.key)).toEqual([
       'open_chat',
+    ]);
+    expect(listRoomTemplateKernelsByStructure('story').map((template) => template.key)).toEqual([
       'story_reader',
     ]);
-    expect(listTemplateStructures().find((item) => item.value === 'conversation')?.label).toBe('互动房间');
+    expect(listTemplateStructures().map((item) => item.value)).toEqual([
+      'free_interaction',
+      'story',
+      'thinking',
+      'creation',
+      'training',
+      'task',
+      'game',
+      'simulation',
+    ]);
+    expect(listTemplateStructures().find((item) => item.value === 'free_interaction')?.label).toBe('自由互动');
+    expect(listTemplateStructures().find((item) => item.value === 'story')?.label).toBe('故事叙事');
+    expect(getRoomTemplate('open_chat').label).toBe('自由群聊');
+    expect(getRoomTemplate('free_chat_preset').label).toBe('自然闲聊');
   });
 
   it('keeps custom presets empty instead of applying a default topic package', () => {

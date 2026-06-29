@@ -2,7 +2,7 @@
   {
     "key": "free_chat_preset",
     "parentTemplateKey": "open_chat",
-    "label": "自由群聊",
+    "label": "自然闲聊",
     "description": "平衡自然的多角色聊天，角色会接话、跑题、互动和轻微碰撞。",
     "style": "free",
     "runtimeEvolutionIntensity": "balanced",

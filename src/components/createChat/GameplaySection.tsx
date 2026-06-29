@@ -10,25 +10,13 @@ import {
 } from '../../services/roomTemplates';
 
 const STRUCTURE_LABELS: Record<string, string> = {
-  conversation: '互动结构',
-  analysis: '讨论结构',
-  study: '训练结构',
-  agent: 'Agent结构',
-  deduction: '推理结构',
-  mystery: '案件结构',
-  board_game: '棋盘结构',
-  simulation: '世界结构',
-};
-
-const FAMILY_LABELS: Record<string, string> = {
-  conversation: '互动叙事',
-  analysis: '讨论协作',
-  study: '教学训练',
-  agent: 'Agent工作流',
-  interview: '面试评审',
-  deduction: '推理对抗',
-  mystery: '剧本谜案',
-  board_game: '棋盘对局',
+  free_interaction: '自由互动',
+  story: '故事叙事',
+  thinking: '思考协作',
+  creation: '创作共创',
+  training: '训练模拟',
+  task: '任务执行',
+  game: '游戏推理',
   simulation: '世界模拟',
 };
 
@@ -230,9 +218,6 @@ export default function GameplaySection(props: GameplaySectionProps) {
   const selectedTemplate = props.roomTemplates.find((item) => item.key === props.roomTemplate) || props.roomTemplates[0];
   const selectedKernel = getRoomTemplateKernel(selectedTemplate);
   const selectedStructure = inferSelectedStructure(selectedKernel);
-  const selectedFamily = selectedKernel.sessionKind.family;
-  const structureLabel = STRUCTURE_LABELS[selectedStructure] || selectedStructure;
-  const familyLabel = FAMILY_LABELS[selectedFamily] || selectedFamily;
   const structures = listAvailableStructures(props.roomTemplates);
   const structureKernels = listAvailableKernelsByStructure(props.roomTemplates, selectedStructure);
   const selectedPresets = listAvailablePresets(props.roomTemplates, selectedKernel.key);

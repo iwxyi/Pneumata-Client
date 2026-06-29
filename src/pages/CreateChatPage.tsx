@@ -520,9 +520,9 @@ export default function CreateChatPage() {
 
   useEffect(() => {
     const defaults = selectedRoomTemplate.defaults || {};
-    if (selectedRoomTemplate.structure === 'analysis' && defaults.discussionRoundsTarget !== undefined) setDiscussionRoundsTarget((current) => current || defaults.discussionRoundsTarget || 6);
-    if (selectedRoomTemplate.structure === 'study' && defaults.studyGoalLabel !== undefined && !studyGoalLabel) setStudyGoalLabel(defaults.studyGoalLabel);
-    if (selectedRoomTemplate.structure === 'agent' && defaults.agentGoalLabel !== undefined && !agentGoalLabel) setAgentGoalLabel(defaults.agentGoalLabel);
+    if (defaults.discussionRoundsTarget !== undefined) setDiscussionRoundsTarget((current) => current || defaults.discussionRoundsTarget || 6);
+    if (defaults.studyGoalLabel !== undefined && !studyGoalLabel) setStudyGoalLabel(defaults.studyGoalLabel);
+    if (defaults.agentGoalLabel !== undefined && !agentGoalLabel) setAgentGoalLabel(defaults.agentGoalLabel);
   }, [selectedRoomTemplate, studyGoalLabel, agentGoalLabel]);
 
   const applyRoomTemplate = useCallback((templateKey: RoomTemplateKey) => {
