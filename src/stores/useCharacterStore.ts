@@ -1141,6 +1141,10 @@ export const useCharacterStore = create<CharacterStore>()(
         },
 
         prefetchCharacters: async () => {
+          if (shouldSkipCloudSync()) {
+            await get().loadCharacters();
+            return;
+          }
           const state = get();
           if (state.characters.length > 0 && characterSyncScopes.isFresh(CHARACTER_SUMMARY_SCOPE)) return;
           scheduleCharacterScopeRefresh(async () => { await get().loadCharacters(); });
@@ -1489,7 +1493,11 @@ export const useCharacterStore = create<CharacterStore>()(
         hasCharacterLoaded: (id) => Boolean(get().characters.find((c) => c.id === id)),
         getCharactersLoadedAt: () => get().lastSyncedAt,
         getSyncScopeStates: () => characterSyncScopes.listStates(),
-        markCharactersWarm: () => set(buildMarkedWarmCharacterStoreState),
+        markCharactersWarm: () => {
+          void ensureCharacterStoreHydrated().then(() => {
+            set(buildMarkedWarmCharacterStoreState);
+          });
+        },
         hydrateCharacterSummaries: (summaries) => {
           if (!summaries.length) return;
           set((state) => {

@@ -205,6 +205,35 @@ function AdminAuthRedirectHandler() {
   return null;
 }
 
+function AdminAuthBootstrap() {
+  const checkAdminAuth = useAdminAuthStore((s) => s.checkAuth);
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+
+  useEffect(() => {
+    if (!isAdminRoute) return;
+    void checkAdminAuth();
+  }, [checkAdminAuth, isAdminRoute]);
+
+  return null;
+}
+
+function AuthBootstrap() {
+  const token = useAuthStore((s) => s.token);
+  const authMode = useAuthStore((s) => s.authMode);
+  const checkAuth = useAuthStore((s) => s.checkAuth);
+  const location = useLocation();
+  const isAdminRoute = location.pathname.startsWith('/admin');
+
+  useEffect(() => {
+    if (isAdminRoute) return;
+    if (authMode !== 'cloud' || !token) return;
+    void checkAuth();
+  }, [authMode, checkAuth, isAdminRoute, token]);
+
+  return null;
+}
+
 function AuthSessionRedirectHandler() {
   const expireCloudSession = useAuthStore((s) => s.expireCloudSession);
   const navigate = useNavigate();
@@ -296,12 +325,7 @@ export default function App() {
   const themeMode = useSettingsStore((s) => s.theme);
   const themeColor = useSettingsStore((s) => s.themeColor);
   const prefersDark = useMediaQuery('(prefers-color-scheme: dark)');
-  const checkAdminAuth = useAdminAuthStore((s) => s.checkAuth);
   const [settingsHydrated, setSettingsHydrated] = useState(() => useSettingsStore.persist.hasHydrated());
-
-  useEffect(() => {
-    void checkAdminAuth();
-  }, [checkAdminAuth]);
 
   useEffect(() => {
     if (settingsHydrated) return;
@@ -328,8 +352,10 @@ export default function App() {
       <PwaUpdatePrompt />
       {settingsHydrated ? (
         <BrowserRouter>
+          <AuthBootstrap />
           <AuthSessionRedirectHandler />
           <AdminAuthRedirectHandler />
+          <AdminAuthBootstrap />
           <DataLoader>
             <RoutedApp />
           </DataLoader>

@@ -153,6 +153,29 @@ describe('cloud no-op sync', () => {
     apiMocks.syncCharacterPatch.mockResolvedValue({ success: true, accepted: true, revision: 1 });
   });
 
+  it('prefetches chats from local persistence when cloud sync is disabled', async () => {
+    const localUserId = `local-chat-prefetch-user-${Date.now()}-${Math.random()}`;
+    localStorage.setItem(storageKey('cloud-sync-enabled'), '0');
+    localStorage.setItem(storageKey('user'), JSON.stringify({ id: localUserId }));
+    localStorage.setItem(storageKey(`chats-${localUserId}`), JSON.stringify({
+      state: {
+        chats: [chat({ id: 'local-chat', name: '本地会话' })],
+        currentChatId: null,
+        lastSyncedAt: 12,
+        pendingOperations: [],
+      },
+      version: 3,
+    }));
+    const { useChatStore } = await import('./useChatStore');
+
+    useChatStore.getState().markChatsWarm();
+    await useChatStore.getState().prefetchChats();
+
+    expect(useChatStore.getState().chats.map((item) => item.name)).toEqual(['本地会话']);
+    expect(apiMocks.getSyncChanges).not.toHaveBeenCalled();
+    expect(apiMocks.getChats).not.toHaveBeenCalled();
+  });
+
   it('does not rewrite chats or fetch chat summaries when the remote scope is not modified', async () => {
     const { useChatStore } = await import('./useChatStore');
     await useChatStore.persist.rehydrate();
@@ -691,6 +714,28 @@ describe('cloud no-op sync', () => {
     expect(chatState.pendingOperations.some((operation) => operation.entityId === 'chat-3')).toBe(false);
     expect(chatState.pendingOperations.some((operation) => operation.kind === 'create' && operation.entityId === copiedChat?.id)).toBe(true);
     expect(chatState.remoteDeletedChatIds).toEqual([]);
+  });
+
+  it('prefetches characters from local persistence when cloud sync is disabled', async () => {
+    const localUserId = `local-character-prefetch-user-${Date.now()}-${Math.random()}`;
+    localStorage.setItem(storageKey('cloud-sync-enabled'), '0');
+    localStorage.setItem(storageKey('user'), JSON.stringify({ id: localUserId }));
+    localStorage.setItem(storageKey(`characters-${localUserId}`), JSON.stringify({
+      state: {
+        characters: [character({ id: 'local-character', name: '本地角色' })],
+        lastSyncedAt: 12,
+        pendingOperations: [],
+      },
+      version: 3,
+    }));
+    const { useCharacterStore } = await import('./useCharacterStore');
+
+    useCharacterStore.getState().markCharactersWarm();
+    await useCharacterStore.getState().prefetchCharacters();
+
+    expect(useCharacterStore.getState().characters.map((item) => item.name)).toEqual(['本地角色']);
+    expect(apiMocks.getSyncChanges).not.toHaveBeenCalled();
+    expect(apiMocks.getCharacters).not.toHaveBeenCalled();
   });
 
   it('does not rewrite characters or fetch character summaries when the remote scope is not modified', async () => {

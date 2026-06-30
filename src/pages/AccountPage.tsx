@@ -141,7 +141,7 @@ export default function AccountPage() {
 
   useEffect(() => {
     if (cloudSyncAvailable || !cloudSyncEnabled) return;
-    setCloudSyncEnabled(false);
+    setCloudSyncEnabled(false, { source: 'entitlement' });
     setCloudSyncEnabledState(false);
   }, [cloudSyncAvailable, cloudSyncEnabled]);
 
@@ -425,7 +425,7 @@ export default function AccountPage() {
       return;
     }
     if (!cloudSyncAvailable) {
-      setCloudSyncEnabled(false);
+      setCloudSyncEnabled(false, { source: 'entitlement' });
       setCloudSyncEnabledState(false);
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '当前账号暂未开通云同步。' : 'Cloud sync is not available for this account yet.', severity: 'error' });
       return;

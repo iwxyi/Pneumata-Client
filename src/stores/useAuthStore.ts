@@ -7,7 +7,7 @@ import { reportRecoverableError } from '../services/diagnostics';
 import { rememberCloudUserId } from '../services/authStorageScope';
 import { rememberLastCloudPhone } from '../services/authSession';
 import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
-import { setCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { isCloudSyncUserDisabled, setCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 interface User {
   id: string;
@@ -117,13 +117,13 @@ function setAuthUser(user: User) {
 
 function applyCloudSyncEntitlement(user: User | null) {
   if (user?.cloudSyncEntitled === false) {
-    setCloudSyncEnabled(false);
+    setCloudSyncEnabled(false, { source: 'entitlement' });
   }
 }
 
 function enableCloudSyncForLogin(user: User | null) {
-  if (user?.cloudSyncEntitled !== false) {
-    setCloudSyncEnabled(true);
+  if (user?.cloudSyncEntitled !== false && !isCloudSyncUserDisabled()) {
+    setCloudSyncEnabled(true, { source: 'auth' });
   }
   applyCloudSyncEntitlement(user);
 }

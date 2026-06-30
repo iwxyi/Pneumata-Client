@@ -1357,6 +1357,10 @@ export const useChatStore = create<ChatStore>()(
         },
 
         prefetchChats: async () => {
+          if (shouldSkipCloudSync()) {
+            await get().loadChats();
+            return;
+          }
           const state = get();
           if (state.chats.length > 0 && state.chatSummaryLoadedAt > 0 && chatSyncScopes.isFresh(CHAT_SUMMARY_SCOPE)) return;
           scheduleChatScopeRefresh(flushRequestedChatScopes, CHAT_SUMMARY_SCOPE);
@@ -1411,7 +1415,11 @@ export const useChatStore = create<ChatStore>()(
         hasChatLoaded: (id) => Boolean(get().chats.find((chat) => chat.id === id)),
         getChatsLoadedAt: () => get().lastSyncedAt,
         getSyncScopeStates: () => chatSyncScopes.listStates(),
-        markChatsWarm: () => set(buildMarkedWarmChatStoreState),
+        markChatsWarm: () => {
+          void ensureChatStoreHydrated().then(() => {
+            set(buildMarkedWarmChatStoreState);
+          });
+        },
 
         flushPendingOperations,
 
