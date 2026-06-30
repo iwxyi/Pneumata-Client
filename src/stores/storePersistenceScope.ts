@@ -10,13 +10,23 @@ interface BufferedJsonStorageOptions {
   flushDelayMs?: number;
   replacer?: (key: string, value: unknown) => unknown;
   reviver?: (key: string, value: unknown) => unknown;
+  resolveStorageTarget?: (name: string) => BufferedStorageTarget;
 }
 
 type BufferedFlushHandle = ReturnType<typeof globalThis.setTimeout> | number;
 
 interface PendingBufferedWrite<T> {
+  name: string;
+  target: BufferedStorageTarget;
   value: StorageValue<T> | null;
   handle: BufferedFlushHandle | null;
+}
+
+interface BufferedStorageTarget {
+  key: string;
+  getItem: () => string | Promise<string | null> | null;
+  setItem: (value: string) => void | Promise<void> | unknown;
+  removeItem: () => void | Promise<void> | unknown;
 }
 
 export interface IndexedDbStorageEntryDiagnostic {
@@ -328,17 +338,27 @@ export function createBufferedJsonStorage<T>(
   const pendingWrites = new Map<string, PendingBufferedWrite<T>>();
   const flushDelayMs = options.flushDelayMs ?? 96;
 
-  const flushName = (name: string) => {
-    const pending = pendingWrites.get(name);
+  const resolveStorageTarget = (name: string): BufferedStorageTarget => {
+    if (options.resolveStorageTarget) return options.resolveStorageTarget(name);
+    return {
+      key: name,
+      getItem: () => storage.getItem(name),
+      setItem: (value) => storage.setItem(name, value),
+      removeItem: () => storage.removeItem(name),
+    };
+  };
+
+  const flushKey = (key: string) => {
+    const pending = pendingWrites.get(key);
     if (!pending) return;
-    pendingWrites.delete(name);
+    pendingWrites.delete(key);
     cancelBufferedFlush(pending.handle);
     if (pending.value == null) {
-      const removeResult = storage.removeItem(name);
+      const removeResult = pending.target.removeItem();
       if (removeResult instanceof Promise) {
         removeResult.catch((error) => {
-          recordPersistenceFailure({ name, reason: 'write_failed', error });
-          console.warn('[storage] persistence remove failed', { name, error });
+          recordPersistenceFailure({ name: pending.name, reason: 'write_failed', error });
+          console.warn('[storage] persistence remove failed', { name: pending.name, error });
         });
       }
       return;
@@ -346,28 +366,28 @@ export function createBufferedJsonStorage<T>(
     let serializedValue = '';
     try {
       serializedValue = JSON.stringify(pending.value, options.replacer);
-      const setResult = storage.setItem(name, serializedValue);
+      const setResult = pending.target.setItem(serializedValue);
       if (setResult instanceof Promise) {
         setResult.catch((error) => {
-          recordPersistenceFailure({ name, reason: 'write_failed', error, serializedValue });
-          console.warn('[storage] persistence async write failed', { name, error });
+          recordPersistenceFailure({ name: pending.name, reason: 'write_failed', error, serializedValue });
+          console.warn('[storage] persistence async write failed', { name: pending.name, error });
         });
       }
     } catch (error) {
       const errorName = error instanceof DOMException ? error.name : '';
       if (errorName === 'QuotaExceededError' || errorName === 'NS_ERROR_DOM_QUOTA_REACHED') {
-        recordPersistenceFailure({ name, reason: 'quota_exceeded', error, serializedValue });
-        console.warn('[storage] persistence skipped: storage quota exceeded', { name, error });
+        recordPersistenceFailure({ name: pending.name, reason: 'quota_exceeded', error, serializedValue });
+        console.warn('[storage] persistence skipped: storage quota exceeded', { name: pending.name, error });
         return;
       }
-      recordPersistenceFailure({ name, reason: 'write_failed', error, serializedValue });
+      recordPersistenceFailure({ name: pending.name, reason: 'write_failed', error, serializedValue });
       throw error;
     }
   };
 
   const flushAll = () => {
-    for (const name of Array.from(pendingWrites.keys())) {
-      flushName(name);
+    for (const key of Array.from(pendingWrites.keys())) {
+      flushKey(key);
     }
   };
 
@@ -376,26 +396,35 @@ export function createBufferedJsonStorage<T>(
 
   return {
     getItem: (name: string) => {
-      const pending = pendingWrites.get(name);
+      const target = resolveStorageTarget(name);
+      const pending = pendingWrites.get(target.key);
       if (pending) return pending.value;
-      const raw = storage.getItem(name);
+      const raw = target.getItem();
       if (raw instanceof Promise) {
         return raw.then((value) => parsePersistedValue<T>(value, options.reviver));
       }
       return parsePersistedValue<T>(raw, options.reviver);
     },
     setItem: (name: string, value: StorageValue<T>) => {
-      const pending = pendingWrites.get(name);
-      pendingWrites.set(name, {
+      const target = resolveStorageTarget(name);
+      const key = target.key;
+      const pending = pendingWrites.get(key);
+      pendingWrites.set(key, {
+        name,
+        target,
         value,
-        handle: pending?.handle ?? scheduleBufferedFlush(() => flushName(name), flushDelayMs),
+        handle: pending?.handle ?? scheduleBufferedFlush(() => flushKey(key), flushDelayMs),
       });
     },
     removeItem: (name: string) => {
-      const pending = pendingWrites.get(name);
-      pendingWrites.set(name, {
+      const target = resolveStorageTarget(name);
+      const key = target.key;
+      const pending = pendingWrites.get(key);
+      pendingWrites.set(key, {
+        name,
+        target,
         value: null,
-        handle: pending?.handle ?? scheduleBufferedFlush(() => flushName(name), flushDelayMs),
+        handle: pending?.handle ?? scheduleBufferedFlush(() => flushKey(key), flushDelayMs),
       });
     },
   };
@@ -406,6 +435,19 @@ export function createScopedBufferedJsonStorage<T>(
 ): PersistStorage<T, void> {
   return createBufferedJsonStorage<T>(createScopedStorage(params), {
     flushDelayMs: params.flushDelayMs,
+    resolveStorageTarget: (name) => {
+      const targetName = name === params.storageName ? params.getScopedKey() : name;
+      return {
+        key: targetName,
+        getItem: () => (typeof localStorage === 'undefined' ? null : localStorage.getItem(targetName)),
+        setItem: (value) => {
+          if (typeof localStorage !== 'undefined') localStorage.setItem(targetName, value);
+        },
+        removeItem: () => {
+          if (typeof localStorage !== 'undefined') localStorage.removeItem(targetName);
+        },
+      };
+    },
   });
 }
 
@@ -414,5 +456,37 @@ export function createScopedIndexedDbBufferedJsonStorage<T>(
 ): PersistStorage<T, void> {
   return createBufferedJsonStorage<T>(createScopedIndexedDbStorage(params), {
     flushDelayMs: params.flushDelayMs,
+    resolveStorageTarget: (name) => {
+      if (name !== params.storageName) {
+        return {
+          key: name,
+          getItem: () => (typeof localStorage === 'undefined' ? null : localStorage.getItem(name)),
+          setItem: (value) => {
+            if (typeof localStorage !== 'undefined') localStorage.setItem(name, value);
+          },
+          removeItem: () => {
+            if (typeof localStorage !== 'undefined') localStorage.removeItem(name);
+          },
+        };
+      }
+      const scopedName = params.getScopedKey();
+      return {
+        key: scopedName,
+        getItem: async () => {
+          const indexedValue = await readIndexedDbItem(scopedName);
+          if (indexedValue != null) return indexedValue;
+          if (typeof localStorage === 'undefined') return null;
+          return localStorage.getItem(scopedName);
+        },
+        setItem: async (value) => {
+          const storageBackend = await writeIndexedDbItem(scopedName, value);
+          if (storageBackend === 'indexedDb' && typeof localStorage !== 'undefined') localStorage.removeItem(scopedName);
+        },
+        removeItem: async () => {
+          await removeIndexedDbItem(scopedName);
+          if (typeof localStorage !== 'undefined') localStorage.removeItem(scopedName);
+        },
+      };
+    },
   });
 }

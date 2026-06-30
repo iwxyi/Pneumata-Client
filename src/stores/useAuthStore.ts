@@ -6,8 +6,8 @@ import { storageKey } from '../constants/brand';
 import { reportRecoverableError } from '../services/diagnostics';
 import { rememberCloudUserId } from '../services/authStorageScope';
 import { rememberLastCloudPhone } from '../services/authSession';
-import { runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
-import { isCloudSyncUserDisabled, setCloudSyncEnabled } from '../services/cloudSyncPreference';
+import { isCloudSyncBootstrapLocked, runWithCloudSyncBootstrapLock } from '../services/cloudSyncBootstrapLock';
+import { isCloudSyncEnabled, isCloudSyncUserDisabled, setCloudSyncEnabled } from '../services/cloudSyncPreference';
 
 interface User {
   id: string;
@@ -54,14 +54,18 @@ async function loadWorkspaceStores() {
   };
 }
 
-async function refreshStoresAfterCloudAuth(options: { forceRemote?: boolean } = {}) {
+function canRefreshRemoteAfterAuth(user: User | null) {
+  return user?.cloudSyncEntitled !== false && isCloudSyncEnabled() && !isCloudSyncBootstrapLocked();
+}
+
+async function refreshStoresAfterCloudAuth(user: User | null) {
   const { useChatStore, useCharacterStore } = await loadWorkspaceStores();
   const settingsStore = useSettingsStore.getState();
   const chatStore = useChatStore.getState();
   const characterStore = useCharacterStore.getState();
   chatStore.markChatsWarm();
   characterStore.markCharactersWarm();
-  if (options.forceRemote) {
+  if (canRefreshRemoteAfterAuth(user)) {
     await Promise.allSettled([
       settingsStore.refreshSettingsFromCloud(),
       chatStore.refreshChatSummaryFromCloud(),
@@ -198,7 +202,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
           throw error;
         }
       }
-      await refreshStoresAfterCloudAuth({ forceRemote: result.user.cloudSyncEntitled !== false });
+      await refreshStoresAfterCloudAuth(result.user);
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -252,7 +256,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       setAuthUser(user);
       applyCloudSyncEntitlement(user);
       set({ user, isLoggedIn: true, authMode: 'cloud' });
-      void refreshStoresAfterCloudAuth({ forceRemote: user.cloudSyncEntitled !== false });
+      void refreshStoresAfterCloudAuth(user);
       return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createBufferedJsonStorage,
+  createScopedBufferedJsonStorage,
   createScopedIndexedDbStorage,
   flushBufferedPersistenceWrites,
   migrateLocalStorageFallbacksToIndexedDb,
@@ -57,6 +58,30 @@ describe('storePersistenceScope', () => {
     flushBufferedPersistenceWrites();
 
     expect(rawStorage.getItem('retry-scope')).toBe(JSON.stringify({ state: { value: 7 }, version: 2 }));
+  });
+
+  it('isolates buffered writes by scoped storage key while accounts switch', () => {
+    const rawStorage = createStorageMock();
+    vi.stubGlobal('localStorage', rawStorage);
+    let currentScope = 'scoped-chats-user-a';
+    const storage = createScopedBufferedJsonStorage<{ value: string }>({
+      getScopedKey: () => currentScope,
+      storageName: 'scoped-chats',
+      flushDelayMs: 10_000,
+    });
+
+    storage.setItem('scoped-chats', { state: { value: 'user-a' }, version: 2 });
+    currentScope = 'scoped-chats-user-b';
+    storage.setItem('scoped-chats', { state: { value: 'user-b' }, version: 2 });
+
+    expect(storage.getItem('scoped-chats')).toEqual({ state: { value: 'user-b' }, version: 2 });
+    currentScope = 'scoped-chats-user-a';
+    expect(storage.getItem('scoped-chats')).toEqual({ state: { value: 'user-a' }, version: 2 });
+
+    flushBufferedPersistenceWrites();
+
+    expect(rawStorage.getItem('scoped-chats-user-a')).toBe(JSON.stringify({ state: { value: 'user-a' }, version: 2 }));
+    expect(rawStorage.getItem('scoped-chats-user-b')).toBe(JSON.stringify({ state: { value: 'user-b' }, version: 2 }));
   });
 
   it('records quota failures instead of hiding local persistence loss', () => {

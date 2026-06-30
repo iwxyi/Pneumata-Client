@@ -25,7 +25,9 @@ function createStorageMock() {
 }
 
 const apiMocks = vi.hoisted(() => ({
+  getMe: vi.fn(),
   getSyncChanges: vi.fn(),
+  getSettings: vi.fn(),
   getChat: vi.fn(),
   getChats: vi.fn(),
   getDeletedChats: vi.fn(),
@@ -44,7 +46,9 @@ vi.mock('../services/api', async () => {
     ...actual,
     api: {
       ...actual.api,
+      getMe: apiMocks.getMe,
       getSyncChanges: apiMocks.getSyncChanges,
+      getSettings: apiMocks.getSettings,
       getChat: apiMocks.getChat,
       getChats: apiMocks.getChats,
       getDeletedChats: apiMocks.getDeletedChats,
@@ -149,8 +153,32 @@ describe('cloud no-op sync', () => {
       revision: 'rev-1',
       changes: [],
     });
+    apiMocks.getMe.mockResolvedValue({
+      id: 'local-user',
+      phone: '13500000000',
+      nickname: '测试用户',
+      avatar: '🍵',
+      cloudSyncEntitled: true,
+    });
+    apiMocks.getSettings.mockResolvedValue({});
     apiMocks.syncChatPatch.mockResolvedValue({ success: true, accepted: true, revision: 1 });
     apiMocks.syncCharacterPatch.mockResolvedValue({ success: true, accepted: true, revision: 1 });
+  });
+
+  it('does not force remote summaries after auth when cloud sync is explicitly disabled', async () => {
+    localStorage.setItem(storageKey('cloud-sync-enabled'), '0');
+    localStorage.setItem(storageKey('cloud-sync-user-disabled'), '1');
+    localStorage.setItem(storageKey('user'), JSON.stringify({ id: 'local-user' }));
+    const { useAuthStore } = await import('./useAuthStore');
+
+    await useAuthStore.getState().checkAuth();
+    await vi.waitFor(() => expect(apiMocks.getMe).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(apiMocks.getSyncChanges).not.toHaveBeenCalled();
+    expect(apiMocks.getSettings).not.toHaveBeenCalled();
+    expect(apiMocks.getChats).not.toHaveBeenCalled();
+    expect(apiMocks.getCharacters).not.toHaveBeenCalled();
   });
 
   it('prefetches chats from local persistence when cloud sync is disabled', async () => {
