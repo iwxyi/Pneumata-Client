@@ -260,8 +260,10 @@ export function useHotTopicDialog(params: {
       setCreatedCharacterNames([]);
       setSelectedSuggestedMemberIds((nextAdaptation.suggestedMemberIds || []).filter((memberId) => params.characters.some((character) => character.id === memberId)));
       setAdaptation(nextAdaptation);
-    } catch {
-      params.onError(isZh ? '热点改编失败' : 'Failed to adapt topic');
+    } catch (error) {
+      params.onError(error instanceof Error
+        ? error.message
+        : (isZh ? '热点改编失败' : 'Failed to adapt topic'));
       setAdaptation(null);
       setSelectedSuggestedMemberIds([]);
       setSelectedCharacterNames([]);
