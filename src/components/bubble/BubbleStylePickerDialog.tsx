@@ -324,7 +324,7 @@ export default function BubbleStylePickerDialog({
             </Card>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.025)' }}>
+        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'flex-end', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? '#FFFFFF' : '#14161E' }}>
           <Button onClick={onClose}>{labels.cancel}</Button>
           <Button variant="contained" onClick={() => onConfirm(draftStyleId, { ...selectedStyle, id: draftStyleId })}>{labels.confirm}</Button>
         </DialogActions>
@@ -332,7 +332,7 @@ export default function BubbleStylePickerDialog({
 
       <Dialog open={editorOpen} onClose={() => setEditorOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>{editingStyleId ? labels.edit : labels.create}</DialogTitle>
-        <DialogContent sx={{ bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.03)' }}>
+        <DialogContent sx={{ bgcolor: (theme) => theme.palette.mode === 'light' ? '#FFFFFF' : '#14161E' }}>
           <Box sx={{ display: 'grid', gap: 1.5, pt: 1 }}>
             <TextField label={labels.styleName} value={form.name} onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))} fullWidth />
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, minmax(0, 1fr))' }, gap: 1.25 }}>
@@ -358,7 +358,7 @@ export default function BubbleStylePickerDialog({
             </Box>
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.025)' }}>
+        <DialogActions sx={{ px: 3, py: 2, justifyContent: 'space-between', gap: 1, flexWrap: 'wrap', borderTop: 1, borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)', bgcolor: (theme) => theme.palette.mode === 'light' ? '#FFFFFF' : '#14161E' }}>
           <Box>{isEditingCustomStyle ? <Button color="error" onClick={deleteCustomStyle}>{labels.delete}</Button> : null}</Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <Button onClick={() => setEditorOpen(false)}>{labels.cancel}</Button>

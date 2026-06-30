@@ -1,6 +1,8 @@
 import { createTheme, type ThemeOptions } from '@mui/material/styles';
 import { motion, transition } from '../styles/motion';
 
+const dialogSurfaceColor = (mode: 'light' | 'dark') => (mode === 'light' ? '#FFFFFF' : '#14161E');
+
 const baseTheme: ThemeOptions = {
   typography: {
     fontFamily: [
@@ -281,9 +283,29 @@ const baseTheme: ThemeOptions = {
           borderRadius: 10,
           border: '1px solid',
           borderColor: theme.palette.mode === 'light' ? 'rgba(15, 23, 42, 0.10)' : 'rgba(226, 232, 240, 0.12)',
-          backgroundColor: theme.palette.mode === 'light' ? 'rgba(255, 255, 255, 0.78)' : 'rgba(20, 22, 30, 0.82)',
-          backdropFilter: 'blur(24px) saturate(1.18)',
-          WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
+          backgroundColor: dialogSurfaceColor(theme.palette.mode),
+          backgroundImage: 'none',
+        }),
+      },
+    },
+    MuiDialogTitle: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          backgroundColor: dialogSurfaceColor(theme.palette.mode),
+        }),
+      },
+    },
+    MuiDialogContent: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          backgroundColor: dialogSurfaceColor(theme.palette.mode),
+        }),
+      },
+    },
+    MuiDialogActions: {
+      styleOverrides: {
+        root: ({ theme }) => ({
+          backgroundColor: dialogSurfaceColor(theme.palette.mode),
         }),
       },
     },
@@ -304,6 +326,13 @@ const baseTheme: ThemeOptions = {
         root: {
           transition: transition(['color', 'transform'], motion.durations.fast, motion.softOut),
         },
+      },
+    },
+    MuiFormLabel: {
+      styleOverrides: {
+        asterisk: ({ theme }) => ({
+          color: theme.palette.error.main,
+        }),
       },
     },
     MuiLinearProgress: {
