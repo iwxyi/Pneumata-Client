@@ -15,7 +15,7 @@ import { isImageAvatar } from '../utils/avatar';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import type { SocialEventCandidatePayload } from '../types/runtimeEvent';
 import { generateImageWithAdapter, generateTextWithAdapter } from '../services/aiGenerationAdapter';
-import { getPreferredAIProfile } from '../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
 import { persistGeneratedMomentMedia, resolveMomentMediaUrl, type StoredMomentMedia } from '../services/momentMediaStorage';
 
 const MOMENT_PAGE_SIZE = 20;
@@ -201,7 +201,7 @@ export default function MomentsPage() {
       dedupeKey: `debug-moment-${pickedChat.chat.id}-${actor.id}-${now}`,
     };
     const textProfile = getPreferredAIProfile(aiProfiles, 'text');
-    if (textProfile?.apiKey && textProfile.model) {
+    if (isAIProfileUsable(textProfile)) {
       try {
         const targetNames = payload.targetIds?.map((id) => characters.find((character) => character.id === id)?.name || id).join('、') || '无';
         const rawText = await generateTextWithAdapter({

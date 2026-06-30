@@ -14,7 +14,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
-import { getPreferredAIProfile } from '../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
 import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity } from '../types/chat';
 import { ROOM_TEMPLATES, filterRoomTemplatesForAvailability, getRoomTemplate, getRoomTemplateKernel, getRoomTemplateKeyBySessionKind, type RoomTemplateKey } from '../services/roomTemplates';
 import {
@@ -593,7 +593,7 @@ export default function CreateChatPage() {
 
   const handleAutofill = useCallback(async () => {
     const profile = getPreferredAIProfile(aiProfiles, 'text') || api;
-    if (!profile?.apiKey || !profile?.model) {
+    if (!isAIProfileUsable(profile)) {
       showError(i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first');
       return;
     }

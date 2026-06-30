@@ -25,7 +25,7 @@ import { canDeleteCharacterGroup, getCharacterGroupList, getCharactersInGroup, i
 import { enqueueAvatarGenerationForCharacters } from '../services/avatarGeneration';
 import { generateCharacterProfile } from '../services/characterGenerator';
 import { createCharacterBubbleStyleId } from '../utils/bubbleStyle';
-import { getPreferredAIProfile } from '../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
 import { useChatStore } from '../stores/useChatStore';
 import { buildDirectChatDraft } from '../services/chatDraftBuilder';
 import type { AICharacter } from '../types/character';
@@ -266,7 +266,7 @@ export default function CharacterLibraryPage() {
 
   const handleBulkGenerateBubbles = async () => {
     const profile = getPreferredAIProfile(aiProfiles, 'text');
-    if (!profile?.apiKey || !profile?.model) {
+    if (!isAIProfileUsable(profile)) {
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
       return;
     }

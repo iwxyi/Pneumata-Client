@@ -1,5 +1,6 @@
 import { generateResponse } from './aiClient';
 import type { AIModelProfile } from '../types/settings';
+import { isAIProfileUsable } from '../types/settings';
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
 
 interface RawRelationshipInference {
@@ -141,7 +142,7 @@ export async function buildDefaultRelationshipPatches(params: {
   const now = resolveNow(params.now);
   const created = params.createdCharacters.filter((character) => !character.deletedAt && !character.isPreset);
   const all = params.allCharacters.filter((character) => !character.deletedAt);
-  if (!created.length || all.length < 2 || !params.config.apiKey || !params.config.model) return [];
+  if (!created.length || all.length < 2 || !isAIProfileUsable(params.config)) return [];
 
   const response = await generateResponse(
     params.config,

@@ -47,7 +47,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import { useCharacterArtifactStore, type CharacterArtifactEntry } from '../../stores/useCharacterArtifactStore';
 import type { AIModelType } from '../../types/settings';
-import { getPreferredAIProfile } from '../../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../../types/settings';
 import type { GroupChat } from '../../types/chat';
 import { avatarGenerationQueue, type AvatarGenerationStatus } from '../../services/avatarGenerationQueue';
 import { canAutoGenerateAvatarDraft, enqueueAvatarGenerationForCharacter } from '../../services/avatarGeneration';
@@ -608,7 +608,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     if (!name.trim() || generating) return;
     const textModelProfileId = modelProfileIds.text || null;
     const selectedProfile = settings.aiProfiles.find((profile) => profile.id === textModelProfileId) || getPreferredAIProfile(settings.aiProfiles, 'text') || settings.aiProfiles[0];
-    if (!selectedProfile?.apiKey || !selectedProfile?.model) {
+    if (!isAIProfileUsable(selectedProfile)) {
       setGenerateError(getGenerateNoKeyError(i18n.language));
       return;
     }
@@ -659,8 +659,8 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     const textModelProfileId = modelProfileIds.text || null;
     const selectedProfile = settings.aiProfiles.find((profile) => profile.id === textModelProfileId)
       || getPreferredAIProfile(settings.aiProfiles, 'text')
-      || settings.aiProfiles.find((profile) => profile.apiKey && profile.model);
-    if (!selectedProfile?.apiKey || !selectedProfile?.model) {
+      || settings.aiProfiles.find((profile) => isAIProfileUsable(profile));
+    if (!isAIProfileUsable(selectedProfile)) {
       setVisualImageTaskError(getGenerateNoKeyError(i18n.language));
       return;
     }
@@ -1620,7 +1620,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     if (!name.trim() || generating) return null;
     const textModelProfileId = modelProfileIds.text || null;
     const selectedProfile = settings.aiProfiles.find((profile) => profile.id === textModelProfileId) || getPreferredAIProfile(settings.aiProfiles, 'text') || settings.aiProfiles[0];
-    if (!selectedProfile?.apiKey || !selectedProfile?.model) {
+    if (!isAIProfileUsable(selectedProfile)) {
       setGenerateError(getGenerateNoKeyError(i18n.language));
       return null;
     }

@@ -5,7 +5,7 @@ import { DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../../
 import type { AICharacter } from '../../types/character';
 import type { ChatStyle } from '../../types/chat';
 import type { APIConfig, AIModelProfile } from '../../types/settings';
-import { getPreferredAIProfile } from '../../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../../types/settings';
 import { enqueueAvatarGenerationForCharacters } from '../../services/avatarGeneration';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { chooseRandomBubbleStyleId, createCharacterBubbleStyleId } from '../../utils/bubbleStyle';
@@ -237,7 +237,7 @@ export function useHotTopicDialog(params: {
 
   const handleTopicSelect = useCallback(async (topicItem: TopicItem) => {
     const activeConfig = getPreferredAIProfile(params.aiProfiles, 'text') || params.apiConfig;
-    if (!activeConfig?.apiKey || !activeConfig?.model) {
+    if (!isAIProfileUsable(activeConfig)) {
       params.onError(isZh ? '请先配置AI模型后再使用热点改编' : 'Configure AI model before using topic adaptation');
       return;
     }
@@ -348,7 +348,7 @@ export function useHotTopicDialog(params: {
     if (adapting) return;
     if (creatingCharacters || creationInFlightRef.current) return;
     const activeConfig = getPreferredAIProfile(params.aiProfiles, 'text') || params.apiConfig;
-    if (!activeConfig?.apiKey || !activeConfig?.model) {
+    if (!isAIProfileUsable(activeConfig)) {
       params.onError(isZh ? '请先配置AI模型后再创建推荐角色' : 'Configure AI model before creating suggested characters');
       return;
     }

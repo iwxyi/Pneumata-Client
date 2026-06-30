@@ -13,7 +13,7 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 import LoadingState from '../components/common/LoadingState';
 import { enqueueAvatarGenerationForCharacter } from '../services/avatarGeneration';
 import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
-import { getPreferredAIProfile } from '../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
 
 export default function CharacterEditorPage() {
   const { t, i18n } = useTranslation();
@@ -193,7 +193,7 @@ export default function CharacterEditorPage() {
             } else {
               const created = await addCharacter(data);
               const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
-              if (profile?.apiKey && profile.model) {
+              if (isAIProfileUsable(profile)) {
                 void initializeDefaultRelationshipsForCreatedCharacters({
                   config: profile,
                   createdCharacters: [created],

@@ -18,7 +18,7 @@ import { formatRelationshipNumber } from '../../services/relationshipLedger';
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import { applyDriftToBehavior, formatLocalizedDriftSummary, getDominantEmotionLabel, getAffectSummaryLines, formatEmotionStateLabel } from '../../services/personalityDrift';
 import LayeredMemoryPanel from '../memory/LayeredMemoryPanel';
-import { getPreferredAIProfile } from '../../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../../types/settings';
 import {
   buildCharacterExperienceArtifactContext,
   buildCharacterFinalLetterContext,
@@ -4781,7 +4781,7 @@ function CharacterExperienceArtifactPanel({ character, relatedCharacters }: { ch
   const localPreview = useMemo(() => buildLocalCharacterExperienceArtifact(kind, context), [kind, context]);
   const hasGeneratedText = Boolean(generatedTexts[kind]);
   const displayedText = generatedTexts[kind] || localPreview;
-  const canGenerate = Boolean(selectedProfile?.apiKey && selectedProfile?.model);
+  const canGenerate = isAIProfileUsable(selectedProfile);
 
   const handleGenerate = async () => {
     if (!selectedProfile || !canGenerate) return;

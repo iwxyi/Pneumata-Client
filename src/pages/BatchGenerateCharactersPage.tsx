@@ -271,7 +271,7 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY } from '../types';
 import { getTopicDerivedCharacterGroup } from '../types/character';
-import { getPreferredAIProfile } from '../types/settings';
+import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
 import { BUILT_IN_BUBBLE_STYLES } from '../constants/bubbleStyles';
 import { chooseRandomBubbleStyleId, createCharacterBubbleStyleId } from '../utils/bubbleStyle';
 
@@ -641,7 +641,7 @@ export default function BatchGenerateCharactersPage() {
 
   const handleFetchNames = async () => {
     const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
-    if (!profile?.apiKey || !profile?.model) {
+    if (!isAIProfileUsable(profile)) {
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
       return;
     }
@@ -671,7 +671,7 @@ export default function BatchGenerateCharactersPage() {
 
   const handleGenerateCharacters = async () => {
     const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
-    if (!profile?.apiKey || !profile?.model) {
+    if (!isAIProfileUsable(profile)) {
       setSnackbar({ open: true, message: i18n.language.startsWith('zh') ? '请先配置AI模型' : 'Configure AI model first', severity: 'error' });
       return;
     }
@@ -700,7 +700,7 @@ export default function BatchGenerateCharactersPage() {
       });
 
       const relationshipProfile = getPreferredAIProfile(useSettingsStore.getState().aiProfiles, 'text');
-      if (relationshipProfile?.apiKey && relationshipProfile.model && createdCharacters.length) {
+      if (isAIProfileUsable(relationshipProfile) && createdCharacters.length) {
         void initializeDefaultRelationshipsForCreatedCharacters({
           config: relationshipProfile,
           createdCharacters,
