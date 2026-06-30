@@ -7,15 +7,6 @@ import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/
 import { adminApi } from '../../services/adminApi';
 import { formatAiAmount, formatAiBalanceAmount } from '../../utils/aiPoints';
 
-type QuotaPackageForm = {
-  code: string;
-  name: string;
-  points: string;
-  price: string;
-  dailyQuota: string;
-  monthlyQuota: string;
-};
-
 type DeepSeekPricingForm = {
   pointValueCny: string;
   billingMultiplier: string;
@@ -218,30 +209,6 @@ function buildInternalLedgerTokenPricing(providerCode: string, form: DeepSeekPri
       } : {}),
     },
   };
-}
-
-function toPackageForm(item: Record<string, unknown>): QuotaPackageForm {
-  return {
-    code: String(item.code || ''),
-    name: String(item.name || ''),
-    points: item.points == null ? '' : String(item.points),
-    price: item.price == null ? '' : String(item.price),
-    dailyQuota: item.dailyQuota == null ? '' : String(item.dailyQuota),
-    monthlyQuota: item.monthlyQuota == null ? '' : String(item.monthlyQuota),
-  };
-}
-
-function serializePackages(packages: QuotaPackageForm[]) {
-  return packages
-    .filter((item) => item.code.trim() || item.name.trim())
-    .map((item) => ({
-      code: item.code.trim(),
-      name: item.name.trim(),
-      points: item.points ? Number(item.points) : 0,
-      price: item.price ? Number(item.price) : 0,
-      dailyQuota: item.dailyQuota ? Number(item.dailyQuota) : null,
-      monthlyQuota: item.monthlyQuota ? Number(item.monthlyQuota) : null,
-    }));
 }
 
 function formatBalance(balance: Record<string, unknown> | null, providerCode: string) {
@@ -495,18 +462,13 @@ export default function AdminAIProviderPage() {
     status: 'active',
     adminToken: '',
     forwardKey: '',
-    autoProvisionEnabled: false,
     defaultKeyTypeId: '',
-    defaultGrantAmount: '',
-    defaultDailyQuota: '',
-    defaultMonthlyQuota: '',
     quotaTransferPath: '',
     quotaTransferMethod: 'POST',
     quotaTransferBodyTemplate: '',
     deepseekPricing: DEFAULT_DEEPSEEK_PRICING_FORM,
   });
   const [loadedSecrets, setLoadedSecrets] = useState({ adminToken: '', forwardKey: '' });
-  const [quotaPackages, setQuotaPackages] = useState<QuotaPackageForm[]>([]);
   const [keys, setKeys] = useState<Array<Record<string, unknown>>>([]);
   const [keySearch, setKeySearch] = useState({ typeId: '', keyword: '' });
   const [keyCreate, setKeyCreate] = useState({ typeId: '', note: '', grantAmount: '', dailyQuota: '', monthlyQuota: '' });
@@ -611,11 +573,7 @@ export default function AdminAIProviderPage() {
         status: String(config.status || 'active'),
         adminToken,
         forwardKey,
-        autoProvisionEnabled: Boolean(config.autoProvisionEnabled),
         defaultKeyTypeId: config.defaultKeyTypeId == null ? '' : String(config.defaultKeyTypeId),
-        defaultGrantAmount: config.defaultGrantAmount == null ? '' : String(config.defaultGrantAmount),
-        defaultDailyQuota: config.defaultDailyQuota == null ? '' : String(config.defaultDailyQuota),
-        defaultMonthlyQuota: config.defaultMonthlyQuota == null ? '' : String(config.defaultMonthlyQuota),
         quotaTransferPath: config.quotaTransferPath == null ? '' : String(config.quotaTransferPath),
         quotaTransferMethod: String(config.quotaTransferMethod || 'POST'),
         quotaTransferBodyTemplate: config.quotaTransferBodyTemplate == null
@@ -623,7 +581,6 @@ export default function AdminAIProviderPage() {
           : JSON.stringify(config.quotaTransferBodyTemplate, null, 2),
         deepseekPricing: toDeepSeekPricingForm(config.tokenPricing),
       });
-      setQuotaPackages(Array.isArray(config.quotaPackages) ? (config.quotaPackages as Array<Record<string, unknown>>).map(toPackageForm) : []);
       if (canQueryAccountBalance && (isApi2d ? config.forwardKeyConfigured : isMoacode ? config.forwardKeyConfigured : config.adminTokenConfigured)) void loadAccountBalance();
       else {
         setAccountBalance(null);
@@ -682,17 +639,12 @@ export default function AdminAIProviderPage() {
         baseUrl: form.baseUrl,
         adminBaseUrl: form.adminBaseUrl,
         status: form.status,
-        autoProvisionEnabled: form.autoProvisionEnabled,
         defaultKeyTypeId: form.defaultKeyTypeId || null,
-        defaultGrantAmount: form.defaultGrantAmount ? Number(form.defaultGrantAmount) : null,
-        defaultDailyQuota: form.defaultDailyQuota ? Number(form.defaultDailyQuota) : null,
-        defaultMonthlyQuota: form.defaultMonthlyQuota ? Number(form.defaultMonthlyQuota) : null,
         quotaTransferPath: form.quotaTransferPath.trim() || null,
         quotaTransferMethod: form.quotaTransferMethod || 'POST',
         quotaTransferBodyTemplate: form.quotaTransferBodyTemplate.trim()
           ? JSON.parse(form.quotaTransferBodyTemplate)
           : null,
-        quotaPackages: serializePackages(quotaPackages),
       };
       if (usesInternalLedger) payload.tokenPricing = buildInternalLedgerTokenPricing(providerCode, form.deepseekPricing);
       const nextAdminToken = form.adminToken.trim();
@@ -923,18 +875,6 @@ export default function AdminAIProviderPage() {
     } finally {
       setKeyLoading(false);
     }
-  };
-
-  const addPackage = () => {
-    setQuotaPackages((prev) => [...prev, { code: '', name: '', points: '', price: '', dailyQuota: '', monthlyQuota: '' }]);
-  };
-
-  const updatePackage = (index: number, field: keyof QuotaPackageForm, value: string) => {
-    setQuotaPackages((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, [field]: value } : item)));
-  };
-
-  const removePackage = (index: number) => {
-    setQuotaPackages((prev) => prev.filter((_item, itemIndex) => itemIndex !== index));
   };
 
   const updateDeepSeekPricing = (field: keyof DeepSeekPricingForm, value: string) => {
@@ -1168,24 +1108,19 @@ export default function AdminAIProviderPage() {
             </AdminDetailCard>
           ) : null}
 
-          <AdminDetailCard title={usesInternalLedger ? '新用户自动分配额度' : '新用户自动分配 Key'}>
+          <AdminDetailCard title={isApi2d ? 'Key 分配参数' : '新用户默认额度'}>
             <Stack spacing={1.25}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-                <FormControlLabel control={<Switch checked={form.autoProvisionEnabled} onChange={(e) => setForm((prev) => ({ ...prev, autoProvisionEnabled: e.target.checked }))} />} label={usesInternalLedger ? '新用户自动分配额度' : '新用户自动生成 Key'} />
-                {isApi2d ? (
+              {isApi2d ? (
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                   <TextField
                     label="默认 Key 分组 ID"
                     value={form.defaultKeyTypeId}
                     onChange={(e) => setForm((prev) => ({ ...prev, defaultKeyTypeId: e.target.value }))}
                     helperText="填写 custom_key_type/search 返回的数字 id，例如 1219，不要带 CK 前缀"
                   />
-                ) : null}
-                <TextField label="默认点数" value={form.defaultGrantAmount} onChange={(e) => setForm((prev) => ({ ...prev, defaultGrantAmount: e.target.value }))} />
-              </Stack>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-                <TextField label="每日重置额度" value={form.defaultDailyQuota} onChange={(e) => setForm((prev) => ({ ...prev, defaultDailyQuota: e.target.value }))} />
-                <TextField label="每月最高额度（0 表示不限制）" value={form.defaultMonthlyQuota} onChange={(e) => setForm((prev) => ({ ...prev, defaultMonthlyQuota: e.target.value }))} />
-              </Stack>
+                </Stack>
+              ) : null}
+              <Alert severity="info">新用户默认赠送点数、每日额度和每月额度已移动到 AI 平台列表页的“全局配置”。</Alert>
               {isApi2d ? (
                 <>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
@@ -1221,44 +1156,6 @@ export default function AdminAIProviderPage() {
             </Stack>
           </AdminDetailCard>
 
-          <AdminDetailCard title="额度套餐">
-            <Stack spacing={1.25}>
-              {!quotaPackages.length ? <Alert severity="info">暂无套餐，添加后可用于后续支付购买。</Alert> : null}
-              {quotaPackages.length ? (
-                <AdminResponsiveTable minWidth={900}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>套餐编码</TableCell>
-                        <TableCell>套餐名称</TableCell>
-                        <TableCell>点数额度</TableCell>
-                        <TableCell>价格</TableCell>
-                        <TableCell>每日额度</TableCell>
-                        <TableCell>每月额度</TableCell>
-                        <TableCell align="right">操作</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {quotaPackages.map((item, index) => (
-                        <TableRow key={`${item.code}-${index}`}>
-                          <TableCell><TextField size="small" value={item.code} onChange={(e) => updatePackage(index, 'code', e.target.value)} sx={{ minWidth: 120 }} /></TableCell>
-                          <TableCell><TextField size="small" value={item.name} onChange={(e) => updatePackage(index, 'name', e.target.value)} sx={{ minWidth: 140 }} /></TableCell>
-                          <TableCell><TextField size="small" value={item.points} onChange={(e) => updatePackage(index, 'points', e.target.value)} sx={{ width: 110 }} /></TableCell>
-                          <TableCell><TextField size="small" value={item.price} onChange={(e) => updatePackage(index, 'price', e.target.value)} sx={{ width: 100 }} /></TableCell>
-                          <TableCell><TextField size="small" value={item.dailyQuota} onChange={(e) => updatePackage(index, 'dailyQuota', e.target.value)} sx={{ width: 110 }} /></TableCell>
-                          <TableCell><TextField size="small" value={item.monthlyQuota} onChange={(e) => updatePackage(index, 'monthlyQuota', e.target.value)} sx={{ width: 110 }} /></TableCell>
-                          <TableCell align="right">
-                            <Button size="small" color="warning" onClick={() => removePackage(index)}>删除</Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </AdminResponsiveTable>
-              ) : null}
-              <Button variant="outlined" onClick={addPackage} sx={{ alignSelf: 'flex-start' }}>添加套餐</Button>
-            </Stack>
-          </AdminDetailCard>
         </Stack>
       ) : isMoacode && tab === publicModelTabIndex ? (
         <Stack spacing={1.5}>

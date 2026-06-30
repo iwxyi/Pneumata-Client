@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Chip, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
+import { Box, Button, Chip, Dialog, DialogContent, DialogTitle, FormControlLabel, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
@@ -16,9 +16,7 @@ function ProviderTable({ items, onOpen }: { items: Array<Record<string, unknown>
             <TableCell>AI 调用地址</TableCell>
             <TableCell>管理 API 地址</TableCell>
             <TableCell>Status</TableCell>
-            <TableCell>自动开通</TableCell>
             <TableCell>默认分组</TableCell>
-            <TableCell>默认点数</TableCell>
           </TableRow>
         </TableHead>
         <TableBody>
@@ -41,9 +39,7 @@ function ProviderTable({ items, onOpen }: { items: Array<Record<string, unknown>
                   sx={{ height: 22 }}
                 />
               </TableCell>
-              <TableCell>{Number(item.auto_provision_enabled || 0) ? '是' : '否'}</TableCell>
               <TableCell>{String(item.default_key_type_id ?? '')}</TableCell>
-              <TableCell>{String(item.default_grant_amount ?? '')}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -55,8 +51,19 @@ function ProviderTable({ items, onOpen }: { items: Array<Record<string, unknown>
 export default function AdminAIPage() {
   const navigate = useNavigate();
   const [items, setItems] = useState<Array<Record<string, unknown>>>([]);
+  const [globalDialogOpen, setGlobalDialogOpen] = useState(false);
+  const [globalForm, setGlobalForm] = useState({
+    defaultProvisionEnabled: false,
+    defaultGrantAmount: '',
+    defaultDailyQuota: '',
+    defaultMonthlyQuota: '',
+    defaultPlanCode: 'default',
+  });
   const [loading, setLoading] = useState(false);
+  const [globalLoading, setGlobalLoading] = useState(false);
+  const [globalSaving, setGlobalSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [globalError, setGlobalError] = useState<string | null>(null);
   const providerStats = useMemo(() => ({
     active: items.filter((item) => String(item.status || '') === 'active').length,
     disabled: items.filter((item) => String(item.status || '') !== 'active').length,
@@ -72,6 +79,53 @@ export default function AdminAIPage() {
       setError(getAdminErrorMessage(loadError));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadGlobalConfig = async () => {
+    setGlobalLoading(true);
+    setGlobalError(null);
+    try {
+      const result = await adminApi.getPlatformGlobalConfig();
+      const ai = result.ai || {};
+      setGlobalForm({
+        defaultProvisionEnabled: Boolean(ai.defaultProvisionEnabled),
+        defaultGrantAmount: ai.defaultGrantAmount == null ? '' : String(ai.defaultGrantAmount),
+        defaultDailyQuota: ai.defaultDailyQuota == null ? '' : String(ai.defaultDailyQuota),
+        defaultMonthlyQuota: ai.defaultMonthlyQuota == null ? '' : String(ai.defaultMonthlyQuota),
+        defaultPlanCode: ai.defaultPlanCode == null ? '' : String(ai.defaultPlanCode),
+      });
+    } catch (loadError) {
+      setGlobalError(getAdminErrorMessage(loadError));
+    } finally {
+      setGlobalLoading(false);
+    }
+  };
+
+  const openGlobalDialog = () => {
+    setGlobalDialogOpen(true);
+    void loadGlobalConfig();
+  };
+
+  const saveGlobalConfig = async () => {
+    setGlobalSaving(true);
+    setGlobalError(null);
+    try {
+      await adminApi.updatePlatformGlobalConfig({
+        ai: {
+          defaultProvisionEnabled: globalForm.defaultProvisionEnabled,
+          defaultGrantAmount: globalForm.defaultGrantAmount ? Number(globalForm.defaultGrantAmount) : 0,
+          defaultDailyQuota: globalForm.defaultDailyQuota ? Number(globalForm.defaultDailyQuota) : 0,
+          defaultMonthlyQuota: globalForm.defaultMonthlyQuota ? Number(globalForm.defaultMonthlyQuota) : 0,
+          defaultPlanCode: globalForm.defaultPlanCode.trim() || null,
+        },
+      });
+      setGlobalDialogOpen(false);
+      await loadProviders();
+    } catch (saveError) {
+      setGlobalError(getAdminErrorMessage(saveError));
+    } finally {
+      setGlobalSaving(false);
     }
   };
 
@@ -91,9 +145,34 @@ export default function AdminAIPage() {
           <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.25 }}>{providerStats.disabled}</Typography>
         </Paper>
         <Box sx={{ flex: 1 }} />
+        <Button variant="outlined" onClick={openGlobalDialog}>全局配置</Button>
       </Stack>
       <AdminRequestState loading={loading} error={error} onRetry={() => void loadProviders()} />
       <ProviderTable items={items} onOpen={(providerCode) => navigate(`/admin/ai/providers/${encodeURIComponent(providerCode)}`)} />
+      <Dialog open={globalDialogOpen} onClose={() => setGlobalDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>AI 全局配置</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 1 }}>
+            <AdminRequestState loading={globalLoading} error={globalError} onRetry={() => void loadGlobalConfig()} />
+            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+              <Stack spacing={1.25}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>新用户默认分配额度</Typography>
+                <FormControlLabel
+                  control={<Switch checked={globalForm.defaultProvisionEnabled} onChange={(event) => setGlobalForm((prev) => ({ ...prev, defaultProvisionEnabled: event.target.checked }))} />}
+                  label="新用户注册后自动开通默认 AI 权益并分配额度"
+                />
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
+                  <TextField label="默认点数" value={globalForm.defaultGrantAmount} onChange={(event) => setGlobalForm((prev) => ({ ...prev, defaultGrantAmount: event.target.value }))} fullWidth />
+                  <TextField label="每日额度" value={globalForm.defaultDailyQuota} onChange={(event) => setGlobalForm((prev) => ({ ...prev, defaultDailyQuota: event.target.value }))} fullWidth />
+                  <TextField label="每月额度" value={globalForm.defaultMonthlyQuota} onChange={(event) => setGlobalForm((prev) => ({ ...prev, defaultMonthlyQuota: event.target.value }))} fullWidth />
+                </Stack>
+                <TextField label="默认计划编码" value={globalForm.defaultPlanCode} onChange={(event) => setGlobalForm((prev) => ({ ...prev, defaultPlanCode: event.target.value }))} fullWidth />
+              </Stack>
+            </Paper>
+            <Button variant="contained" disabled={globalSaving || globalLoading} onClick={() => void saveGlobalConfig()}>保存全局配置</Button>
+          </Stack>
+        </DialogContent>
+      </Dialog>
     </Stack>
   );
 }

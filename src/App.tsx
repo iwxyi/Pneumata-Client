@@ -41,6 +41,7 @@ const routePreloaders = [
   () => import('./pages/admin/AdminUsersPage'),
   () => import('./pages/admin/AdminAIPage'),
   () => import('./pages/admin/AdminAIProviderPage'),
+  () => import('./pages/admin/AdminPlatformPage'),
   () => import('./pages/admin/AdminBillingPage'),
   () => import('./pages/admin/AdminModerationPage'),
   () => import('./pages/admin/AdminRiskPage'),
@@ -74,6 +75,7 @@ const [
   loadAdminUsersPage,
   loadAdminAIPage,
   loadAdminAIProviderPage,
+  loadAdminPlatformPage,
   loadAdminBillingPage,
   loadAdminModerationPage,
   loadAdminRiskPage,
@@ -106,6 +108,7 @@ const AdminDashboardPage = lazy(loadAdminDashboardPage);
 const AdminUsersPage = lazy(loadAdminUsersPage);
 const AdminAIPage = lazy(loadAdminAIPage);
 const AdminAIProviderPage = lazy(loadAdminAIProviderPage);
+const AdminPlatformPage = lazy(loadAdminPlatformPage);
 const AdminBillingPage = lazy(loadAdminBillingPage);
 const AdminModerationPage = lazy(loadAdminModerationPage);
 const AdminRiskPage = lazy(loadAdminRiskPage);
@@ -253,6 +256,7 @@ function RoutedApp() {
           <Route path="users" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.usersRead]}><AdminUsersPage /></AdminPermissionGate></RouteElement>} />
           <Route path="ai" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIPage /></AdminPermissionGate></RouteElement>} />
           <Route path="ai/providers/:providerCode" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.aiRead]}><AdminAIProviderPage /></AdminPermissionGate></RouteElement>} />
+          <Route path="platform" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.platformRead]}><AdminPlatformPage /></AdminPermissionGate></RouteElement>} />
           <Route path="billing" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.billingRead]}><AdminBillingPage /></AdminPermissionGate></RouteElement>} />
           <Route path="moderation" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.sharesReview]}><AdminModerationPage /></AdminPermissionGate></RouteElement>} />
           <Route path="notifications" element={<RouteElement><AdminPermissionGate permissions={[ADMIN_PERMISSION_CODES.notificationsRead]}><AdminNotificationsPage /></AdminPermissionGate></RouteElement>} />

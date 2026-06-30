@@ -130,6 +130,22 @@ class AdminApiClient {
     return this.request<{ items: Array<Record<string, unknown>>; runtime: Array<Record<string, unknown>> }>('GET', '/ai/providers');
   }
 
+  getPlatformGlobalConfig() {
+    return this.request<{ ai: Record<string, unknown> }>('GET', '/platform/global-config');
+  }
+
+  updatePlatformGlobalConfig(payload: Record<string, unknown>) {
+    return this.request<{ ai: Record<string, unknown> }>('PUT', '/platform/global-config', payload);
+  }
+
+  getPlatformIntegrations() {
+    return this.request<{ items: Array<Record<string, unknown>> }>('GET', '/platform/integrations');
+  }
+
+  updatePlatformIntegration(category: string, providerCode: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('PUT', `/platform/integrations/${encodeURIComponent(category)}/${encodeURIComponent(providerCode)}`, payload);
+  }
+
   getAiProviderConfig(providerCode: string) {
     return this.request<Record<string, unknown>>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/config`);
   }
@@ -275,6 +291,18 @@ class AdminApiClient {
 
   getOrders(params?: { status?: string; userId?: string }) {
     return this.request<{ items: Array<Record<string, unknown>> }>('GET', `/billing/orders${this.buildQuery({ status: params?.status, userId: params?.userId })}`);
+  }
+
+  getBillingPlans() {
+    return this.request<{ items: Array<Record<string, unknown>> }>('GET', '/billing/plans');
+  }
+
+  createBillingPlan(payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('POST', '/billing/plans', payload);
+  }
+
+  updateBillingPlan(planId: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('PUT', `/billing/plans/${encodeURIComponent(planId)}`, payload);
   }
 
   markOrderPaid(orderId: string, payload?: Record<string, unknown>) {
