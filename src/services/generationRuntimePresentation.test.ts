@@ -16,11 +16,11 @@ function buildMessage(): Message {
     metadata: {
       runtimeDecision: {
         generationRuntime: {
-          turnPlan: { moveClass: 'deepen', targetScope: 'topic', depth: 'deep', reason: 'group-discussion:discussion' },
+          turnPlan: { moveClass: 'deepen', targetScope: 'topic', depth: 'deep', reason: 'opinion-review:deliberation' },
           expressionPlan: { surface: 'analytical', texture: 'rich', rhythm: 'back_and_forth' },
           trace: {
             policyHits: ['analytical_room', 'deepen'],
-            scenarioChecks: ['group-discussion', 'analysis'],
+            scenarioChecks: ['opinion-review', 'analysis'],
             duplicateDecision: 'none',
             humanAppraisal: {
               moveBias: 'ask_followup',
@@ -42,7 +42,7 @@ describe('generationRuntimePresentation', () => {
     expect(rows.some((row) => row.label === 'Move' && row.value === 'deepen')).toBe(true);
     expect(rows.some((row) => row.label === 'Surface' && row.value === 'analytical')).toBe(true);
     expect(rows.some((row) => row.label === 'Human Appraisal' && row.value.includes('ask_followup'))).toBe(true);
-    expect(rows.some((row) => row.label === 'Scenario' && row.value.includes('group-discussion'))).toBe(true);
+    expect(rows.some((row) => row.label === 'Scenario' && row.value.includes('opinion-review'))).toBe(true);
     expect(JSON.stringify(rows)).not.toContain('hiddenHint');
   });
 });

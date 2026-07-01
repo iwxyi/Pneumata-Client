@@ -64,6 +64,7 @@ export async function applyCalendarAutoPatchForChat(params: {
     textApiConfig: params.textApiConfig || null,
     conversationId: params.chat.id,
     trigger: 'auto_runtime',
+    riskMode: 'automatic',
     updateChat: async (id, updates) => {
       if (id === params.chat.id && updates.runtimeEventsV2) {
         persistedEvents = updates.runtimeEventsV2;

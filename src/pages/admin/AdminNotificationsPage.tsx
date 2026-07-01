@@ -1,11 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
+import AdminInlineGroup from '../../components/admin/AdminInlineGroup';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
 
+function parsePayload(value: unknown) {
+  if (!value) return {};
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (typeof value !== 'string') return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
 function NotificationDetail({ item }: { item: Record<string, unknown> | null }) {
+  const payload = item ? parsePayload(item.payload) : {};
   return (
     <AdminDetailCard title="通知任务详情">
       {item ? (
@@ -16,6 +30,8 @@ function NotificationDetail({ item }: { item: Record<string, unknown> | null }) 
           <Typography variant="body2">状态：{String(item.status || '')}</Typography>
           <Typography variant="body2">次数：{String(item.attempt_count || 0)}</Typography>
           <Typography variant="body2">用户：{String(item.user_nickname || item.user_phone || '')}</Typography>
+          {payload.lastError ? <Alert severity="error">{String(payload.lastError)}</Alert> : null}
+          {payload.lastResult ? <Alert severity="success">最近一次投递成功</Alert> : null}
         </Stack>
       ) : <Alert severity="info">点击任务行查看详情</Alert>}
     </AdminDetailCard>
@@ -29,6 +45,8 @@ export default function AdminNotificationsPage() {
   const [status, setStatus] = useState('');
   const [channel, setChannel] = useState('');
   const [loading, setLoading] = useState(false);
+  const [delivering, setDelivering] = useState(false);
+  const [deliveringId, setDeliveringId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const stats = useMemo(() => ({
     queued: items.filter((item) => String(item.status || '') === 'queued').length,
@@ -61,14 +79,42 @@ export default function AdminNotificationsPage() {
     void load();
   }, [status, channel]);
 
+  const deliverQueued = async () => {
+    setDelivering(true);
+    setError(null);
+    try {
+      await adminApi.deliverNotificationJobs({ limit: 20 });
+      await load();
+    } catch (deliverError) {
+      setError(getAdminErrorMessage(deliverError));
+    } finally {
+      setDelivering(false);
+    }
+  };
+
+  const deliverOne = async (item: Record<string, unknown>) => {
+    const id = String(item.id || '');
+    if (!id) return;
+    setDeliveringId(id);
+    setError(null);
+    try {
+      await adminApi.deliverNotificationJob(id);
+      await load();
+    } catch (deliverError) {
+      setError(getAdminErrorMessage(deliverError));
+    } finally {
+      setDeliveringId('');
+    }
+  };
+
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-        <Alert severity="info" sx={{ flex: 1 }}>排队：{stats.queued}</Alert>
-        <Alert severity="success" sx={{ flex: 1 }}>已发送：{stats.sent}</Alert>
-        <Alert severity="error" sx={{ flex: 1 }}>失败：{stats.failed}</Alert>
-      </Stack>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+      <AdminInlineGroup gap={1.25}>
+        <Alert severity="info">排队：{stats.queued}</Alert>
+        <Alert severity="success">已发送：{stats.sent}</Alert>
+        <Alert severity="error">失败：{stats.failed}</Alert>
+      </AdminInlineGroup>
+      <AdminInlineGroup gap={1.25}>
         <Button variant={status === '' ? 'contained' : 'outlined'} onClick={() => setStatus('')}>全部状态</Button>
         <Button variant={status === 'queued' ? 'contained' : 'outlined'} onClick={() => setStatus('queued')}>排队</Button>
         <Button variant={status === 'sent' ? 'contained' : 'outlined'} onClick={() => setStatus('sent')}>已发送</Button>
@@ -76,7 +122,8 @@ export default function AdminNotificationsPage() {
         <Button variant={channel === '' ? 'contained' : 'outlined'} onClick={() => setChannel('')}>全部渠道</Button>
         <Button variant={channel === 'email' ? 'contained' : 'outlined'} onClick={() => setChannel('email')}>邮件</Button>
         <Button variant={channel === 'sms' ? 'contained' : 'outlined'} onClick={() => setChannel('sms')}>短信</Button>
-      </Stack>
+        <Button variant="outlined" disabled={delivering} onClick={() => void deliverQueued()} sx={{ ml: 'auto' }}>{delivering ? '投递中' : '投递队列'}</Button>
+      </AdminInlineGroup>
       <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <Paper sx={{ p: 2, borderRadius: 3 }}>
         <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1.25 }}>模板数量：{templates.length}</Typography>
@@ -96,6 +143,7 @@ export default function AdminNotificationsPage() {
               <TableCell>状态</TableCell>
               <TableCell>次数</TableCell>
               <TableCell>创建时间</TableCell>
+              <TableCell align="right">操作</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -107,6 +155,18 @@ export default function AdminNotificationsPage() {
                 <TableCell>{String(item.status || '')}</TableCell>
                 <TableCell>{String(item.attempt_count || 0)}</TableCell>
                 <TableCell>{new Date(Number(item.created_at || 0)).toLocaleString()}</TableCell>
+                <TableCell align="right">
+                  <Button
+                    size="small"
+                    disabled={deliveringId === String(item.id || '') || String(item.status || '') === 'sent'}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      void deliverOne(item);
+                    }}
+                  >
+                    {String(item.status || '') === 'failed' ? '重试' : '投递'}
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

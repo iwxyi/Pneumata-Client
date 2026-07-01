@@ -22,6 +22,12 @@ export function formatScenarioRoleLabel(roleId: string | null | undefined, langu
     moderator: { zh: '主持人', en: 'Moderator' },
     judge: { zh: '裁判', en: 'Judge' },
     leader: { zh: '领队', en: 'Leader' },
+    affirmative: { zh: '正方', en: 'Affirmative' },
+    negative: { zh: '反方', en: 'Negative' },
+    reviewer: { zh: '评审', en: 'Reviewer' },
+    plaintiff: { zh: '主张方', en: 'Claimant' },
+    defendant: { zh: '回应方', en: 'Respondent' },
+    witness: { zh: '证人', en: 'Witness' },
   };
   if (!key) return isZh(language) ? '角色位' : 'Role';
   const label = labels[key];

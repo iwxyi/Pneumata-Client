@@ -141,7 +141,6 @@ export default function CreateChatPage() {
   const [includeUserAsMember, setIncludeUserAsMember] = useState(true);
   const [operatorIdsText, setOperatorIdsText] = useState('');
   const [runtimeEvolutionIntensity, setRuntimeEvolutionIntensity] = useState<RuntimeEvolutionIntensity>('balanced');
-  const [discussionRoundsTarget, setDiscussionRoundsTarget] = useState(6);
   const [storyBranchMode, setStoryBranchMode] = useState<'guided' | 'open'>('guided');
   const [storyBackground, setStoryBackground] = useState('');
   const [storyDirection, setStoryDirection] = useState('');
@@ -250,7 +249,6 @@ export default function CreateChatPage() {
       setIncludeUserAsMember((editingChat.memberIds || []).includes('user'));
       setOperatorIdsText((editingChat.operatorIds || []).join(', '));
       setRuntimeEvolutionIntensity(editingChat.runtimeEvolutionIntensity || 'balanced');
-      setDiscussionRoundsTarget(editingChat.scenarioState?.progress?.find((item) => item.key === 'speeches')?.target ?? 6);
       setStoryBranchMode(editingChat.scenarioState?.branches?.[0]?.status === 'chosen' ? 'open' : 'guided');
       setStoryBackground(String(editingChat.scenarioState?.storyBackground || ''));
       setStoryDirection(String(editingChat.scenarioState?.storyDirection || ''));
@@ -281,7 +279,6 @@ export default function CreateChatPage() {
     setShowRoleActions(chatDraftDefaults.showRoleActions);
     setIncludeUserAsMember(true);
     setRuntimeEvolutionIntensity(chatDraftDefaults.runtimeEvolutionIntensity);
-    setDiscussionRoundsTarget(6);
     setStoryBranchMode('guided');
     setStudyGoalLabel('');
     setAgentGoalLabel('');
@@ -339,7 +336,6 @@ export default function CreateChatPage() {
       includeUserAsMember,
       operatorIdsText,
       runtimeEvolutionIntensity,
-      discussionRoundsTarget,
       storyBranchMode,
       storyBackground,
       storyDirection,
@@ -393,7 +389,6 @@ export default function CreateChatPage() {
       );
       setOperatorIdsText(String(draft.operatorIdsText || ''));
       setRuntimeEvolutionIntensity((draft.runtimeEvolutionIntensity as RuntimeEvolutionIntensity) || chatDraftDefaults.runtimeEvolutionIntensity);
-      setDiscussionRoundsTarget(Number(draft.discussionRoundsTarget || 6));
       setStoryBranchMode((draft.storyBranchMode as 'guided' | 'open') || 'guided');
       setStoryBackground(String(draft.storyBackground || ''));
       setStoryDirection(String(draft.storyDirection || ''));
@@ -521,7 +516,6 @@ export default function CreateChatPage() {
 
   useEffect(() => {
     const defaults = selectedRoomTemplate.defaults || {};
-    if (defaults.discussionRoundsTarget !== undefined) setDiscussionRoundsTarget((current) => current || defaults.discussionRoundsTarget || 6);
     if (defaults.studyGoalLabel !== undefined && !studyGoalLabel) setStudyGoalLabel(defaults.studyGoalLabel);
     if (defaults.agentGoalLabel !== undefined && !agentGoalLabel) setAgentGoalLabel(defaults.agentGoalLabel);
   }, [selectedRoomTemplate, studyGoalLabel, agentGoalLabel]);
@@ -547,7 +541,6 @@ export default function CreateChatPage() {
       setStoryDirection('');
       setStoryOutline('');
     }
-    if (defaults.discussionRoundsTarget !== undefined) setDiscussionRoundsTarget(defaults.discussionRoundsTarget);
     if (defaults.storyBranchMode !== undefined) setStoryBranchMode(defaults.storyBranchMode);
     if (defaults.studyGoalLabel !== undefined) setStudyGoalLabel(defaults.studyGoalLabel);
     if (defaults.agentGoalLabel !== undefined) setAgentGoalLabel(defaults.agentGoalLabel);
@@ -888,7 +881,6 @@ export default function CreateChatPage() {
     style,
     runtimeEvolutionIntensity,
     sessionKind: selectedRoomTemplate.sessionKind,
-    discussionRoundsTarget,
     storyBranchMode,
     storyBackground,
     storyDirection,
@@ -1195,8 +1187,6 @@ export default function CreateChatPage() {
             runtimeEvolutionIntensity={runtimeEvolutionIntensity}
             onRuntimeEvolutionIntensityChange={setRuntimeEvolutionIntensity}
             topic={topic}
-            discussionRoundsTarget={discussionRoundsTarget}
-            onDiscussionRoundsTargetChange={setDiscussionRoundsTarget}
             storyBranchMode={storyBranchMode}
             onStoryBranchModeChange={setStoryBranchMode}
             studyGoalLabel={studyGoalLabel}

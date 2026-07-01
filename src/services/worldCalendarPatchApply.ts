@@ -17,6 +17,7 @@ export interface ApplyWorldCalendarPatchDraftQueueParams {
   conversationId?: string | null;
   trigger?: WorldCalendarPatchTrigger;
   continueOnPersistError?: boolean;
+  riskMode?: 'all' | 'automatic' | 'manual';
 }
 
 export interface ApplyWorldCalendarPatchDraftQueueResult {
@@ -99,7 +100,10 @@ export async function reorderPlanQueueWithModel(
 export async function applyWorldCalendarPatchDraftQueue(params: ApplyWorldCalendarPatchDraftQueueParams): Promise<ApplyWorldCalendarPatchDraftQueueResult> {
   const projection = projectWorldCalendar(params.chats, params.characters, { conversationId: params.conversationId });
   const basePlan = buildWorldCalendarPatchApplyPlan(projection);
-  const reordered = await reorderPlanQueueWithModel(basePlan.queue, params.textApiConfig || null);
+  const filteredQueue = params.riskMode && params.riskMode !== 'all'
+    ? basePlan.queue.filter((item) => item.risk === params.riskMode)
+    : basePlan.queue;
+  const reordered = await reorderPlanQueueWithModel(filteredQueue, params.textApiConfig || null);
   const plan = { queue: reordered.queue };
   const execution = applyWorldCalendarPatchPlanToChats(params.chats, projection, plan, {
     fallbackConversationId: params.conversationId,

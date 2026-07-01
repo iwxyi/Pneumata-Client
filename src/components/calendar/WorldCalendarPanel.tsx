@@ -139,9 +139,13 @@ export default function WorldCalendarPanel({
   const calendarItems = projection.items;
   const patchPlan = useMemo(() => buildWorldCalendarPatchApplyPlan(projection), [projection]);
   const patchDraftQueue = patchPlan.queue;
+  const automaticPatchQueue = useMemo(() => patchDraftQueue.filter((item) => item.risk === 'automatic'), [patchDraftQueue]);
+  const manualPatchQueue = useMemo(() => patchDraftQueue.filter((item) => item.risk === 'manual'), [patchDraftQueue]);
+  const automaticPatchKey = automaticPatchQueue.map((item) => item.idempotencyKey).join('|');
+  const lastAutomaticPatchKeyRef = useRef('');
   const chainDraftGroupCount = useMemo(
-    () => new Set(patchDraftQueue.map((item) => item.chainGroupId).filter((item): item is string => Boolean(item))).size,
-    [patchDraftQueue],
+    () => new Set(manualPatchQueue.map((item) => item.chainGroupId).filter((item): item is string => Boolean(item))).size,
+    [manualPatchQueue],
   );
   const currentConversation = useMemo(() => (conversationId ? chats.find((chat) => chat.id === conversationId) : null), [chats, conversationId]);
   const actorNameMap = useMemo(() => new Map(characters.map((character) => [character.id, character.name])), [characters]);
@@ -157,7 +161,6 @@ export default function WorldCalendarPanel({
   useEffect(() => {
     if (!compact || userAdjustedCalendarRef.current) return;
     const firstItem = baseFilteredItems[0];
-    setIsCalendarExpanded(Boolean(firstItem));
     if (firstItem) setSelectedDate(new Date(startOfDay(firstItem.startAt ?? firstItem.updatedAt)));
   }, [baseFilteredItems, compact]);
 
@@ -167,6 +170,7 @@ export default function WorldCalendarPanel({
   );
 
   const groupedItems = useMemo(() => groupCalendarItemsByDay(filteredItems), [filteredItems]);
+  const hideCompactScheduleList = compact && !baseFilteredItems.length && !manualPatchQueue.length;
   const dayTitlesByStart = useMemo(() => {
     const map = new Map<number, string[]>();
     baseFilteredItems.forEach((item) => {
@@ -182,8 +186,29 @@ export default function WorldCalendarPanel({
   }, [baseFilteredItems]);
   const detailItem = useMemo(() => filteredItems.find((item) => item.id === detailItemId) || null, [detailItemId, filteredItems]);
 
+  useEffect(() => {
+    if (!automaticPatchQueue.length || isApplyingPatchQueue) return;
+    if (automaticPatchKey && lastAutomaticPatchKeyRef.current === automaticPatchKey) return;
+    lastAutomaticPatchKeyRef.current = automaticPatchKey;
+    void applyWorldCalendarPatchDraftQueue({
+      chats,
+      characters,
+      updateChat,
+      conversationId,
+      trigger: compact ? 'sidebar_projection' : 'manual',
+      riskMode: 'automatic',
+      continueOnPersistError: true,
+    }).catch((error) => {
+      setSnackbar({
+        open: true,
+        message: error instanceof Error ? error.message : (isZh ? '自动调整日历失败' : 'Failed to auto-adjust calendar'),
+        severity: 'error',
+      });
+    });
+  }, [automaticPatchKey, automaticPatchQueue.length, characters, chats, compact, conversationId, isApplyingPatchQueue, isZh, updateChat]);
+
   const handleApplyPatchQueue = async () => {
-    if (!patchDraftQueue.length || isApplyingPatchQueue) return;
+    if (!manualPatchQueue.length || isApplyingPatchQueue) return;
     setIsApplyingPatchQueue(true);
     try {
       const execution = await applyWorldCalendarPatchDraftQueue({
@@ -192,19 +217,20 @@ export default function WorldCalendarPanel({
         updateChat,
         conversationId,
         trigger: compact ? 'sidebar_projection' : 'manual',
+        riskMode: 'manual',
         continueOnPersistError: true,
       });
       setSnackbar({
         open: true,
         message: isZh
-          ? `已应用 ${execution.appliedCount} 条草案${execution.skippedCount ? `，跳过 ${execution.skippedCount} 条` : ''}${execution.failedCount ? `，失败 ${execution.failedCount} 条` : ''}`
+          ? `已处理 ${execution.appliedCount} 条冲突调整${execution.skippedCount ? `，跳过 ${execution.skippedCount} 条` : ''}${execution.failedCount ? `，失败 ${execution.failedCount} 条` : ''}`
           : `Applied ${execution.appliedCount} draft(s)${execution.skippedCount ? `, skipped ${execution.skippedCount}` : ''}${execution.failedCount ? `, failed ${execution.failedCount}` : ''}`,
         severity: 'success',
       });
     } catch (error) {
       setSnackbar({
         open: true,
-        message: error instanceof Error ? error.message : (isZh ? '应用草案失败' : 'Failed to apply drafts'),
+        message: error instanceof Error ? error.message : (isZh ? '处理日历冲突失败' : 'Failed to resolve calendar conflicts'),
         severity: 'error',
       });
     } finally {
@@ -226,7 +252,7 @@ export default function WorldCalendarPanel({
         </Stack>
       ) : null}
 
-      {conversationId ? (
+      {conversationId && !compact ? (
         <Chip
           size="small"
           variant="outlined"
@@ -264,9 +290,9 @@ export default function WorldCalendarPanel({
               userAdjustedCalendarRef.current = true;
               setSelectedDate(date);
             }}
-            mode="month"
-            dayCellMinHeight={isCalendarExpanded ? 72 : 38}
-            dayContentMinHeight={isCalendarExpanded ? 62 : 30}
+            mode={compact && !isCalendarExpanded ? 'week' : 'month'}
+            dayCellMinHeight={compact ? 38 : isCalendarExpanded ? 72 : 38}
+            dayContentMinHeight={compact ? 30 : isCalendarExpanded ? 62 : 30}
             toggle={{
               expanded: isCalendarExpanded,
               onToggle: () => {
@@ -290,7 +316,7 @@ export default function WorldCalendarPanel({
             }}
           />
         </SurfaceCard>
-        <Box sx={{ flex: 1, minWidth: 0 }}>
+        {!hideCompactScheduleList ? <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ mb: 1.35, display: 'flex', alignItems: 'center', gap: 1, width: '100%' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
               <Chip size="small" clickable sx={calendarFilterChipSx} color={kindFilter === 'all' ? 'primary' : 'default'} variant={kindFilter === 'all' ? 'filled' : 'outlined'} label={isZh ? '全部' : 'All'} onClick={() => setKindFilter('all')} />
@@ -352,18 +378,52 @@ export default function WorldCalendarPanel({
             {formatDayTitle(selectedDayStart || Date.now(), isZh)}
           </Typography>
 
-      {patchDraftQueue.length ? (
-        <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
-          <Chip size="small" variant="outlined" color="warning" sx={calendarMetaChipSx} label={isZh ? `冲突修正草案队列 ${patchDraftQueue.length} 条` : `Conflict Draft Queue ${patchDraftQueue.length}`} />
+      {manualPatchQueue.length ? (
+        <Stack spacing={1} sx={{ mb: 2 }}>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap' }}>
+          <Chip size="small" variant="outlined" color="warning" sx={calendarMetaChipSx} label={isZh ? `需要确认的日历冲突 ${manualPatchQueue.length} 条` : `Calendar conflicts need review ${manualPatchQueue.length}`} />
           {chainDraftGroupCount > 0 ? (
             <Chip
               size="small"
               variant="outlined"
               color="info"
               sx={calendarMetaChipSx}
-              label={isZh ? `链式顺延 ${chainDraftGroupCount} 组` : `Chained shifts ${chainDraftGroupCount} group(s)`}
+              label={isZh ? `涉及关联日程 ${chainDraftGroupCount} 组` : `Linked schedules ${chainDraftGroupCount} group(s)`}
             />
           ) : null}
+          </Stack>
+          <Stack spacing={0.8}>
+            {manualPatchQueue.slice(0, 4).map((item) => (
+              <SurfaceCard key={item.idempotencyKey} contentSx={{ p: compact ? 1 : 1.2, '&:last-child': { pb: compact ? 1 : 1.2 } }}>
+                <Stack spacing={0.55}>
+                  <Typography variant="caption" sx={{ fontWeight: 760, color: 'warning.main' }}>
+                    {isZh ? `${item.display.calendarItemTitle} 与 ${item.display.basedOnItemTitle} 时间冲突` : `${item.display.calendarItemTitle} conflicts with ${item.display.basedOnItemTitle}`}
+                  </Typography>
+                  {item.display.participantNames.length ? (
+                    <Typography variant="caption" color="text.secondary">
+                      {isZh ? `冲突成员：${item.display.participantNames.join('、')}` : `Participants: ${item.display.participantNames.join(', ')}`}
+                    </Typography>
+                  ) : null}
+                  <Typography variant="caption" color="text.secondary">
+                    {isZh ? `原时间：${item.display.currentStartAt ? formatTime(item.display.currentStartAt) : '未知'}` : `Current: ${item.display.currentStartAt ? formatTime(item.display.currentStartAt) : 'Unknown'}`}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {isZh ? `建议调整到：${formatTime(item.display.suggestedStartAt)}` : `Suggested: ${formatTime(item.display.suggestedStartAt)}`}
+                  </Typography>
+                  {item.riskReasons.length ? (
+                    <Typography variant="caption" color="text.secondary">
+                      {isZh ? `需要确认：${item.riskReasons.join('；')}` : `Needs review: ${item.riskReasons.join('; ')}`}
+                    </Typography>
+                  ) : null}
+                </Stack>
+              </SurfaceCard>
+            ))}
+            {manualPatchQueue.length > 4 ? (
+              <Typography variant="caption" color="text.secondary">
+                {isZh ? `还有 ${manualPatchQueue.length - 4} 条冲突调整未显示。` : `${manualPatchQueue.length - 4} more conflict adjustment(s).`}
+              </Typography>
+            ) : null}
+          </Stack>
           <Button
             size="small"
             variant="contained"
@@ -372,7 +432,7 @@ export default function WorldCalendarPanel({
             disabled={isApplyingPatchQueue}
             onClick={() => { void handleApplyPatchQueue(); }}
           >
-            {isApplyingPatchQueue ? (isZh ? '应用中...' : 'Applying...') : (isZh ? '应用草案队列' : 'Apply Draft Queue')}
+            {isApplyingPatchQueue ? (isZh ? '处理中...' : 'Applying...') : (isZh ? '确认并调整这些冲突' : 'Confirm these adjustments')}
           </Button>
         </Stack>
       ) : null}
@@ -420,7 +480,7 @@ export default function WorldCalendarPanel({
               })}
             </Stack>
           )}
-        </Box>
+        </Box> : null}
       </Stack>
       <AppSnackbar
         open={snackbar.open}

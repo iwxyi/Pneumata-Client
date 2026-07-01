@@ -568,7 +568,7 @@ function buildLocalInterceptionSummary(event: LocalInterceptionEvent) {
   return `拦截了${event.speakerName || '角色'}的发言：${compactInterceptedDraft(event.draft)}（原因：${localizeLocalInterceptionReason(event.reason)}）`;
 }
 
-type SidebarTabValue = 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities';
+type SidebarTabValue = 'session' | 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities';
 const EMPTY_MESSAGES: never[] = [];
 
 function buildBranchTopologySignature(messages: Message[]) {
@@ -911,9 +911,11 @@ export default function ChatDetailPage() {
     runtimePanelLoading,
     runtimeTabTitle,
     sessionActions,
+    sessionTabTitle,
     showActionTab,
     showMemberTab,
     showRuntimeTab,
+    showSessionTab,
     sidebarTitle,
   } = useChatSidebarProjection({
     chat,
@@ -925,7 +927,7 @@ export default function ChatDetailPage() {
     speakAsChar: effectiveSpeakAsChar,
     language: i18n.language,
   });
-  const sidebarTabValue = activeSidebarTab === 'actions' ? 'activities' : activeSidebarTab;
+  const sidebarTabValue = activeSidebarTab === 'actions' ? (showSessionTab ? 'session' : 'activities') : activeSidebarTab;
   const isStoryRoom = chat?.sessionKind?.scenarioId === 'story-reader';
   const storyRoomOpeningPreview = useMemo(
     () => buildStoryRoomOpeningPreview(chat, members),
@@ -957,7 +959,6 @@ export default function ChatDetailPage() {
   const storyReaderRole = isStoryRoom ? resolveStoryReaderRole(chat || undefined) : 'director';
   const effectiveComposerSurfaces = useMemo(() => {
     const primaryTextSurface = composerSurfaces.find((surface) => surface.type === 'text') || { key: 'member-guide-text', type: 'text' as const };
-    const nonTextSurfaces = isStoryRoom ? [] : composerSurfaces.filter((surface) => surface.type !== 'text');
     if (guideTargetMember && !effectiveSpeakAsChar) {
       const nextSurface = {
         ...primaryTextSurface,
@@ -968,7 +969,7 @@ export default function ChatDetailPage() {
         capability: 'guide' as const,
         placeholder: `安排${guideTargetMember.name}回应、说话或行动`,
       };
-      return [nextSurface, ...nonTextSurfaces];
+      return [nextSurface];
     }
     if (!effectiveSpeakAsChar && isStoryRoom) {
       return [{
@@ -990,7 +991,7 @@ export default function ChatDetailPage() {
         actorId: 'user',
         capability: 'speak' as const,
         placeholder: isStoryRoom ? getStoryReaderComposerPlaceholder(storyReaderRole) : '输入消息',
-      }, ...nonTextSurfaces];
+      }];
     }
     if (!effectiveSpeakAsChar && chat?.type === 'direct') {
       return [{
@@ -1001,7 +1002,7 @@ export default function ChatDetailPage() {
         actorId: 'user',
         capability: 'speak' as const,
         placeholder: '输入消息',
-      }, ...nonTextSurfaces];
+      }];
     }
     if (!effectiveSpeakAsChar && chat?.type === 'ai_direct') {
       return [{
@@ -1012,12 +1013,12 @@ export default function ChatDetailPage() {
         actorId: 'user',
         capability: 'speak' as const,
         placeholder: '输入消息',
-      }, ...nonTextSurfaces];
+      }];
     }
-    return composerSurfaces;
+    return [primaryTextSurface];
   }, [chat, composerSurfaces, effectiveSpeakAsChar, guideTargetMember, isStoryRoom, storyReaderRole]);
   const handleSidebarTabChange = useCallback((value: SidebarTabValue) => {
-    setRightPanelTab(value === 'activities' ? 'actions' : value === 'developer' ? 'developer' : value);
+    setRightPanelTab(value === 'developer' ? 'developer' : value);
   }, [setRightPanelTab]);
   void dramaBoost;
   void rightPanelOpen;
@@ -1704,10 +1705,13 @@ export default function ChatDetailPage() {
     () => getStoryChoiceGateState(chat, currentChatMessages),
     [chat, currentChatMessages],
   );
-  const visibleActionPanelActions = useMemo(
-    () => (projectedActionPanelActions.length ? projectedActionPanelActions : sessionActions)
-      .filter((action) => action.type !== 'choose_story_branch'),
-    [projectedActionPanelActions, sessionActions],
+  const visibleSessionPanelActions = useMemo(
+    () => sessionActions.filter((action) => action.type !== 'choose_story_branch'),
+    [sessionActions],
+  );
+  const visibleActivityPanelActions = useMemo(
+    () => projectedActionPanelActions.filter((action) => action.type !== 'choose_story_branch'),
+    [projectedActionPanelActions],
   );
   const isStoryWaitingForChoice = chat?.sessionKind?.scenarioId === 'story-reader'
     && !isCurrentStoryChoiceSubmitting
@@ -2557,6 +2561,8 @@ export default function ChatDetailPage() {
       {isRemoteDeletedChat ? null : <RightPanel
         title={sidebarTitle}
         hideMobileTitle
+        desktopMaxWidth={isSplitDetailPane ? 340 : 420}
+        desktopViewportRatio={isSplitDetailPane ? 0.28 : 0.34}
         titleActions={(
           <IconButton size="small" aria-label="聊天页设置" onClick={() => setChatPageSettingsOpen(true)}>
             <SettingsIcon fontSize="small" />
@@ -2578,6 +2584,13 @@ export default function ChatDetailPage() {
                 showRuntimeTab={showRuntimeTab}
                 memberPanelTitle={memberTabTitle}
                 runtimePanelTitle={runtimeTabTitle}
+                showSessionTab={showSessionTab}
+                sessionPanel={showSessionTab ? (
+                  <LazyPanel>
+                    <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle || sessionTabTitle} actions={visibleSessionPanelActions} onRunAction={runSessionAction} hideHeader frameless />
+                  </LazyPanel>
+                ) : null}
+                sessionPanelTitle={sessionTabTitle}
                 memberFooter={aiDirectSourceInfoCards.length ? (
                   <SessionInfoCards cards={aiDirectSourceInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} />
                 ) : null}
@@ -2588,9 +2601,6 @@ export default function ChatDetailPage() {
                 activityPanel={showActionTab ? (
                   <LazyPanel>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'stretch' }}>
-                      <Button size="small" variant="outlined" onClick={() => navigate(`/calendar?conversationId=${chat.id}`)}>
-                        查看当前会话日历
-                      </Button>
                       <WorldCalendarPanel
                         chats={chats}
                         characters={characters}
@@ -2603,7 +2613,9 @@ export default function ChatDetailPage() {
                         showHeader={false}
                       />
                       <ChatSharePanel chat={chat} />
-                      <SessionActionPanel title={projectedDetailState?.actionPanel.title || actionPanelTitle} actions={visibleActionPanelActions} onRunAction={runSessionAction} hideHeader frameless />
+                      {visibleActivityPanelActions.length ? (
+                        <SessionActionPanel title="派生动作" actions={visibleActivityPanelActions} onRunAction={runSessionAction} hideHeader frameless />
+                      ) : null}
                     </Box>
                   </LazyPanel>
                 ) : null}

@@ -36,8 +36,22 @@ function projection(items: WorldCalendarProjectionResult['items']): Pick<WorldCa
   return { items };
 }
 
-function plan(queue: WorldCalendarPatchApplyPlan['queue']): WorldCalendarPatchApplyPlan {
-  return { queue };
+type TestPlanItem = Omit<WorldCalendarPatchApplyPlan['queue'][number], 'risk' | 'riskReasons' | 'display'> & Partial<Pick<WorldCalendarPatchApplyPlan['queue'][number], 'risk' | 'riskReasons' | 'display'>>;
+
+function plan(queue: TestPlanItem[]): WorldCalendarPatchApplyPlan {
+  return {
+    queue: queue.map((item) => ({
+      risk: 'automatic' as const,
+      riskReasons: [],
+      display: {
+        calendarItemTitle: item.calendarItemId,
+        basedOnItemTitle: item.dependsOnItemId || 'base',
+        participantNames: [],
+        suggestedStartAt: item.patch.startAt,
+      },
+      ...item,
+    })),
+  };
 }
 
 describe('worldCalendarPatchExecutor', () => {

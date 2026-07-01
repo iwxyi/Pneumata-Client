@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
+import AdminInlineGroup from '../../components/admin/AdminInlineGroup';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
@@ -31,11 +32,11 @@ export default function AdminAuditPage() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+      <AdminInlineGroup gap={1.25}>
         <Button variant={result === '' ? 'contained' : 'outlined'} onClick={() => setResult('')}>全部</Button>
         <Button variant={result === 'success' ? 'contained' : 'outlined'} onClick={() => setResult('success')}>成功</Button>
         <Button variant={result === 'failed' ? 'contained' : 'outlined'} onClick={() => setResult('failed')}>失败</Button>
-      </Stack>
+      </AdminInlineGroup>
       <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <AdminResponsiveTable minWidth={760}>
         <Table>

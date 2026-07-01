@@ -50,18 +50,18 @@ function buildCreateCharacterErrorMessage(error: unknown, isZh: boolean) {
   return `${isZh ? '批量创建推荐角色失败' : 'Failed to create suggested characters'}：${detailParts.join(' · ') || fallback}`;
 }
 
-function getSourceTabs(sources: TopicSourceSummary[], isZh: boolean) {
-  return (sources.length
-    ? [...sources].sort((a, b) => {
-        const order = ['ai_ideas', 'weibo', 'zhihu', 'baidu', 'toutiao', 'tieba', 'hupu', '36kr', 'cls', 'ifanr', 'jinritemai', 'sspai', 'github', 'hackernews'];
+function getSourceTabs(sources: TopicSourceSummary[]) {
+  return [...sources]
+      .filter((source) => source.id !== 'ai_ideas')
+      .sort((a, b) => {
+        const order = ['zhihu', 'baidu', 'weibo', 'toutiao', 'bilibili', 'douyin', 'tieba', 'hupu', '36kr', 'ifanr', 'jinritemai', 'sspai', 'github', 'hackernews'];
         const aIndex = order.indexOf(a.id);
         const bIndex = order.indexOf(b.id);
         if (aIndex === -1 && bIndex === -1) return 0;
         if (aIndex === -1) return 1;
         if (bIndex === -1) return -1;
         return aIndex - bIndex;
-      })
-    : [{ id: 'ai_ideas', label: isZh ? 'AI灵感' : 'AI ideas', status: 'ok' as const }]);
+      });
 }
 
 async function runInBatches<T>(items: T[], batchSize: number, worker: (batch: T[], batchStartIndex: number) => Promise<void>) {
@@ -102,16 +102,16 @@ export function useHotTopicDialog(params: {
   const [createdCharacterNames, setCreatedCharacterNames] = useState<string[]>([]);
   const [overwriteName, setOverwriteName] = useState(false);
   const [overwriteTopic, setOverwriteTopic] = useState(false);
-  const hasManualCharacterSelectionRef = useRef(false);
   const creationInFlightRef = useRef(false);
   const initializedRef = useRef(false);
   const initializingRef = useRef<Promise<void> | null>(null);
 
   useEffect(() => {
     if (!open && sources.length === 0) return;
-    if (sourceTab <= sources.length - 1) return;
-    setSourceTab(Math.max(0, sources.length - 1));
-  }, [sourceTab, sources.length, open]);
+    const visibleSourceCount = getSourceTabs(sources).length;
+    if (sourceTab <= visibleSourceCount - 1) return;
+    setSourceTab(Math.max(0, visibleSourceCount - 1));
+  }, [sourceTab, sources, open]);
 
   useEffect(() => {
     if (!adaptation) return;
@@ -136,15 +136,9 @@ export function useHotTopicDialog(params: {
       return;
     }
     const recommendedNames = new Set(recommended.map((item) => item.name));
-    const existingNames = new Set(params.characters.map((character) => character.name.trim().toLowerCase()));
-    const createdNames = new Set(createdCharacterNames.map((name) => name.trim().toLowerCase()));
-    const selectableNames = recommended
-      .map((item) => item.name)
-      .filter((itemName) => !existingNames.has(itemName.trim().toLowerCase()) && !createdNames.has(itemName.trim().toLowerCase()));
     setSelectedCharacterNames((prev) => {
       const kept = prev.filter((item) => recommendedNames.has(item));
-      const next = kept.length ? kept : (hasManualCharacterSelectionRef.current ? kept : selectableNames);
-      return next.length === prev.length && next.every((item, index) => item === prev[index]) ? prev : next;
+      return kept.length === prev.length && kept.every((item, index) => item === prev[index]) ? prev : kept;
     });
     setCreatedCharacterNames((prev) => {
       const next = prev.filter((createdName) => recommended.some((item) => item.name === createdName));
@@ -201,14 +195,18 @@ export function useHotTopicDialog(params: {
         const result = await backendApi.getTopicSources();
         const nextSources = result.sources || [];
         setSources(nextSources);
-        const firstSourceId = getSourceTabs(nextSources, isZh)[0]?.id || 'ai_ideas';
+        const firstSourceId = getSourceTabs(nextSources)[0]?.id;
         setSourceTab(0);
-        await loadTopics(firstSourceId);
+        if (firstSourceId) {
+          await loadTopics(firstSourceId);
+        } else {
+          setTopics([]);
+        }
         initializedRef.current = true;
       } catch {
         setSources([]);
         setSourceTab(0);
-        await loadTopics('ai_ideas');
+        setTopics([]);
         initializedRef.current = true;
         params.onError(isZh ? '热点来源加载失败' : 'Failed to load topic sources');
       } finally {
@@ -231,9 +229,13 @@ export function useHotTopicDialog(params: {
 
   const handleSourceTabChange = useCallback(async (_: unknown, value: number) => {
     setSourceTab(value);
-    const sourceId = getSourceTabs(sources, isZh)[value]?.id || 'ai_ideas';
-    await loadTopics(sourceId);
-  }, [sources, isZh, loadTopics]);
+    const sourceId = getSourceTabs(sources)[value]?.id;
+    if (sourceId) {
+      await loadTopics(sourceId);
+    } else {
+      setTopics([]);
+    }
+  }, [sources, loadTopics]);
 
   const handleTopicSelect = useCallback(async (topicItem: TopicItem) => {
     const activeConfig = getPreferredAIProfile(params.aiProfiles, 'text') || params.apiConfig;
@@ -256,9 +258,9 @@ export function useHotTopicDialog(params: {
         })),
         language: isZh ? 'zh' : 'en',
       });
-      hasManualCharacterSelectionRef.current = false;
       setCreatedCharacterNames([]);
-      setSelectedSuggestedMemberIds((nextAdaptation.suggestedMemberIds || []).filter((memberId) => params.characters.some((character) => character.id === memberId)));
+      setSelectedSuggestedMemberIds([]);
+      setSelectedCharacterNames([]);
       setAdaptation(nextAdaptation);
     } catch (error) {
       params.onError(error instanceof Error
@@ -289,8 +291,16 @@ export function useHotTopicDialog(params: {
     setSelectedSuggestedMemberIds((prev) => prev.includes(characterId) ? prev.filter((item) => item !== characterId) : [...prev, characterId]);
   }, []);
 
+  const handleToggleAllSuggestedMembers = useCallback(() => {
+    const ids = adaptation?.suggestedMemberIds?.filter((memberId) => params.characters.some((character) => character.id === memberId)) || [];
+    setSelectedSuggestedMemberIds((prev) => {
+      const selected = new Set(prev);
+      const allSelected = ids.length > 0 && ids.every((id) => selected.has(id));
+      return allSelected ? prev.filter((id) => !ids.includes(id)) : Array.from(new Set([...prev, ...ids]));
+    });
+  }, [adaptation, params.characters]);
+
   const handleToggleCharacter = useCallback((characterName: string) => {
-    hasManualCharacterSelectionRef.current = true;
     setSelectedCharacterNames((prev) => prev.includes(characterName) ? prev.filter((item) => item !== characterName) : [...prev, characterName]);
   }, []);
 
@@ -300,6 +310,24 @@ export function useHotTopicDialog(params: {
     const created = createdCharacterNames.some((name) => name.trim().toLowerCase() === normalizedName);
     return { alreadyExists, created };
   }, [params.characters, createdCharacterNames]);
+
+  const getSelectableRecommendedCharacterNames = useCallback(() => {
+    return (adaptation?.recommendedCharacters || [])
+      .filter((candidate) => {
+        const { alreadyExists, created } = getCharacterCardState(candidate.name);
+        return !alreadyExists && !created;
+      })
+      .map((candidate) => candidate.name);
+  }, [adaptation, getCharacterCardState]);
+
+  const handleToggleAllRecommendedCharacters = useCallback(() => {
+    const names = getSelectableRecommendedCharacterNames();
+    setSelectedCharacterNames((prev) => {
+      const selected = new Set(prev);
+      const allSelected = names.length > 0 && names.every((name) => selected.has(name));
+      return allSelected ? prev.filter((name) => !names.includes(name)) : Array.from(new Set([...prev, ...names]));
+    });
+  }, [getSelectableRecommendedCharacterNames]);
 
   const buildCharacterCreatePayload = useCallback(async (name: string, backgroundHint: string | undefined, config: APIConfig | AIModelProfile) => {
     const generated = await generateCharacterProfile(config, name, isZh ? 'zh' : 'en');
@@ -415,8 +443,11 @@ export function useHotTopicDialog(params: {
     }
   }, [adapting, creatingCharacters, params, adaptation, createQueue, buildCharacterCreatePayload, isZh]);
 
-  const sourceTabs = useMemo(() => getSourceTabs(sources, isZh), [sources, isZh]);
+  const sourceTabs = useMemo(() => getSourceTabs(sources), [sources]);
   const suggestedMembers = useMemo(() => adaptation?.suggestedMemberIds?.length ? params.characters.filter((character) => adaptation.suggestedMemberIds?.includes(character.id)) : [], [adaptation, params.characters]);
+  const selectableRecommendedCharacterNames = useMemo(() => getSelectableRecommendedCharacterNames(), [getSelectableRecommendedCharacterNames]);
+  const allSuggestedMembersSelected = suggestedMembers.length > 0 && suggestedMembers.every((character) => selectedSuggestedMemberIds.includes(character.id));
+  const allRecommendedCharactersSelected = selectableRecommendedCharacterNames.length > 0 && selectableRecommendedCharacterNames.every((name) => selectedCharacterNames.includes(name));
   const createCount = useMemo(() => (adaptation?.recommendedCharacters || []).filter((candidate) => {
     const { alreadyExists, created } = getCharacterCardState(candidate.name);
     return selectedCharacterNames.includes(candidate.name) && !alreadyExists && !created;
@@ -426,13 +457,12 @@ export function useHotTopicDialog(params: {
   const applyLabel = overwriteName || overwriteTopic ? (isZh ? '覆盖并应用' : 'Overwrite and apply') : (isZh ? '应用到草稿' : 'Apply to draft');
   const createLabel = creatingCharacters ? (isZh ? '创建角色中…' : 'Creating characters…') : canCreateCharacters ? (isZh ? `创建 ${createCount} 个推荐角色` : `Create ${createCount} suggested characters`) : (isZh ? '批量创建推荐角色' : 'Create suggested characters');
   const currentSource = sourceTabs[sourceTab] || null;
-  const currentSourceId = currentSource?.id || 'ai_ideas';
   const selectionConflictText = [
     overwriteName ? (isZh ? '群聊名称将被覆盖' : 'Chat name will be overwritten') : '',
     overwriteTopic ? (isZh ? '话题文案将被覆盖' : 'Topic text will be overwritten') : '',
   ].filter(Boolean).join(' · ');
   const loadingText = loading ? (isZh ? '加载热点中…' : 'Loading topics…') : adapting ? (isZh ? 'AI 改编中…' : 'Adapting with AI…') : '';
-  const emptyText = currentSourceId === 'ai_ideas' ? (isZh ? '当前没有可用灵感，请稍后再试。' : 'No AI ideas are available right now.') : (isZh ? '当前来源暂无热点。' : 'No topics available for this source.');
+  const emptyText = currentSource ? (isZh ? '当前来源暂无热点。' : 'No topics available for this source.') : (isZh ? '暂无可用热点来源。' : 'No topic sources are available.');
 
   return {
     hotDialogProps: {
@@ -452,6 +482,8 @@ export function useHotTopicDialog(params: {
       suggestedMembers,
       selectedSuggestedMemberIds,
       selectedCharacterNames,
+      allSuggestedMembersSelected,
+      allRecommendedCharactersSelected,
       adapting,
       creatingCharacters,
       canCreateCharacters,
@@ -463,7 +495,9 @@ export function useHotTopicDialog(params: {
       onSourceTabChange: handleSourceTabChange,
       onTopicSelect: handleTopicSelect,
       onToggleSuggestedMember: handleToggleSuggestedMember,
+      onToggleAllSuggestedMembers: handleToggleAllSuggestedMembers,
       onToggleCharacter: handleToggleCharacter,
+      onToggleAllRecommendedCharacters: handleToggleAllRecommendedCharacters,
       onCreateCharacters: handleCreateCharacters,
       onApply: handleApply,
     },

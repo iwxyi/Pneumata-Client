@@ -12,7 +12,7 @@ import {
 const STRUCTURE_LABELS: Record<string, string> = {
   free_interaction: '自由互动',
   story: '故事叙事',
-  thinking: '思考协作',
+  deliberation: '观点审议',
   creation: '创作共创',
   training: '训练模拟',
   task: '任务执行',
@@ -38,8 +38,6 @@ interface GameplaySectionProps {
   runtimeEvolutionIntensity: 'slow' | 'balanced' | 'fast';
   onRuntimeEvolutionIntensityChange: (value: 'slow' | 'balanced' | 'fast') => void;
   topic: string;
-  discussionRoundsTarget: number;
-  onDiscussionRoundsTargetChange: (value: number) => void;
   storyBranchMode: 'guided' | 'open';
   onStoryBranchModeChange: (value: 'guided' | 'open') => void;
   studyGoalLabel: string;
@@ -108,7 +106,6 @@ function pickFirstTemplateKey(templates: RoomTemplateDefinition[], structure: Ro
 
 function getFieldValue(field: RoomTemplateFieldDefinition, props: GameplaySectionProps) {
   switch (field.key) {
-    case 'discussionRoundsTarget': return props.discussionRoundsTarget;
     case 'storyBranchMode': return props.storyBranchMode;
     case 'studyGoalLabel': return props.studyGoalLabel;
     case 'agentGoalLabel': return props.agentGoalLabel;
@@ -132,7 +129,6 @@ function getFieldValue(field: RoomTemplateFieldDefinition, props: GameplaySectio
 
 function setFieldValue(field: RoomTemplateFieldDefinition, value: string, props: GameplaySectionProps) {
   switch (field.key) {
-    case 'discussionRoundsTarget': props.onDiscussionRoundsTargetChange(Math.max(0, Number(value) || 0)); break;
     case 'storyBranchMode': props.onStoryBranchModeChange(value as 'guided' | 'open'); break;
     case 'studyGoalLabel': props.onStudyGoalLabelChange(value); break;
     case 'agentGoalLabel': props.onAgentGoalLabelChange(value); break;
@@ -169,7 +165,7 @@ function renderField(field: RoomTemplateFieldDefinition, props: GameplaySectionP
       required={field.required}
       placeholder={field.placeholder}
       helperText={field.helperText}
-      slotProps={field.kind === 'number' ? { htmlInput: { min: field.key === 'discussionRoundsTarget' ? 0 : 1 } } : undefined}
+      slotProps={field.kind === 'number' ? { htmlInput: { min: 1 } } : undefined}
     >
       {field.kind === 'single_select'
         ? (field.options || []).map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)

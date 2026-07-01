@@ -66,7 +66,7 @@ function compactText(value?: string | null, max = 92) {
 
 const chatStyleLabels: Record<string, string> = {
   free: '轻松',
-  debate: '讨论',
+  debate: '审议',
   brainstorm: '共创',
   roleplay: '演绎',
 };
@@ -74,8 +74,8 @@ const chatStyleLabels: Record<string, string> = {
 const chatModeLabels: Record<string, string> = {
   open_chat: '开放聊天',
   interview: '访谈',
-  group_discussion: '小组讨论',
-  roundtable: '圆桌',
+  group_discussion: '观点审议',
+  roundtable: '圆桌审议',
   classroom: '课堂',
   bargaining: '谈判',
   service_roleplay: '服务扮演',
@@ -86,11 +86,14 @@ const chatModeLabels: Record<string, string> = {
   'open-chat': '开放聊天',
   'direct-chat': '单聊',
   'ai-private-thread': 'AI私聊线程',
-  'group-discussion': '小组讨论',
-  'roundtable-discussion': '圆桌讨论',
-  'debate-arena': '观点攻防',
+  'opinion-review': '观点审议',
+  'roundtable-review': '圆桌审议',
+  'role-debate': '角色辩论',
+  'courtroom-deliberation': '法庭攻防',
+  'expert-review': '专家评审',
+  'public-inquiry': '公开质询',
   'brainstorm-workshop': '创意生成',
-  'retrospective-room': '复盘改进',
+  'task-retrospective': '任务复盘',
   'story-reader': '故事阅读',
   'ielts-coach': '雅思教练',
   'single-agent-workflow': '单智能体工作流',

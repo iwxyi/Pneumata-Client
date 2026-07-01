@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Box, Button, Chip, Dialog, DialogContent, DialogTitle, FormControlLabel, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
+import { Button, Chip, Dialog, DialogContent, DialogTitle, FormControlLabel, Paper, Stack, Switch, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
+import AdminInlineGroup from '../../components/admin/AdminInlineGroup';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
@@ -135,18 +136,39 @@ export default function AdminAIPage() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', rowGap: 1 }}>
-        <Paper variant="outlined" sx={{ px: 1.25, py: 0.75, borderRadius: 1.5, minWidth: 120 }}>
-          <Typography variant="caption" color="text.secondary">启用 Provider</Typography>
+      <AdminInlineGroup>
+        <Paper
+          variant="outlined"
+          sx={{
+            px: 1.25,
+            py: 0.75,
+            borderRadius: 1.5,
+            minWidth: 120,
+            borderColor: 'success.light',
+            bgcolor: 'success.light',
+            color: 'success.contrastText',
+          }}
+        >
+          <Typography variant="caption" sx={{ color: 'inherit', opacity: 0.82 }}>启用 Provider</Typography>
           <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.25 }}>{providerStats.active}</Typography>
         </Paper>
-        <Paper variant="outlined" sx={{ px: 1.25, py: 0.75, borderRadius: 1.5, minWidth: 120 }}>
-          <Typography variant="caption" color="text.secondary">停用 Provider</Typography>
+        <Paper
+          variant="outlined"
+          sx={{
+            px: 1.25,
+            py: 0.75,
+            borderRadius: 1.5,
+            minWidth: 120,
+            borderColor: 'warning.light',
+            bgcolor: 'warning.light',
+            color: 'warning.contrastText',
+          }}
+        >
+          <Typography variant="caption" sx={{ color: 'inherit', opacity: 0.82 }}>停用 Provider</Typography>
           <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.25 }}>{providerStats.disabled}</Typography>
         </Paper>
-        <Box sx={{ flex: 1 }} />
-        <Button variant="outlined" onClick={openGlobalDialog}>全局配置</Button>
-      </Stack>
+        <Button variant="outlined" onClick={openGlobalDialog} sx={{ ml: 'auto' }}>全局配置</Button>
+      </AdminInlineGroup>
       <AdminRequestState loading={loading} error={error} onRetry={() => void loadProviders()} />
       <ProviderTable items={items} onOpen={(providerCode) => navigate(`/admin/ai/providers/${encodeURIComponent(providerCode)}`)} />
       <Dialog open={globalDialogOpen} onClose={() => setGlobalDialogOpen(false)} maxWidth="sm" fullWidth>

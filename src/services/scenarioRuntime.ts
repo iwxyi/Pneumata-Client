@@ -25,7 +25,7 @@ function resolvePreferredChannelId(chat: GroupChat) {
 }
 
 function deriveMoveClass(scenarioId: string, family: string, phaseKey: string): SessionTurnPlan['moveClass'] {
-  if (scenarioId === 'group-discussion' || scenarioId === 'roundtable-discussion') return phaseKey === 'synthesis' ? 'resolve' : 'deepen';
+  if (scenarioId === 'opinion-review' || scenarioId === 'roundtable-review' || scenarioId === 'role-debate' || scenarioId === 'courtroom-deliberation' || scenarioId === 'expert-review' || scenarioId === 'public-inquiry') return phaseKey === 'synthesis' ? 'resolve' : 'deepen';
   if (scenarioId === 'panel-interview' || scenarioId === 'ielts-coach') return 'respond';
   if (scenarioId === 'werewolf-classic' || family === 'deduction' || family === 'mystery') return 'perform';
   if (family === 'conversation') return 'advance';
@@ -43,7 +43,7 @@ function deriveTargetScope(chat: GroupChat, family: string): SessionTurnPlan['ta
 
 function deriveDepth(family: string, scenarioId: string): SessionTurnPlan['depth'] {
   if (family === 'analysis' || family === 'study' || family === 'interview') return 'deep';
-  if (scenarioId === 'group-discussion' || scenarioId === 'roundtable-discussion') return 'normal';
+  if (scenarioId === 'opinion-review' || scenarioId === 'roundtable-review' || scenarioId === 'role-debate' || scenarioId === 'courtroom-deliberation' || scenarioId === 'expert-review' || scenarioId === 'public-inquiry') return 'normal';
   return 'normal';
 }
 

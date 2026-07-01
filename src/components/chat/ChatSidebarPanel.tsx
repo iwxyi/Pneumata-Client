@@ -12,12 +12,13 @@ import { formatNarrativeLineText } from '../../services/narrativeLinePresentatio
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { buildScrollableRegionSx, compactPillChipSx } from '../../styles/interaction';
 import { sanitizeUserFacingText } from '../../services/displayTextSanitizer';
+import { projectDeliberationSidebarRows } from '../../services/deliberationProjection';
 
 const RelationshipPanel = lazy(() => import('../controls/RelationshipPanel'));
 const ChatRuntimePanel = lazy(() => import('./ChatRuntimePanel'));
 const ChatNarrativePanel = lazy(() => import('./ChatNarrativePanel'));
 
-type ChatSidebarTab = 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities';
+type ChatSidebarTab = 'session' | 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities';
 
 interface ChatSidebarPanelProps {
   chat: GroupChat & { primaryRecentEvent?: string };
@@ -28,6 +29,9 @@ interface ChatSidebarPanelProps {
   setRightPanelTab: (value: ChatSidebarTab) => void;
   showMemberTab: boolean;
   showRuntimeTab: boolean;
+  showSessionTab?: boolean;
+  sessionPanel?: React.ReactNode;
+  sessionPanelTitle?: string;
   showActivityTab?: boolean;
   activityPanel?: React.ReactNode;
   memberFooter?: React.ReactNode;
@@ -62,34 +66,19 @@ function memberName(id: string | null | undefined, members: AICharacter[]) {
   return members.find((member) => member.id === id)?.name || '成员';
 }
 
-function formatDiscussionPhaseLabel(phase: string | null | undefined, mode: string | null | undefined) {
-  if (phase === 'synthesis') return '总结收束';
-  if (mode === 'roundtable') return '圆桌发言';
-  if (mode === 'debate') return '观点攻防';
-  if (mode === 'brainstorm') return '创意发散';
-  if (mode === 'retrospective') return '复盘改进';
-  return '开放讨论';
-}
-
 function ChatScenarioCard({ chat, members }: { chat: GroupChat; members: AICharacter[] }) {
   const rows = [] as string[];
   const topology = projectSessionParticipantTopology(chat, members, true);
   const nonMemberOperators = (chat.operatorIds || []).filter((id) => !chat.memberIds.includes(id));
   const isDiscussionRoom = chat.sessionKind?.family === 'analysis';
-  const displayMembers = [{ id: 'user', name: '我' }, ...members.map((member) => ({ id: member.id, name: member.name }))];
-  const clean = (text: string) => sanitizeUserFacingText(text, displayMembers);
   if (isDiscussionRoom) {
-    const progress = chat.scenarioState?.progress?.find((item) => item.key === 'speeches' || item.key === 'analysis-progress');
-    rows.push(`阶段 ${formatDiscussionPhaseLabel(chat.scenarioState?.phase, chat.scenarioState?.discussionMode || chat.mode)}`);
-    if (chat.scenarioState?.goals?.[0]?.label || chat.topic) rows.push(`议题 ${clean(String(chat.scenarioState?.goals?.[0]?.label || chat.topic))}`);
-    if (typeof progress?.target === 'number') rows.push(progress.target > 0 ? `自动收束发言 ${progress.value || 0}/${progress.target}` : '自动收束 关闭');
-    if (chat.scenarioState?.summaryText) rows.push(`讨论总结 ${clean(chat.scenarioState.summaryText)}`);
+    rows.push(...projectDeliberationSidebarRows(chat, members));
   }
   if (chat.scenarioState?.roleAssignments?.length) {
-    rows.push(`角色位 ${chat.scenarioState.roleAssignments.slice(0, 4).map((item) => `${memberName(item.actorId, members)}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId)}` : ''}`).join(' / ')}`);
+    if (!isDiscussionRoom) rows.push(`角色位 ${chat.scenarioState.roleAssignments.slice(0, 4).map((item) => `${memberName(item.actorId, members)}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId)}` : ''}`).join(' / ')}`);
   }
   if (chat.scenarioState?.factions?.length) rows.push(`阵营 ${chat.scenarioState.factions.slice(0, 4).map((item) => item.label).join(' / ')}`);
-  if (chat.scenarioState?.currentTurnActorId) rows.push(`当前轮次 ${memberName(chat.scenarioState.currentTurnActorId, members)}`);
+  if (chat.scenarioState?.currentTurnActorId && !isDiscussionRoom) rows.push(`当前轮次 ${memberName(chat.scenarioState.currentTurnActorId, members)}`);
   if (!rows.length) return null;
   return (
     <Box sx={{
@@ -509,6 +498,9 @@ export default function ChatSidebarPanel({
   setRightPanelTab,
   showMemberTab,
   showRuntimeTab,
+  showSessionTab,
+  sessionPanel,
+  sessionPanelTitle,
   showActivityTab,
   activityPanel,
   memberFooter,
@@ -531,12 +523,13 @@ export default function ChatSidebarPanel({
   const developerMode = developerModeFromHook || settingsSnapshot.developerMode;
   const isStoryRoom = chat.sessionKind?.scenarioId === 'story-reader';
   const panelTabs = (isStoryRoom ? [
-    showRuntimeTab ? { value: 'narrative' as const, label: '故事' } : null,
+    showRuntimeTab ? { value: 'session' as const, label: sessionPanelTitle || '故事' } : null,
     showRuntimeTab ? { value: 'chapters' as const, label: '章节' } : null,
     showRuntimeTab ? { value: 'clues' as const, label: '线索' } : null,
     showMemberTab ? { value: 'roles' as const, label: `角色 ${members.length}` } : null,
     showRuntimeTab && developerMode ? { value: 'developer' as const, label: '开发者' } : null,
   ] : [
+    showSessionTab ? { value: 'session' as const, label: sessionPanelTitle || '玩法' } : null,
     showMemberTab ? { value: 'members' as const, label: `${memberPanelTitle || (chat.type === 'group' ? '成员' : '角色')} ${members.length}` } : null,
     showRuntimeTab ? { value: 'narrative' as const, label: '叙事线' } : null,
     showRuntimeTab ? { value: 'world' as const, label: runtimePanelTitle || '运行态' } : null,
@@ -561,6 +554,14 @@ export default function ChatSidebarPanel({
       ) : null}
 
       <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', pr: { xs: 0.25, md: 0.5 }, ...buildScrollableRegionSx() }}>
+        {activePanelTab === 'session' && (showSessionTab || isStoryRoom) ? (
+          isStoryRoom ? (
+            <Suspense fallback={<PanelFallback />}>
+              <ChatNarrativePanel chat={chat} members={members} messages={messages} hideTitle />
+            </Suspense>
+          ) : sessionPanel || null
+        ) : null}
+
         {activePanelTab === 'members' && showMemberTab ? (
           <Stack spacing={2}>
             <MemberList
@@ -582,7 +583,7 @@ export default function ChatSidebarPanel({
           </Stack>
         ) : null}
 
-        {activePanelTab === 'narrative' && showRuntimeTab ? (
+        {activePanelTab === 'narrative' && showRuntimeTab && !isStoryRoom ? (
           <Suspense fallback={<PanelFallback />}>
             <ChatNarrativePanel chat={chat} members={members} messages={messages} hideTitle />
           </Suspense>

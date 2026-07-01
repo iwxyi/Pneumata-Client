@@ -10,7 +10,7 @@ type ProjectedChatDetailState = ReturnType<typeof import('../services/sessionPro
 type ProjectedRuntimeState = ReturnType<typeof import('../services/sessionProjection')['projectRuntimeState']>;
 type ProjectedSessionFrameworkState = ReturnType<typeof import('../services/sessionProjection')['projectSessionFrameworkState']>;
 type ChatWithProjectedRuntime = GroupChat & { primaryRecentEvent?: string };
-type StorySidebarTab = 'narrative' | 'chapters' | 'clues' | 'roles' | 'developer';
+type StorySidebarTab = 'session' | 'chapters' | 'clues' | 'roles' | 'developer';
 type DirectMemoryPanelContext = {
   targetName: string | null;
   targetSummary: string;
@@ -24,6 +24,19 @@ type DirectMemoryPanelContext = {
   targetResolution?: string;
   companionshipStatus?: CompanionshipStatusSignature | null;
 };
+
+export function isActivitySidebarAction(action: Pick<SessionActionDefinition, 'type'>) {
+  return action.type === 'start_private_thread'
+    || action.type === 'attention_followup_user'
+    || action.type === 'attention_followup_member';
+}
+
+export function splitSidebarActions(actions: SessionActionDefinition[]) {
+  return {
+    sessionActions: actions.filter((action) => !isActivitySidebarAction(action)),
+    activityActions: actions.filter(isActivitySidebarAction),
+  };
+}
 
 function createLightweightConversationParticipants(conversation: GroupChat): ParticipantInstance[] {
   const orderedIds = Array.from(new Set([...(conversation.memberIds || []), ...(conversation.operatorIds || [])]));
@@ -237,12 +250,33 @@ function mergeProjectedRuntimeChat(chat: GroupChat, projected?: ChatWithProjecte
   };
 }
 
+function deriveSessionTabTitle(chat: GroupChat | undefined, actionTitle?: string, isZh = true) {
+  if (!chat) return isZh ? '玩法' : 'Session';
+  if (chat.sessionKind?.scenarioId === 'story-reader') return isZh ? '故事' : 'Story';
+  const family = chat.sessionKind?.family;
+  if (family === 'analysis') return isZh ? '审议' : 'Deliberation';
+  if (family === 'study') return isZh ? '学习' : 'Study';
+  if (family === 'agent') return isZh ? '工作流' : 'Workflow';
+  if (family === 'board_game') return isZh ? '棋盘' : 'Board';
+  if (family === 'deduction') return isZh ? '狼人杀' : 'Deduction';
+  if (family === 'mystery') return isZh ? '剧本' : 'Mystery';
+  const title = actionTitle?.trim();
+  if (title) {
+    return title
+      .replace(/(?:动作|操作|面板|Actions?|Panel)$/i, '')
+      .replace(/(?:动作|操作|面板)$/u, '')
+      .trim() || title;
+  }
+  return isZh ? '玩法' : 'Session';
+}
+
 export function resolveStorySidebarTab(rightPanelTab: string): StorySidebarTab {
+  if (rightPanelTab === 'session' || rightPanelTab === 'narrative') return 'session';
   if (rightPanelTab === 'chapters') return 'chapters';
   if (rightPanelTab === 'clues') return 'clues';
   if (rightPanelTab === 'roles') return 'roles';
   if (rightPanelTab === 'developer') return 'developer';
-  return 'narrative';
+  return 'session';
 }
 
 export function useChatSidebarProjection(params: {
@@ -344,33 +378,39 @@ export function useChatSidebarProjection(params: {
   const actionSchema = projectionData?.actionSchema || null;
   const inputSurfaces = frameworkState?.surfaces.surfaces || [];
   const actionTabActions = useMemo(() => enrichParticipantActionOptions(actionSchema?.actions || [], members), [actionSchema, members]);
-  const calendarDraftApplyAction: SessionActionDefinition = useMemo(() => ({
-    type: 'apply_calendar_patch_drafts',
-    label: '应用日历冲突草案',
-    description: '将当前会话范围内的日历冲突修正草案批量写入运行时事件，并参与云同步。',
-    visibility: 'public',
-  }), []);
-
+  const projectedPanelActions = useMemo(() => {
+    if (!chat) return actionTabActions;
+    if (chat.type !== 'group') return actionTabActions;
+    const actions = projectedDetailState?.actionPanel.actions.length
+      ? projectedDetailState.actionPanel.actions
+      : buildLightweightProjectedSessionActions(chat, actionTabActions.filter((action) => action.type !== 'apply_calendar_patch_drafts'), members);
+    return enrichParticipantActionOptions(actions, members)
+      .filter((action) => action.type !== 'apply_calendar_patch_drafts');
+  }, [actionTabActions, chat, members, projectedDetailState]);
+  const sidebarActionGroups = useMemo(() => splitSidebarActions(projectedPanelActions), [projectedPanelActions]);
   const showMemberTab = projectedDetailState?.showMemberTab ?? true;
   const showRuntimeTab = projectedDetailState?.showRuntimeTab ?? true;
   const showActionTab = chat?.sessionKind?.scenarioId === 'story-reader'
     ? false
     : projectedDetailState?.showActionTab ?? (chat?.type === 'group');
   const isStoryRoom = chat?.sessionKind?.scenarioId === 'story-reader';
+  const hasSessionSpecificActions = Boolean(chat && !isStoryRoom && chat.sessionKind?.family !== 'conversation' && sidebarActionGroups.sessionActions.length);
+  const sessionTabTitle = deriveSessionTabTitle(chat, actionSchema?.title || projectedDetailState?.actionPanel.title, isZh);
   const projectedActiveTab = projectedDetailState?.activeSidebarTab === 'actions'
-    ? 'activities'
+    ? (hasSessionSpecificActions ? 'session' : 'activities')
     : projectedDetailState?.activeSidebarTab;
   const storySidebarTab = isStoryRoom ? resolveStorySidebarTab(rightPanelTab) : null;
   const activeSidebarTab = storySidebarTab || projectedActiveTab
-    || (showMemberTab && rightPanelTab === 'members' ? 'members'
+    || (hasSessionSpecificActions && rightPanelTab === 'session' ? 'session'
+      : showMemberTab && rightPanelTab === 'members' ? 'members'
       : showRuntimeTab && rightPanelTab === 'narrative' ? 'narrative'
       : showRuntimeTab && rightPanelTab === 'chapters' ? 'chapters'
       : showRuntimeTab && rightPanelTab === 'world' ? 'world'
       : showActionTab && rightPanelTab === 'activities' ? 'activities'
-        : showMemberTab ? 'members' : 'world');
+        : hasSessionSpecificActions ? 'session' : showMemberTab ? 'members' : 'world');
   const localizePanelTitle = (title: string | undefined, fallback: string) => {
     if (!title) return fallback;
-    const zhTitles: Record<string, string> = { Members: '成员', Story: '故事', Branches: '分支', Actions: '动作', Tasks: '任务', Workflow: '工作流', Players: '玩家', Board: '棋盘', Moves: '行动', Mystery: '谜题', Clues: '线索', Study: '学习', Discussion: '讨论' };
+    const zhTitles: Record<string, string> = { Members: '成员', Story: '故事', Branches: '分支', Actions: '动作', Tasks: '任务', Workflow: '工作流', Players: '玩家', Board: '棋盘', Moves: '行动', Mystery: '谜题', Clues: '线索', Study: '学习', Discussion: '讨论', Deliberation: '运行态' };
     const enTitles: Record<string, string> = { '成员': 'Members', '角色': 'Characters', '运行态': 'Runtime', '故事': 'Story', '分支': 'Branches', '动作': 'Actions', '活动': 'Activities', '叙事流': 'Narrative', '会话动作': 'Session actions' };
     return isZh ? zhTitles[title] || title : enTitles[title] || title;
   };
@@ -379,7 +419,7 @@ export function useChatSidebarProjection(params: {
   const projectedSidebarTitle = projectedDetailState?.sidebarTitle === '动作' || projectedDetailState?.sidebarTitle === 'Actions'
     ? (isZh ? '活动' : 'Activities')
     : localizePanelTitle(projectedDetailState?.sidebarTitle, '');
-  const storySidebarTitle = isStoryRoom && activeSidebarTab === 'narrative'
+  const storySidebarTitle = isStoryRoom && activeSidebarTab === 'session'
       ? (isZh ? '故事' : 'Story')
       : isStoryRoom && activeSidebarTab === 'clues'
         ? (isZh ? '线索' : 'Clues')
@@ -391,7 +431,9 @@ export function useChatSidebarProjection(params: {
           ? (isZh ? '章节' : 'Chapters')
           : '';
   const sidebarTitle = storySidebarTitle || projectedSidebarTitle
-    || (activeSidebarTab === 'members'
+    || (activeSidebarTab === 'session'
+      ? sessionTabTitle
+      : activeSidebarTab === 'members'
       ? memberTabTitle
       : activeSidebarTab === 'activities'
         ? (isZh ? '活动' : 'Activities')
@@ -402,24 +444,13 @@ export function useChatSidebarProjection(params: {
           : runtimeTabTitle);
   const runtimePanelLoading = !projectionData && Boolean(chat);
 
-  const sessionActions = useMemo(() => {
-    if (!chat) return actionTabActions;
-    if (chat.type !== 'group') return actionTabActions;
-    const actions = projectedDetailState?.actionPanel.actions.length
-      ? projectedDetailState.actionPanel.actions
-      : buildLightweightProjectedSessionActions(chat, actionTabActions.filter((action) => action.type !== 'apply_calendar_patch_drafts'), members);
-    return [calendarDraftApplyAction, ...actions.filter((action) => action.type !== 'apply_calendar_patch_drafts')];
-  }, [actionTabActions, calendarDraftApplyAction, chat, members, projectedDetailState]);
   const projectedSidebarChat = useMemo(
     () => chat ? mergeProjectedRuntimeChat(chat, projectedDetailState?.sidebarChat.chat, projectedRuntimeState?.primaryRecentEvent) : null,
     [chat, projectedDetailState, projectedRuntimeState]
   );
-  const projectedActionPanelActions = useMemo(() => {
-    const projected = enrichParticipantActionOptions(projectedDetailState?.actionPanel.actions || [], members);
-    if (chat?.type !== 'group') return projected;
-    if (projected.some((action) => action.type === 'apply_calendar_patch_drafts')) return projected;
-    return [calendarDraftApplyAction, ...projected];
-  }, [calendarDraftApplyAction, chat?.type, members, projectedDetailState]);
+  const activityActions = hasSessionSpecificActions ? sidebarActionGroups.activityActions : projectedPanelActions;
+  const sessionActions = sidebarActionGroups.sessionActions;
+  const projectedActionPanelActions = activityActions;
   const actionPanelTitle = chat?.type === 'group' ? '动作与派生' : actionSchema?.title;
   const composerSurfaces = projectedDetailState?.composerSurfaces || (inputSurfaces.length ? inputSurfaces : (chat ? buildDefaultSessionSurfaceProjection(chat).surfaces : []));
 
@@ -438,6 +469,8 @@ export function useChatSidebarProjection(params: {
     runtimePanelLoading,
     runtimeTabTitle,
     sessionActions,
+    sessionTabTitle,
+    showSessionTab: hasSessionSpecificActions,
     showActionTab,
     showMemberTab,
     showRuntimeTab,

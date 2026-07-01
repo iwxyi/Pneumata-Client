@@ -150,4 +150,43 @@ describe('sessionInfoProjection', () => {
     expect(sourceCard?.description).toContain('我 与 甲');
     expect(sourceCard?.description).not.toContain('user 与 a');
   });
+
+  it('projects deliberation progress without presenting it as a fixed limit', () => {
+    const chat = normalizeConversation({
+      id: 'deliberation-1',
+      type: 'group',
+      mode: 'group_discussion',
+      sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text' },
+      modeConfig: { freeSpeaking: true, allowInterruptions: true, allowPrivateThreads: true, allowDirectorInterventions: true, showRoleActions: true },
+      modeState: { phase: 'free', currentSpeakerId: null, currentTopicFocus: '', lastRelationshipEventAt: null },
+      scenarioState: {
+        phase: 'deliberation',
+        progress: [{ key: 'speeches', label: '审议发言', value: 2, target: 5 }],
+      },
+      name: '观点审议',
+      topic: '是否要重构推荐系统',
+      style: 'debate',
+      runtimeEvolutionIntensity: 'balanced',
+      memberIds: ['a', 'b'],
+      speed: 1,
+      isActive: false,
+      allowIntervention: true,
+      topicSeed: '',
+      governance: { ownerCharacterId: null, adminCharacterIds: [], autoModeration: false, allowMute: true, allowPrivateThreads: true },
+      dramaRules: { allowCliques: false, allowMockery: false, allowAlliances: true, allowContempt: false },
+      worldState: { phase: 'idle', mood: '', focus: '', recentEvent: '' },
+      directorControls: { allowSpeakAs: true, allowDirectorMode: true, allowEventInjection: true, allowForcedReply: true },
+      createdAt: 1,
+      updatedAt: 1,
+      lastMessageAt: 1,
+    });
+
+    const cards = projectSessionInfoCards({ chat, chats: [chat], isZh: true });
+    expect(cards).toContainEqual(expect.objectContaining({
+      key: 'discussion-progress',
+      title: '审议进展',
+      description: '2/5',
+    }));
+    expect(cards.some((item) => item.title.includes('上限'))).toBe(false);
+  });
 });

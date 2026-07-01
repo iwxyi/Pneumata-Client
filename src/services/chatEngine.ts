@@ -2688,7 +2688,7 @@ function resolveRecentTargetIdForSpeaker(chat: GroupChat, speaker: AICharacter, 
 }
 
 function resolveRoundtableTurnSpeaker(chat: GroupChat, chatMembers: AICharacter[]) {
-  if (chat.sessionKind?.scenarioId !== 'roundtable-discussion' && chat.mode !== 'roundtable') return null;
+  if (chat.sessionKind?.scenarioId !== 'roundtable-review' && chat.mode !== 'roundtable') return null;
   if (chat.scenarioState?.phase === 'synthesis') return null;
   const turnOrder = (chat.scenarioState?.turnOrder?.length ? chat.scenarioState.turnOrder : chat.memberIds)
     .filter((memberId) => memberId && memberId !== 'user');

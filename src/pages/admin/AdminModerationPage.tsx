@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
+import AdminInlineGroup from '../../components/admin/AdminInlineGroup';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
@@ -73,17 +74,17 @@ export default function AdminModerationPage() {
 
   return (
     <Stack spacing={2}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-        <Alert severity="warning" sx={{ flex: 1 }}>待领取：{stats.pending}</Alert>
-        <Alert severity="info" sx={{ flex: 1 }}>处理中：{stats.inReview}</Alert>
-        <Alert severity="error" sx={{ flex: 1 }}>已升级：{stats.escalated}</Alert>
-      </Stack>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+      <AdminInlineGroup gap={1.25}>
+        <Alert severity="warning">待领取：{stats.pending}</Alert>
+        <Alert severity="info">处理中：{stats.inReview}</Alert>
+        <Alert severity="error">已升级：{stats.escalated}</Alert>
+      </AdminInlineGroup>
+      <AdminInlineGroup gap={1.25}>
         <Button variant={status === '' ? 'contained' : 'outlined'} onClick={() => setStatus('')}>全部</Button>
         <Button variant={status === 'pending' ? 'contained' : 'outlined'} onClick={() => setStatus('pending')}>待领取</Button>
         <Button variant={status === 'in_review' ? 'contained' : 'outlined'} onClick={() => setStatus('in_review')}>处理中</Button>
         <Button variant={status === 'escalated' ? 'contained' : 'outlined'} onClick={() => setStatus('escalated')}>已升级</Button>
-      </Stack>
+      </AdminInlineGroup>
       <AdminRequestState loading={loading} error={error} onRetry={() => void load()} />
       <TextField value={reason} onChange={(e) => setReason(e.target.value)} label="审核备注" />
       <AdminResponsiveTable minWidth={860}>
@@ -107,11 +108,11 @@ export default function AdminModerationPage() {
                 <TableCell>{String(item.status || '')}</TableCell>
                 <TableCell>{String(item.latest_decision || '')}</TableCell>
                 <TableCell align="right">
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ justifyContent: 'flex-end' }}>
+                  <AdminInlineGroup sx={{ justifyContent: 'flex-end' }}>
                     {String(item.status || '') === 'pending' ? <Button size="small" disabled={actionLoadingId === String(item.id)} onClick={(event) => { event.stopPropagation(); void runCaseAction(String(item.id), () => adminApi.claimShareReviewCase(String(item.id))); }}>领取</Button> : null}
                     <Button size="small" color="success" disabled={actionLoadingId === String(item.id)} onClick={(event) => { event.stopPropagation(); void runCaseAction(String(item.id), () => adminApi.decideShareReviewCase(String(item.id), 'approved', reason)); }}>通过</Button>
                     <Button size="small" color="error" disabled={actionLoadingId === String(item.id)} onClick={(event) => { event.stopPropagation(); void runCaseAction(String(item.id), () => adminApi.decideShareReviewCase(String(item.id), 'rejected', reason)); }}>拒绝</Button>
-                  </Stack>
+                  </AdminInlineGroup>
                 </TableCell>
               </TableRow>
             ))}

@@ -12,7 +12,7 @@ const navItems = [
   { path: '/admin/users', label: '用户', permissions: [ADMIN_PERMISSION_CODES.usersRead] },
   { path: '/admin/ai', label: 'AI平台', permissions: [ADMIN_PERMISSION_CODES.aiRead] },
   { path: '/admin/platform', label: '平台配置', permissions: [ADMIN_PERMISSION_CODES.platformRead] },
-  { path: '/admin/billing', label: '购买', permissions: [ADMIN_PERMISSION_CODES.billingRead] },
+  { path: '/admin/billing', label: '套餐订单', permissions: [ADMIN_PERMISSION_CODES.billingRead] },
   { path: '/admin/moderation', label: '分享审核', permissions: [ADMIN_PERMISSION_CODES.sharesReview] },
   { path: '/admin/notifications', label: '通知中心', permissions: [ADMIN_PERMISSION_CODES.notificationsRead] },
   { path: '/admin/risk', label: '风控限制', permissions: [ADMIN_PERMISSION_CODES.riskRead] },

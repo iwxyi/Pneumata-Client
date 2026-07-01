@@ -491,7 +491,7 @@ function buildScenarioLine(chat: GroupChat, characters: AICharacter[], now: numb
     if (!id) return '成员';
     return characterName(id, characters);
   };
-  const title = hasBoard ? '棋盘进程' : factionCount > 0 ? '阵营局势' : scenario.currentTurnActorId ? '固定轮次' : '角色分工';
+  const title = hasBoard ? '棋盘进程' : factionCount > 0 ? '阵营局势' : scenario.currentTurnActorId ? '席位轮次' : '角色分工';
   const summaryParts = [
     roleAssignments.slice(0, 3).map((item) => `${actorNameFromId(item.actorId)}${item.roleId ? `：${formatScenarioRoleLabel(item.roleId)}` : ''}`).join(' / '),
     factionCount ? `阵营：${(scenario.factions || []).slice(0, 3).map((item) => item.label).join(' / ')}` : '',

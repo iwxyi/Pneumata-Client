@@ -78,6 +78,20 @@ describe('runtimeStructureProjection', () => {
     ]));
   });
 
+  it('labels current speaker as speech turn for deliberation rooms', () => {
+    const chat = normalizeConversation({
+      ...buildChat(),
+      mode: 'roundtable',
+      sessionKind: { topology: 'table', family: 'analysis', scenarioId: 'roundtable-review', surfaceProfile: 'text' },
+      scenarioState: {
+        currentTurnActorId: 'b',
+      },
+    });
+
+    const rows = projectRuntimeStructureRows(chat, [member('a', '甲'), member('b', '乙')], 'zh-CN');
+    expect(rows).toContainEqual({ key: 'currentTurn', label: '当前发言', value: '乙' });
+  });
+
   it('sanitizes faction labels before projecting structure rows', () => {
     const uuid = 'e055aa1d-88d4-4e96-abd2-1b35a3d56f67';
     const chat = normalizeConversation({

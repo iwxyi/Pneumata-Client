@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Alert, Button, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
+import AdminInlineGroup from '../../components/admin/AdminInlineGroup';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
@@ -85,11 +86,11 @@ export default function AdminRiskPage() {
         <TextField label="限制类型" value={restrictionType} onChange={(e) => setRestrictionType(e.target.value)} fullWidth />
         <TextField label="原因" value={reason} onChange={(e) => setReason(e.target.value)} fullWidth />
       </Stack>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+      <AdminInlineGroup>
         <Button variant="outlined" disabled={loading} onClick={() => void loadRestrictions()}>查询</Button>
         <Button variant="contained" disabled={loading} onClick={() => void saveRestriction('active')}>保存限制</Button>
         <Button variant="outlined" color="warning" disabled={loading} onClick={() => void saveRestriction('inactive')}>解除限制</Button>
-      </Stack>
+      </AdminInlineGroup>
       <AdminRequestState loading={loading} error={error} onRetry={() => void loadRestrictions()} />
       {!items.length ? <Alert severity="info">输入用户ID后可查询或写入限制项。</Alert> : null}
       <AdminResponsiveTable minWidth={700}>

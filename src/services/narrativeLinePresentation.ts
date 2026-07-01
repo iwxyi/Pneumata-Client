@@ -147,7 +147,7 @@ function explainLineType(line: NarrativeLineProjection) {
     growth: '成长线来自角色沉淀后的成长、偏向或状态变化记忆。',
     goal: '目标线来自用户导演、事件注入、指定回复或转向意图。',
     mystery: '暗线来自未公开信息、私密行动或角色私有线索。',
-    scenario: '场景线来自角色位、阵营、固定轮次、棋盘等显式场景结构。',
+    scenario: '场景线来自角色位、阵营、席位轮次、棋盘等显式场景结构。',
     topic: '话题线来自最近真实聊天消息，不包含系统运行事件。',
   };
   return labels[line.type];

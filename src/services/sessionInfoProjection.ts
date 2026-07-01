@@ -62,11 +62,11 @@ export function projectSessionInfoCards(params: ProjectSessionInfoCardsParams): 
     });
   }
   const discussionTarget = params.chat.sessionKind?.family === 'analysis' ? params.chat.scenarioState?.progress?.[0]?.target : undefined;
-  if (typeof discussionTarget === 'number') {
+  if (typeof discussionTarget === 'number' && discussionTarget > 0) {
     cards.push({
-      key: 'discussion-rounds',
-      title: isZh ? '自动收束发言数' : 'Auto synthesis turns',
-      description: discussionTarget > 0 ? clean(String(discussionTarget)) : (isZh ? '关闭' : 'Off'),
+      key: 'discussion-progress',
+      title: isZh ? '审议进展' : 'Deliberation progress',
+      description: clean(`${params.chat.scenarioState?.progress?.[0]?.value || 0}/${discussionTarget}`),
     });
   }
   if (params.chat.sessionKind?.family === 'board_game' && params.chat.scenarioState?.board?.schema) {

@@ -49,7 +49,7 @@ export function resolveConversationCapabilities(chat: CapabilityChat): Conversat
     forcedReply: allowDirectorInterventions && chat.directorControls?.allowForcedReply === true,
     roleActions: showRoleActions,
     turnOrder: hasTurnOrder || family === 'board_game',
-    synthesis: family === 'analysis' || family === 'study' || scenarioId === 'retrospective-room',
+    synthesis: family === 'analysis' || family === 'study' || scenarioId === 'task-retrospective',
   };
 }
 

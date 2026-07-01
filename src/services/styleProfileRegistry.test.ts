@@ -3,7 +3,7 @@ import { getStyleProfile, resolveDefaultStyleProfile } from './styleProfileRegis
 
 describe('styleProfileRegistry', () => {
   it('resolves scenario default style profiles', () => {
-    expect(resolveDefaultStyleProfile({ scenarioId: 'group-discussion' })).toBe('analytical_room');
+    expect(resolveDefaultStyleProfile({ scenarioId: 'opinion-review' })).toBe('analytical_room');
     expect(resolveDefaultStyleProfile({ scenarioId: 'open-chat' })).toBe('casual_room');
     expect(resolveDefaultStyleProfile({ scenarioId: 'direct-chat' })).toBe('companion_room');
   });

@@ -287,6 +287,9 @@ describe('worldCalendarPatchApply', () => {
       patch: { startAt: 10 },
       reason: 'first',
       priority: 10,
+      risk: 'automatic' as const,
+      riskReasons: [],
+      display: { calendarItemTitle: 'item-1', basedOnItemTitle: 'base', participantNames: [], suggestedStartAt: 10 },
     }, {
       idempotencyKey: 'k2',
       eventType: 'calendar_item_patch' as const,
@@ -294,6 +297,9 @@ describe('worldCalendarPatchApply', () => {
       patch: { startAt: 12 },
       reason: 'second',
       priority: 12,
+      risk: 'automatic' as const,
+      riskReasons: [],
+      display: { calendarItemTitle: 'item-2', basedOnItemTitle: 'base', participantNames: [], suggestedStartAt: 12 },
     }];
     const reordered = await reorderPlanQueueWithModel(
       queue,

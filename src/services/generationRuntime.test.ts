@@ -32,7 +32,7 @@ function chat(type: GroupChat['type'] = 'group', mode: GroupChat['mode'] = 'open
     sessionKind: {
       topology: type === 'group' ? 'group' : type === 'ai_direct' ? 'thread' : 'direct',
       family: mode === 'group_discussion' ? 'analysis' : mode === 'interview' ? 'interview' : 'conversation',
-      scenarioId: mode === 'group_discussion' ? 'group-discussion' : type === 'direct' ? 'direct-chat' : type === 'ai_direct' ? 'ai-private-thread' : 'open-chat',
+      scenarioId: mode === 'group_discussion' ? 'opinion-review' : type === 'direct' ? 'direct-chat' : type === 'ai_direct' ? 'ai-private-thread' : 'open-chat',
       surfaceProfile: 'text',
     },
     name: '测试',

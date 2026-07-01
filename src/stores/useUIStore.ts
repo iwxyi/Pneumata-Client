@@ -3,6 +3,8 @@ import { persist } from 'zustand/middleware';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateUiStoreState } from './storeMigrations';
 import { scopedStorageKey } from '../constants/brand';
 
+export type RightPanelTab = 'session' | 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'activities' | 'actions';
+
 interface UIStore {
   sidebarOpen: boolean;
   rightPanelOpen: boolean;
@@ -11,7 +13,7 @@ interface UIStore {
   godModeActive: boolean;
   topicGuideOpen: boolean;
   speakAsCharacterId: string | null;
-  rightPanelTab: 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'actions';
+  rightPanelTab: RightPanelTab;
   chatReadingPositions: Record<string, { messageId: string; offsetTop: number; pinned: boolean; updatedAt: number; sourceTimestamp?: number }>;
 
   toggleSidebar: () => void;
@@ -20,7 +22,7 @@ interface UIStore {
   setRightPanelOpen: (open: boolean) => void;
   setRightPanelGestureOffset: (offset: number | null) => void;
   setRightPanelGestureDragging: (dragging: boolean) => void;
-  setRightPanelTab: (tab: 'members' | 'narrative' | 'chapters' | 'clues' | 'roles' | 'world' | 'developer' | 'actions') => void;
+  setRightPanelTab: (tab: RightPanelTab) => void;
   setChatReadingPosition: (chatId: string, position: { messageId: string; offsetTop: number; pinned: boolean; sourceTimestamp?: number }) => void;
   setGodModeActive: (active: boolean) => void;
   setTopicGuideOpen: (open: boolean) => void;

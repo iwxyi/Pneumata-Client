@@ -85,13 +85,13 @@ function buildDiscussionChat() {
     ...buildOpenChat(),
     id: 'discussion-1',
     mode: 'group_discussion',
-    sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'group-discussion', surfaceProfile: 'text' },
-    name: '开放讨论',
+    sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text' },
+    name: '观点审议',
     topic: '是否要重构推荐系统',
     scenarioState: {
-      phase: 'discussion',
+      phase: 'deliberation',
       goals: [{ goalId: 'discussion-goal', label: '是否要重构推荐系统', status: 'active', progress: 0 }],
-      progress: [{ key: 'speeches', label: '发言轮次', value: 1, target: 4 }],
+      progress: [{ key: 'speeches', label: '审议发言', value: 1, target: 4 }],
     },
     worldState: { phase: 'debating', mood: 'engaged', focus: '是否要重构推荐系统', recentEvent: '', conflictAxes: [] },
   });
@@ -288,19 +288,19 @@ describe('executeNonChatActionScaffold', () => {
     expect(firstId).toBe(secondId);
   });
 
-  it('switches discussion to synthesis with a narrow chat patch', () => {
+  it('switches deliberation to synthesis with a narrow chat patch', () => {
     const result = executeNonChatActionScaffold(buildDiscussionChat(), {
       type: 'shift_to_synthesis',
     });
 
     expect(result?.chatPatch).toEqual({
       scenarioState: expect.objectContaining({ phase: 'synthesis' }),
-      worldState: expect.objectContaining({ phase: 'aligned', recentEvent: '手动切换到收束阶段' }),
+      worldState: expect.objectContaining({ phase: 'aligned', recentEvent: '手动切换到结论整理' }),
     });
     expect(result?.runtimeEvents?.[0]?.eventType).toBe('discussion_phase_shift');
   });
 
-  it('stores discussion summary text in synthesis state', () => {
+  it('stores deliberation summary text in synthesis state', () => {
     const result = executeNonChatActionScaffold(buildDiscussionChat(), {
       type: 'summarize_discussion',
       payload: { focus: '共识是先拆召回层，分歧是是否同时改排序层。' },
@@ -311,5 +311,72 @@ describe('executeNonChatActionScaffold', () => {
       summaryText: '共识是先拆召回层，分歧是是否同时改排序层。',
     });
     expect(result?.runtimeEvents?.[0]?.eventType).toBe('discussion_summary');
+  });
+
+  it('submits deliberation evidence into scenario state', () => {
+    const result = executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'submit_evidence',
+      payload: { evidenceText: '过去三次推荐事故都发生在召回层补丁后。' },
+    });
+
+    expect(result?.chatPatch?.scenarioState?.deliberationEvidence?.[0]).toMatchObject({
+      actorId: 'user',
+      text: '过去三次推荐事故都发生在召回层补丁后。',
+    });
+    expect(result?.runtimeEvents?.[0]?.eventType).toBe('deliberation_evidence_submitted');
+  });
+
+  it('records deliberation verdicts into scenario state', () => {
+    const result = executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'record_verdict',
+      payload: { verdictText: '暂不做最终裁决，先要求反方补充迁移成本量化。' },
+    });
+
+    expect(result?.chatPatch?.scenarioState?.deliberationVerdicts?.[0]).toMatchObject({
+      actorId: 'user',
+      text: '暂不做最终裁决，先要求反方补充迁移成本量化。',
+      tendency: 'mixed',
+    });
+    expect(result?.runtimeEvents?.[0]?.eventType).toBe('deliberation_verdict_recorded');
+  });
+
+  it('turns deliberation inquiry into runtime pressure for the target member', () => {
+    const result = executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'question_member',
+      targetIds: ['b'],
+      payload: { targetId: 'b', prompt: '请直接回应排序层风险为什么不能后置。' },
+    });
+
+    expect(result?.chatPatch?.worldState?.recentEvent).toContain('审议质询');
+    expect(result?.runtimeEvents?.[0]?.eventType).toBe('discussion_inquiry');
+    expect(result?.runtimeEvents?.[0]?.title).toBe('质询成员');
+    const structuredEvent = (result?.chatPatch as Partial<GroupChat> | undefined)?.runtimeEventsV2?.at(-1);
+    expect(structuredEvent?.kind).toBe('director_intervention');
+    expect(structuredEvent?.targetIds).toEqual(['b']);
+    expect(structuredEvent?.payload).toMatchObject({
+      intent: 'force_reply',
+      text: '请直接回应排序层风险为什么不能后置。',
+      maxTurns: 1,
+    });
+  });
+
+  it('rejects deliberation inquiry without target or prompt', () => {
+    expect(executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'question_member',
+      payload: { prompt: '请回应' },
+    })).toBeNull();
+    expect(executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'question_member',
+      targetIds: ['b'],
+      payload: { targetId: 'b' },
+    })).toBeNull();
+    expect(executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'submit_evidence',
+      payload: { evidenceText: '' },
+    })).toBeNull();
+    expect(executeNonChatActionScaffold(buildDiscussionChat(), {
+      type: 'record_verdict',
+      payload: { verdictText: '' },
+    })).toBeNull();
   });
 });

@@ -12,6 +12,8 @@ interface RightPanelProps {
   title?: string;
   hideMobileTitle?: boolean;
   titleActions?: React.ReactNode;
+  desktopMaxWidth?: number;
+  desktopViewportRatio?: number;
 }
 
 const DEFAULT_PANEL_WIDTH = 360;
@@ -22,17 +24,18 @@ type MobileDragInput = 'pointer' | 'touch';
 const MOBILE_BACKDROP_MAX_OPACITY = 0.34;
 const MOBILE_SHEET_SETTLE_MS = 360;
 const MOBILE_SHEET_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)';
+const TEMPORARY_PANEL_VIEWPORT_RATIO = 0.82;
 
-function clampPanelWidth(value: number) {
+function clampPanelWidth(value: number, maxWidth = MAX_PANEL_WIDTH, viewportRatio = 0.48) {
   if (!Number.isFinite(value)) return DEFAULT_PANEL_WIDTH;
-  const viewportMax = typeof window === 'undefined' ? MAX_PANEL_WIDTH : Math.max(MIN_PANEL_WIDTH, Math.min(MAX_PANEL_WIDTH, Math.floor(window.innerWidth * 0.48)));
+  const viewportMax = typeof window === 'undefined' ? maxWidth : Math.max(MIN_PANEL_WIDTH, Math.min(maxWidth, Math.floor(window.innerWidth * viewportRatio)));
   return Math.min(viewportMax, Math.max(MIN_PANEL_WIDTH, Math.round(value)));
 }
 
-function getInitialPanelWidth() {
+function getInitialPanelWidth(maxWidth = MAX_PANEL_WIDTH, viewportRatio = 0.48) {
   if (typeof localStorage === 'undefined') return DEFAULT_PANEL_WIDTH;
   const stored = Number(localStorage.getItem(PANEL_WIDTH_STORAGE_KEY));
-  return clampPanelWidth(stored || DEFAULT_PANEL_WIDTH);
+  return clampPanelWidth(stored || DEFAULT_PANEL_WIDTH, maxWidth, viewportRatio);
 }
 
 function getMobileSheetTravelDistance() {
@@ -40,7 +43,7 @@ function getMobileSheetTravelDistance() {
   return Math.max(320, window.innerHeight * 0.8);
 }
 
-export default function RightPanel({ children, title, hideMobileTitle = false, titleActions }: RightPanelProps) {
+export default function RightPanel({ children, title, hideMobileTitle = false, titleActions, desktopMaxWidth = MAX_PANEL_WIDTH, desktopViewportRatio = 0.48 }: RightPanelProps) {
   const { isMobile, isDesktop } = useResponsive();
   const { rightPanelOpen, rightPanelGestureOffset, rightPanelGestureDragging, setRightPanelOpen, setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore(useShallow((state) => ({
     rightPanelOpen: state.rightPanelOpen,
@@ -50,7 +53,9 @@ export default function RightPanel({ children, title, hideMobileTitle = false, t
     setRightPanelGestureOffset: state.setRightPanelGestureOffset,
     setRightPanelGestureDragging: state.setRightPanelGestureDragging,
   })));
-  const [panelWidth, setPanelWidth] = useState(getInitialPanelWidth);
+  const activePanelMaxWidth = isDesktop ? desktopMaxWidth : MAX_PANEL_WIDTH;
+  const activePanelViewportRatio = isDesktop ? desktopViewportRatio : TEMPORARY_PANEL_VIEWPORT_RATIO;
+  const [panelWidth, setPanelWidth] = useState(() => getInitialPanelWidth(activePanelMaxWidth, activePanelViewportRatio));
   const [mobileDragOffset, setMobileDragOffset] = useState(0);
   const [mobileDragging, setMobileDragging] = useState(false);
   const [resizing, setResizing] = useState(false);
@@ -73,10 +78,10 @@ export default function RightPanel({ children, title, hideMobileTitle = false, t
   const handleResizeMove = useCallback((event: PointerEvent) => {
     const state = resizeStateRef.current;
     if (!state) return;
-    const nextWidth = clampPanelWidth(state.startWidth + state.startX - event.clientX);
+    const nextWidth = clampPanelWidth(state.startWidth + state.startX - event.clientX, activePanelMaxWidth, activePanelViewportRatio);
     setPanelWidth(nextWidth);
     localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
-  }, []);
+  }, [activePanelMaxWidth, activePanelViewportRatio]);
 
   const handleResizeEnd = useCallback(() => {
     window.removeEventListener('pointermove', handleResizeMove);
@@ -98,9 +103,14 @@ export default function RightPanel({ children, title, hideMobileTitle = false, t
   }, [handleResizeEnd, handleResizeMove, panelWidth]);
 
   const resetPanelWidth = useCallback(() => {
-    setPanelWidth(DEFAULT_PANEL_WIDTH);
-    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(DEFAULT_PANEL_WIDTH));
-  }, []);
+    const nextWidth = clampPanelWidth(DEFAULT_PANEL_WIDTH, activePanelMaxWidth, activePanelViewportRatio);
+    setPanelWidth(nextWidth);
+    localStorage.setItem(PANEL_WIDTH_STORAGE_KEY, String(nextWidth));
+  }, [activePanelMaxWidth, activePanelViewportRatio]);
+
+  useEffect(() => {
+    setPanelWidth((current) => clampPanelWidth(current, activePanelMaxWidth, activePanelViewportRatio));
+  }, [activePanelMaxWidth, activePanelViewportRatio]);
 
   useEffect(() => () => {
     if (mobileCloseTimerRef.current !== null) {
@@ -411,12 +421,21 @@ export default function RightPanel({ children, title, hideMobileTitle = false, t
       onClose={() => setRightPanelOpen(false)}
       sx={{
         '& .MuiDrawer-paper': {
-          width: DEFAULT_PANEL_WIDTH,
+          width: panelWidth,
           borderRadius: 0,
+          display: 'flex',
+          flexDirection: 'row',
+          overflow: 'hidden',
         },
       }}
     >
-      <Box sx={{ height: '100%', minHeight: 0, p: 2.25, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <PaneResizeDivider
+        resizing={resizing}
+        ariaLabel="调整侧边面板宽度"
+        onPointerDown={startResize}
+        onDoubleClick={resetPanelWidth}
+      />
+      <Box sx={{ flex: 1, minWidth: 0, height: '100%', minHeight: 0, p: 2.25, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {title && (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>

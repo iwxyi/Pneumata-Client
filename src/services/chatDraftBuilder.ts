@@ -18,7 +18,6 @@ export interface ChatDraftInput {
   style: ChatStyle;
   runtimeEvolutionIntensity: RuntimeEvolutionIntensity;
   sessionKind?: SessionKind;
-  discussionRoundsTarget?: number;
   storyBranchMode?: 'guided' | 'open';
   storyBackground?: string;
   storyDirection?: string;
@@ -245,11 +244,14 @@ function buildInitialStoryAssets(input: Pick<ChatDraftInput, 'name' | 'topic' | 
 }
 
 function resolveDiscussionMode(sessionKind: Pick<SessionKind, 'scenarioId'>, fallback?: DiscussionMode): DiscussionMode | null {
-  if (sessionKind.scenarioId === 'roundtable-discussion') return 'roundtable';
-  if (sessionKind.scenarioId === 'debate-arena') return 'debate';
+  if (sessionKind.scenarioId === 'roundtable-review') return 'roundtable';
+  if (sessionKind.scenarioId === 'role-debate') return 'debate';
+  if (sessionKind.scenarioId === 'courtroom-deliberation') return 'courtroom';
+  if (sessionKind.scenarioId === 'expert-review') return 'expert_review';
+  if (sessionKind.scenarioId === 'public-inquiry') return 'public_inquiry';
   if (sessionKind.scenarioId === 'brainstorm-workshop') return 'brainstorm';
-  if (sessionKind.scenarioId === 'retrospective-room') return 'retrospective';
-  if (sessionKind.scenarioId === 'group-discussion') return fallback || 'open';
+  if (sessionKind.scenarioId === 'task-retrospective') return 'retrospective';
+  if (sessionKind.scenarioId === 'opinion-review') return fallback || 'open';
   return null;
 }
 
@@ -258,10 +260,30 @@ function isDiscussionScenario(sessionKind: Pick<SessionKind, 'scenarioId'>) {
 }
 
 function isOrderedDiscussionMode(mode: DiscussionMode | null) {
-  return mode === 'roundtable' || mode === 'debate';
+  return mode === 'roundtable' || mode === 'debate' || mode === 'courtroom';
 }
 
 function buildDiscussionRoleAssignments(memberIds: string[], mode: DiscussionMode | null) {
+  if (mode === 'courtroom') {
+    const roles = ['plaintiff', 'defendant', 'witness', 'judge'];
+    return memberIds
+      .filter((memberId) => memberId !== 'user')
+      .map((memberId, index) => {
+        const roleId = roles[index % roles.length];
+        return {
+          actorId: memberId,
+          roleId,
+          factionId: roleId === 'plaintiff' ? 'claim' : roleId === 'defendant' ? 'defense' : roleId === 'judge' ? 'adjudication' : 'evidence',
+          summary: roleId === 'plaintiff'
+            ? '优先提出主张、证据和责任归因'
+            : roleId === 'defendant'
+              ? '优先回应指控、解释风险和提出反证'
+              : roleId === 'judge'
+                ? '优先比较证据质量并给出阶段裁决'
+                : '优先补充证词、细节和矛盾点',
+        };
+      });
+  }
   if (mode !== 'debate') return [];
   return memberIds
     .filter((memberId) => memberId !== 'user')
@@ -287,7 +309,7 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
   const discussionMode = resolveDiscussionMode(sessionKind, templateDefaults.discussionMode);
   const isDiscussionRoom = isDiscussionScenario(sessionKind);
   const initialStoryAssets = isStoryReader ? buildInitialStoryAssets(input) : null;
-  const mode = sessionKind.scenarioId === 'group-discussion'
+  const mode = sessionKind.scenarioId === 'opinion-review'
     ? 'group_discussion'
     : isOrderedDiscussionMode(discussionMode)
       ? 'roundtable'
@@ -364,9 +386,11 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
       progress: templateDefaults.progressLabel || isDiscussionRoom
         ? [{
             key: isDiscussionRoom ? 'speeches' : `${sessionKind.family}-progress`,
-            label: templateDefaults.progressLabel || (discussionMode === 'roundtable' ? '圆桌发言' : '发言轮次'),
+            label: templateDefaults.progressLabel || (discussionMode === 'roundtable' ? '圆桌发言' : '审议发言'),
             value: 0,
-            target: templateDefaults.progressTarget ?? (typeof input.discussionRoundsTarget === 'number' ? input.discussionRoundsTarget : 100),
+            target: isDiscussionRoom
+              ? 0
+              : templateDefaults.progressTarget ?? 0,
           }]
         : sessionKind.scenarioId === 'werewolf-classic'
           ? [{ key: 'deduction-progress', label: '推理进度', value: 0, target: 100 }]

@@ -20,6 +20,8 @@ interface HotTopicDialogProps {
   suggestedMembers: AICharacter[];
   selectedSuggestedMemberIds: string[];
   selectedCharacterNames: string[];
+  allSuggestedMembersSelected: boolean;
+  allRecommendedCharactersSelected: boolean;
   adapting: boolean;
   creatingCharacters: boolean;
   canCreateCharacters: boolean;
@@ -32,7 +34,9 @@ interface HotTopicDialogProps {
   onSourceTabChange: (event: unknown, value: number) => void;
   onTopicSelect: (topic: TopicItem) => void;
   onToggleSuggestedMember: (characterId: string) => void;
+  onToggleAllSuggestedMembers: () => void;
   onToggleCharacter: (characterName: string) => void;
+  onToggleAllRecommendedCharacters: () => void;
   onCreateCharacters: () => void;
   onApply: () => void;
 }
@@ -54,6 +58,8 @@ export default function HotTopicDialog({
   suggestedMembers,
   selectedSuggestedMemberIds,
   selectedCharacterNames,
+  allSuggestedMembersSelected,
+  allRecommendedCharactersSelected,
   adapting,
   creatingCharacters,
   canCreateCharacters,
@@ -66,7 +72,9 @@ export default function HotTopicDialog({
   onSourceTabChange,
   onTopicSelect,
   onToggleSuggestedMember,
+  onToggleAllSuggestedMembers,
   onToggleCharacter,
+  onToggleAllRecommendedCharacters,
   onCreateCharacters,
   onApply,
 }: HotTopicDialogProps) {
@@ -83,7 +91,7 @@ export default function HotTopicDialog({
       <DialogContent>
         <Stack spacing={2} sx={{ pt: 1, minHeight: 520 }}>
           <Tabs
-            value={sourceTab}
+            value={sourceTabs.length ? sourceTab : false}
             onChange={onSourceTabChange}
             variant="scrollable"
             scrollButtons={false}
@@ -140,7 +148,12 @@ export default function HotTopicDialog({
               {adaptation.suggestedStyle ? <Chip label={`${isZh ? '建议风格' : 'Suggested style'}：${getStyleLabel(adaptation.suggestedStyle)}`} size="small" color="primary" variant="outlined" /> : null}
               {suggestedMembers.length ? (
                 <Box>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '推荐已有成员' : 'Suggested existing members'}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '推荐已有成员' : 'Suggested existing members'}</Typography>
+                    <Button size="small" onClick={onToggleAllSuggestedMembers}>
+                      {allSuggestedMembersSelected ? (isZh ? '全不选' : 'Deselect all') : (isZh ? '全选' : 'Select all')}
+                    </Button>
+                  </Box>
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(3, minmax(0, 1fr))' }, gap: 1, mt: 0.75 }}>
                     {suggestedMembers.map((character) => {
                       const checked = selectedSuggestedMemberIds.includes(character.id);
@@ -161,7 +174,12 @@ export default function HotTopicDialog({
               ) : null}
               {adaptation.recommendedCharacters?.length ? (
                 <Box>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '推荐新角色' : 'Suggested new characters'}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isZh ? '推荐新角色' : 'Suggested new characters'}</Typography>
+                    <Button size="small" onClick={onToggleAllRecommendedCharacters} disabled={creatingCharacters}>
+                      {allRecommendedCharactersSelected ? (isZh ? '全不选' : 'Deselect all') : (isZh ? '全选' : 'Select all')}
+                    </Button>
+                  </Box>
                   <Stack spacing={1} sx={{ mt: 0.75 }}>
                     {adaptation.recommendedCharacters.map((candidate) => {
                       const { alreadyExists, created } = getHotCharacterCardState(candidate.name);

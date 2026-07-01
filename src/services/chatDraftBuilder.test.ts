@@ -117,15 +117,14 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     }));
   });
 
-  it('initializes roundtable discussion with stable speech progress and first speaker', () => {
+  it('initializes roundtable review with open-ended speech progress and first speaker', () => {
     const draft = buildGroupChatDraft({
       type: 'group',
-      name: '圆桌讨论',
+      name: '圆桌审议',
       topic: '是否要重构推荐系统',
       style: 'debate',
       runtimeEvolutionIntensity: 'balanced',
-      sessionKind: { family: 'analysis', scenarioId: 'roundtable-discussion', surfaceProfile: 'text', topology: 'table' },
-      discussionRoundsTarget: 4,
+      sessionKind: { family: 'analysis', scenarioId: 'roundtable-review', surfaceProfile: 'text', topology: 'table' },
       memberIds: ['analyst-a', 'analyst-b', 'user'],
       operatorIds: [],
       showRoleActions: true,
@@ -155,12 +154,12 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
       label: '是否要重构推荐系统',
     }));
     expect(draft.scenarioState?.progress).toEqual([
-      { key: 'speeches', label: '圆桌发言', value: 0, target: 4 },
+      { key: 'speeches', label: '圆桌发言', value: 0, target: 0 },
     ]);
   });
 
-  it('allows discussion rooms to disable automatic synthesis with zero rounds', () => {
-    const template = getRoomTemplate('group_discussion');
+  it('keeps deliberation rooms open-ended by default', () => {
+    const template = getRoomTemplate('opinion_review');
     const draft = buildGroupChatDraft({
       type: 'group',
       name: template.label,
@@ -168,7 +167,6 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
       style: template.style,
       runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
       sessionKind: template.sessionKind,
-      discussionRoundsTarget: 0,
       memberIds: ['analyst-a', 'analyst-b'],
       operatorIds: [],
       showRoleActions: true,
@@ -191,15 +189,18 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     });
 
     expect(draft.scenarioState?.progress).toEqual([
-      { key: 'speeches', label: '发言轮次', value: 0, target: 0 },
+      { key: 'speeches', label: '审议发言', value: 0, target: 0 },
     ]);
   });
 
-  it('materializes thinking variants with distinct discussion runtime state', () => {
+  it('materializes deliberation variants with distinct runtime state', () => {
     const cases = [
-      { key: 'debate_arena', mode: 'roundtable', scenarioId: 'debate-arena', discussionMode: 'debate', phase: 'debate', progressLabel: '攻防轮次' },
-      { key: 'brainstorm_workshop', mode: 'group_discussion', scenarioId: 'brainstorm-workshop', discussionMode: 'brainstorm', phase: 'brainstorm', progressLabel: '点子轮次' },
-      { key: 'retrospective_room', mode: 'group_discussion', scenarioId: 'retrospective-room', discussionMode: 'retrospective', phase: 'retrospective', progressLabel: '复盘轮次' },
+      { key: 'role_debate', mode: 'roundtable', scenarioId: 'role-debate', discussionMode: 'debate', phase: 'debate', progressLabel: '攻防进度' },
+      { key: 'courtroom_deliberation', mode: 'roundtable', scenarioId: 'courtroom-deliberation', discussionMode: 'courtroom', phase: 'courtroom', progressLabel: '质询进度' },
+      { key: 'expert_review', mode: 'group_discussion', scenarioId: 'expert-review', discussionMode: 'expert_review', phase: 'expert_review', progressLabel: '评审进度' },
+      { key: 'public_inquiry', mode: 'group_discussion', scenarioId: 'public-inquiry', discussionMode: 'public_inquiry', phase: 'public_inquiry', progressLabel: '质询进度' },
+      { key: 'brainstorm_workshop', mode: 'group_discussion', scenarioId: 'brainstorm-workshop', discussionMode: 'brainstorm', phase: 'brainstorm', progressLabel: '点子进展' },
+      { key: 'retrospective_room', mode: 'group_discussion', scenarioId: 'task-retrospective', discussionMode: 'retrospective', phase: 'retrospective', progressLabel: '复盘进展' },
     ] as const;
 
     for (const item of cases) {
@@ -211,7 +212,6 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
         style: template.style,
         runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
         sessionKind: template.sessionKind,
-        discussionRoundsTarget: template.defaults?.discussionRoundsTarget,
         memberIds: ['analyst-a', 'analyst-b', 'analyst-c'],
         operatorIds: [],
         showRoleActions: true,
@@ -238,11 +238,12 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
       expect(draft.scenarioState?.discussionMode).toBe(item.discussionMode);
       expect(draft.scenarioState?.phase).toBe(item.phase);
       expect(draft.scenarioState?.progress?.[0]?.label).toBe(item.progressLabel);
+      expect(draft.scenarioState?.progress?.[0]?.target).toBe(0);
     }
   });
 
   it('assigns stable debate roles by seat order', () => {
-    const template = getRoomTemplate('debate_arena');
+    const template = getRoomTemplate('role_debate');
     const draft = buildGroupChatDraft({
       type: 'group',
       name: template.label,
@@ -250,7 +251,6 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
       style: template.style,
       runtimeEvolutionIntensity: template.runtimeEvolutionIntensity,
       sessionKind: template.sessionKind,
-      discussionRoundsTarget: 5,
       memberIds: ['a', 'b', 'c', 'user'],
       operatorIds: [],
       showRoleActions: true,

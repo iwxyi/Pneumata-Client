@@ -24,7 +24,7 @@ describe('sessionEngineRegistry', () => {
   it('resolves new scenario families before legacy family fallback', () => {
     expect(resolveSessionFamilyKey(chat({
       mode: 'open_chat',
-      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'group-discussion', surfaceProfile: 'text' },
+      sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'opinion-review', surfaceProfile: 'text' },
     }))).toBe('analysis');
     expect(resolveSessionEngineKey(chat({
       mode: 'open_chat',

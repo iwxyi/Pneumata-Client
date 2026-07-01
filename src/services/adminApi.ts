@@ -146,6 +146,10 @@ class AdminApiClient {
     return this.request<Record<string, unknown>>('PUT', `/platform/integrations/${encodeURIComponent(category)}/${encodeURIComponent(providerCode)}`, payload);
   }
 
+  testPlatformIntegration(category: string, providerCode: string, payload: Record<string, unknown>) {
+    return this.request<Record<string, unknown>>('POST', `/platform/integrations/${encodeURIComponent(category)}/${encodeURIComponent(providerCode)}/test`, payload);
+  }
+
   getAiProviderConfig(providerCode: string) {
     return this.request<Record<string, unknown>>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/config`);
   }
@@ -199,6 +203,23 @@ class AdminApiClient {
     })}`);
   }
 
+  getAiUserUsage(userId: string, params?: { invocationPage?: number; invocationLimit?: number; ledgerPage?: number; ledgerLimit?: number }) {
+    return this.request<{
+      user: Record<string, unknown>;
+      invocations: Array<Record<string, unknown>>;
+      totals: Record<string, unknown>;
+      invocationsPage?: Record<string, unknown>;
+      quotaLedger: Array<Record<string, unknown>>;
+      quotaLedgerPage?: Record<string, unknown>;
+      monthly?: Array<Record<string, unknown>>;
+    }>('GET', `/ai/users/${encodeURIComponent(userId)}/usage${this.buildQuery({
+      invocationPage: params?.invocationPage,
+      invocationLimit: params?.invocationLimit,
+      ledgerPage: params?.ledgerPage,
+      ledgerLimit: params?.ledgerLimit,
+    })}`);
+  }
+
   getAiProviderUsageStats(providerCode: string, params?: {
     userId?: string;
     groupBy?: string;
@@ -221,6 +242,38 @@ class AdminApiClient {
       items: Array<Record<string, unknown>>;
     }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/usage-stats${this.buildQuery({
       userId: params?.userId,
+      groupBy: params?.groupBy,
+      from: params?.from,
+      to: params?.to,
+      usageType: params?.usageType,
+      model: params?.model,
+      status: params?.status,
+      search: params?.search,
+      page: params?.page,
+      limit: params?.limit,
+    })}`);
+  }
+
+  getAiUserUsageStats(userId: string, params?: {
+    groupBy?: string;
+    from?: number;
+    to?: number;
+    usageType?: string;
+    model?: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    return this.request<{
+      providerCode: string;
+      groupBy: string;
+      page: number;
+      limit: number;
+      total: number;
+      totals: Record<string, unknown>;
+      items: Array<Record<string, unknown>>;
+    }>('GET', `/ai/users/${encodeURIComponent(userId)}/usage-stats${this.buildQuery({
       groupBy: params?.groupBy,
       from: params?.from,
       to: params?.to,
@@ -287,6 +340,14 @@ class AdminApiClient {
 
   getNotificationJobs(params?: { status?: string; channel?: string }) {
     return this.request<{ items: Array<Record<string, unknown>> }>('GET', `/notifications/jobs${this.buildQuery({ status: params?.status, channel: params?.channel })}`);
+  }
+
+  deliverNotificationJobs(payload?: { limit?: number }) {
+    return this.request<Record<string, unknown>>('POST', '/notifications/jobs/deliver', payload || {});
+  }
+
+  deliverNotificationJob(jobId: string) {
+    return this.request<Record<string, unknown>>('POST', `/notifications/jobs/${encodeURIComponent(jobId)}/deliver`, {});
   }
 
   getOrders(params?: { status?: string; userId?: string }) {

@@ -51,6 +51,11 @@ function getPrompt(action: SessionActionDefinition) {
   return typeof action.payload?.prompt === 'string' ? action.payload.prompt : '';
 }
 
+function getPayloadText(action: SessionActionDefinition, key: string) {
+  const value = action.payload?.[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 function readNumber(value: unknown) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
   if (typeof value === 'string' && value.trim()) {
@@ -78,8 +83,10 @@ function prepareAction(action: SessionActionDefinition) {
 }
 
 function validateAction(action: SessionActionDefinition) {
-  if ((action.type === 'ask_question' || action.type === 'director_intervention') && !getPrompt(action)) return false;
-  if (['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player', 'mute_member', 'unmute_member'].includes(action.type) && !(action.targetIds?.length)) return false;
+  if ((action.type === 'ask_question' || action.type === 'question_member' || action.type === 'director_intervention') && !getPrompt(action)) return false;
+  if (action.type === 'submit_evidence' && !getPayloadText(action, 'evidenceText')) return false;
+  if (action.type === 'record_verdict' && !getPayloadText(action, 'verdictText')) return false;
+  if (['ask_question', 'question_member', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player', 'mute_member', 'unmute_member'].includes(action.type) && !(action.targetIds?.length)) return false;
   return true;
 }
 
@@ -107,7 +114,7 @@ function canActorExecuteAction(chat: GroupChat, action: SessionActionDefinition)
 }
 
 function validateTargetIdsInConversation(chat: GroupChat, action: SessionActionDefinition) {
-  const requiresTargets = ['ask_question', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player', 'mute_member', 'unmute_member'].includes(action.type);
+  const requiresTargets = ['ask_question', 'question_member', 'start_private_thread', 'wolf_vote', 'inspect_player', 'vote_player', 'mute_member', 'unmute_member'].includes(action.type);
   if (!requiresTargets) return true;
   const memberSet = new Set(chat.memberIds);
   return (action.targetIds || []).every((id) => memberSet.has(id));
@@ -503,10 +510,43 @@ function handleReconstructCase(chat: GroupChat, action: SessionActionDefinition)
   };
 }
 
+function handleQuestionMember(chat: GroupChat, action: SessionActionDefinition) {
+  const targetId = action.targetIds?.[0] || '';
+  const targetIndex = chat.memberIds.indexOf(targetId);
+  const targetLabel = targetIndex >= 0 ? `成员#${targetIndex + 1}` : '指定成员';
+  const prompt = getPrompt(action);
+  const summary = `审议质询 → ${targetLabel}：${truncate(prompt, 48)}`;
+  const result = buildActionResult(chat, action, '质询成员', summary, 'discussion_inquiry', { targetIds: action.targetIds || [], prompt });
+  const interventionEvent = buildDirectorInterventionRuntimeEvent(chat, {
+    ...action,
+    type: 'director_intervention',
+    payload: {
+      ...(action.payload || {}),
+      prompt,
+      intent: 'force_reply',
+      pressure: '0.9',
+      maxTurns: '1',
+    },
+  }, summary);
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      worldState: {
+        ...chat.worldState,
+        phase: 'debating' as const,
+        focus: chat.worldState?.focus || chat.scenarioState?.goals?.[0]?.label || chat.topic,
+        recentEvent: summary,
+      },
+      runtimeEventsV2: [...(chat.runtimeEventsV2 || []), interventionEvent].slice(-160),
+    },
+  };
+}
+
 function handleSummarizeDiscussion(chat: GroupChat, action: SessionActionDefinition) {
   const summaryText = typeof action.payload?.focus === 'string' ? action.payload.focus : getPrompt(action);
-  const summary = `讨论总结：${truncate(summaryText, 48)}`;
-  const result = buildActionResult(chat, action, '总结讨论', summary, 'discussion_summary', { summaryText });
+  const summary = `审议总结：${truncate(summaryText, 48)}`;
+  const result = buildActionResult(chat, action, '总结审议', summary, 'discussion_summary', { summaryText });
   return {
     ...result,
     chatPatch: {
@@ -520,10 +560,67 @@ function handleSummarizeDiscussion(chat: GroupChat, action: SessionActionDefinit
   };
 }
 
-function handleShiftToSynthesis(chat: GroupChat, action: SessionActionDefinition) {
-  const summary = '手动切换到收束阶段';
+function handleSubmitEvidence(chat: GroupChat, action: SessionActionDefinition) {
+  const evidenceText = getPayloadText(action, 'evidenceText');
+  const now = Date.now();
+  const evidence = {
+    id: `evidence-${now}-${stableEventSeed([chat.id, evidenceText])}`,
+    actorId: action.actorId || 'user',
+    text: truncate(evidenceText, 160),
+    createdAt: now,
+  };
+  const summary = `提交证据：${truncate(evidenceText, 48)}`;
+  const result = buildActionResult(chat, action, '提交证据', summary, 'deliberation_evidence_submitted', { evidenceText: evidence.text });
   return {
-    ...buildActionResult(chat, action, '切换讨论阶段', summary, 'discussion_phase_shift', { phase: 'synthesis' }),
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        deliberationEvidence: [...(chat.scenarioState?.deliberationEvidence || []), evidence].slice(-8),
+      },
+      worldState: {
+        ...chat.worldState,
+        phase: 'debating' as const,
+        recentEvent: summary,
+      },
+    },
+  };
+}
+
+function handleRecordVerdict(chat: GroupChat, action: SessionActionDefinition) {
+  const verdictText = getPayloadText(action, 'verdictText');
+  const now = Date.now();
+  const verdict = {
+    id: `verdict-${now}-${stableEventSeed([chat.id, verdictText])}`,
+    actorId: action.actorId || 'user',
+    text: truncate(verdictText, 180),
+    tendency: 'mixed' as const,
+    createdAt: now,
+  };
+  const summary = `记录裁决：${truncate(verdictText, 48)}`;
+  const result = buildActionResult(chat, action, '记录裁决', summary, 'deliberation_verdict_recorded', { verdictText: verdict.text });
+  return {
+    ...result,
+    chatPatch: {
+      ...result.chatPatch,
+      scenarioState: {
+        ...(chat.scenarioState || {}),
+        deliberationVerdicts: [...(chat.scenarioState?.deliberationVerdicts || []), verdict].slice(-6),
+      },
+      worldState: {
+        ...chat.worldState,
+        phase: 'aligned' as const,
+        recentEvent: summary,
+      },
+    },
+  };
+}
+
+function handleShiftToSynthesis(chat: GroupChat, action: SessionActionDefinition) {
+  const summary = '手动切换到结论整理';
+  return {
+    ...buildActionResult(chat, action, '切换审议阶段', summary, 'discussion_phase_shift', { phase: 'synthesis' }),
     chatPatch: {
       scenarioState: {
         ...(chat.scenarioState || {}),
@@ -540,6 +637,7 @@ function handleShiftToSynthesis(chat: GroupChat, action: SessionActionDefinition
 
 function getHandler(action: SessionActionDefinition) {
   if (action.type === 'ask_question') return handleAskQuestion;
+  if (action.type === 'question_member') return handleQuestionMember;
   if (action.type === 'director_intervention') return handleDirectorIntervention;
   if (action.type === 'start_private_thread') return handleStartPrivateThread;
   if (action.type === 'mute_member' || action.type === 'unmute_member') return handleMemberMute;
@@ -556,6 +654,8 @@ function getHandler(action: SessionActionDefinition) {
   if (action.type === 'search_clue') return handleSearchClue;
   if (action.type === 'reconstruct_case') return handleReconstructCase;
   if (action.type === 'summarize_discussion') return handleSummarizeDiscussion;
+  if (action.type === 'submit_evidence') return handleSubmitEvidence;
+  if (action.type === 'record_verdict') return handleRecordVerdict;
   if (action.type === 'shift_to_synthesis') return handleShiftToSynthesis;
   return null;
 }

@@ -113,6 +113,7 @@ export async function runSessionActionImpl(
       updateChat: context.updateChat,
       conversationId: chat.id,
       trigger: 'action_panel',
+      riskMode: 'manual',
       continueOnPersistError: true,
     });
     context.setSnackbar({

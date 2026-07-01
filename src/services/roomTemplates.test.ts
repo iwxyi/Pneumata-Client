@@ -101,7 +101,7 @@ describe('roomTemplates story seeds', () => {
     expect(listTemplateStructures().map((item) => item.value)).toEqual([
       'free_interaction',
       'story',
-      'thinking',
+      'deliberation',
       'creation',
       'training',
       'task',
@@ -127,11 +127,14 @@ describe('roomTemplates story seeds', () => {
 
     expect(standardTemplateKeys).toContain('open_chat');
     expect(standardTemplateKeys).toContain('story_reader');
-    expect(standardTemplateKeys).toContain('group_discussion');
-    expect(standardTemplateKeys).toContain('roundtable_discussion');
-    expect(standardTemplateKeys).toContain('debate_arena');
-    expect(standardTemplateKeys).toContain('brainstorm_workshop');
-    expect(standardTemplateKeys).toContain('retrospective_room');
+    expect(standardTemplateKeys).toContain('opinion_review');
+    expect(standardTemplateKeys).toContain('roundtable_review');
+    expect(standardTemplateKeys).toContain('role_debate');
+    expect(standardTemplateKeys).toContain('courtroom_deliberation');
+    expect(standardTemplateKeys).toContain('expert_review');
+    expect(standardTemplateKeys).toContain('public_inquiry');
+    expect(standardTemplateKeys).not.toContain('brainstorm_workshop');
+    expect(standardTemplateKeys).not.toContain('retrospective_room');
     expect(standardTemplateKeys).toContain('free_chat_preset');
     expect(standardTemplateKeys).toContain('default_mystery_story');
     expect(standardTemplateKeys).not.toContain('ielts_coach');
@@ -143,16 +146,27 @@ describe('roomTemplates story seeds', () => {
     expect(filterRoomTemplatesForAvailability(ROOM_TEMPLATES, { developerMode: true })).toEqual(ROOM_TEMPLATES);
   });
 
-  it('explains discussion template differences and automatic synthesis count semantics', () => {
-    expect(getRoomTemplate('group_discussion').sellingPoints).toEqual(expect.arrayContaining(['非固定顺序', '累计AI发言数收束']));
-    expect(getRoomTemplate('roundtable_discussion').sellingPoints).toEqual(expect.arrayContaining(['按席位轮流发言']));
-    expect(getRoomTemplate('debate_arena').sellingPoints).toEqual(expect.arrayContaining(['按席位轮流攻防', '自动分配正反/评审']));
-    expect(getRoomTemplate('brainstorm_workshop').sellingPoints).toEqual(expect.arrayContaining(['每轮多点子']));
-    expect(getRoomTemplate('retrospective_room').sellingPoints).toEqual(expect.arrayContaining(['事实/原因/行动项']));
-    expect(getRoomTemplate('roundtable_discussion').configGroups?.[0]?.fields[0]).toMatchObject({
-      label: '自动收束发言数',
-      helperText: expect.stringContaining('累计 AI 发言数'),
-    });
+  it('explains deliberation template differences without fixed round settings', () => {
+    expect(getRoomTemplate('opinion_review').sellingPoints).toEqual(expect.arrayContaining(['立场可见', '质询反驳', '保留分歧']));
+    expect(getRoomTemplate('roundtable_review').sellingPoints).toEqual(expect.arrayContaining(['席位立场', '追问分歧']));
+    expect(getRoomTemplate('role_debate').sellingPoints).toEqual(expect.arrayContaining(['正反攻防', '评审席位']));
+    expect(getRoomTemplate('courtroom_deliberation').sellingPoints).toEqual(expect.arrayContaining(['证据质询', '责任判断']));
+    expect(getRoomTemplate('expert_review').sellingPoints).toEqual(expect.arrayContaining(['多标准评估', '风险指出']));
+    expect(getRoomTemplate('public_inquiry').sellingPoints).toEqual(expect.arrayContaining(['集中追问', '回应漏洞']));
+    expect(getRoomTemplate('brainstorm_workshop').structure).toBe('creation');
+    expect(getRoomTemplate('retrospective_room').structure).toBe('training');
+    expect((getRoomTemplate('roundtable_review').configGroups || []).flatMap((group) => group.fields).map((field) => field.key)).toEqual(['allowPrivateThreads']);
+    expect((getRoomTemplate('retrospective_room').configGroups || []).flatMap((group) => group.fields).map((field) => field.key)).toEqual([]);
+    expect(getRoomTemplate('roundtable_review').defaults).toEqual(expect.objectContaining({
+      discussionMode: 'roundtable',
+      initialPhase: 'roundtable',
+      progressLabel: '圆桌发言',
+    }));
+    expect(getRoomTemplate('retrospective_room').defaults).toEqual(expect.objectContaining({
+      discussionMode: 'retrospective',
+      initialPhase: 'retrospective',
+      progressLabel: '复盘进展',
+    }));
   });
 
   it('provides editable story seeds for every story-room template', () => {

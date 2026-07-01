@@ -110,7 +110,7 @@ describe('conversation capability resolver', () => {
       allowEventInjection: true,
       allowForcedReply: true,
     });
-    expect(resolveRoomTemplateCapabilityDefaults(getRoomTemplate('roundtable_discussion'), { showRoleActions: true })).toMatchObject({
+    expect(resolveRoomTemplateCapabilityDefaults(getRoomTemplate('roundtable_review'), { showRoleActions: true })).toMatchObject({
       allowPrivateThreads: false,
       allowCliques: false,
       allowMockery: false,

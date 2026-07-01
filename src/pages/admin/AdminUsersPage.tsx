@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, Box, Button, Chip, Dialog, DialogContent, DialogTitle, Divider, Grid, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, TextField, Typography, useMediaQuery, useTheme } from '@mui/material';
+import AdminAiUserUsageDialog from '../../components/admin/AdminAiUserUsageDialog';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
@@ -118,6 +119,7 @@ export default function AdminUsersPage() {
   const [items, setItems] = useState<AdminUserListItem[]>([]);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<Record<string, unknown> | null>(null);
+  const [usageDialogOpen, setUsageDialogOpen] = useState(false);
   const [selectedRestrictions, setSelectedRestrictions] = useState<Array<Record<string, unknown>>>([]);
   const [restrictionReason, setRestrictionReason] = useState('');
   const [keyDrafts, setKeyDrafts] = useState<Record<string, KeyDraft>>({});
@@ -386,7 +388,13 @@ export default function AdminUsersPage() {
 
   const workspace = selectedUser?.workspace as { recentOrders?: Array<Record<string, unknown>>; recentChats?: Array<Record<string, unknown>>; recentCharacters?: Array<Record<string, unknown>> } | undefined;
   const aiKeys = (selectedUser?.aiKeys || []) as Array<Record<string, unknown>>;
-  const aiKey = aiKeys[0] || null;
+  const aiKey = aiKeys.find((key) => String(key.provider_code || '') === 'api2d') || null;
+  const selectedListItem = selectedUserId ? items.find((item) => item.id === selectedUserId) : null;
+  const selectedUserWithAiQuota = selectedUser ? {
+    ...selectedUser,
+    aiBalanceAmount: selectedUser.aiBalanceAmount ?? selectedListItem?.aiBalanceAmount ?? 0,
+    aiUsedAmount: selectedUser.aiUsedAmount ?? selectedListItem?.aiUsedAmount ?? 0,
+  } : null;
 
   useEffect(() => {
     if (!selectedUserId || !aiKey?.id) {
@@ -470,17 +478,30 @@ export default function AdminUsersPage() {
                   ))}
                 </Grid>
 
-                <AdminDetailCard title="绑定 Key">
-                  {!aiKeys.length ? (
-                    <Alert
-                      severity="info"
-                      action={<Button color="inherit" size="small" onClick={() => setManualKeyDraft((prev) => ({ ...prev, visible: true }))}>设置 Key</Button>}
-                    >
-                      暂未绑定 AI Key
-                    </Alert>
-                  ) : null}
-                  {manualKeyDraft.visible ? (
-                    <Stack direction="row" spacing={0.75} sx={{ mb: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
+                <AdminDetailCard
+                  title={(
+                    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                      <span>AI点数</span>
+                      <Button size="small" variant="outlined" onClick={() => setUsageDialogOpen(true)}>点数详情</Button>
+                    </Stack>
+                  )}
+                >
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ justifyContent: 'space-between' }}>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">剩余点数</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatAiAmount(selectedUserWithAiQuota?.aiBalanceAmount ?? 0, 'deepseek')}</Typography>
+                    </Box>
+                    <Box sx={{ textAlign: { xs: 'left', sm: 'right' } }}>
+                      <Typography variant="caption" color="text.secondary">已使用点数</Typography>
+                      <Typography variant="h6" sx={{ fontWeight: 900 }}>{formatAiAmount(selectedUserWithAiQuota?.aiUsedAmount ?? 0, 'deepseek')}</Typography>
+                    </Box>
+                  </Stack>
+                </AdminDetailCard>
+
+                {aiKey ? (
+                  <AdminDetailCard title="绑定 Key">
+                    {manualKeyDraft.visible ? (
+                      <Stack direction="row" spacing={0.75} sx={{ mb: 1.25, alignItems: 'center', flexWrap: 'wrap' }}>
                       <TextField
                         size="small"
                         label="API2D Key"
@@ -498,9 +519,9 @@ export default function AdminUsersPage() {
                       <Button variant="contained" size="small" disabled={actionLoading || !manualKeyDraft.apiKey.trim()} onClick={() => void saveManualKey()} sx={{ minHeight: 32 }}>保存</Button>
                       <Button size="small" disabled={actionLoading} onClick={() => setManualKeyDraft({ visible: false, apiKey: '', externalKeyId: '' })} sx={{ minHeight: 32 }}>取消</Button>
                     </Stack>
-                  ) : null}
-                  <Stack spacing={1.25}>
-                    {aiKey ? [aiKey].map((key) => {
+                    ) : null}
+                    <Stack spacing={1.25}>
+                      {[aiKey].map((key) => {
                       const keyId = String(key.id || '');
                       const draft = getKeyDraft(key);
                       const usage = keyUsage[keyId];
@@ -632,9 +653,10 @@ export default function AdminUsersPage() {
                           </Stack>
                         </Paper>
                       );
-                    }) : null}
-                  </Stack>
-                </AdminDetailCard>
+                      })}
+                    </Stack>
+                  </AdminDetailCard>
+                ) : null}
 
                 <Grid container spacing={2}>
                   <Grid size={{ xs: 12, xl: 4 }}>
@@ -673,6 +695,12 @@ export default function AdminUsersPage() {
           </Stack>
         </DialogContent>
       </Dialog>
+      <AdminAiUserUsageDialog
+        open={usageDialogOpen}
+        user={selectedUserWithAiQuota}
+        providerCode="all"
+        onClose={() => setUsageDialogOpen(false)}
+      />
     </Stack>
   );
 }

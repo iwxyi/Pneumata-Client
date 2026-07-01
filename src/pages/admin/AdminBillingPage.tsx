@@ -6,6 +6,10 @@ import {
   Alert,
   Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   FormControlLabel,
   MenuItem,
   Stack,
@@ -21,6 +25,7 @@ import {
   Typography,
 } from '@mui/material';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
+import AdminInlineGroup from '../../components/admin/AdminInlineGroup';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
@@ -216,6 +221,7 @@ export default function AdminBillingPage() {
   const [orders, setOrders] = useState<Array<Record<string, unknown>>>([]);
   const [selectedOrder, setSelectedOrder] = useState<Record<string, unknown> | null>(null);
   const [planForm, setPlanForm] = useState<PlanForm>(EMPTY_PLAN_FORM);
+  const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [plansLoading, setPlansLoading] = useState(false);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [savingPlan, setSavingPlan] = useState(false);
@@ -243,7 +249,7 @@ export default function AdminBillingPage() {
     try {
       const result = await adminApi.getBillingPlans();
       setPlans(result.items || []);
-      if (selectedPlanId) {
+      if (planDialogOpen && selectedPlanId) {
         const next = result.items.find((item) => String(item.id) === selectedPlanId);
         if (next) setPlanForm(toPlanForm(next));
       }
@@ -279,6 +285,7 @@ export default function AdminBillingPage() {
       if (planForm.id) await adminApi.updateBillingPlan(planForm.id, payload);
       else await adminApi.createBillingPlan(payload);
       setPlanForm(EMPTY_PLAN_FORM);
+      setPlanDialogOpen(false);
       await loadPlans();
     } catch (saveError) {
       setPlansError(getAdminErrorMessage(saveError));
@@ -313,6 +320,16 @@ export default function AdminBillingPage() {
     setPlanForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const openCreatePlanDialog = () => {
+    setPlanForm(EMPTY_PLAN_FORM);
+    setPlanDialogOpen(true);
+  };
+
+  const openEditPlanDialog = (item: Record<string, unknown>) => {
+    setPlanForm(toPlanForm(item));
+    setPlanDialogOpen(true);
+  };
+
   return (
     <Stack spacing={2}>
       <Tabs value={tab} onChange={(_event, value) => setTab(value)} variant="scrollable" allowScrollButtonsMobile>
@@ -323,69 +340,76 @@ export default function AdminBillingPage() {
       {tab === 0 ? (
         <Stack spacing={2}>
           <AdminRequestState loading={plansLoading} error={plansError} onRetry={() => void loadPlans()} />
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-            <Alert severity="info" sx={{ flex: 1 }}>VIP 套餐：{planSummary.vip}</Alert>
-            <Alert severity="success" sx={{ flex: 1 }}>点数套餐：{planSummary.points}</Alert>
-            <Alert severity="warning" sx={{ flex: 1 }}>启用中：{planSummary.active}</Alert>
+          <AdminInlineGroup gap={1.25}>
+            <Alert severity="info">VIP 套餐：{planSummary.vip}</Alert>
+            <Alert severity="success">点数套餐：{planSummary.points}</Alert>
+            <Alert severity="warning">启用中：{planSummary.active}</Alert>
+            <Button
+              variant="outlined"
+              startIcon={<AddIcon />}
+              onClick={openCreatePlanDialog}
+              sx={{ ml: 'auto' }}
+            >
+              新建套餐
+            </Button>
+          </AdminInlineGroup>
+
+          <Stack spacing={1.25}>
+            <AdminResponsiveTable minWidth={900}>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>套餐</TableCell>
+                    <TableCell>类型</TableCell>
+                    <TableCell>价格</TableCell>
+                    <TableCell>赠送点数</TableCell>
+                    <TableCell>时长</TableCell>
+                    <TableCell>状态</TableCell>
+                    <TableCell align="right">操作</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {plans.map((item) => (
+                    <TableRow
+                      key={String(item.id)}
+                      hover
+                      selected={planDialogOpen && selectedPlanId === String(item.id)}
+                      onClick={() => openEditPlanDialog(item)}
+                      sx={{ cursor: 'pointer' }}
+                    >
+                      <TableCell>
+                        <Stack spacing={0.25}>
+                          <Typography variant="body2" sx={{ fontWeight: 800 }}>{String(item.name || '')}</Typography>
+                          <Typography variant="caption" color="text.secondary">{String(item.code || '')}</Typography>
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        <Chip size="small" label={planKindLabel(item.plan_kind)} color={String(item.plan_kind || '') === 'vip' ? 'primary' : 'default'} />
+                      </TableCell>
+                      <TableCell>{formatMoney(item.price_amount, item.currency)}</TableCell>
+                      <TableCell>{formatPoints(item.grant_points)}</TableCell>
+                      <TableCell>{String(item.plan_kind || '') === 'vip' ? `${String(item.duration_days || 0)} 天` : '-'}</TableCell>
+                      <TableCell>
+                        <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                          <Chip size="small" label={statusLabel(item.status)} color={String(item.status || '') === 'active' ? 'success' : 'default'} />
+                          {toBoolean(item.visible_to_users, true) ? null : <Chip size="small" label="隐藏" />}
+                          {toBoolean(item.featured, false) ? <Chip size="small" label="推荐" color="warning" /> : null}
+                        </Stack>
+                      </TableCell>
+                      <TableCell align="right">
+                        <Button size="small" onClick={(event) => { event.stopPropagation(); openEditPlanDialog(item); }}>编辑</Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </AdminResponsiveTable>
           </Stack>
 
-          <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} sx={{ alignItems: 'flex-start' }}>
-            <Stack spacing={1.25} sx={{ flex: 1, minWidth: 0, width: '100%' }}>
-              <Button
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={() => setPlanForm(EMPTY_PLAN_FORM)}
-                sx={{ alignSelf: 'flex-start' }}
-              >
-                新建套餐
-              </Button>
-              <AdminResponsiveTable minWidth={900}>
-                <Table>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell>套餐</TableCell>
-                      <TableCell>类型</TableCell>
-                      <TableCell>价格</TableCell>
-                      <TableCell>赠送点数</TableCell>
-                      <TableCell>时长</TableCell>
-                      <TableCell>状态</TableCell>
-                      <TableCell align="right">操作</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {plans.map((item) => (
-                      <TableRow key={String(item.id)} hover selected={selectedPlanId === String(item.id)}>
-                        <TableCell>
-                          <Stack spacing={0.25}>
-                            <Typography variant="body2" sx={{ fontWeight: 800 }}>{String(item.name || '')}</Typography>
-                            <Typography variant="caption" color="text.secondary">{String(item.code || '')}</Typography>
-                          </Stack>
-                        </TableCell>
-                        <TableCell>
-                          <Chip size="small" label={planKindLabel(item.plan_kind)} color={String(item.plan_kind || '') === 'vip' ? 'primary' : 'default'} />
-                        </TableCell>
-                        <TableCell>{formatMoney(item.price_amount, item.currency)}</TableCell>
-                        <TableCell>{formatPoints(item.grant_points)}</TableCell>
-                        <TableCell>{String(item.plan_kind || '') === 'vip' ? `${String(item.duration_days || 0)} 天` : '-'}</TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={0.5} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                            <Chip size="small" label={statusLabel(item.status)} color={String(item.status || '') === 'active' ? 'success' : 'default'} />
-                            {toBoolean(item.visible_to_users, true) ? null : <Chip size="small" label="隐藏" />}
-                            {toBoolean(item.featured, false) ? <Chip size="small" label="推荐" color="warning" /> : null}
-                          </Stack>
-                        </TableCell>
-                        <TableCell align="right">
-                          <Button size="small" onClick={() => setPlanForm(toPlanForm(item))}>编辑</Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </AdminResponsiveTable>
-            </Stack>
-
-            <AdminDetailCard title={planForm.id ? '编辑套餐' : '新增套餐'}>
-              <Stack spacing={1.25} sx={{ width: { xs: '100%', lg: 420 } }}>
+          <Dialog open={planDialogOpen} onClose={() => setPlanDialogOpen(false)} maxWidth="md" fullWidth>
+            <DialogTitle>{planForm.id ? '编辑套餐' : '新增套餐'}</DialogTitle>
+            <DialogContent>
+              <Stack spacing={1.25} sx={{ pt: 1 }}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25}>
                   <TextField label="套餐编码" value={planForm.code} onChange={(event) => updateForm('code', event.target.value)} fullWidth />
                   <TextField select label="类型" value={planForm.planKind} onChange={(event) => updateForm('planKind', event.target.value as PlanKind)} sx={{ minWidth: 150 }}>
@@ -431,27 +455,30 @@ export default function AdminBillingPage() {
                   <FormControlLabel control={<Switch checked={planForm.visibleToUsers} onChange={(event) => updateForm('visibleToUsers', event.target.checked)} />} label="用户可见" />
                   <FormControlLabel control={<Switch checked={planForm.featured} onChange={(event) => updateForm('featured', event.target.checked)} />} label="推荐" />
                 </Stack>
-                <Button variant="contained" startIcon={<SaveIcon />} disabled={savingPlan} onClick={() => void savePlan()}>
-                  {planForm.id ? '保存套餐' : '添加套餐'}
-                </Button>
               </Stack>
-            </AdminDetailCard>
-          </Stack>
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setPlanDialogOpen(false)} disabled={savingPlan}>取消</Button>
+              <Button variant="contained" startIcon={<SaveIcon />} disabled={savingPlan} onClick={() => void savePlan()}>
+                {planForm.id ? '保存套餐' : '添加套餐'}
+              </Button>
+            </DialogActions>
+          </Dialog>
         </Stack>
       ) : (
         <Stack spacing={2}>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+          <AdminInlineGroup gap={1.25}>
             <Button variant={status === '' ? 'contained' : 'outlined'} onClick={() => setStatus('')}>全部</Button>
             <Button variant={status === 'pending' ? 'contained' : 'outlined'} onClick={() => setStatus('pending')}>待支付</Button>
             <Button variant={status === 'paid' ? 'contained' : 'outlined'} onClick={() => setStatus('paid')}>已支付</Button>
             <Button startIcon={<RefreshIcon />} onClick={() => void loadOrders()}>刷新</Button>
-          </Stack>
+          </AdminInlineGroup>
           <AdminRequestState loading={ordersLoading} error={ordersError} onRetry={() => void loadOrders()} />
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
-            <Alert severity="info" sx={{ flex: 1 }}>待支付：{orderSummary.pending}</Alert>
-            <Alert severity="success" sx={{ flex: 1 }}>已支付：{orderSummary.paid}</Alert>
-            <Alert severity="warning" sx={{ flex: 1 }}>当前列表金额：{orderSummary.amount.toFixed(2)}</Alert>
-          </Stack>
+          <AdminInlineGroup gap={1.25}>
+            <Alert severity="info">待支付：{orderSummary.pending}</Alert>
+            <Alert severity="success">已支付：{orderSummary.paid}</Alert>
+            <Alert severity="warning">当前列表金额：{orderSummary.amount.toFixed(2)}</Alert>
+          </AdminInlineGroup>
           <AdminResponsiveTable minWidth={820}>
             <Table>
               <TableHead>

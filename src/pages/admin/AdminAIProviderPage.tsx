@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Alert, Box, Button, Dialog, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead, TablePagination, TableRow, Tabs, TextField, Typography } from '@mui/material';
 import { useParams } from 'react-router-dom';
+import AdminAiUserUsageDialog from '../../components/admin/AdminAiUserUsageDialog';
 import AdminDetailCard from '../../components/admin/AdminDetailCard';
+import AdminInlineGroup from '../../components/admin/AdminInlineGroup';
 import AdminResponsiveTable from '../../components/admin/AdminResponsiveTable';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { adminApi } from '../../services/adminApi';
@@ -1161,7 +1163,7 @@ export default function AdminAIProviderPage() {
         <Stack spacing={1.5}>
           <AdminDetailCard title="Moacode 公开价格表">
             <Stack spacing={1.25}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
+              <AdminInlineGroup>
                 <TextField
                   size="small"
                   label="搜索模型或供应商"
@@ -1170,7 +1172,7 @@ export default function AdminAIProviderPage() {
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') void loadPublicModels(publicModelSearch);
                   }}
-                  sx={{ minWidth: { xs: '100%', sm: 260 } }}
+                  sx={{ flex: '1 1 260px', minWidth: 180, maxWidth: 360 }}
                 />
                 <Button
                   variant="contained"
@@ -1191,7 +1193,7 @@ export default function AdminAIProviderPage() {
                 <Typography variant="caption" color="text.secondary">
                   同一模型可能有多家上游；扣费估算会按当前 token 构成取最高价。
                 </Typography>
-              </Stack>
+              </AdminInlineGroup>
               {publicModelError ? <Alert severity="error">{publicModelError}</Alert> : null}
               {publicModels.length ? (
                 <Alert severity="info">
@@ -1532,266 +1534,22 @@ export default function AdminAIProviderPage() {
           保存配置
         </Button>
       ) : null}
-      <Dialog open={Boolean(selectedBalanceUser)} onClose={() => setSelectedBalanceUser(null)} fullWidth maxWidth="lg">
-        <DialogTitle>用户额度详情</DialogTitle>
-        <DialogContent>
-          <Stack spacing={1.5} sx={{ pt: 1 }}>
-            {selectedBalanceUser ? (
-              <Stack
-                direction="row"
-                spacing={1.25}
-                sx={{
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  flexWrap: { xs: 'wrap', sm: 'nowrap' },
-                }}
-              >
-                <Box sx={{ flex: '1 1 220px', minWidth: 0 }}>
-                  <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{String(selectedBalanceUser.nickname || selectedBalanceUser.id || '-')}</Typography>
-                  <Typography variant="body2" color="text.secondary">{String(selectedBalanceUser.phone || '-')}</Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    gap: { xs: 1.5, sm: 3 },
-                    ml: 'auto',
-                    flex: '0 0 auto',
-                  }}
-                >
-                  <Box sx={{ textAlign: 'right', minWidth: 92 }}>
-                    <Typography variant="caption" color="text.secondary">剩余额度</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.15, whiteSpace: 'nowrap' }}>{formatPoint(selectedBalanceUser.balanceAmount ?? selectedBalanceUser.balance_amount, providerCode)}</Typography>
-                  </Box>
-                  <Box sx={{ textAlign: 'right', minWidth: 92 }}>
-                    <Typography variant="caption" color="text.secondary">已使用额度</Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 900, lineHeight: 1.15, whiteSpace: 'nowrap' }}>{formatPoint(selectedBalanceUser.usedAmount ?? selectedBalanceUser.used_amount, providerCode)}</Typography>
-                  </Box>
-                </Box>
-              </Stack>
-            ) : null}
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ alignItems: { xs: 'stretch', sm: 'center' } }}>
-              <TextField
-                size="small"
-                label="增减额度"
-                value={userPointDraft}
-                onChange={(e) => setUserPointDraft(e.target.value)}
-                placeholder="负数扣除"
-                sx={{ width: { xs: '100%', sm: 180 } }}
-              />
-              <Button variant="contained" disabled={userUsageLoading || !userPointDraft.trim()} onClick={() => void transferUserPoints()} sx={{ height: 40 }}>增减额度</Button>
-              <Button variant="outlined" disabled={userUsageLoading || !selectedBalanceUser?.id} onClick={() => void loadSelectedUserUsage(String(selectedBalanceUser?.id || ''))} sx={{ height: 40 }}>刷新明细</Button>
-            </Stack>
-            <AdminRequestState loading={userUsageLoading || selectedUserStatsLoading} error={null} />
-            <Tabs value={selectedUsageTab} onChange={(_event, value) => setSelectedUsageTab(value)}>
-              <Tab label="额度流水" />
-              <Tab label="调用消耗" />
-              <Tab label="用量统计" />
-            </Tabs>
-            {selectedUsageTab === 0 ? (
-              <Stack spacing={1}>
-                {!selectedUserUsage?.quotaLedger.length && !userUsageLoading ? <Alert severity="info">暂无额度流水</Alert> : null}
-                {selectedUserUsage?.quotaLedger.length ? (
-                  <AdminResponsiveTable minWidth={720}>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>来源</TableCell>
-                          <TableCell>额度</TableCell>
-                          <TableCell>余额</TableCell>
-                          <TableCell>时间</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {selectedUserUsage.quotaLedger.map((row) => {
-                          const source = getLedgerSourcePresentation(row);
-                          return (
-                            <TableRow key={String(row.id)}>
-                              <TableCell>
-                                <Typography variant="body2" sx={source.sx}>{source.label}</Typography>
-                                {source.secondary ? (
-                                  <Typography variant="caption" color="text.secondary">{source.secondary}</Typography>
-                                ) : null}
-                              </TableCell>
-                              <TableCell><Typography variant="body2" sx={getLedgerAmountSx(row.amount)}>{formatPoint(row.amount, providerCode)}</Typography></TableCell>
-                              <TableCell>{row.balance_after == null ? '-' : formatPoint(row.balance_after, providerCode)}</TableCell>
-                              <TableCell>{formatTime(row.created_at)}</TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </AdminResponsiveTable>
-                ) : null}
-                <TablePagination
-                  component="div"
-                  count={toPageTotal(selectedUserUsage?.quotaLedgerPage?.total)}
-                  page={selectedLedgerPage}
-                  rowsPerPage={USER_USAGE_PAGE_SIZE}
-                  rowsPerPageOptions={[USER_USAGE_PAGE_SIZE]}
-                  labelRowsPerPage="每页"
-                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
-                  onPageChange={(_event, nextPage) => {
-                    setSelectedLedgerPage(nextPage);
-                    if (selectedBalanceUser?.id) void loadSelectedUserUsage(String(selectedBalanceUser.id), selectedInvocationPage, nextPage);
-                  }}
-                  onRowsPerPageChange={undefined}
-                />
-              </Stack>
-            ) : selectedUsageTab === 1 ? (
-              <Stack spacing={1}>
-                <Typography variant="caption" color="text.secondary">
-                  合计：{formatPoint(selectedUserUsage?.totals?.charged_amount, providerCode)} / {String(selectedUserUsage?.totals?.request_count ?? 0)} 次
-                </Typography>
-                {!selectedUserUsage?.invocations.length && !userUsageLoading ? <Alert severity="info">暂无调用记录</Alert> : null}
-                {selectedUserUsage?.invocations.length ? (
-                  <AdminResponsiveTable minWidth={1080}>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>用途</TableCell>
-                          <TableCell>模型</TableCell>
-                          <TableCell>输入</TableCell>
-                          <TableCell>输出</TableCell>
-                          <TableCell>缓存命中</TableCell>
-                          <TableCell>缓存写入</TableCell>
-                          <TableCell>总量</TableCell>
-                          <TableCell>扣费</TableCell>
-                          <TableCell>计费来源</TableCell>
-                          <TableCell>耗时</TableCell>
-                          <TableCell>时间</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {selectedUserUsage.invocations.map((row) => (
-                          <TableRow key={String(row.id)}>
-                            <TableCell>{String(row.usage_label || formatUsageType(row.usage_type) || '-')}</TableCell>
-                            <TableCell>{String(row.model || '-')}</TableCell>
-                            <TableCell>{String(row.input_tokens ?? '-')}</TableCell>
-                            <TableCell>{String(row.output_tokens ?? '-')}</TableCell>
-                            <TableCell>{String(row.prompt_cache_hit_tokens ?? '-')}</TableCell>
-                            <TableCell>{String(row.prompt_cache_miss_tokens ?? '-')}</TableCell>
-                            <TableCell>{String(row.total_tokens ?? '-')}</TableCell>
-                            <TableCell>{row.charged_amount == null ? '-' : formatPoint(row.charged_amount, providerCode)}</TableCell>
-                            <TableCell>{formatBillingSource(row.billing_source)}</TableCell>
-                            <TableCell>{String(row.latency_ms ?? '-')}</TableCell>
-                            <TableCell>{formatTime(row.created_at)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </AdminResponsiveTable>
-                ) : null}
-                <TablePagination
-                  component="div"
-                  count={toPageTotal(selectedUserUsage?.invocationsPage?.total)}
-                  page={selectedInvocationPage}
-                  rowsPerPage={USER_USAGE_PAGE_SIZE}
-                  rowsPerPageOptions={[USER_USAGE_PAGE_SIZE]}
-                  labelRowsPerPage="每页"
-                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
-                  onPageChange={(_event, nextPage) => {
-                    setSelectedInvocationPage(nextPage);
-                    if (selectedBalanceUser?.id) void loadSelectedUserUsage(String(selectedBalanceUser.id), nextPage, selectedLedgerPage);
-                  }}
-                  onRowsPerPageChange={undefined}
-                />
-              </Stack>
-            ) : (
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-                  <TextField
-                    select
-                    size="small"
-                    label="分组"
-                    value={selectedUserStatsGroupBy}
-                    onChange={(event) => {
-                      const nextGroupBy = isUserStatsGroupBy(event.target.value) ? event.target.value : 'usage_type';
-                      writeStoredUserStatsGroupBy(providerCode, nextGroupBy);
-                      setSelectedUserStatsGroupBy(nextGroupBy);
-                      setSelectedUserStatsPage(0);
-                      if (selectedBalanceUser?.id) void loadSelectedUserStats(String(selectedBalanceUser.id), 0, nextGroupBy);
-                    }}
-                    sx={{ width: 140 }}
-                  >
-                    <MenuItem value="usage_type">用途</MenuItem>
-                    <MenuItem value="model">模型</MenuItem>
-                    <MenuItem value="day">日期</MenuItem>
-                  </TextField>
-                  <Button
-                    variant="outlined"
-                    disabled={selectedUserStatsLoading || !selectedBalanceUser?.id}
-                    onClick={() => void loadSelectedUserStats(String(selectedBalanceUser?.id || ''), selectedUserStatsPage, selectedUserStatsGroupBy)}
-                    sx={{ height: 40 }}
-                  >
-                    刷新统计
-                  </Button>
-                </Stack>
-                {selectedUserStats ? (
-                  <Alert severity="info">
-                    调用 {formatCount(selectedUserStats.totals?.requestCount)}，输入 {formatCount(selectedUserStats.totals?.inputTokens)}，输出 {formatCount(selectedUserStats.totals?.outputTokens)}，实扣 {formatPoint(selectedUserStats.totals?.chargedAmount, providerCode)}
-                  </Alert>
-                ) : null}
-                {!selectedUserStats?.items.length && !selectedUserStatsLoading ? <Alert severity="info">暂无用量统计</Alert> : null}
-                {selectedUserStats?.items.length ? (
-                  <AdminResponsiveTable minWidth={980}>
-                    <Table size="small">
-                      <TableHead>
-                        <TableRow>
-                          <TableCell>维度</TableCell>
-                          <TableCell>调用数</TableCell>
-                          <TableCell>输入</TableCell>
-                          <TableCell>输出</TableCell>
-                          <TableCell>总量</TableCell>
-                          <TableCell>计费</TableCell>
-                          <TableCell>实扣</TableCell>
-                          <TableCell>平均耗时</TableCell>
-                          <TableCell>最近调用</TableCell>
-                        </TableRow>
-                      </TableHead>
-                      <TableBody>
-                        {selectedUserStats.items.map((row) => (
-                          <TableRow key={String(row.groupKey || row.group_key || row.label || row.model || 'selected-user-stat-row')}>
-                            <TableCell>
-                              <Stack spacing={0}>
-                                <Typography variant="body2" sx={{ fontWeight: 700, lineHeight: 1.2 }}>{String(row.label || row.groupKey || row.group_key || '-')}</Typography>
-                                {row.subLabel ? <Typography variant="caption" color="text.secondary">{String(row.subLabel)}</Typography> : null}
-                              </Stack>
-                            </TableCell>
-                            <TableCell>{formatCount(row.requestCount ?? row.request_count)}</TableCell>
-                            <TableCell>{formatCount(row.inputTokens ?? row.input_tokens)}</TableCell>
-                            <TableCell>{formatCount(row.outputTokens ?? row.output_tokens)}</TableCell>
-                            <TableCell>{formatCount(row.totalTokens ?? row.total_tokens)}</TableCell>
-                            <TableCell>{formatPoint(row.billableAmount ?? row.billable_amount, providerCode)}</TableCell>
-                            <TableCell>{formatPoint(row.chargedAmount ?? row.charged_amount, providerCode)}</TableCell>
-                            <TableCell>{formatCount(row.averageLatencyMs ?? row.average_latency_ms)} ms</TableCell>
-                            <TableCell>{formatTime(row.lastUsedAt ?? row.last_used_at)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </AdminResponsiveTable>
-                ) : null}
-                <TablePagination
-                  component="div"
-                  count={toPageTotal(selectedUserStats?.total)}
-                  page={selectedUserStatsPage}
-                  rowsPerPage={USAGE_STATS_PAGE_SIZE}
-                  rowsPerPageOptions={[USAGE_STATS_PAGE_SIZE]}
-                  labelRowsPerPage="每页"
-                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
-                  onPageChange={(_event, nextPage) => {
-                    setSelectedUserStatsPage(nextPage);
-                    if (selectedBalanceUser?.id) void loadSelectedUserStats(String(selectedBalanceUser.id), nextPage, selectedUserStatsGroupBy);
-                  }}
-                  onRowsPerPageChange={undefined}
-                />
-              </Stack>
-            )}
-          </Stack>
-        </DialogContent>
-      </Dialog>
+      <AdminAiUserUsageDialog
+        open={Boolean(selectedBalanceUser)}
+        user={selectedBalanceUser}
+        providerCode={providerCode}
+        onClose={() => setSelectedBalanceUser(null)}
+        onTransferPoints={async (userId, amount) => {
+          const result = await adminApi.transferAiProviderUserPoints(providerCode, userId, { amount });
+          const balanceAfter = Number(result.balanceAfter);
+          if (Number.isFinite(balanceAfter)) {
+            setSelectedBalanceUser((prev) => prev ? { ...prev, balanceAmount: balanceAfter, balance_amount: balanceAfter } : prev);
+          }
+          await loadUserBalances(userBalancePage, userBalanceRowsPerPage);
+          return result;
+        }}
+        onChanged={() => loadUserBalances(userBalancePage, userBalanceRowsPerPage)}
+      />
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>创建 Key</DialogTitle>
         <DialogContent>

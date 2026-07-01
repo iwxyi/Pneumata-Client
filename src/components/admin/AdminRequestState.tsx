@@ -1,4 +1,4 @@
-import { Alert, Button, LinearProgress, Stack } from '@mui/material';
+import { Alert, Box, Button, LinearProgress, Stack } from '@mui/material';
 
 export function getAdminErrorMessage(error: unknown) {
   if (error instanceof Error && error.message) return error.message;
@@ -15,11 +15,11 @@ export default function AdminRequestState({
   error: string | null;
   onRetry?: () => void;
 }) {
-  if (!loading && !error) return null;
-
   return (
     <Stack spacing={1}>
-      {loading ? <LinearProgress sx={{ borderRadius: 999 }} /> : null}
+      <Box sx={{ height: 4, borderRadius: 999, overflow: 'hidden' }}>
+        {loading ? <LinearProgress sx={{ height: '100%' }} /> : null}
+      </Box>
       {error ? (
         <Alert
           severity="error"

@@ -186,6 +186,8 @@ export function migrateUiStoreState<T extends Record<string, unknown>>(persisted
     rightPanelTab: persisted.rightPanelTab === 'world'
       || persisted.rightPanelTab === 'developer'
       || persisted.rightPanelTab === 'actions'
+      || persisted.rightPanelTab === 'activities'
+      || persisted.rightPanelTab === 'session'
       || persisted.rightPanelTab === 'narrative'
       || persisted.rightPanelTab === 'chapters'
       || persisted.rightPanelTab === 'clues'

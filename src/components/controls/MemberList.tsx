@@ -119,6 +119,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
   const [menuCharId, setMenuCharId] = useState<string | null>(null);
   const [seatDialogOpen, setSeatDialogOpen] = useState(false);
   const showDebugDetails = developerMode && showAdvancedRuntimePanels;
+  const shouldShowMysteryRoleAlias = chat?.sessionKind?.family === 'mystery' || chat?.mode === 'murder_mystery';
 
   const resolvedSeatOrder = useMemo(() => {
     const orderedSeatIds = chat?.scenarioState?.seats
@@ -247,9 +248,9 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
                     minWidth: 0,
                   }}
                 >
-                  {chat?.scenarioState?.mysteryRoleMappingMode === 'role_only'
+                  {shouldShowMysteryRoleAlias && chat?.scenarioState?.mysteryRoleMappingMode === 'role_only'
                     ? (chat.scenarioState?.roleAssignments?.find((item) => item.actorId === member.id)?.summary || member.name)
-                    : chat?.scenarioState?.mysteryRoleMappingMode === 'alias'
+                    : shouldShowMysteryRoleAlias && chat?.scenarioState?.mysteryRoleMappingMode === 'alias'
                       ? `${member.name}（${chat.scenarioState?.roleAssignments?.find((item) => item.actorId === member.id)?.summary || '未分配身份'}）`
                       : member.name}
                 </Typography>

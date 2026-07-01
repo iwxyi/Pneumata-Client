@@ -24,6 +24,11 @@ function getActionSurfaceSx() {
 function getActionButtonLabel(action: SessionActionDefinition) {
   if (action.type === 'start_private_thread') return '创建AI私聊';
   if (action.type === 'apply_calendar_patch_drafts') return '应用草案';
+  if (action.type === 'question_member') return '发起质询';
+  if (action.type === 'submit_evidence') return '提交证据';
+  if (action.type === 'record_verdict') return '记录裁决';
+  if (action.type === 'summarize_discussion') return '生成总结';
+  if (action.type === 'shift_to_synthesis') return '整理结论';
   return '执行动作';
 }
 
@@ -1017,6 +1022,11 @@ function getActionLabel(action: SessionActionDefinition) {
   if (action.type === 'start_private_thread') return '发起AI私聊';
   if (action.type === 'mute_member') return '禁言成员';
   if (action.type === 'unmute_member') return '解除禁言';
+  if (action.type === 'question_member') return '质询成员';
+  if (action.type === 'submit_evidence') return '提交证据';
+  if (action.type === 'record_verdict') return '记录裁决';
+  if (action.type === 'summarize_discussion') return '总结审议';
+  if (action.type === 'shift_to_synthesis') return '结论整理';
   if (action.type === 'wolf_vote') return '夜晚袭击';
   if (action.type === 'inspect_player') return '夜晚查验';
   if (action.type === 'vote_player') return '白天投票';
@@ -1031,6 +1041,11 @@ function getActionHint(action: SessionActionDefinition) {
   if (action.type === 'start_private_thread') return '派生AI私聊或双边互动。';
   if (action.type === 'mute_member') return '暂时禁止指定成员被自动调度发言。';
   if (action.type === 'unmute_member') return '恢复指定成员的自动发言资格。';
+  if (action.type === 'question_member') return '指定成员回应漏洞、证据或责任问题。';
+  if (action.type === 'submit_evidence') return '把补充材料写入审议证据区。';
+  if (action.type === 'record_verdict') return '记录当前阶段判断或裁决倾向。';
+  if (action.type === 'summarize_discussion') return '整理当前审议的观点、证据、分歧和下一步。';
+  if (action.type === 'shift_to_synthesis') return '切到结论整理阶段，之后仍可继续补充观点和总结。';
   if (action.type === 'wolf_vote') return '狼人夜晚协商并选择刀口。';
   if (action.type === 'inspect_player') return '预言家夜晚查验一名目标。';
   if (action.type === 'vote_player') return '白天公开投票并附带理由。';

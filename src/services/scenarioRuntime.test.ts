@@ -31,7 +31,7 @@ function chat(mode: GroupChat['mode'], phase: string): GroupChat {
     sessionKind: {
       topology: 'group',
       family: mode === 'group_discussion' ? 'analysis' : mode === 'interview' ? 'interview' : 'conversation',
-      scenarioId: mode === 'group_discussion' ? 'group-discussion' : mode === 'interview' ? 'panel-interview' : 'open-chat',
+      scenarioId: mode === 'group_discussion' ? 'opinion-review' : mode === 'interview' ? 'panel-interview' : 'open-chat',
       surfaceProfile: 'text',
     },
     scenarioState: { phase },
@@ -71,9 +71,9 @@ function message(): Message {
 }
 
 describe('scenarioRuntime', () => {
-  it('derives discussion move class from discussion phase', () => {
+  it('derives deliberation move class from deliberation phase', () => {
     const runtime = buildScenarioRuntimeDecision({
-      conversation: chat('group_discussion', 'discussion'),
+      conversation: chat('group_discussion', 'deliberation'),
       characters: [],
       messages: [message()],
       speaker: speaker(),

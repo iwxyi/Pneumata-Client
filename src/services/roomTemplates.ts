@@ -2,11 +2,11 @@ import type { ChatStyle, DiscussionMode, GroupChat, RuntimeEvolutionIntensity, S
 import { createDefaultSessionKind } from '../types/chat';
 import roomPresetCatalog from '../data/roomPresetCatalog.json';
 
-export type RoomTemplateStructure = 'free_interaction' | 'story' | 'thinking' | 'creation' | 'training' | 'task' | 'game' | 'simulation';
+export type RoomTemplateStructure = 'free_interaction' | 'story' | 'deliberation' | 'creation' | 'training' | 'task' | 'game' | 'simulation';
 export type RoomTemplateCategory =
   | 'free_chat'
   | 'story'
-  | 'thinking'
+  | 'opinion_review'
   | 'creation'
   | 'training'
   | 'task'
@@ -20,9 +20,12 @@ export type RoomTemplateKey =
   | 'fandom_watch_party'
   | 'tea_roast_lounge'
   | 'slice_of_life_room'
-  | 'group_discussion'
-  | 'roundtable_discussion'
-  | 'debate_arena'
+  | 'opinion_review'
+  | 'roundtable_review'
+  | 'role_debate'
+  | 'courtroom_deliberation'
+  | 'expert_review'
+  | 'public_inquiry'
   | 'brainstorm_workshop'
   | 'retrospective_room'
   | 'story_reader'
@@ -63,7 +66,6 @@ export interface RoomTemplateFieldDefinition {
 }
 
 export interface RoomTemplateDefaults {
-  discussionRoundsTarget?: number;
   discussionMode?: DiscussionMode;
   storyBranchMode?: 'guided' | 'open';
   studyGoalLabel?: string;
@@ -125,7 +127,7 @@ export interface RoomTemplatePreview {
 const ROOM_TEMPLATE_STRUCTURE_LABELS: Record<RoomTemplateStructure, string> = {
   free_interaction: '自由互动',
   story: '故事叙事',
-  thinking: '思考协作',
+  deliberation: '观点审议',
   creation: '创作共创',
   training: '训练模拟',
   task: '任务执行',
@@ -234,31 +236,25 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     ],
   }),
   createTemplate({
-    key: 'group_discussion',
-    label: '开放讨论',
-    description: '适合围绕一个问题听取多角色观点、补充角度并形成阶段性总结。',
-    structure: 'thinking',
-    category: 'thinking',
-    categoryLabel: '思考协作',
-    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'group-discussion', surfaceProfile: 'text', topology: 'group' }),
-    style: 'brainstorm',
+    key: 'opinion_review',
+    label: '观点审议',
+    description: '围绕一个议题建立立场、质询、反驳和阶段判断，适合看清观点、责任或方案漏洞。',
+    presetLabel: '自定义',
+    presetDescription: '不限定审议形态，只保留议题、立场、质询和阶段总结能力。',
+    structure: 'deliberation',
+    category: 'opinion_review',
+    categoryLabel: '观点审议',
+    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text', topology: 'group' }),
+    style: 'debate',
     runtimeEvolutionIntensity: 'balanced',
-    topicPlaceholder: '输入讨论议题，例如：AI 会取代哪些职业？',
-    sellingPoints: ['非固定顺序', '累计AI发言数收束', '适合补充视角'],
-    defaults: { discussionRoundsTarget: 6, discussionMode: 'open', initialPhase: 'discussion', goalLabel: '开放讨论', progressLabel: '发言轮次', allowPrivateThreads: true, allowCliques: true, allowMockery: false },
+    topicPlaceholder: '输入审议议题，例如：是否应该重构推荐系统？',
+    sellingPoints: ['立场可见', '质询反驳', '保留分歧'],
+    defaults: { discussionMode: 'open', initialPhase: 'deliberation', goalLabel: '观点审议', progressLabel: '审议发言', allowPrivateThreads: true, allowCliques: true, allowMockery: false },
     configGroups: [
       {
-        key: 'discussion-required',
-        label: '讨论主设定',
-        description: '这里控制累计 AI 发言数达到多少后自动收束，不限制你继续聊天。填 0 表示一直讨论，之后可手动总结或进入收束。',
-        fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '统计累计 AI 发言数，不是每个角色各发 N 次；填 0 表示不自动收束。' },
-        ],
-      },
-      {
-        key: 'discussion-advanced',
-        label: '讨论风格',
-        description: '这些开关会写入底层能力：私下线程控制角色能否派生 AI 私聊；小圈子和尖锐表达会影响群聊关系与冲突表现。',
+        key: 'deliberation-advanced',
+        label: '审议规则',
+        description: '这些开关会写入底层能力：私下线程控制角色能否派生 AI 私聊；小圈子和尖锐表达会影响立场、质询和关系冲突。',
         fields: [
           { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
           { key: 'allowCliques', label: '允许结盟与小圈子', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
@@ -268,30 +264,22 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     ],
   }),
   createTemplate({
-    key: 'roundtable_discussion',
-    label: '圆桌讨论',
-    description: '强调均衡表达、轮流发言和主持收束，适合展示不同角色立场。',
-    structure: 'thinking',
-    category: 'thinking',
-    categoryLabel: '思考协作',
-    sessionKind: createTemplateSessionKind('group', 'roundtable', { family: 'analysis', scenarioId: 'roundtable-discussion', surfaceProfile: 'text', topology: 'table' }),
+    key: 'roundtable_review',
+    label: '圆桌审议',
+    description: '强调多立场陈述、追问和保留分歧，适合让不同角色公开表达判断。',
+    structure: 'deliberation',
+    category: 'opinion_review',
+    categoryLabel: '观点审议',
+    sessionKind: createTemplateSessionKind('group', 'roundtable', { family: 'analysis', scenarioId: 'roundtable-review', surfaceProfile: 'text', topology: 'table' }),
     style: 'debate',
     runtimeEvolutionIntensity: 'balanced',
-    topicPlaceholder: '输入圆桌议题，例如：未来教育会如何变化？',
-    sellingPoints: ['按席位轮流发言', '跳过被禁言成员', '适合均衡表达'],
-    defaults: { discussionRoundsTarget: 4, discussionMode: 'roundtable', initialPhase: 'roundtable', progressLabel: '圆桌发言', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+    topicPlaceholder: '输入圆桌议题，例如：这次产品方向是否应该调整？',
+    sellingPoints: ['席位立场', '追问分歧', '阶段小结'],
+    defaults: { discussionMode: 'roundtable', initialPhase: 'roundtable', progressLabel: '圆桌发言', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
     configGroups: [
       {
-        key: 'roundtable-required',
-        label: '圆桌主设定',
-        description: '这里控制累计 AI 发言数达到多少后自动收束，不是每个角色各发 N 次。填 0 表示一直按席位轮流讨论。',
-        fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '圆桌按席位顺序选择下一位 AI；该数值统计累计 AI 发言数。填 0 表示不自动收束。' },
-        ],
-      },
-      {
         key: 'roundtable-advanced',
-        label: '圆桌规则',
+        label: '圆桌审议规则',
         description: '圆桌默认更克制；需要角色私下交换观点时可以打开私下线程。',
         fields: [
           { key: 'allowPrivateThreads', label: '允许私下线程', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
@@ -300,30 +288,22 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     ],
   }),
   createTemplate({
-    key: 'debate_arena',
-    label: '观点攻防',
-    description: '适合围绕争议命题分配立场、交替反驳并检验观点强弱。',
-    structure: 'thinking',
-    category: 'thinking',
-    categoryLabel: '思考协作',
-    sessionKind: createTemplateSessionKind('group', 'roundtable', { family: 'analysis', scenarioId: 'debate-arena', surfaceProfile: 'text', topology: 'table' }),
+    key: 'role_debate',
+    label: '角色辩论',
+    description: '围绕争议命题分配正反和评审席位，交替反驳并检验观点强弱。',
+    structure: 'deliberation',
+    category: 'opinion_review',
+    categoryLabel: '观点审议',
+    sessionKind: createTemplateSessionKind('group', 'roundtable', { family: 'analysis', scenarioId: 'role-debate', surfaceProfile: 'text', topology: 'table' }),
     style: 'debate',
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入正反命题，例如：AI 应该拥有法律人格吗？',
-    sellingPoints: ['按席位轮流攻防', '自动分配正反/评审', '适合争议命题'],
-    defaults: { discussionRoundsTarget: 5, discussionMode: 'debate', initialPhase: 'debate', goalLabel: '观点攻防', progressLabel: '攻防轮次', allowPrivateThreads: false, allowCliques: true, allowMockery: true },
+    sellingPoints: ['正反攻防', '评审席位', '立场变化'],
+    defaults: { discussionMode: 'debate', initialPhase: 'debate', goalLabel: '角色辩论', progressLabel: '攻防进度', allowPrivateThreads: false, allowCliques: true, allowMockery: true },
     configGroups: [
       {
-        key: 'debate-required',
-        label: '辩论主设定',
-        description: '这里控制累计 AI 发言数达到多少后自动收束。填 0 表示持续攻防，直到你手动总结或进入收束。',
-        fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '辩论按席位顺序推进正反/评审发言；该数值统计累计 AI 发言数。填 0 表示不自动收束。' },
-        ],
-      },
-      {
         key: 'debate-advanced',
-        label: '辩论规则',
+        label: '角色辩论规则',
         description: '结盟会让角色更容易形成阵营；尖锐交锋会提高反驳、质疑和冲突表达强度。',
         fields: [
           { key: 'allowCliques', label: '允许结盟', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
@@ -333,9 +313,62 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     ],
   }),
   createTemplate({
+    key: 'courtroom_deliberation',
+    label: '法庭攻防',
+    description: '以原告、被告、证人和法官席位审查证据、责任和裁决倾向。',
+    structure: 'deliberation',
+    category: 'opinion_review',
+    categoryLabel: '观点审议',
+    sessionKind: createTemplateSessionKind('group', 'roundtable', { family: 'analysis', scenarioId: 'courtroom-deliberation', surfaceProfile: 'text', topology: 'table' }),
+    style: 'debate',
+    runtimeEvolutionIntensity: 'balanced',
+    topicPlaceholder: '输入案件或争议，例如：谁该为项目延期负责？',
+    sellingPoints: ['证据质询', '责任判断', '阶段裁决'],
+    defaults: { discussionMode: 'courtroom', initialPhase: 'courtroom', goalLabel: '法庭攻防', progressLabel: '质询进度', allowPrivateThreads: false, allowCliques: true, allowMockery: false },
+    configGroups: [
+      {
+        key: 'courtroom-deliberation-advanced',
+        label: '法庭攻防规则',
+        description: '法庭攻防默认更重证据和责任判断，允许偏袒时角色关系会影响采信和质询强度。',
+        fields: [
+          { key: 'allowCliques', label: '允许偏袒和站队', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowMockery', label: '允许尖锐追问', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+        ],
+      },
+    ],
+  }),
+  createTemplate({
+    key: 'expert_review',
+    label: '专家评审',
+    description: '让不同专业角色按标准评估方案、指出风险并给出修改建议。',
+    structure: 'deliberation',
+    category: 'opinion_review',
+    categoryLabel: '观点审议',
+    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'expert-review', surfaceProfile: 'text', topology: 'group' }),
+    style: 'debate',
+    runtimeEvolutionIntensity: 'balanced',
+    topicPlaceholder: '输入要评审的方案，例如：新版创作工坊 MVP 设计',
+    sellingPoints: ['多标准评估', '风险指出', '修改建议'],
+    defaults: { discussionMode: 'expert_review', initialPhase: 'expert_review', goalLabel: '专家评审', progressLabel: '评审进度', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
+  }),
+  createTemplate({
+    key: 'public_inquiry',
+    label: '公开质询',
+    description: '指定一个角色、方案或事件接受多方追问，集中回应漏洞和责任。',
+    structure: 'deliberation',
+    category: 'opinion_review',
+    categoryLabel: '观点审议',
+    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'public-inquiry', surfaceProfile: 'text', topology: 'group' }),
+    style: 'debate',
+    runtimeEvolutionIntensity: 'fast',
+    topicPlaceholder: '输入质询对象和焦点，例如：让项目负责人解释延期原因',
+    sellingPoints: ['集中追问', '回应漏洞', '责任澄清'],
+    defaults: { discussionMode: 'public_inquiry', initialPhase: 'public_inquiry', goalLabel: '公开质询', progressLabel: '质询进度', allowPrivateThreads: false, allowCliques: true, allowMockery: true },
+  }),
+  createTemplate({
     key: 'brainstorm_workshop',
-    label: '创意生成',
-    description: '适合灵感发散、点子扩展、候选方案生成和后期筛选。',
+    label: '产品脑暴',
+    description: '作为创作工坊能力使用：围绕产物生成候选、扩展变体并沉淀后续筛选方向。',
     structure: 'creation',
     category: 'creation',
     categoryLabel: '创作共创',
@@ -343,50 +376,32 @@ const ROOM_TEMPLATE_KERNELS: RoomTemplateDefinition[] = [
     style: 'brainstorm',
     runtimeEvolutionIntensity: 'fast',
     topicPlaceholder: '输入创意主题，例如：设计一个未来校园产品',
-    sellingPoints: ['非固定顺序', '每轮多点子', '适合发散共创'],
-    defaults: { discussionRoundsTarget: 8, discussionMode: 'brainstorm', initialPhase: 'brainstorm', goalLabel: '创意生成', progressLabel: '点子轮次', allowPrivateThreads: true, allowCliques: false, allowMockery: false },
+    sellingPoints: ['自由接力', '多点子发散', '适合共创筛选'],
+    defaults: { discussionMode: 'brainstorm', initialPhase: 'brainstorm', goalLabel: '创意生成', progressLabel: '点子进展', allowPrivateThreads: true, allowCliques: false, allowMockery: false },
     configGroups: [
-      {
-        key: 'brainstorm-required',
-        label: '共创主设定',
-        description: '这里控制累计 AI 发言数达到多少后自动收束。填 0 表示一直发散，后续再手动总结筛选。',
-        fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '统计累计 AI 发言数，不是每个角色各发 N 次；填 0 表示不自动收束。' },
-        ],
-      },
       {
         key: 'brainstorm-advanced',
         label: '共创规则',
-        description: '私下小组讨论允许角色派生小范围思路碰撞；默认关闭评价冲突，优先发散。',
+        description: '私下小组允许角色派生小范围思路碰撞；默认关闭评价冲突，优先发散。',
         fields: [
-          { key: 'allowPrivateThreads', label: '允许私下小组讨论', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
+          { key: 'allowPrivateThreads', label: '允许私下小组', kind: 'single_select', advanced: true, options: [{ label: '允许', value: 'true' }, { label: '关闭', value: 'false' }] },
         ],
       },
     ],
   }),
   createTemplate({
     key: 'retrospective_room',
-    label: '复盘改进',
-    description: '适合回顾已发生事件，沉淀事实、原因、经验和行动项。',
-    structure: 'thinking',
-    category: 'thinking',
-    categoryLabel: '思考协作',
-    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'retrospective-room', surfaceProfile: 'text', topology: 'group' }),
+    label: '任务复盘',
+    description: '作为训练与任务能力使用：回顾已发生事件，沉淀事实、原因、经验和行动项。',
+    structure: 'training',
+    category: 'training',
+    categoryLabel: '训练模拟',
+    sessionKind: createTemplateSessionKind('group', 'group_discussion', { family: 'analysis', scenarioId: 'task-retrospective', surfaceProfile: 'text', topology: 'group' }),
     style: 'debate',
     runtimeEvolutionIntensity: 'slow',
     topicPlaceholder: '输入要复盘的项目、活动或结果',
-    sellingPoints: ['非固定顺序', '事实/原因/行动项', '适合复盘改进'],
-    defaults: { discussionRoundsTarget: 4, discussionMode: 'retrospective', initialPhase: 'retrospective', goalLabel: '复盘改进', progressLabel: '复盘轮次', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
-    configGroups: [
-      {
-        key: 'retrospective-required',
-        label: '复盘主设定',
-        description: '这里控制累计 AI 发言数达到多少后自动收束。填 0 表示持续复盘，直到你手动总结行动项。',
-        fields: [
-          { key: 'discussionRoundsTarget', label: '自动收束发言数', kind: 'number', helperText: '统计累计 AI 发言数，不是每个角色各发 N 次；填 0 表示不自动收束。' },
-        ],
-      },
-    ],
+    sellingPoints: ['开放复盘', '事实/原因/行动项', '适合改进沉淀'],
+    defaults: { discussionMode: 'retrospective', initialPhase: 'retrospective', goalLabel: '复盘改进', progressLabel: '复盘进展', allowPrivateThreads: false, allowCliques: false, allowMockery: false },
   }),
   createTemplate({
     key: 'ielts_coach',
@@ -804,11 +819,12 @@ export function getRoomTemplateKernel(templateOrKey: RoomTemplateDefinition | Ro
 
 const PUBLIC_ROOM_TEMPLATE_KERNEL_KEYS = new Set<RoomTemplateKey>([
   'open_chat',
-  'group_discussion',
-  'roundtable_discussion',
-  'debate_arena',
-  'brainstorm_workshop',
-  'retrospective_room',
+  'opinion_review',
+  'roundtable_review',
+  'role_debate',
+  'courtroom_deliberation',
+  'expert_review',
+  'public_inquiry',
   'story_reader',
 ]);
 

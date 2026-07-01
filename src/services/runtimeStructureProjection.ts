@@ -24,7 +24,11 @@ function projectScenarioRows(chat: GroupChat, members: AICharacter[], language: 
   const rows: RuntimeStructureRow[] = [];
   if (roleSummary) rows.push({ key: 'roles', label: '角色位', value: roleSummary });
   if (factionSummary) rows.push({ key: 'factions', label: '阵营', value: factionSummary });
-  if (scenario.currentTurnActorId) rows.push({ key: 'currentTurn', label: '当前轮次', value: members.find((item) => item.id === scenario.currentTurnActorId)?.name || '成员' });
+  if (scenario.currentTurnActorId) rows.push({
+    key: 'currentTurn',
+    label: chat.sessionKind?.family === 'analysis' ? '当前发言' : '当前轮次',
+    value: members.find((item) => item.id === scenario.currentTurnActorId)?.name || '成员',
+  });
   return rows;
 }
 

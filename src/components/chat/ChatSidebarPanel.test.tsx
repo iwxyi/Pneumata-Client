@@ -205,18 +205,33 @@ function buildStoryChat(): GroupChat {
 function buildDiscussionChat(): GroupChat {
   return {
     ...buildStoryChat(),
-    id: 'discussion-chat',
+    id: 'deliberation-chat',
     mode: 'group_discussion',
-    sessionKind: { family: 'analysis', scenarioId: 'group-discussion', surfaceProfile: 'text', topology: 'group' },
-    name: '讨论房',
+    sessionKind: { family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text', topology: 'group' },
+    name: '观点审议',
     topic: `${uuidA} 是否要重构推荐系统`,
     scenarioState: {
       phase: 'synthesis',
       discussionMode: 'open',
       goals: [{ goalId: 'discussion-goal', label: `${uuidA} 是否要重构推荐系统`, status: 'active', progress: 1 }],
-      progress: [{ key: 'speeches', label: '发言轮次', value: 3, target: 4 }],
+      progress: [{ key: 'speeches', label: '审议发言', value: 3, target: 4 }],
+      roleAssignments: [
+        { actorId: uuidA, roleId: 'affirmative' },
+        { actorId: uuidB, roleId: 'negative' },
+      ],
+      currentTurnActorId: uuidB,
       summaryText: `${uuidA} 建议先拆召回层，${uuidB} 担心排序链路风险。`,
     },
+    runtimeEventsV2: [{
+      id: 'evt-deliberation-inquiry',
+      conversationId: 'deliberation-chat',
+      kind: 'director_intervention',
+      createdAt: 3,
+      targetIds: [uuidB],
+      summary: `审议质询 → 对象：${uuidB} 请回应排序风险`,
+      visibility: 'public',
+      payload: {},
+    }],
   };
 }
 
@@ -239,15 +254,43 @@ async function renderPanel(rightPanelTab: string, chat: GroupChat = buildStoryCh
 }
 
 describe('ChatSidebarPanel story room panels', () => {
-  it('renders discussion phase and summary in the runtime sidebar without raw ids', async () => {
+  it('renders deliberation phase and summary in the runtime sidebar without raw ids', async () => {
     const html = await renderPanel('world', buildDiscussionChat());
 
-    expect(html).toContain('阶段 总结收束');
+    expect(html).toContain('阶段 结论整理');
     expect(html).toContain('议题 林医生 是否要重构推荐系统');
-    expect(html).toContain('自动收束发言 3/4');
-    expect(html).toContain('讨论总结 林医生 建议先拆召回层，护士 担心排序链路风险。');
+    expect(html).toContain('审议席位 林医生：正方 / 护士：反方');
+    expect(html).toContain('当前发言 护士');
+    expect(html).toContain('最新质询 护士');
+    expect(html).toContain('审议发言 3/4');
+    expect(html).toContain('审议总结 林医生 建议先拆召回层，护士 担心排序链路风险。');
     expect(html).not.toContain(uuidA);
     expect(html).not.toContain(uuidB);
+  });
+
+  it('renders session-specific panel as the first ordinary chat tab', async () => {
+    const { default: ChatSidebarPanel } = await import('./ChatSidebarPanel');
+    const html = renderToStaticMarkup(
+      <ChatSidebarPanel
+        chat={buildDiscussionChat()}
+        members={[buildCharacter(uuidA, '林医生'), buildCharacter(uuidB, '护士')]}
+        messages={[]}
+        thinkingId={null}
+        rightPanelTab="session"
+        setRightPanelTab={() => undefined}
+        showSessionTab
+        sessionPanelTitle="审议"
+        sessionPanel={<div>审议动作表单</div>}
+        showMemberTab
+        showRuntimeTab
+        privatePayloads={[]}
+        onSpeakAs={() => undefined}
+      />,
+    );
+
+    expect(html.indexOf('审议')).toBeGreaterThanOrEqual(0);
+    expect(html.indexOf('审议')).toBeLessThan(html.indexOf('成员 2'));
+    expect(html).toContain('审议动作表单');
   });
 
   it('uses story-specific tabs instead of ordinary group chat tabs', async () => {

@@ -104,8 +104,8 @@ export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
   },
   {
     key: 'official-moacode',
-    label: '官方2（Moacode）',
-    family: 'Pneumata Moacode',
+    label: '官方2（Claude/GPT）',
+    family: 'Pneumata Claude/GPT',
     defaults: {
       text: { baseUrl: '/api/ai', model: 'gpt-5.5' },
       document: { baseUrl: '/api/ai', model: 'gpt-5.5' },

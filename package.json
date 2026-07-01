@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:admin-browser-smoke": "node scripts/admin-browser-smoke.mjs",
+    "test:deliberation-browser-smoke": "node scripts/deliberation-browser-smoke.mjs",
     "test:message-branching-browser-smoke": "node scripts/message-branching-browser-smoke.mjs",
     "test:story-browser-smoke": "node scripts/story-room-browser-smoke.mjs",
     "test:story-llm-acceptance": "node scripts/story-llm-acceptance.mjs",

@@ -1202,7 +1202,11 @@ export function buildProjectedChatDetailState(params: {
         ? 'chapters'
         : (showRuntimeTab && params.rightPanelTab === 'world')
           ? 'world'
-          : showActionTab ? 'actions' : showRuntimeTab ? 'world' : 'members';
+          : (showActionTab && (params.rightPanelTab === 'activities' || params.rightPanelTab === 'actions'))
+            ? 'activities'
+            : (params.rightPanelTab === 'session')
+              ? 'session'
+              : showActionTab ? 'actions' : showRuntimeTab ? 'world' : 'members';
   return {
     memberPanel,
     runtimePanel,

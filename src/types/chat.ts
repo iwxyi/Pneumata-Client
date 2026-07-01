@@ -87,7 +87,50 @@ export interface ScenarioProgressState {
   target?: number;
 }
 
-export type DiscussionMode = 'open' | 'roundtable' | 'debate' | 'brainstorm' | 'retrospective';
+export type DiscussionMode = 'open' | 'roundtable' | 'debate' | 'courtroom' | 'expert_review' | 'public_inquiry' | 'brainstorm' | 'retrospective';
+
+export interface ScenarioDeliberationClaimState {
+  id: string;
+  actorId?: string | null;
+  stance?: 'support' | 'oppose' | 'neutral' | 'review' | 'inquiry';
+  text: string;
+  sourceMessageId?: string;
+  createdAt?: number;
+}
+
+export interface ScenarioDeliberationEvidenceState {
+  id: string;
+  actorId?: string | null;
+  text: string;
+  sourceMessageId?: string;
+  createdAt?: number;
+}
+
+export interface ScenarioDeliberationIssueState {
+  id: string;
+  targetActorId?: string | null;
+  text: string;
+  status?: 'open' | 'answered' | 'deferred';
+  sourceMessageId?: string;
+  createdAt?: number;
+}
+
+export interface ScenarioDeliberationVerdictState {
+  id: string;
+  actorId?: string | null;
+  text: string;
+  tendency?: 'support' | 'oppose' | 'mixed' | 'undecided';
+  sourceMessageId?: string;
+  createdAt?: number;
+}
+
+export interface ScenarioDeliberationMomentumState {
+  support: number;
+  oppose: number;
+  inquiry: number;
+  review: number;
+  label?: string;
+}
 
 export interface ScenarioBranchState {
   branchId: string;
@@ -173,6 +216,11 @@ export interface ScenarioState {
   phase?: string;
   discussionMode?: DiscussionMode;
   summaryText?: string;
+  deliberationClaims?: ScenarioDeliberationClaimState[];
+  deliberationEvidence?: ScenarioDeliberationEvidenceState[];
+  deliberationIssues?: ScenarioDeliberationIssueState[];
+  deliberationVerdicts?: ScenarioDeliberationVerdictState[];
+  deliberationMomentum?: ScenarioDeliberationMomentumState;
   goals?: ScenarioGoalState[];
   progress?: ScenarioProgressState[];
   branches?: ScenarioBranchState[];
@@ -389,7 +437,7 @@ export function createDefaultSessionKind(type: ConversationType, mode: Conversat
     return { topology: type === 'group' ? 'group' : 'direct', family: 'interview', scenarioId: 'panel-interview', surfaceProfile: 'form' };
   }
   if (mode === 'group_discussion' || mode === 'roundtable') {
-    return { topology: type === 'group' ? 'group' : 'team', family: 'analysis', scenarioId: mode === 'roundtable' ? 'roundtable-discussion' : 'group-discussion', surfaceProfile: 'text' };
+    return { topology: type === 'group' ? 'group' : 'team', family: 'analysis', scenarioId: mode === 'roundtable' ? 'roundtable-review' : 'opinion-review', surfaceProfile: 'text' };
   }
   if (mode === 'classroom') {
     return { topology: type === 'group' ? 'group' : 'direct', family: 'study', scenarioId: 'ielts-coach', surfaceProfile: 'form' };
