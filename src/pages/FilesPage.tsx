@@ -96,7 +96,8 @@ export default function FilesPage() {
     // around older messages before resolving the explicit scroll request.
     if (menuItem.createdAt && menuItem.messageId) params.set('aroundTimestamp', String(menuItem.createdAt));
     const query = params.toString();
-    navigate(`/chats/${encodeURIComponent(menuItem.chatId)}${query ? `?${query}` : ''}`);
+    const target = `/chats/${encodeURIComponent(menuItem.chatId)}${query ? `?${query}` : ''}`;
+    window.open(target, '_blank', 'noopener,noreferrer');
     setMenuAnchor(null);
     setMenuItem(null);
   };

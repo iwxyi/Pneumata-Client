@@ -5,6 +5,7 @@ import type { SystemStyleObject } from '@mui/system';
 export type AnimatedNavIconKind =
   | 'home'
   | 'chats'
+  | 'files'
   | 'characters'
   | 'moments'
   | 'market'
@@ -438,6 +439,13 @@ function iconPaths(kind: AnimatedNavIconKind) {
           <circle className="nav-dot typing-a" cx="8.7" cy="10.8" r="0.68" />
           <circle className="accent nav-dot typing-b" cx="12" cy="10.8" r="0.68" />
           <circle className="nav-dot typing-c" cx="15.3" cy="10.8" r="0.68" />
+        </>
+      );
+    case 'files':
+      return (
+        <>
+          <path className="surface" d="M5.2 7.2h5l1.7 1.8h7.1v8.3c0 1-.8 1.8-1.8 1.8H7c-1 0-1.8-.8-1.8-1.8Z" />
+          <path className="accent" d="M5.2 9h13.6M8.2 12.4h7.6M8.2 15.2h5.2" />
         </>
       );
     case 'characters':

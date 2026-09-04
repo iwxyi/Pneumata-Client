@@ -37,7 +37,7 @@ const navSections: NavItem[][] = [
     { path: '/', iconKind: 'home', labelKey: 'nav.home' },
     { path: '/chats', iconKind: 'chats', labelKey: 'nav.chats' },
     { path: '/characters', iconKind: 'characters', labelKey: 'nav.characters' },
-    { path: '/files', iconKind: 'market', labelKey: 'nav.files' },
+    { path: '/files', iconKind: 'files', labelKey: 'nav.files' },
   ],
   [
     { path: '/moments', iconKind: 'moments', labelKey: 'nav.moments' },
