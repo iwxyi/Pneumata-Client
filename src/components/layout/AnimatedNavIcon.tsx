@@ -338,6 +338,16 @@ const iconSx: SystemStyleObject<Theme> = {
     transformOrigin: '12px 13px',
     animation: 'navFilesLift 1.6s ease-in-out infinite',
   },
+  '&.PneumataNavIcon-files .files-folder .surface': {
+    stroke: 'currentColor',
+    strokeWidth: 1.45,
+    opacity: 0.92,
+  },
+  '&.PneumataNavIcon-files .files-line': {
+    stroke: 'currentColor',
+    strokeWidth: 1.35,
+    opacity: 0.78,
+  },
   '& .files-tab': {
     animation: 'navFilesTab 1.6s ease-in-out infinite',
   },
