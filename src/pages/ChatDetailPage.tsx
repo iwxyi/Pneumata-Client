@@ -22,6 +22,7 @@ import { useMessageStore } from '../stores/useMessageStore';
 import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
+import { useLocalWorkspaceStore } from '../stores/useLocalWorkspaceStore';
 import { type DriverMessageCommitResult, type GroupChat, type MessageBranchState, type StoryChapterState } from '../types/chat';
 import MessageList, { type MessageListScrollPosition, type MessageListScrollRequest } from '../components/chat/MessageList';
 import type { NarrativeStoryChoiceOption } from '../components/chat/messageBubblePresentation';
@@ -792,6 +793,28 @@ export default function ChatDetailPage() {
   const upsertMessages = useMessageStore((state) => state.upsertMessages);
   const deleteMessage = useMessageStore((state) => state.deleteMessage);
   const withdrawMessage = useMessageStore((state) => state.withdrawMessage);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' | 'info' }>({ open: false, message: '', severity: 'error' });
+  const confirmWorkspaceMutationPlan = useCallback(async (message: Message) => {
+    const plan = message.metadata?.workspaceMutationPlan;
+    if (!plan || plan.status !== 'pending') return;
+    const workspace = useLocalWorkspaceStore.getState();
+    const directory = workspace.directories.find((item) => item.id === plan.directoryId);
+    if (!directory) {
+      setSnackbar({ open: true, message: '找不到对应的授权工作区，请重新授权。', severity: 'error' });
+      return;
+    }
+    const { confirmAndApplyLocalWorkspaceMutationPlan } = await import('../services/localWorkspaceService');
+    try {
+      const result = await confirmAndApplyLocalWorkspaceMutationPlan({ plan, directory });
+      upsertMessage({ ...message, metadata: { ...(message.metadata || {}), workspaceMutationPlan: { ...plan, status: 'confirmed', result: { applied: result.applied, failed: Math.max(0, result.planned - result.applied) } } } });
+      setSnackbar({ open: true, message: `工作区变更已执行：${result.applied}/${result.planned} 项。`, severity: result.applied === result.planned ? 'success' : 'info' });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const expired = /过期/.test(reason);
+      upsertMessage({ ...message, metadata: { ...(message.metadata || {}), workspaceMutationPlan: { ...plan, status: expired ? 'expired' : 'rejected', result: { applied: 0, failed: plan.mutations.length, error: reason } } } });
+      setSnackbar({ open: true, message: expired ? '工作区变更计划已过期，请重新发起操作。' : `工作区变更未执行：${reason}`, severity: 'error' });
+    }
+  }, [setSnackbar, upsertMessage]);
   const hasMore = useMessageStore((state) => state.hasMore);
   const hasMoreNewer = useMessageStore((state) => state.hasMoreNewer);
   const isLoading = useMessageStore((state) => state.isLoading);
@@ -812,7 +835,6 @@ export default function ChatDetailPage() {
   const chatShareAvailable = authMode === 'cloud' && currentUser?.chatShareEntitled === true;
   const isRemoteDeletedChat = Boolean(id && remoteDeletedChatIds.includes(id));
 
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' | 'info' }>({ open: false, message: '', severity: 'error' });
   const [detailBootstrapComplete, setDetailBootstrapComplete] = useState(false);
   const [sidebarMessagesReady, setSidebarMessagesReady] = useState(false);
   const [profilePreview, setProfilePreview] = useState<ProfilePreviewState | null>(null);
@@ -2725,6 +2747,9 @@ export default function ChatDetailPage() {
       void updateChat(id, {
         modeState: {
           ...chat.modeState,
+          agentCapabilities: {
+            ...(chat.modeState.agentCapabilities || {}), enabled: true, chatArtifactRead: true, chatArtifactWrite: true, fileUpload: true, fileDownload: true, workspaceRead: true, updatedAt: Date.now(),
+          },
           assistantCapabilities: {
             ...chat.modeState.assistantCapabilities,
             agent: true,
@@ -3927,6 +3952,7 @@ export default function ChatDetailPage() {
             onOpenHtmlFullscreen={chat && (isAssistantChat || hasRoomCapability(chat, 'html-interactive')) ? handleOpenAssistantHtmlFullscreen : undefined}
             onHtmlAutosave={(isAssistantChat || isLearningProgressRoom) && !chatInteractionDisabled ? handleHtmlAutosave : undefined}
             onHtmlSubmit={(isAssistantChat || isLearningProgressRoom) && !chatInteractionDisabled ? handleHtmlSubmit : undefined}
+            onConfirmWorkspaceMutationPlan={!chatInteractionDisabled ? confirmWorkspaceMutationPlan : undefined}
             selfMemberId={effectiveAiDirectPerspectiveMemberId}
             onReachTop={handleNearTop}
             onReachBottom={handleNearBottom}
@@ -4097,7 +4123,7 @@ export default function ChatDetailPage() {
         </Suspense>
       ) : null}
 
-      {chatInteractionDisabled || ((isAssistantChat || isLearningProgressRoom) && !rightPanelOpen) ? null : <RightPanel
+      {chatInteractionDisabled || ((isAssistantChat || isLearningProgressRoom || chat?.modeState.agentCapabilities?.enabled) && !rightPanelOpen) ? null : <RightPanel
         title={isAssistantChat ? '助手能力' : isLearningProgressRoom ? '学习资料' : sidebarTitle}
         hideMobileTitle
         desktopMaxWidth={isSplitDetailPane ? 340 : 420}
@@ -4119,7 +4145,7 @@ export default function ChatDetailPage() {
           {!isLearningProgressRoom ? <SessionInfoCards cards={globalSessionInfoCards} onOpenChat={(chatId) => navigate(`/chats/${chatId}`)} /> : null}
           <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <LazyPanel>
-            {isAssistantChat || isLearningProgressRoom ? (
+            {isAssistantChat || isLearningProgressRoom || chat?.modeState.agentCapabilities?.enabled ? (
                 <Suspense fallback={<LoadingState title="正在加载" compact />}>
                   <AssistantAgentPanel
                     chat={chat}
@@ -4133,6 +4159,9 @@ export default function ChatDetailPage() {
                       void updateChat(chat.id, {
                         modeState: {
                           ...chat.modeState,
+                          agentCapabilities: {
+                            ...(chat.modeState.agentCapabilities || {}), enabled, chatArtifactRead: enabled, chatArtifactWrite: enabled, fileUpload: enabled, fileDownload: enabled, workspaceRead: enabled, updatedAt: Date.now(),
+                          },
                           assistantCapabilities: {
                             ...(chat.modeState.assistantCapabilities || {}),
                             agent: enabled,
