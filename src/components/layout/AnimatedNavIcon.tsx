@@ -179,6 +179,18 @@ const iconSx: SystemStyleObject<Theme> = {
     '0%, 100%': { transform: 'translate(0, 0)' },
     '50%': { transform: 'translate(0.55px, 0.2px)' },
   },
+  '@keyframes navFilesLift': {
+    '0%, 100%': { transform: 'translateY(0)' },
+    '48%': { transform: 'translateY(-1px)' },
+  },
+  '@keyframes navFilesTab': {
+    '0%, 100%': { transform: 'translateX(0)', opacity: 0.72 },
+    '50%': { transform: 'translateX(0.8px)', opacity: 1 },
+  },
+  '@keyframes navFilesLine': {
+    '0%, 100%': { strokeDashoffset: 0, opacity: 0.72 },
+    '45%': { strokeDashoffset: -2.5, opacity: 1 },
+  },
   '@keyframes navMarketHandle': {
     '0%, 100%': { transform: 'translateY(0)' },
     '45%': { transform: 'translateY(-1px)' },
@@ -321,6 +333,18 @@ const iconSx: SystemStyleObject<Theme> = {
   '& .market-handle': {
     animation: 'navMarketHandle 1.45s ease-in-out infinite',
   },
+  '& .files-folder': {
+    transformBox: 'view-box',
+    transformOrigin: '12px 13px',
+    animation: 'navFilesLift 1.6s ease-in-out infinite',
+  },
+  '& .files-tab': {
+    animation: 'navFilesTab 1.6s ease-in-out infinite',
+  },
+  '& .files-line': {
+    strokeDasharray: 12,
+    animation: 'navFilesLine 1.6s ease-in-out infinite',
+  },
   '& .mark-draw': {
     animation: 'navMarkDraw 1.45s ease-in-out infinite',
   },
@@ -444,8 +468,11 @@ function iconPaths(kind: AnimatedNavIconKind) {
     case 'files':
       return (
         <>
-          <path className="surface" d="M5.2 7.2h5l1.7 1.8h7.1v8.3c0 1-.8 1.8-1.8 1.8H7c-1 0-1.8-.8-1.8-1.8Z" />
-          <path className="accent" d="M5.2 9h13.6M8.2 12.4h7.6M8.2 15.2h5.2" />
+          <g className="files-folder">
+            <path className="surface" d="M4.8 8.3c0-1 .8-1.8 1.8-1.8h4l1.5 1.8h5.3c1 0 1.8.8 1.8 1.8v6.4c0 1-.8 1.8-1.8 1.8H6.6c-1 0-1.8-.8-1.8-1.8Z" />
+            <path className="accent files-tab" d="M4.8 9.2h14.4" />
+            <path className="muted files-line" d="M8.2 12.4h7.3M8.2 15.1h5.1" />
+          </g>
         </>
       );
     case 'characters':
