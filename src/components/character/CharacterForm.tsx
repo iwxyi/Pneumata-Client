@@ -384,6 +384,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [modelConfigExpanded, setModelConfigExpanded] = useState(false);
   const [coreProfileExpanded, setCoreProfileExpanded] = useState(false);
   const [visualIdentityExpanded, setVisualIdentityExpanded] = useState(true);
+  const [voiceIdentityExpanded, setVoiceIdentityExpanded] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [generatingVisualDescription, setGeneratingVisualDescription] = useState(false);
@@ -1565,12 +1566,8 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '语音形象' : 'Voice identity'}</Typography>
               <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '为这个角色设置专属音色与说话语气，聊天气泡可按需播放。' : 'Set this character’s voice and delivery for on-demand playback.'}</Typography>
             </Box>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-              <Button size="small" variant="text" startIcon={generatingVoiceProfile ? <CircularProgress size={14} /> : <AutoAwesomeIcon fontSize="small" />} onClick={() => void handleGenerateVoiceProfile()} disabled={generatingVoiceProfile}>
-                {i18n.language.startsWith('zh') ? '生成语音形象' : 'Generate voice identity'}
-              </Button>
-            </Box>
           </Box>
+          <Collapse in={voiceIdentityExpanded}>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(4, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: 0.75 }}>
             <TextField select size="small" label={i18n.language.startsWith('zh') ? '性别' : 'Gender'} value={voiceConfig.voiceProfile?.gender || 'unknown'} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, voiceProfile: { ...(prev.voiceProfile || {}), gender: e.target.value as 'female' | 'male' | 'neutral' | 'unknown' } }))} sx={{ minWidth: 0 }}>
               <MenuItem value="unknown">{i18n.language.startsWith('zh') ? '未指定' : 'Unspecified'}</MenuItem>
@@ -1611,6 +1608,15 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             <TextField size="small" label={i18n.language.startsWith('zh') ? '语音指令' : 'Voice instructions'} placeholder={i18n.language.startsWith('zh') ? '如：自然、亲切，避免播音腔' : 'e.g. natural and warm, avoid announcer voice'} helperText={i18n.language.startsWith('zh') ? '传给支持语音指令的 TTS，不支持的平台会忽略' : 'Used by TTS providers that support instructions'} value={voiceConfig.instructions || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, instructions: e.target.value }))} />
           </Box>
           {voiceAssignmentError ? <Typography variant="caption" color="warning.main">{voiceAssignmentError}</Typography> : null}
+          </Collapse>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+            <Button size="small" variant="outlined" startIcon={generatingVoiceProfile ? <CircularProgress size={14} /> : <AutoAwesomeIcon fontSize="small" />} onClick={() => void handleGenerateVoiceProfile()} disabled={generatingVoiceProfile}>
+              {generatingVoiceProfile ? (i18n.language.startsWith('zh') ? '生成中' : 'Generating') : (i18n.language.startsWith('zh') ? '生成' : 'Generate')}
+            </Button>
+            <Button size="small" onClick={() => setVoiceIdentityExpanded((prev) => !prev)} endIcon={voiceIdentityExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}>
+              {voiceIdentityExpanded ? (i18n.language.startsWith('zh') ? '收起' : 'Collapse') : (i18n.language.startsWith('zh') ? '展开' : 'Expand')}
+            </Button>
+          </Box>
         </CardContent>
       </Card>
 

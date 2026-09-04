@@ -2,7 +2,22 @@ import type { CompanionshipRuntimeTrace } from './companionship';
 
 export type MessageType = 'ai' | 'user' | 'system' | 'god' | 'event';
 
-export type MessageAttachmentKind = 'image' | 'audio' | 'sticker';
+export type MessageAttachmentKind = 'image' | 'audio' | 'sticker' | 'file';
+export type ChatFileSource = 'message_upload' | 'chat_artifact' | 'workspace_file' | 'generated_file';
+
+export interface ChatFileAttachment {
+  id: string;
+  source: ChatFileSource;
+  name: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  url?: string;
+  textContent?: string;
+  workspaceId?: string;
+  relativePath?: string;
+  artifactId?: string;
+  createdAt: number;
+}
 export type MessageAttachmentStatus = 'placeholder' | 'queued' | 'generating' | 'ready' | 'failed' | 'deleted';
 
 export interface MessageAttachment {
@@ -10,6 +25,8 @@ export interface MessageAttachment {
   kind: MessageAttachmentKind;
   status: MessageAttachmentStatus;
   altText: string;
+  fileName?: string;
+  textContent?: string;
   caption?: string;
   slotId?: string;
   assetId?: string;
@@ -215,6 +232,15 @@ export interface MessageMetadata {
     resultType: 'form' | 'quiz' | 'selection' | 'custom';
     payload: Record<string, unknown>;
     submittedAt: number;
+  };
+  workspaceMutationPlan?: {
+    id: string;
+    directoryId: string;
+    mutations: Array<{ kind: 'write' | 'delete' | 'move'; path: string; destinationPath?: string; content?: string }>;
+    createdAt: number;
+    expiresAt: number;
+    status: 'pending' | 'confirmed' | 'expired' | 'rejected';
+    result?: { applied: number; failed: number; error?: string };
   };
   branching?: {
     nodeId?: string;

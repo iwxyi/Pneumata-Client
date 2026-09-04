@@ -60,16 +60,36 @@ function imageArtifactIdForAttachment(message: Message, attachment: MessageAttac
   return message.type === 'ai' ? `assistant-image-artifact-${message.id}-${attachment.id}` : undefined;
 }
 
+export class AssistantAgentFormatError extends Error {
+  readonly rawResponse: string;
+  constructor(rawResponse: string) {
+    super('Agent 返回内容格式错误，无法解析为有效 JSON');
+    this.name = 'AssistantAgentFormatError';
+    this.rawResponse = rawResponse;
+  }
+}
+
 function safeJsonParse(value: string): unknown {
   const trimmed = value.trim();
+  let parseError = '';
   try {
     return JSON.parse(trimmed);
-  } catch {
+  } catch (error) {
+    parseError = error instanceof Error ? error.message : String(error);
     const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)?.[1];
-    if (fenced) return JSON.parse(fenced);
+    if (fenced) {
+      try { return JSON.parse(fenced); } catch (fencedError) {
+        parseError = fencedError instanceof Error ? fencedError.message : String(fencedError);
+      }
+    }
     const objectMatch = trimmed.match(/\{[\s\S]*}/);
-    if (objectMatch) return JSON.parse(objectMatch[0]);
-    throw new Error('Agent returned invalid JSON');
+    if (objectMatch) {
+      try { return JSON.parse(objectMatch[0]); } catch (objectError) {
+        parseError = objectError instanceof Error ? objectError.message : String(objectError);
+      }
+    }
+    console.error('[assistant-agent:invalid-json]', { response: value, responseLength: value.length, parseError, preview: trimmed.slice(0, 2000) });
+    throw new AssistantAgentFormatError(value);
   }
 }
 
@@ -349,9 +369,10 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
   );
   if (options.includeLocalFiles) sections.push(
     '本地文件：localFiles 是唯一授权内容；不得假装读取未提供的文件。',
+    '工作区写操作：仅当用户明确要求修改/删除/移动时输出 workspaceOperations；每项必须含 directoryId、相对 path 和 kind。高风险操作会先生成待确认计划，不要假设已经写入磁盘。',
   );
   if (options.includeData) sections.push(
-    'CSV/JSON：已有数据产物优先使用 dataOperations 做本地增量 query/insert/update/delete，不要把完整大文件放入上下文；query 最多返回 100 行。创建新的 CSV/JSON 仍使用 patches，更新已有数据产物时只返回 dataOperations，不要伪造完整文件内容。筛选条件支持 field 的点路径（如 profile.name）、比较 eq/contains/startsWith/endsWith/gt/gte/lt/lte，以及 exists/notExists/isNull/isNotNull；顶层 filter 数组是 AND，可用 all/any/not 组合 AND/OR/NOT。',
+    'CSV/JSON：已有数据产物优先使用 dataOperations 做本地增量 query/insert/update/delete/add_column，不要把完整大文件放入上下文；query 最多返回 100 行。创建新的 CSV/JSON 仍使用 patches，更新已有数据产物时只返回 dataOperations，不要伪造完整文件内容。增加 CSV 列使用 add_column（column/defaultValue）；JSON 没有固定列，要求增加字段时使用 update values 并配合 filter。筛选条件支持 field 的点路径（如 profile.name）、比较 eq/contains/startsWith/endsWith/gt/gte/lt/lte，以及 exists/notExists/isNull/isNotNull；顶层 filter 数组是 AND，可用 all/any/not 组合 AND/OR/NOT。',
   );
   if (options.includeHtml) sections.push(
     'HTML：structured_input 生成小型交互控件，interactive_workspace 生成完整页面，visual_explanation 按规模选择；禁止 script、事件属性、iframe/object/embed、外部资源和网络请求，只用声明式控件与 data-pneumata-action。submission.fields 必须与 name 一致；提交回流必须 update 原产物并使用完整新版本。颜色使用 --pneumata-* 变量，并提供 light/dark 属性主题和 prefers-color-scheme dark；HTML 只是交互手段，不在 assistantMessage 输出源码。',
@@ -386,7 +407,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
     '',
     '输出格式：',
     'dataOperations.filter 顶层数组表示 AND；复杂条件可使用 {"all":[...]}, {"any":[...]}, {"not":{...}}。',
-    '{"assistantMessage":"面向用户的自然回复文案","patches":[{"action":"create|update","artifactId":"...","kind":"document|code|diagram|html|table|json|text","title":"...","summary":"...","language":"...","content":"完整内容","files":[],"baseVersionId":"...","changeSummary":"...","dataDescriptor":{"description":"...","primaryKey":"...","fields":[{"name":"...","type":"string|number|boolean|date|datetime|array|object","description":"..."}]},"htmlRuntime":{}}],"dataOperations":[{"kind":"query|insert|update|delete","artifactId":"...","baseVersionId":"...","filePath":"...","filter":[{"field":"...","operator":"eq|contains|startsWith|endsWith|gt|gte|lt|lte|exists|notExists|isNull|isNotNull","value":"..."}],"values":{},"limit":100,"offset":0,"sort":{"field":"...","direction":"asc|desc"}}],"mediaTasks":[]}',
+    '{"assistantMessage":"面向用户的自然回复文案","patches":[{"action":"create|update","artifactId":"...","kind":"document|code|diagram|html|table|json|text","title":"...","summary":"...","language":"...","content":"完整内容","files":[],"baseVersionId":"...","changeSummary":"...","dataDescriptor":{"description":"...","primaryKey":"...","fields":[{"name":"...","type":"string|number|boolean|date|datetime|array|object","description":"..."}]},"htmlRuntime":{}}],"dataOperations":[{"kind":"query|insert|update|delete|add_column","artifactId":"...","baseVersionId":"...","filePath":"...","column":"newColumn","defaultValue":"","filter":[{"field":"...","operator":"eq|contains|startsWith|endsWith|gt|gte|lt|lte|exists|notExists|isNull|isNotNull","value":"..."}],"values":{},"limit":100,"offset":0,"sort":{"field":"...","direction":"asc|desc"}}],"mediaTasks":[]}',
   );
   return sections.join('\n');
 }
@@ -501,7 +522,7 @@ function normalizeDataOperations(value: unknown): AssistantArtifactDataOperation
   };
   return value.slice(0, 20).flatMap((item): AssistantArtifactDataOperation[] => {
     if (!isRecord(item)) return [];
-    const kind = ['query', 'insert', 'update', 'delete'].includes(String(item.kind))
+    const kind = ['query', 'insert', 'update', 'delete', 'add_column'].includes(String(item.kind))
       ? item.kind as AssistantArtifactDataOperation['kind']
       : null;
     const artifactId = text(item.artifactId, 160);
@@ -517,6 +538,8 @@ function normalizeDataOperations(value: unknown): AssistantArtifactDataOperation
       filePath: text(item.filePath, 240) || null,
       filter,
       values: isRecord(item.values) ? item.values : undefined,
+      column: text(item.column, 120) || undefined,
+      defaultValue: item.defaultValue,
       limit: Number.isFinite(Number(item.limit)) ? Math.min(100, Math.max(1, Math.floor(Number(item.limit)))) : undefined,
       offset: Number.isFinite(Number(item.offset)) ? Math.max(0, Math.floor(Number(item.offset))) : undefined,
       sort: isRecord(item.sort) && text(item.sort.field, 160) ? {
@@ -699,6 +722,17 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
     }];
   }) : [];
   const dataOperations = normalizeDataOperations(raw.dataOperations);
+  const allowedDirectories = new Set((plan?.localFilePaths || []).map((file) => file.directoryId));
+  const workspaceOperations = Array.isArray(raw.workspaceOperations) ? raw.workspaceOperations.slice(0, 100).flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const directoryId = text(item.directoryId, 160);
+    const path = text(item.path, 480).replace(/^\/+/, '');
+    const kind = ['write', 'delete', 'move'].includes(String(item.kind)) ? item.kind as 'write' | 'delete' | 'move' : null;
+    if (!directoryId || !path || !kind || (allowedDirectories.size > 0 && !allowedDirectories.has(directoryId)) || path.split('/').some((part) => part === '..' || part === '.')) return [];
+    const destinationPath = text(item.destinationPath, 480).replace(/^\/+/, '') || undefined;
+    if (kind === 'move' && (!destinationPath || destinationPath.split('/').some((part) => part === '..' || part === '.'))) return [];
+    return [{ directoryId, kind, path, destinationPath, content: kind === 'write' ? text(item.content, MAX_CONTENT_CHARS) : undefined }];
+  }) : [];
   let mediaTasks = withImplicitLatestImageTarget(normalizeMediaTasks(raw.mediaTasks, imageReferenceRegistry), userMessage, imageReferenceRegistry);
   if (!patches.length && !mediaTasks.length && userMessage) {
     const implicitTask = createImplicitLatestImageEditTask({ userMessage, imageReferenceRegistry });
@@ -713,6 +747,7 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
       || (mediaTasks.length && !patches.length ? '我已根据你的要求准备生成图片。' : patches.length || dataOperations.length ? '已完成产物变更。' : '没有可提交的产物变更。'),
     patches,
     dataOperations,
+    workspaceOperations,
     mediaTasks,
   };
 }
@@ -754,6 +789,7 @@ export function validateAssistantAgentPatchSet(params: {
       : params.patchSet.assistantMessage,
     patches: validPatches,
     dataOperations: validDataOperations,
+    workspaceOperations: params.patchSet.workspaceOperations || [],
     mediaTasks: params.patchSet.mediaTasks || [],
   } satisfies AssistantAgentPatchSet;
 }

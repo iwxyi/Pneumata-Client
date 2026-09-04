@@ -27,6 +27,9 @@ const MOBILE_SHEET_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)';
 const TEMPORARY_PANEL_VIEWPORT_RATIO = 0.82;
 const PANEL_OFFSET_VAR = '--pneumata-right-panel-offset';
 const PANEL_BACKDROP_OPACITY_VAR = '--pneumata-right-panel-backdrop-opacity';
+// 暂时停用移动端底部抽屉：窄窗口统一使用右侧面板，避免与系统底部手势区域冲突。
+// 保留原有手势/底部抽屉实现，后续若需要恢复只需切换此开关。
+const USE_MOBILE_BOTTOM_SHEET = false;
 
 function clampPanelWidth(value: number, maxWidth = MAX_PANEL_WIDTH, viewportRatio = 0.48) {
   if (!Number.isFinite(value)) return DEFAULT_PANEL_WIDTH;
@@ -394,7 +397,7 @@ export default function RightPanel({ children, title, hideMobileTitle = false, t
 
   // Mobile: bottom sheet. Use a regular Drawer so vertical scrolling inside the
   // panel is not captured as a swipe-to-close gesture.
-  if (isMobile) {
+  if (USE_MOBILE_BOTTOM_SHEET && isMobile) {
     return (
       <Drawer
         anchor="bottom"

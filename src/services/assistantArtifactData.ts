@@ -191,7 +191,14 @@ export function applyAssistantArtifactDataOperation(item: AssistantArtifactItem,
         : Array.from(new Set(sorted.flatMap((row) => Object.keys(row))));
       return { item, result: { operation: 'query', affectedRows: 0, totalRows: sorted.length, rows: sorted.slice(offset, offset + limit), format, columns, truncated: sorted.length > offset + limit } satisfies AssistantArtifactDataResult };
     }
-    if (operation.kind === 'insert') {
+    if (operation.kind === 'add_column') {
+      const column = operation.column?.trim();
+      if (!column) throw new Error('add_column 缺少 column');
+      if (format === 'json') throw new Error('JSON 不存在固定列；请使用 update 为记录增加字段');
+      if ('columns' in parsed && parsed.columns.includes(column)) throw new Error(`列已存在: ${column}`);
+      rows = rows.map((row) => ({ ...row, [column]: operation.defaultValue ?? '' }));
+      affectedRows = rows.length;
+    } else if (operation.kind === 'insert') {
       if (!operation.values) throw new Error('insert 缺少 values');
       rows.push({ ...operation.values });
       affectedRows = 1;
@@ -205,7 +212,7 @@ export function applyAssistantArtifactDataOperation(item: AssistantArtifactItem,
         return !matchedRow;
       });
     }
-    const columns = format === 'csv' && 'columns' in parsed ? Array.from(new Set([...parsed.columns, ...rows.flatMap((row) => Object.keys(row))])) : [];
+    const columns = format === 'csv' && 'columns' in parsed ? Array.from(new Set([...parsed.columns, ...rows.flatMap((row) => Object.keys(row)), ...(operation.column ? [operation.column] : [])])) : [];
     const content = format === 'csv'
       ? stringifyCsv(columns, rows)
       : JSON.stringify('container' in parsed && parsed.container === 'array' ? rows : rows[0] || {}, null, 2);

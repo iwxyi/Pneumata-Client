@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AssistantAgentPatch, AssistantArtifactDataOperation, AssistantArtifactDataResult, AssistantArtifactDraft, AssistantArtifactItem, AssistantArtifactVersion } from '../types/assistantArtifact';
+import type { AssistantAgentPatch, AssistantArtifactDataOperation, AssistantArtifactDataResult, AssistantArtifactDraft, AssistantArtifactItem, AssistantArtifactVersion, AssistantArtifactTextOperation } from '../types/assistantArtifact';
 import { applyAssistantArtifactDataOperation } from '../services/assistantArtifactData';
 import type { Message, MessageAttachment } from '../types/message';
 import { scopedStorageKey, storageKey } from '../constants/brand';
@@ -37,6 +37,7 @@ interface AssistantArtifactStore extends AssistantArtifactSnapshot {
     operations: AssistantArtifactDataOperation[];
     timestamp?: number;
   }) => { artifacts: AssistantArtifactItem[]; results: AssistantArtifactDataResult[] };
+  applyTextOperations: (params: { chatId: string; operations: AssistantArtifactTextOperation[]; timestamp?: number }) => { artifacts: AssistantArtifactItem[]; results: Array<{ artifactId: string; replacements: number; error?: string }> };
   saveHtmlInteractionState: (params: {
     artifactId: string;
     baseVersionId: string;
@@ -441,6 +442,31 @@ export const useAssistantArtifactStore = create<AssistantArtifactStore>()(
           }
           void ids;
         }
+        return { artifacts: changed, results };
+      },
+      applyTextOperations: ({ chatId, operations, timestamp }) => {
+        const now = timestamp || Date.now();
+        const changed: AssistantArtifactItem[] = [];
+        const results: Array<{ artifactId: string; replacements: number; error?: string }> = [];
+        set((state) => {
+          let nextItems = [...state.items];
+          for (const operation of operations) {
+            const current = nextItems.find((item) => item.id === operation.artifactId && item.chatId === chatId && item.deletedAt == null);
+            if (!current || !operation.search) { results.push({ artifactId: operation.artifactId, replacements: 0, error: '目标产物或搜索文本无效' }); continue; }
+            if (operation.baseVersionId && operation.baseVersionId !== current.currentVersionId) { results.push({ artifactId: operation.artifactId, replacements: 0, error: '产物版本已变化，请重新读取' }); continue; }
+            const version = current.versions.find((entry) => entry.id === current.currentVersionId) || current.versions.at(-1);
+            if (!version) { results.push({ artifactId: operation.artifactId, replacements: 0, error: '产物没有可用版本' }); continue; }
+            const target = operation.filePath ? version.files?.find((file) => file.path === operation.filePath) : undefined;
+            if (operation.filePath && !target) { results.push({ artifactId: operation.artifactId, replacements: 0, error: '找不到目标文件' }); continue; }
+            const replace = (content: string) => { const count = operation.replaceAll === false ? (content.includes(operation.search) ? 1 : 0) : content.split(operation.search).length - 1; return { content: operation.replaceAll === false ? content.replace(operation.search, operation.replacement) : content.split(operation.search).join(operation.replacement), count }; };
+            const updated = target ? replace(target.content) : replace(version.content);
+            const nextVersion: AssistantArtifactVersion = { ...version, id: `${current.id}:text:${now}:${Math.random().toString(36).slice(2, 7)}`, baseVersionId: version.id, content: target ? version.content : updated.content, files: target ? version.files?.map((file) => file.path === target.path ? { ...file, content: updated.content } : file) : version.files, changeSummary: `文本替换 ${updated.count} 处`, updatedAt: now, createdAt: now, revision: 1 };
+            const nextItem = { ...current, currentVersionId: nextVersion.id, versions: [...current.versions, nextVersion].slice(-12), updatedAt: now };
+            nextItems = nextItems.map((item) => item.id === current.id ? nextItem : item); changed.push(nextItem); results.push({ artifactId: current.id, replacements: updated.count });
+          }
+          return { items: nextItems };
+        });
+        for (const item of changed) scheduleArtifactLocalWorkspaceWrite(chatId, [item]);
         return { artifacts: changed, results };
       },
       saveHtmlInteractionState: ({ artifactId, baseVersionId, interactionState, timestamp }) => {

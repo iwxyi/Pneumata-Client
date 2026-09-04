@@ -1,10 +1,62 @@
-const { app, BrowserWindow, protocol, shell } = require('electron');
+const { app, BrowserWindow, protocol, shell, ipcMain } = require('electron');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
 const APP_PROTOCOL = 'app';
 const APP_HOST = 'sense-murmur';
 const DEV_SERVER_ARG = '--dev-server=';
+const ALLOWED_COMMANDS = new Set(['python', 'python3', 'node', 'npm', 'git', 'officecli']);
+
+function validateCommandRequest(request) {
+  const command = typeof request?.command === 'string' ? request.command.trim() : '';
+  const args = Array.isArray(request?.args) ? request.args.filter((arg) => typeof arg === 'string').slice(0, 64) : [];
+  if (!ALLOWED_COMMANDS.has(command)) throw new Error('command_not_allowed');
+  if (args.some((arg) => /[;&|`$<>\n\r]/.test(arg))) throw new Error('unsafe_command_argument');
+  const cwd = typeof request?.cwd === 'string' ? path.resolve(request.cwd) : process.cwd();
+  if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error('invalid_working_directory');
+  return { command, args, cwd, timeoutMs: Math.max(1000, Math.min(Number(request?.timeoutMs) || 30000, 120000)) };
+}
+
+function runAllowedCommand(request) {
+  const validated = validateCommandRequest(request);
+  return new Promise((resolve, reject) => {
+    const child = spawn(validated.command, validated.args, { cwd: validated.cwd, shell: false, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    const timer = setTimeout(() => { child.kill('SIGTERM'); reject(new Error('command_timeout')); }, validated.timeoutMs);
+    child.stdout.on('data', (chunk) => { stdout += String(chunk).slice(0, 200000); });
+    child.stderr.on('data', (chunk) => { stderr += String(chunk).slice(0, 200000); });
+    child.on('error', (error) => { clearTimeout(timer); reject(error); });
+    child.on('close', (code) => { clearTimeout(timer); resolve({ code: typeof code === 'number' ? code : -1, stdout, stderr }); });
+  });
+}
+
+function registerIpcHandlers() {
+  ipcMain.handle('pneumata:run-command', (_event, request) => runAllowedCommand(request));
+  ipcMain.handle('pneumata:transform-office', async (_event, request) => {
+    if (!request || typeof request.inputPath !== 'string' || typeof request.outputPath !== 'string') throw new Error('invalid_office_request');
+    const result = await runAllowedCommand({ command: 'officecli', args: [String(request.operation || 'inspect'), request.inputPath, request.outputPath], cwd: path.dirname(path.resolve(request.inputPath)), timeoutMs: 120000 }).catch((error) => {
+      throw new Error(`office_transform_failed:${error instanceof Error ? error.message : String(error)}`);
+    });
+    if (result.code !== 0) throw new Error(result.stderr || 'office_transform_failed');
+    return { outputPath: request.outputPath };
+  });
+  ipcMain.handle('pneumata:system-action', async (_event, request) => {
+    const action = request?.action;
+    const rawTarget = typeof request?.target === 'string' ? request.target.trim() : '';
+    if (!['open_path', 'reveal_path'].includes(action) || !rawTarget || rawTarget.includes('\0') || rawTarget.split(/[\\/]+/).includes('..')) throw new Error('invalid_system_action');
+    const target = path.resolve(rawTarget);
+    if (!fs.existsSync(target)) throw new Error('system_action_target_missing');
+    if (action === 'reveal_path') {
+      shell.showItemInFolder(target);
+      return { ok: true };
+    }
+    const error = await shell.openPath(target);
+    if (error) throw new Error(error);
+    return { ok: true };
+  });
+}
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -91,6 +143,7 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  registerIpcHandlers();
   await registerAppProtocol();
   await createWindow();
 

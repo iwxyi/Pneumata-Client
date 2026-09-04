@@ -10,12 +10,15 @@ import { attachMessageToActiveBranch, buildBranchStateWithHead } from './message
 import { useChatStore } from '../stores/useChatStore';
 import { api, ApiError, type AiSearchResultItem } from './api';
 import { resolveRoomCapabilities } from './capabilityRuntime';
+import { resolveChatAgentCapabilities } from './chatAgentCapabilities';
+import { createLocalWorkspaceMutationPlan } from './localWorkspaceService';
 
 const MAX_ASSISTANT_HISTORY = 24;
 const MAX_ASSISTANT_TITLE_CONTEXT = 12;
 const DEFAULT_ASSISTANT_CHAT_NAME = '新助手会话';
 const MAX_GENERATED_TITLE_LENGTH = 28;
 const MAX_IMAGE_SEMANTIC_SUMMARY_LENGTH = 700;
+const MAX_LOCAL_FILE_CONTEXT_CHARS = 120_000;
 const pendingAssistantTitleChatIds = new Set<string>();
 
 interface AssistantVisionReply {
@@ -134,6 +137,14 @@ function buildAssistantImageAttachmentText(message: Message) {
   return `[图片附件：${labels.join('、')}${suffix}]`;
 }
 
+function buildUploadedFileContexts(message: Message): AssistantAgentLocalFileContext[] {
+  return (message.metadata?.attachments || []).flatMap((attachment) => {
+    if (attachment.kind !== 'file' || attachment.status !== 'ready' || !attachment.textContent) return [];
+    const content = attachment.textContent.slice(0, MAX_LOCAL_FILE_CONTEXT_CHARS);
+    return [{ directoryId: 'upload', path: attachment.fileName || attachment.altText, name: attachment.fileName || attachment.altText, mimeType: attachment.mimeType, sizeBytes: attachment.sizeBytes || content.length, content, truncated: content.length < attachment.textContent.length, originalLength: attachment.textContent.length }];
+  }).slice(0, 12);
+}
+
 function buildAssistantProjectedImageAttachments(message: Message, capabilities: AIModelInputCapabilities) {
   if (!capabilities.imageInput) return undefined;
   const maxAttachments = capabilities.multiImageInput ? capabilities.maxAttachments : 1;
@@ -155,6 +166,8 @@ function buildAppCommandRecentMessages(messages: Message[]) {
 }
 
 function isAssistantAgentArtifactEnabled(chat: GroupChat) {
+  const resolved = resolveChatAgentCapabilities(chat);
+  if (resolved.enabled) return resolved.chatArtifactWrite;
   const roomCapability = resolveRoomCapabilities({ chat }).artifacts;
   if (roomCapability.mode !== 'off') return true;
   return Boolean(chat.modeState.assistantCapabilities?.agent && chat.modeState.assistantCapabilities?.artifacts);
@@ -168,6 +181,8 @@ function isLearningProgressChat(chat: GroupChat) {
 }
 
 function isAssistantAgentSearchEnabled(chat: GroupChat) {
+  const resolved = resolveChatAgentCapabilities(chat);
+  if (resolved.enabled) return resolved.webSearch;
   return Boolean(chat.modeState.assistantCapabilities?.agent && chat.modeState.assistantCapabilities?.webSearch);
 }
 
@@ -440,9 +455,17 @@ async function persistAssistantArtifactsFromReply(params: {
   const localWorkspaceState = useLocalWorkspaceStore.getState();
   const defaultLocalWorkspaceDirectory = localWorkspaceState.getDefaultDirectory();
   const selectedLocalWorkspaceFilePaths = localWorkspaceState.getSelectedFilePaths(params.chatId);
-  const localWorkspaceFileRegistry = defaultLocalWorkspaceDirectory
-    ? await localWorkspaceState.listDefaultDirectoryFiles().catch(() => [])
+  const resolvedCapabilities = resolveChatAgentCapabilities(params.chat);
+  const workspaceDirectories = resolvedCapabilities.workspaceRead
+    ? localWorkspaceState.directories
     : [];
+  const directoryListings = await Promise.all(workspaceDirectories.map(async (directory) => ({
+    directoryId: directory.id,
+    files: await localWorkspaceState.listDirectoryFiles(directory.id).catch(() => []),
+  })));
+  const localWorkspaceFileRegistry = directoryListings.flatMap((entry) => entry.files);
+  const uploadedFileContexts = buildUploadedFileContexts(params.userMessage);
+  const plannerFileRegistry = [...localWorkspaceFileRegistry, ...uploadedFileContexts.map((file) => ({ directoryId: file.directoryId, path: file.path, name: file.name, kind: 'file' as const, depth: 1, sizeBytes: file.sizeBytes, mimeType: file.mimeType }))];
   const plan = await planAssistantAgentChange({
     api: params.api,
     chatId: params.chatId,
@@ -451,14 +474,14 @@ async function persistAssistantArtifactsFromReply(params: {
     existingArtifacts,
     toolCapabilities: {
       webSearch: isAssistantAgentSearchEnabled(params.chat),
-      localWorkspace: Boolean(defaultLocalWorkspaceDirectory),
-      localWorkspaceDirectories: localWorkspaceState.directories.map((directory) => ({
+      localWorkspace: Boolean(workspaceDirectories.length || uploadedFileContexts.length),
+      localWorkspaceDirectories: workspaceDirectories.map((directory) => ({
         id: directory.id,
         name: directory.name,
         isDefault: directory.id === defaultLocalWorkspaceDirectory?.id,
       })),
     },
-    localWorkspaceFileRegistry,
+    localWorkspaceFileRegistry: plannerFileRegistry,
     interactionFocus: {
       ...(params.selectedArtifactId ? { selectedArtifactId: params.selectedArtifactId } : {}),
       ...(selectedLocalWorkspaceFilePaths.length ? {
@@ -471,15 +494,15 @@ async function persistAssistantArtifactsFromReply(params: {
     signal: params.signal,
     forceArtifact: params.forceArtifact,
   });
-  const selectedLocalFilePaths = (selectedLocalWorkspaceFilePaths.length
+  const selectedLocalFiles = selectedLocalWorkspaceFilePaths.length
     ? selectedLocalWorkspaceFilePaths.map((path) => ({ directoryId: defaultLocalWorkspaceDirectory?.id || '', path }))
-    : (plan.localFilePaths || []))
-    .filter((file) => file.directoryId === defaultLocalWorkspaceDirectory?.id)
-    .map((file) => file.path);
-  const localFiles = selectedLocalFilePaths.length
-    ? await localWorkspaceState.readDefaultDirectoryTextFiles(selectedLocalFilePaths).catch(() => [])
-    : [];
-  if (selectedLocalFilePaths.length && !localFiles.length) {
+    : (plan.localFilePaths || []);
+  const localFiles = [...uploadedFileContexts, ...(await Promise.all(Object.entries(selectedLocalFiles.reduce<Record<string, string[]>>((acc, file) => {
+    if (!file.directoryId || !workspaceDirectories.some((directory) => directory.id === file.directoryId)) return acc;
+    (acc[file.directoryId] ||= []).push(file.path);
+    return acc;
+  }, {})).map(async ([directoryId, paths]) => localWorkspaceState.readDirectoryTextFiles(directoryId, paths).catch(() => [])))).flat()];
+  if (selectedLocalFiles.length && !localFiles.length) {
     const assistantMessage = await persistAssistantFinalMessage({
       chat: params.chat,
       chatId: params.chatId,
@@ -608,6 +631,21 @@ async function persistAssistantArtifactsFromReply(params: {
     content = [buildAgentArtifactReplyContent(patchSet), dataResults.length ? formatAssistantDataResults(dataResults) : '']
       .filter(Boolean).join('\n\n');
     const attachments = createAssistantMediaAttachments(patchSet, params.timestamp || Date.now());
+    const workspaceOperations = patchSet.workspaceOperations || [];
+    const workspaceDirectoryIds = new Set(workspaceOperations.map((operation) => operation.directoryId));
+    const workspacePlan = workspaceOperations.length && resolvedCapabilities.workspaceWrite && workspaceDirectoryIds.size === 1
+      ? createLocalWorkspaceMutationPlan(workspaceOperations[0]!.directoryId, workspaceOperations.map((operation) => ({
+        kind: operation.kind,
+        path: operation.path,
+        destinationPath: operation.destinationPath,
+        content: operation.content,
+      })))
+      : null;
+    if (workspaceOperations.length && (!resolvedCapabilities.workspaceWrite || workspaceDirectoryIds.size !== 1)) {
+      content = [content, '检测到工作区文件变更请求，但当前聊天未开启工作区写入权限；已停止执行。'].filter(Boolean).join('\n\n');
+    } else if (workspacePlan) {
+      content = [content, `已生成工作区变更计划（${workspacePlan.mutations.length} 项），请确认后执行。`].filter(Boolean).join('\n\n');
+    }
     if (patchSet.patches.length) {
       patchesCommitted = patchSet.patches.length;
     }
@@ -619,12 +657,15 @@ async function persistAssistantArtifactsFromReply(params: {
       chatId: params.chatId,
       currentMessages: params.messages,
       content,
-      metadata: attachments.length ? {
+      metadata: attachments.length || workspacePlan ? {
+        ...(workspacePlan ? { workspaceMutationPlan: { ...workspacePlan, status: 'pending' as const } } : {}),
+        ...(attachments.length ? {
         attachments,
         generation: {
           status: 'queued',
           updatedAt: Date.now(),
         },
+        } : {}),
       } : undefined,
       timestamp: params.timestamp,
       upsertMessage: params.upsertMessage,
@@ -1073,7 +1114,7 @@ export async function runAssistantChatReplyFlow(params: {
 }) {
   ensureAssistantReplyStillCurrent(params);
   const { api: resolvedApi, inputCapabilities } = resolveTextProfile(params.api, params.aiProfiles);
-  if (params.chat.modeState.assistantCapabilities?.agent && !isLearningProgressChat(params.chat)) {
+  if ((params.chat.modeState.agentCapabilities?.enabled || params.chat.modeState.assistantCapabilities?.agent) && !isLearningProgressChat(params.chat)) {
     const userMessage = latestUserMessage(params.currentMessages);
     if (userMessage && !hasReadyImageAttachments(userMessage)) {
       try {

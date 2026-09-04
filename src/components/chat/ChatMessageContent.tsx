@@ -7,6 +7,7 @@ import { backendUrl } from '../../services/backendUrl';
 import MarkdownText from '../common/MarkdownText';
 import { formatNarrativeLineText } from '../../services/narrativeLinePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { downloadChatFile } from '../../services/chatFileTransfer';
 import { reducedMotionSx } from '../../styles/motion';
 import { VoicePlaybackBar } from './VoicePlaybackBar';
 
@@ -404,6 +405,14 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
               重试
             </Button>
           ) : null}
+        </Box>
+      );
+    }
+    if (attachment.kind === 'file') {
+      return (
+        <Box key={attachment.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, maxWidth: 360 }}>
+          <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.fileName || attachment.altText}</Typography>
+          <Button size="small" onClick={() => downloadChatFile({ name: attachment.fileName || attachment.altText, mimeType: attachment.mimeType, url: attachment.url, textContent: attachment.textContent })}>下载</Button>
         </Box>
       );
     }

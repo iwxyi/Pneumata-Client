@@ -4,6 +4,7 @@ import SendIcon from '@mui/icons-material/Send';
 import StopRoundedIcon from '@mui/icons-material/StopRounded';
 import CloseIcon from '@mui/icons-material/Close';
 import ImageIcon from '@mui/icons-material/ImageOutlined';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
 import MicIcon from '@mui/icons-material/MicNone';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -17,6 +18,7 @@ import type { ComposerState } from '../../types/composerState';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { transcribeSpeech, usesManagedSpeechProfile } from '../../services/speech';
 import { transcribeAudioWithAdapter } from '../../services/aiGenerationAdapter';
+import { readUploadedChatFiles } from '../../services/chatFileTransfer';
 
 interface ChatInputProps {
   mode: 'guide' | 'speakAs' | 'memberSpeak';
@@ -311,6 +313,19 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       onSendError?.(message || '读取图片失败');
     }
   }, [attachments.length, canAttachImages, capabilities.supportedMimeTypes, disabled, inputCapabilityWarning, isSending, maxAttachments, onSendError, showStopReply, t]);
+
+  const addAnyFiles = useCallback(async (selectedFiles: File[]) => {
+    if (disabled || isSending || showStopReply || !selectedFiles.length) return;
+    try {
+      const remaining = Math.max(0, maxAttachments - attachments.length);
+      const uploaded = await readUploadedChatFiles(selectedFiles, { maxFiles: remaining || 1 });
+      const now = Date.now();
+      const next = uploaded.map((file) => ({ id: file.id, kind: 'file' as const, status: 'ready' as const, altText: file.name, fileName: file.name, textContent: file.textContent, url: file.url, mimeType: file.mimeType, sizeBytes: file.sizeBytes, createdAt: now, updatedAt: now }));
+      setAttachments((current) => [...current, ...next].slice(0, maxAttachments));
+    } catch (error) {
+      onSendError?.(error instanceof Error ? error.message : '读取文件失败');
+    }
+  }, [attachments.length, disabled, isSending, maxAttachments, onSendError, showStopReply]);
 
   const handlePickImages = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
@@ -648,6 +663,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
               hidden
               onChange={handlePickImages}
             />
+            <input id="pneumata-chat-file-upload" type="file" multiple hidden onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ''; void addAnyFiles(files); }} />
             <Tooltip title={capabilities.multiImageInput ? '添加图片' : '添加图片'}>
               <span>
                 <IconButton
@@ -658,6 +674,9 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
                   <ImageIcon sx={{ fontSize: 20 }} />
                 </IconButton>
               </span>
+            </Tooltip>
+            <Tooltip title="添加文件">
+              <span><IconButton onClick={() => document.getElementById('pneumata-chat-file-upload')?.click()} disabled={disabled || isSending || attachments.length >= maxAttachments} sx={{ flexShrink: 0, width: 42, height: 42 }}><AttachFileIcon sx={{ fontSize: 20 }} /></IconButton></span>
             </Tooltip>
           </>
         ) : null}

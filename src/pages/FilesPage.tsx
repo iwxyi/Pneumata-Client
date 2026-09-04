@@ -10,7 +10,7 @@ import AudioFileOutlinedIcon from '@mui/icons-material/AudioFileOutlined';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PauseIcon from '@mui/icons-material/Pause';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
-import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutlineOutlined';
 import { api } from '../services/api';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
 import { useNavigate } from 'react-router-dom';

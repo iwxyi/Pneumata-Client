@@ -87,6 +87,7 @@ interface MessageListProps {
   onOpenHtmlFullscreen?: (artifactId: string) => void;
   onHtmlAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onHtmlSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onConfirmWorkspaceMutationPlan?: (message: Message) => void | Promise<void>;
   readOnly?: boolean;
   branchVersionInfoByMessageId?: Record<string, MessageBranchVersionInfo | null | undefined>;
   onReachTop?: () => void | Promise<void>;
@@ -514,6 +515,7 @@ export default function MessageList({
   onOpenHtmlFullscreen,
   onHtmlAutosave,
   onHtmlSubmit,
+  onConfirmWorkspaceMutationPlan,
   readOnly = false,
   branchVersionInfoByMessageId,
   onReachTop,
@@ -711,12 +713,13 @@ export default function MessageList({
       onOpenHtmlFullscreen={item.pending ? undefined : onOpenHtmlFullscreen}
       onHtmlAutosave={item.pending || readOnly ? undefined : onHtmlAutosave}
       onHtmlSubmit={item.pending || readOnly ? undefined : onHtmlSubmit}
+      onConfirmWorkspaceMutationPlan={item.pending || readOnly ? undefined : onConfirmWorkspaceMutationPlan}
       branchVersionInfo={branchVersionInfoByMessageId?.[options?.message?.id || item.message.id] || null}
       pending={item.pending}
       selfMemberId={selfMemberId}
       privateConversation={privateConversation}
     />
-  ), [branchVersionInfoByMessageId, characters, currentUser, onAddImagesToReference, onAnalyzeMessage, onCharacterAvatarClick, onCreateRevision, onDeleteMessage, onExpressionFeedback, onHtmlAutosave, onHtmlSubmit, onOpenArtifact, onOpenHtmlFullscreen, onRegenerate, onRetryMedia, onSwitchRevision, onWithdrawMessage, openChatDiagram, openChatImage, privateConversation, readOnly, selfMemberId]);
+  ), [branchVersionInfoByMessageId, characters, currentUser, onAddImagesToReference, onAnalyzeMessage, onCharacterAvatarClick, onConfirmWorkspaceMutationPlan, onCreateRevision, onDeleteMessage, onExpressionFeedback, onHtmlAutosave, onHtmlSubmit, onOpenArtifact, onOpenHtmlFullscreen, onRegenerate, onRetryMedia, onSwitchRevision, onWithdrawMessage, openChatDiagram, openChatImage, privateConversation, readOnly, selfMemberId]);
 
   const renderMessageItem = useCallback((item: MessageListRenderItem) => {
     const anchorProps = {

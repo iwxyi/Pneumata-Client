@@ -1556,7 +1556,8 @@ export default function ChatDetailPage() {
   }, [id]);
 
   useEffect(() => {
-    if (!isDesktop) setRightPanelOpen(false);
+    // 窄窗口也使用右侧面板；旧的移动端自动关闭逻辑暂时停用，保留以便后续恢复：
+    // if (!isDesktop) setRightPanelOpen(false);
   }, [id, isDesktop, setRightPanelOpen]);
 
   const showErrorToast = useCallback((message: string) => {
@@ -2627,7 +2628,17 @@ export default function ChatDetailPage() {
           } catch (error) {
             if (!isGenerationCancelledError(error)) {
               console.error('[assistant-reply:send-error]', error);
-              showErrorToast(error instanceof Error ? error.message : String(error));
+              const message = error instanceof Error ? error.message : String(error);
+              showErrorToast(message);
+              void addMessageStable({
+                chatId: id,
+                type: 'system',
+                senderId: 'system',
+                senderName: 'System',
+                content: `助手处理失败：${message}`,
+                emotion: 0,
+                timestamp: Date.now(),
+              });
             }
           } finally {
             if (directReplyAbortRef.current === assistantReplyAbortController) {
@@ -3914,12 +3925,12 @@ export default function ChatDetailPage() {
           actions={chatInteractionDisabled ? null : (
             <>
               {isAssistantChat ? null : headerPrimaryActionButton}
-              {isAssistantChat && !isMobile ? (
+              {isAssistantChat ? (
                 <IconButton onClick={toggleRightPanel} aria-label="打开助手能力面板">
                   <ExtensionOutlinedIcon />
                 </IconButton>
               ) : null}
-              {!isAssistantChat && !isMobile ? (
+              {!isAssistantChat ? (
                 <IconButton onClick={toggleRightPanel}>
                 <PeopleIcon />
                 </IconButton>
@@ -4071,7 +4082,8 @@ export default function ChatDetailPage() {
             onStopReply={chat.type === 'assistant' || chat.type === 'direct'
               ? handleStopDirectReply
               : () => cancelActiveConversationLoop('composer_generation_cancelled')}
-            onOpenPanel={isMobile ? () => setRightPanelOpen(true) : undefined}
+            // 右侧面板按钮固定在标题栏右上角；保留 composer 内部入口参数以兼容旧移动端布局。
+            onOpenPanel={undefined}
             disabled={chatInteractionDisabled}
             disabledReason={chatReadOnlyReason}
             onDraftActivity={(activity) => {

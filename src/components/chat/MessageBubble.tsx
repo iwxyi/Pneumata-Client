@@ -58,6 +58,7 @@ interface MessageBubbleProps {
   onOpenHtmlFullscreen?: (artifactId: string) => void;
   onHtmlAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onHtmlSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onConfirmWorkspaceMutationPlan?: (message: Message) => void | Promise<void>;
 }
 
 interface MenuPosition {
@@ -123,7 +124,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-function MessageBubble({ message, character, characters = [], onDelete, onWithdraw, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onAddImagesToReference, onOpenDiagram, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onRegenerate, onSwitchRevision, onOpenArtifact, onOpenHtmlFullscreen, onHtmlAutosave, onHtmlSubmit }: MessageBubbleProps) {
+function MessageBubble({ message, character, characters = [], onDelete, onWithdraw, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onAddImagesToReference, onOpenDiagram, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onRegenerate, onSwitchRevision, onOpenArtifact, onOpenHtmlFullscreen, onHtmlAutosave, onHtmlSubmit, onConfirmWorkspaceMutationPlan }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -146,6 +147,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
   const [voiceUrl, setVoiceUrl] = useState<string | null>(() => getCachedSpeechPlayback(voiceCacheKey));
   const [voiceGenerationStage, setVoiceGenerationStage] = useState<'synthesizing' | 'preparing' | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const workspacePlan = message.metadata?.workspaceMutationPlan;
   const [voicePlaybackToggle, setVoicePlaybackToggle] = useState<(() => Promise<void>) | null>(null);
   const handleVoicePlaybackToggleReady = useCallback((toggle: () => Promise<void>) => {
     setVoicePlaybackToggle((current) => current === toggle ? current : toggle);
@@ -615,6 +617,12 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
               ) : withdrawalNoticeNode
             ) : <MessageContent message={visibleMessage} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} onOpenPrompt={openPromptMenu} onOpenDiagram={onOpenDiagram} compactMediaLayout={compactMediaBubble} />}
           </Box>
+          {workspacePlan?.status === 'pending' && onConfirmWorkspaceMutationPlan ? (
+            <Box sx={{ mt: 0.75, p: 1, border: '1px solid', borderColor: 'warning.main', borderRadius: 1 }}>
+              <Typography variant="caption" sx={{ display: 'block' }}>工作区变更计划：{workspacePlan.mutations.length} 项，确认后才会写入本地文件。</Typography>
+              <Button size="small" variant="contained" color="warning" sx={{ mt: 0.75 }} onClick={() => void onConfirmWorkspaceMutationPlan(message)}>确认执行</Button>
+            </Box>
+          ) : workspacePlan?.status === 'confirmed' ? <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.75 }}>工作区变更已执行{workspacePlan.result ? `：${workspacePlan.result.applied} 项成功${workspacePlan.result.failed ? `，${workspacePlan.result.failed} 项未完成` : ''}` : ''}。</Typography> : workspacePlan?.status === 'expired' ? <Typography variant="caption" color="error.main" sx={{ display: 'block', mt: 0.75 }}>工作区变更计划已过期，请重新发起。</Typography> : workspacePlan?.status === 'rejected' ? <Typography variant="caption" color="error.main" sx={{ display: 'block', mt: 0.75 }}>工作区变更未执行。</Typography> : null}
           {voiceGeneratingIndicator || voiceBar}
           {nonHtmlArtifactRefs.length ? (
             <Box

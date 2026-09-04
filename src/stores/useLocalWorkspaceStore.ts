@@ -28,6 +28,9 @@ interface LocalWorkspaceStore extends LocalWorkspaceSettingsSnapshot {
   getDefaultDirectory: () => LocalWorkspaceDirectoryMeta | null;
   listDefaultDirectoryFiles: () => Promise<LocalWorkspaceFileEntry[]>;
   readDefaultDirectoryTextFiles: (paths: string[]) => Promise<LocalWorkspaceFileContext[]>;
+  listDirectoryFiles: (directoryId: string) => Promise<LocalWorkspaceFileEntry[]>;
+  readDirectoryTextFiles: (directoryId: string, paths: string[]) => Promise<LocalWorkspaceFileContext[]>;
+  applyMutations: (directoryId: string, mutations: import('../services/localWorkspaceService').LocalWorkspaceMutation[], dryRun?: boolean) => Promise<{ applied: number; planned: number }>;
   getSelectedFilePaths: (chatId: string) => string[];
   setSelectedFilePaths: (chatId: string, paths: string[]) => void;
   toggleSelectedFilePath: (chatId: string, path: string) => void;
@@ -202,6 +205,24 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
           });
           throw error;
         }
+      },
+
+      listDirectoryFiles: async (directoryId) => {
+        const directory = get().directories.find((item) => item.id === directoryId);
+        if (!directory) return [];
+        return listLocalWorkspaceFiles({ directory });
+      },
+
+      readDirectoryTextFiles: async (directoryId, paths) => {
+        const directory = get().directories.find((item) => item.id === directoryId);
+        if (!directory) return [];
+        return readLocalWorkspaceTextFiles({ directory, paths });
+      },
+
+      applyMutations: async (directoryId, mutations, dryRun = false) => {
+        const directory = get().directories.find((item) => item.id === directoryId);
+        if (!directory) throw new Error('找不到工作区');
+        return (await import('../services/localWorkspaceService')).applyLocalWorkspaceMutations({ directory, mutations, dryRun });
       },
 
       getSelectedFilePaths: (chatId) => get().selectedFilePathsByChatId[chatId] || [],

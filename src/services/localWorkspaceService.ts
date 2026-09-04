@@ -296,6 +296,103 @@ async function getChildHandle(root: DirectoryHandle, path: string) {
   return null;
 }
 
+async function getParentDirectoryHandle(root: DirectoryHandle, path: string, create = false) {
+  const parts = path.split('/').map((part) => part.trim()).filter(Boolean);
+  if (parts.length < 1 || parts.some((part) => part === '.' || part === '..')) return null;
+  let current: DirectoryHandle = root;
+  for (const part of parts.slice(0, -1)) {
+    try {
+      current = await current.getDirectoryHandle(part, { create });
+    } catch {
+      return null;
+    }
+  }
+  return { directory: current, name: parts[parts.length - 1]! };
+}
+
+async function readFileBytes(handle: FileSystemFileHandle) {
+  return new Uint8Array(await (await handle.getFile()).arrayBuffer());
+}
+
+export interface LocalWorkspaceMutation {
+  kind: 'write' | 'delete' | 'move';
+  path: string;
+  destinationPath?: string;
+  content?: string;
+}
+
+export interface LocalWorkspaceMutationPlan {
+  id: string;
+  directoryId: string;
+  mutations: LocalWorkspaceMutation[];
+  createdAt: number;
+  expiresAt: number;
+}
+
+export function createLocalWorkspaceMutationPlan(directoryId: string, mutations: LocalWorkspaceMutation[], ttlMs = 120_000): LocalWorkspaceMutationPlan {
+  const now = Date.now();
+  return { id: `workspace-plan-${now}-${Math.random().toString(36).slice(2, 8)}`, directoryId, mutations: mutations.slice(0, 100), createdAt: now, expiresAt: now + Math.max(10_000, Math.min(ttlMs, 600_000)) };
+}
+
+export function isLocalWorkspaceMutationPlanValid(plan: LocalWorkspaceMutationPlan) {
+  return plan.mutations.length > 0 && Date.now() < plan.expiresAt;
+}
+
+export async function confirmAndApplyLocalWorkspaceMutationPlan(params: {
+  plan: LocalWorkspaceMutationPlan;
+  directory: LocalWorkspaceDirectoryMeta;
+}) {
+  if (params.plan.directoryId !== params.directory.id) throw new Error('工作区计划与目标目录不匹配');
+  if (!isLocalWorkspaceMutationPlanValid(params.plan)) throw new Error('工作区变更计划已过期');
+  return applyLocalWorkspaceMutations({ directory: params.directory, mutations: params.plan.mutations, dryRun: false });
+}
+
+export async function applyLocalWorkspaceMutations(params: {
+  directory: LocalWorkspaceDirectoryMeta;
+  mutations: LocalWorkspaceMutation[];
+  dryRun?: boolean;
+}) {
+  const rootHandle = await getDirectoryHandle(params.directory.id);
+  if (!rootHandle) throw new Error('本地文件夹授权已失效，请重新授权');
+  const permission = await ensureDirectoryPermission(rootHandle);
+  if (permission !== 'granted') throw new Error('未获得本地文件夹读写权限');
+  const mutations = params.mutations.slice(0, 100);
+  if (params.dryRun) return { applied: 0, planned: mutations.length };
+  let applied = 0;
+  for (const mutation of mutations) {
+    const target = await getParentDirectoryHandle(rootHandle, mutation.path, mutation.kind === 'write');
+    if (!target) continue;
+    if (mutation.kind === 'write') {
+      const handle = await target.directory.getFileHandle(target.name, { create: true });
+      const writable = await handle.createWritable();
+      await writable.write(mutation.content || '');
+      await writable.close();
+      applied += 1;
+      continue;
+    }
+    if (mutation.kind === 'delete') {
+      await target.directory.removeEntry(target.name).catch((error) => {
+        if ((error as DOMException)?.name !== 'NotFoundError') throw error;
+      });
+      applied += 1;
+      continue;
+    }
+    if (!mutation.destinationPath) continue;
+    const source = await getParentDirectoryHandle(rootHandle, mutation.path);
+    const destination = await getParentDirectoryHandle(rootHandle, mutation.destinationPath, true);
+    if (!source || !destination) continue;
+    const sourceHandle = await source.directory.getFileHandle(source.name, { create: false });
+    const bytes = await readFileBytes(sourceHandle);
+    const targetHandle = await destination.directory.getFileHandle(destination.name, { create: true });
+    const writable = await targetHandle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    await source.directory.removeEntry(source.name);
+    applied += 1;
+  }
+  return { applied, planned: mutations.length };
+}
+
 export async function listLocalWorkspaceFiles(params: {
   directory: LocalWorkspaceDirectoryMeta;
   maxEntries?: number;

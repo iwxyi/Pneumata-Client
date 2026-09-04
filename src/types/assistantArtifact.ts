@@ -1,6 +1,6 @@
 export type AssistantArtifactKind = 'document' | 'code' | 'diagram' | 'html' | 'table' | 'json' | 'text' | 'image';
 
-export type AssistantDataOperationKind = 'query' | 'insert' | 'update' | 'delete';
+export type AssistantDataOperationKind = 'query' | 'insert' | 'update' | 'delete' | 'add_column';
 
 export type AssistantDataFilterOperator =
   | 'eq' | 'contains' | 'startsWith' | 'endsWith'
@@ -24,9 +24,20 @@ export interface AssistantArtifactDataOperation {
   filePath?: string | null;
   filter?: AssistantDataFilter[];
   values?: Record<string, unknown>;
+  column?: string;
+  defaultValue?: unknown;
   limit?: number;
   offset?: number;
   sort?: { field: string; direction?: 'asc' | 'desc' };
+}
+
+export interface AssistantArtifactTextOperation {
+  artifactId: string;
+  filePath?: string | null;
+  search: string;
+  replacement: string;
+  replaceAll?: boolean;
+  baseVersionId?: string | null;
 }
 
 export interface AssistantArtifactDataResult {
@@ -241,4 +252,11 @@ export interface AssistantAgentPatchSet {
   mediaTasks?: AssistantAgentMediaTask[];
   dataOperations?: AssistantArtifactDataOperation[];
   dataResults?: AssistantArtifactDataResult[];
+  workspaceOperations?: Array<{
+    directoryId: string;
+    kind: 'write' | 'delete' | 'move';
+    path: string;
+    destinationPath?: string;
+    content?: string;
+  }>;
 }

@@ -219,7 +219,7 @@ function artifactPreviewText(item: AssistantArtifactItem) {
   return content.replace(/\s+/g, ' ').slice(0, 420);
 }
 
-function AssistantDataPreview({ item, version, maxRows = 8, edgeRows = 0 }: { item: AssistantArtifactItem; version?: AssistantArtifactVersion | null; maxRows?: number; edgeRows?: number }) {
+function AssistantDataPreview({ item, version, maxRows = 8, edgeRows = 0, showRowNumbers = false }: { item: AssistantArtifactItem; version?: AssistantArtifactVersion | null; maxRows?: number; edgeRows?: number; showRowNumbers?: boolean }) {
   const preview = getAssistantArtifactDataPreview(item, maxRows, version, edgeRows);
   if (!preview) return <Typography variant="caption" color="text.secondary">数据预览不可用。</Typography>;
   const cell = (value: unknown) => String(value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : value)
@@ -230,15 +230,15 @@ function AssistantDataPreview({ item, version, maxRows = 8, edgeRows = 0 }: { it
       <Box sx={{ overflow: 'hidden', width: '100%' }}>
         <Box component="table" sx={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%', fontSize: 11, color: 'text.primary' }}>
           <Box component="thead">
-          <Box component="tr">{preview.columns.map((column) => <Box component="th" key={column} sx={{ height: 28, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 700, lineHeight: '28px' }}>{column}</Box>)}</Box>
+          <Box component="tr">{showRowNumbers ? <Box component="th" sx={{ height: 28, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, lineHeight: '28px', color: 'text.secondary' }}>#</Box> : null}{preview.columns.map((column) => <Box component="th" key={column} sx={{ height: 28, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 700, lineHeight: '28px' }}>{column}</Box>)}</Box>
           </Box>
           <Box component="tbody">
             {preview.rows.map((row, index) => (
               <Fragment key={index}>
                 {preview.omittedRows > 0 && edgeRows > 0 && index === Math.min(edgeRows, preview.rows.length) ? (
-                  <Box component="tr"><Box component="td" colSpan={preview.columns.length} sx={{ height: 24, px: 0.75, borderBottom: '1px solid', borderColor: 'divider', color: 'text.secondary', textAlign: 'center', fontStyle: 'italic' }}>省略中间 {preview.omittedRows} 行</Box></Box>
+                  <Box component="tr"><Box component="td" colSpan={preview.columns.length + (showRowNumbers ? 1 : 0)} sx={{ height: 24, px: 0.75, borderBottom: '1px solid', borderColor: 'divider', color: 'text.secondary', textAlign: 'center', fontStyle: 'italic' }}>省略中间 {preview.omittedRows} 行</Box></Box>
                 ) : null}
-                <Box component="tr">{preview.columns.map((column) => <Box component="td" key={column} title={cell(row[column])} sx={{ height: 26, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '26px' }}>{cell(row[column])}</Box>)}</Box>
+                <Box component="tr">{showRowNumbers ? <Box component="td" sx={{ height: 26, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'right', color: 'text.secondary', fontVariantNumeric: 'tabular-nums', lineHeight: '26px' }}>{index + 1}</Box> : null}{preview.columns.map((column) => <Box component="td" key={column} title={cell(row[column])} sx={{ height: 26, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '26px' }}>{cell(row[column])}</Box>)}</Box>
               </Fragment>
             ))}
           </Box>
@@ -531,7 +531,7 @@ function ArtifactPreview({ item, version, expanded = false, fullscreen = false, 
     );
   }
   if (item.kind === 'table' || item.kind === 'json') {
-    return <AssistantDataPreview item={item} version={version} maxRows={fullscreen ? Number.POSITIVE_INFINITY : expanded ? 30 : 8} />;
+        return <AssistantDataPreview item={item} version={version} maxRows={fullscreen ? Number.POSITIVE_INFINITY : expanded ? 30 : 8} showRowNumbers={fullscreen} />;
   }
   return (
     <Box
@@ -1122,8 +1122,9 @@ export default function AssistantAgentPanel({
   onHtmlSubmit,
 }: AssistantAgentPanelProps) {
   const capabilities = chat.modeState.assistantCapabilities || {};
+  const genericCapabilities = chat.modeState.agentCapabilities || {};
   const isStudyRoom = Boolean(chat.scenarioState?.learning || chat.sessionKind?.family === 'study' || chat.sessionKind?.scenarioId === 'learning-progress' || chat.sessionKind?.scenarioId === 'ielts-coach');
-  const agentEnabled = isStudyRoom || Boolean(capabilities.agent);
+  const agentEnabled = isStudyRoom || genericCapabilities.enabled === true || Boolean(capabilities.agent);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, height: '100%', minHeight: 0 }}>

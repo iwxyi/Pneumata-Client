@@ -1,4 +1,4 @@
-const { clipboard, contextBridge } = require('electron');
+const { clipboard, contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('senseMurmurDesktop', {
   platform: process.platform,
@@ -7,5 +7,17 @@ contextBridge.exposeInMainWorld('senseMurmurDesktop', {
     if (!value) return false;
     clipboard.writeText(value);
     return clipboard.readText() === value;
+  },
+});
+
+contextBridge.exposeInMainWorld('electronAPI', {
+  runCommand(request) {
+    return ipcRenderer.invoke('pneumata:run-command', request);
+  },
+  transformOffice(request) {
+    return ipcRenderer.invoke('pneumata:transform-office', request);
+  },
+  systemAction(request) {
+    return ipcRenderer.invoke('pneumata:system-action', request);
   },
 });

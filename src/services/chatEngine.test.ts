@@ -3869,6 +3869,26 @@ describe('chatEngine streaming preview', () => {
     expect(completed[0]).toMatchObject({ senderId: 'mei', content: '我还在，先接你的问题。' });
   });
 
+  it('allows a single tutor in the learning progress session', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({ content: '先从今天的目标开始。' }));
+    const tutor = buildCharacter('tutor', '导师');
+    const completed: unknown[] = [];
+    const idleReasons: string[] = [];
+    await runOneRound(
+      buildChat({ memberIds: ['tutor'], sessionKind: { topology: 'group', family: 'study', scenarioId: 'learning-progress', surfaceProfile: 'hybrid' } }),
+      [tutor],
+      [buildUserMessage('我们开始学习。', 1)],
+      buildProfiles(),
+      { onSpeakerSelected: () => undefined, onMessageChunk: () => undefined, onMessageComplete: (message) => completed.push(message), onIdle: (reason) => idleReasons.push(reason), onError: (error) => { throw error; } },
+      undefined,
+      undefined,
+      {},
+    );
+    expect(idleReasons).toHaveLength(0);
+    expect(completed).toHaveLength(1);
+  });
+
   it('does not select away or deleted members for group scheduling', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({

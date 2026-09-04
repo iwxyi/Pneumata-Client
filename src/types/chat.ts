@@ -676,6 +676,20 @@ export interface OpenChatModeState {
     webSearchUserDisabled?: boolean;
     updatedAt?: number;
   };
+  agentCapabilities?: {
+    enabled?: boolean;
+    chatArtifactRead?: boolean;
+    chatArtifactWrite?: boolean;
+    fileUpload?: boolean;
+    fileDownload?: boolean;
+    workspaceRead?: boolean;
+    workspaceWrite?: boolean;
+    officeTransform?: boolean;
+    commandExecution?: boolean;
+    systemActions?: boolean;
+    webSearch?: boolean;
+    updatedAt?: number;
+  };
 }
 
 export interface ParticipantInstance {
