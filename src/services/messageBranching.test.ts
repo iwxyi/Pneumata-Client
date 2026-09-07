@@ -75,10 +75,10 @@ describe('messageBranching v2', () => {
     expect(resolveMessageBranchNodes(messages).map((node) => node.parentNodeId)).toEqual([null, null]);
   });
 
-  it('falls back to the synchronized timeline when an ancestor is outside the window', () => {
+  it('does not expose sibling timeline when an ancestor is outside the window', () => {
     const messages = [message('tail', 'ai', 'missing-parent', 3), message('other', 'user', null, 4)];
     const state = buildBranchStateWithHead({ enabled: true }, 'tail');
-    expect(projectActiveBranchMessages(chat({ messageBranchState: state }), messages).map((item) => item.id)).toEqual(['tail', 'other']);
+    expect(projectActiveBranchMessages(chat({ messageBranchState: state }), messages).map((item) => item.id)).toEqual(['tail']);
   });
 
   it('disables branching for explicit stateful scenarios', () => {

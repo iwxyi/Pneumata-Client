@@ -280,12 +280,12 @@ function buildPlannerPrompt(options: { includeImages: boolean; includeLocalFiles
     'selectedArtifactId 存在且用户说“这个/当前产物/改一下”等相对指代时优先作为 update 目标；没有唯一目标则 clarify。',
   ];
   if (options.includeSearch) sections.push('搜索：需要实时消息、网页资料或外部核验且 webSearch=true 时输出 search 并填写 searchQuery；未开启时说明能力未开启。');
-  if (options.includeLocalFiles) sections.push('本地文件：只使用 registry 中的文件；用户未明确目标时 clarify，未授权时不要假装读取；输出 localFilePaths 时必须使用 registry 中的 directoryId/path。');
+  if (options.includeLocalFiles) sections.push('本地文件：只使用 registry 中的文件；用户未明确目标时 clarify，未授权时不要假装读取；输出 localFilePaths 时必须使用 registry 中的 directoryId/path。需要扫描时可输出 workspaceScan（directoryIds、pathPrefix、nameContains、extension、minSizeBytes、maxSizeBytes、maxEntries、maxDepth），扫描结果不等于文件正文。');
   if (options.includeImages) sections.push('图片：结合图片注册表判断目标/参考图，不要虚构图片 ID；图片生成仍由后续 writer/media task 处理。');
   if (options.includeData) sections.push('数据产物：已有 table/json 产物的筛选、统计、插入、更新或删除使用结构化数据操作；优先使用注册表中的字段、描述和统计摘要，不加载完整文件。');
   sections.push(
     '输出：',
-    '{"intent":"chat|create|update|clarify|search","assistantMessage":"chat/clarify 可见回复","responseExperience":"direct_answer|source_code|structured_input|interactive_workspace|visual_explanation","searchQuery":"","localFilePaths":[],"scope":{"targetMode":"single|multi|workspace|selection|unknown","artifactIds":[]},"operations":[{"kind":"style_change|content_edit|structure_edit|create|export|review|search|other","instruction":"..."}],"requiresConfirmation":false,"clarificationQuestion":"","confidence":0,"rationale":"..."}',
+    '{"intent":"chat|create|update|clarify|search","assistantMessage":"chat/clarify 可见回复","responseExperience":"direct_answer|source_code|structured_input|interactive_workspace|visual_explanation","searchQuery":"","localFilePaths":[],"workspaceScan":{"directoryIds":[],"pathPrefix":"","nameContains":"","extension":"","minSizeBytes":0,"maxSizeBytes":0,"maxEntries":160,"maxDepth":4},"scope":{"targetMode":"single|multi|workspace|selection|unknown","artifactIds":[]},"operations":[{"kind":"style_change|content_edit|structure_edit|create|export|review|search|other","instruction":"..."}],"requiresConfirmation":false,"clarificationQuestion":"","confidence":0,"rationale":"..."}',
   );
   return sections.join('\n');
 }
@@ -328,6 +328,17 @@ function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[],
         return [{ directoryId, path }];
       }).slice(0, 12)
     : [];
+  const rawScan = isRecord(raw.workspaceScan) ? raw.workspaceScan : null;
+  const workspaceScan = rawScan ? {
+    directoryIds: Array.isArray(rawScan.directoryIds) ? rawScan.directoryIds.filter((id): id is string => typeof id === 'string' && id.length <= 160).slice(0, 12) : undefined,
+    pathPrefix: text(rawScan.pathPrefix, 480) || undefined,
+    nameContains: text(rawScan.nameContains, 160) || undefined,
+    extension: text(rawScan.extension, 32).replace(/^\./, '').toLowerCase() || undefined,
+    minSizeBytes: numberInRange(rawScan.minSizeBytes, 0),
+    maxSizeBytes: numberInRange(rawScan.maxSizeBytes, 0),
+    maxEntries: Math.max(1, Math.min(500, Math.floor(numberInRange(rawScan.maxEntries, 160) || 160))),
+    maxDepth: Math.max(1, Math.min(8, Math.floor(numberInRange(rawScan.maxDepth, 4) || 4))),
+  } : undefined;
   const normalizedIntent = intent === 'update' && artifactIds.length === 0 ? 'clarify' : intent;
   const responseExperience = ['direct_answer', 'source_code', 'structured_input', 'interactive_workspace', 'visual_explanation'].includes(String(raw.responseExperience))
     ? raw.responseExperience as NonNullable<AssistantAgentChangePlan['responseExperience']>
@@ -341,6 +352,7 @@ function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[],
     clarificationQuestion: text(raw.clarificationQuestion, 300),
     searchQuery: text(raw.searchQuery, 300),
     localFilePaths,
+    workspaceScan,
     responseExperience,
     confidence: numberInRange(raw.confidence, 0),
     rationale: text(raw.rationale, 500),
@@ -373,6 +385,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
   );
   if (options.includeData) sections.push(
     'CSV/JSON：已有数据产物优先使用 dataOperations 做本地增量 query/insert/update/delete/add_column，不要把完整大文件放入上下文；query 最多返回 100 行。创建新的 CSV/JSON 仍使用 patches，更新已有数据产物时只返回 dataOperations，不要伪造完整文件内容。增加 CSV 列使用 add_column（column/defaultValue）；JSON 没有固定列，要求增加字段时使用 update values 并配合 filter。筛选条件支持 field 的点路径（如 profile.name）、比较 eq/contains/startsWith/endsWith/gt/gte/lt/lte，以及 exists/notExists/isNull/isNotNull；顶层 filter 数组是 AND，可用 all/any/not 组合 AND/OR/NOT。',
+    '版本管理：如用户要求恢复到指定版本，输出 versionOperations kind=restore；如要求仅保留最近 N 个版本，输出 kind=limit keepCount=N。restore 会以指定版本为当前版本并丢弃其后版本，limit 不得删除当前版本。',
   );
   if (options.includeHtml) sections.push(
     'HTML：structured_input 生成小型交互控件，interactive_workspace 生成完整页面，visual_explanation 按规模选择；禁止 script、事件属性、iframe/object/embed、外部资源和网络请求，只用声明式控件与 data-pneumata-action。submission.fields 必须与 name 一致；提交回流必须 update 原产物并使用完整新版本。颜色使用 --pneumata-* 变量，并提供 light/dark 属性主题和 prefers-color-scheme dark；HTML 只是交互手段，不在 assistantMessage 输出源码。',
@@ -722,6 +735,13 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
     }];
   }) : [];
   const dataOperations = normalizeDataOperations(raw.dataOperations);
+  const versionOperations = Array.isArray(raw.versionOperations) ? raw.versionOperations.slice(0, 20).flatMap((item) => {
+    if (!isRecord(item)) return [];
+    const artifactId = text(item.artifactId, 160);
+    const kind = item.kind === 'restore' || item.kind === 'limit' ? item.kind : null;
+    if (!artifactId || !kind) return [];
+    return [{ artifactId, kind, versionId: text(item.versionId, 240) || undefined, keepCount: Number.isFinite(Number(item.keepCount)) ? Math.max(1, Math.min(50, Math.floor(Number(item.keepCount)))) : undefined }];
+  }) : [];
   const allowedDirectories = new Set((plan?.localFilePaths || []).map((file) => file.directoryId));
   const workspaceOperations = Array.isArray(raw.workspaceOperations) ? raw.workspaceOperations.slice(0, 100).flatMap((item) => {
     if (!isRecord(item)) return [];
@@ -747,6 +767,7 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
       || (mediaTasks.length && !patches.length ? '我已根据你的要求准备生成图片。' : patches.length || dataOperations.length ? '已完成产物变更。' : '没有可提交的产物变更。'),
     patches,
     dataOperations,
+    versionOperations,
     workspaceOperations,
     mediaTasks,
   };
@@ -778,6 +799,12 @@ export function validateAssistantAgentPatchSet(params: {
     if (!target || !['table', 'json'].includes(target.kind)) return false;
     return !operation.baseVersionId || operation.baseVersionId === target.currentVersionId;
   });
+  const validVersionOperations = (params.patchSet.versionOperations || []).filter((operation) => {
+    const target = existingById.get(operation.artifactId);
+    if (!target) return false;
+    if (operation.kind === 'restore') return Boolean(operation.versionId && target.versions.some((version) => version.id === operation.versionId));
+    return Number.isFinite(operation.keepCount) && (operation.keepCount || 0) >= 1;
+  });
   const rejectedForTruncatedContext = params.patchSet.patches.some((patch) => (
     patch.action === 'update'
     && patch.artifactId
@@ -789,6 +816,7 @@ export function validateAssistantAgentPatchSet(params: {
       : params.patchSet.assistantMessage,
     patches: validPatches,
     dataOperations: validDataOperations,
+    versionOperations: validVersionOperations,
     workspaceOperations: params.patchSet.workspaceOperations || [],
     mediaTasks: params.patchSet.mediaTasks || [],
   } satisfies AssistantAgentPatchSet;

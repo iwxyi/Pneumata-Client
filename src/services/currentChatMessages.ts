@@ -193,7 +193,15 @@ export function projectCurrentChatMessages(params: {
   activeMessages: Message[];
   cachedWindow?: MessageWindowLike | null;
 }) {
-  const projected = projectMergedChatMessages(params);
+  const branchAwareParams = params.chat && isMessageBranchingEnabled(params.chat)
+    ? {
+        ...params,
+        cachedWindow: params.cachedWindow
+          ? { ...params.cachedWindow, preserveBranchContext: true }
+          : params.cachedWindow,
+      }
+    : params;
+  const projected = projectMergedChatMessages(branchAwareParams);
   if (!isMessageBranchingEnabled(params.chat)) return projected;
   const activeRange = getMessageRange(params.activeMessages.filter((message) => message.chatId === params.chatId));
   const branched = projectActiveBranchMessages(params.chat, projected);

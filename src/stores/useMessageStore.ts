@@ -9,7 +9,7 @@ import { useAuthStore } from './useAuthStore';
 import { CLIENT_STORE_SCHEMA_VERSION, migrateMessageStoreState } from './storeMigrations';
 import { createScopedIndexedDbBufferedJsonStorage, flushBufferedPersistenceWrites } from './storePersistenceScope';
 import { createSyncScheduler } from './storeSyncScheduler';
-import { canAttemptOnlineSync, getPendingQueueWorkerPriority, recoverInterruptedOperations, retryFailedOperations, runPendingOperationQueue } from './storeSyncHelpers';
+import { canAttemptOnlineSync, getPendingQueueWorkerPriority, isTerminalSyncError, recoverInterruptedOperations, retryFailedOperations, runPendingOperationQueue } from './storeSyncHelpers';
 import { scopedStorageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { isCloudSyncEnabled } from '../services/cloudSyncPreference';
@@ -32,6 +32,7 @@ import {
   trimActiveMessages,
   trimActiveMessagesForDirection,
   trimMessages,
+  trimMessagesWithBranchContext,
 } from './messageStoreMerge';
 
 function isLocalOnlyMode() {
@@ -123,7 +124,7 @@ function mergeLocalWindow(cache: Record<string, CachedMessageWindow>, chatId: st
   return trimCache({
     ...cache,
     [chatId]: {
-      messages: trimMessages(messages),
+      messages: trimMessagesWithBranchContext(messages),
       lastSyncedAt: Date.now(),
       updatedAt: messages.at(-1)?.timestamp || Date.now(),
       remoteExhausted: currentWindow?.remoteExhausted,
@@ -251,7 +252,7 @@ function localHydratedWindow(state: MessageStore, chatId: string, requestedLimit
 function localUpsertMessage(state: MessageStore, message: Message) {
   const currentWindow = state.messageWindowsByChatId[message.chatId];
   const current = currentWindow?.messages || [];
-  const nextChatMessages = trimMessages(mergeMessages(current, [message]));
+  const nextChatMessages = trimMessagesWithBranchContext(mergeMessages(current, [message]));
   const nextActiveMessages = trimActiveMessages(mergeMessages(state.messages, [message]));
   return {
     messages: state.activeChatId === message.chatId ? nextActiveMessages : state.messages,
@@ -467,6 +468,11 @@ function pendingMessageOperationPriority(operation: PendingMessageOperation) {
   return 1e15 - timestamp;
 }
 
+function isTerminalMessageSyncError(classified: string) {
+  if (/BRANCH_PARENT_NOT_FOUND|chat:create pending|CHAT_CREATE_PENDING/i.test(classified)) return false;
+  return isTerminalSyncError(classified);
+}
+
 interface PersistedMessageState {
   messageWindowsByChatId: Record<string, CachedMessageWindow>;
   pendingOperations: PendingMessageOperation[];
@@ -642,7 +648,7 @@ function trimCache(cache: Record<string, CachedMessageWindow>, pendingOperations
   return Object.fromEntries(
     entries
       .slice(0, MAX_CACHED_CHATS)
-      .map(([chatId, window]) => [chatId, { ...window, messages: trimMessages(window.messages) }])
+      .map(([chatId, window]) => [chatId, { ...window, messages: trimMessagesWithBranchContext(window.messages) }])
   );
 }
 
@@ -890,6 +896,7 @@ export const useMessageStore = create<MessageStore>()(
           getOperations: () => get().pendingOperations,
           canRun: canAttemptOnlineSync,
           retryDelays: MESSAGE_SYNC_DELAYS,
+          isTerminalError: isTerminalMessageSyncError,
           priority: pendingMessageOperationPriority,
           batchSize: 3,
           updateOperation: (operationId, operation) => {
@@ -1002,11 +1009,11 @@ export const useMessageStore = create<MessageStore>()(
             set((state) => {
               const currentWindow = state.messageWindowsByChatId[chatId] || cachedWindow;
               const merged = mergeMessages(currentWindow.messages || [], fetched);
-              const trimmed = trimMessages(merged);
+              const trimmed = trimMessagesWithBranchContext(merged);
               const nextCache = trimCache({
                 ...state.messageWindowsByChatId,
                 [chatId]: {
-                  messages: trimmed,
+              messages: trimMessagesWithBranchContext(trimmed),
                   lastSyncedAt: Date.now(),
                   updatedAt: trimmed.at(-1)?.timestamp || currentWindow.updatedAt || Date.now(),
                   remoteExhausted: fetchedFromChanges ? currentWindow.remoteExhausted : fetched.length < DEFAULT_MESSAGE_WINDOW_LIMIT,
@@ -1266,7 +1273,7 @@ export const useMessageStore = create<MessageStore>()(
             const activeMessagesForChat = state.messages.filter((message) => message.chatId === chatId);
             const activeCurrent = activeMessagesForChat.length ? activeMessagesForChat : activeMessageWindow(current, limit);
             const merged = mergeMessages(current, normalizedFetched);
-            const trimmed = trimMessages(merged);
+            const trimmed = trimMessagesWithBranchContext(merged);
             const mergedActiveMessages = mergeMessages(activeCurrent, normalizedFetched);
             const nextActiveMessages = isAroundWindow
               ? normalizedFetched
@@ -1427,7 +1434,7 @@ export const useMessageStore = create<MessageStore>()(
               pendingOperations,
             };
           }
-          const nextChatMessages = trimMessages(mergeMessages(current, [message]));
+          const nextChatMessages = trimMessagesWithBranchContext(mergeMessages(current, [message]));
           logMessageWindowDebug('upsert-one', {
             chatId: message.chatId,
             messageId: message.id,
@@ -1467,7 +1474,7 @@ export const useMessageStore = create<MessageStore>()(
           for (const [chatId, chatMessages] of messagesByChatId.entries()) {
             const currentWindow = nextCache[chatId];
             const current = currentWindow?.messages || [];
-            const merged = trimMessages(mergeMessages(current, chatMessages));
+            const merged = trimMessagesWithBranchContext(mergeMessages(current, chatMessages));
             logMessageWindowDebug('upsert-many-window', {
               chatId,
               incomingMessages: chatMessages.length,

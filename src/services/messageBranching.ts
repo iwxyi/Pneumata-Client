@@ -24,6 +24,7 @@ export interface MessageBranchVersionInfo {
 
 const DISABLED_SCENARIO_IDS = new Set(['story-reader', 'werewolf-classic', 'murder-mystery', 'board-game']);
 const DISABLED_MODES = new Set(['scripted_play', 'werewolf', 'murder_mystery', 'board_game']);
+const missingParentLogKeys = new Set<string>();
 
 type BranchableChat = Pick<GroupChat, 'sessionKind' | 'messageBranchState'> & Partial<Pick<GroupChat, 'mode'>>;
 
@@ -232,7 +233,12 @@ export function projectActiveBranchMessages(
     seen.add(cursor);
     const node = byId.get(cursor);
     if (!node) {
-      logDeveloperDiagnostic('message-branch:invalid', { reason: 'parent-not-loaded', nodeId: cursor }, 'error', 'message-window');
+      const logKey = `${headId}:${cursor}:${nodes.length}`;
+      if (!missingParentLogKeys.has(logKey)) {
+        missingParentLogKeys.add(logKey);
+        if (missingParentLogKeys.size > 200) missingParentLogKeys.delete(missingParentLogKeys.values().next().value as string);
+        logDeveloperDiagnostic('message-branch:parent-not-loaded', { reason: 'parent-not-loaded', nodeId: cursor, headNodeId: headId, loadedNodes: nodes.length }, 'info', 'message-window');
+      }
       parentUnavailable = true;
       break;
     }
@@ -241,16 +247,21 @@ export function projectActiveBranchMessages(
   }
   if (parentUnavailable) {
     // The active head is valid, but its ancestry is outside the current
-    // retained window. Keep the chat usable while pagination repairs the
-    // chain: show only messages that are already synchronized, in timeline
-    // order. This is a render-only fallback and never mutates refs/parents.
-    logDeveloperDiagnostic('message-branch:partial-fallback', {
-      reason: 'parent-not-loaded',
-      headNodeId: headId,
-      loadedNodes: nodes.length,
-      visibleMessages: visible.length,
-    }, 'warn', 'message-window');
-    return (options?.fallbackMessages?.length ? options.fallbackMessages : visible).slice().sort(compareMessageOrder);
+    // retained window. Never fall back to every visible message here: that
+    // exposes sibling branches as one linear conversation on a fresh device.
+    // Keep only the known active lineage until pagination restores parents.
+    const fallbackLogKey = `fallback:${headId}:${nodes.length}`;
+    if (!missingParentLogKeys.has(fallbackLogKey)) {
+      missingParentLogKeys.add(fallbackLogKey);
+      logDeveloperDiagnostic('message-branch:partial-fallback', {
+        reason: 'parent-not-loaded',
+        headNodeId: headId,
+        loadedNodes: nodes.length,
+        visibleMessages: visible.length,
+      }, 'info', 'message-window');
+    }
+    if (options?.fallbackMessages?.length) return options.fallbackMessages.slice().sort(compareMessageOrder);
+    return path.slice().reverse().map((node) => node.message).sort(compareMessageOrder);
   }
   path.reverse();
   return path.map((node) => node.message);

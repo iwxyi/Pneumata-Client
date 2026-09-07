@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GroupChat } from '../types/chat';
 import type { AssistantArtifactItem } from '../types/assistantArtifact';
-import type { LocalWorkspaceDirectoryMeta, LocalWorkspaceSettingsSnapshot } from '../types/localWorkspace';
+import type { ChatStorageTarget, LocalWorkspaceDirectoryMeta, LocalWorkspaceSettingsSnapshot } from '../types/localWorkspace';
 import { scopedStorageKey } from '../constants/brand';
 import { getLocalDataUserId } from '../services/authStorageScope';
 import { createScopedIndexedDbBufferedJsonStorage } from './storePersistenceScope';
@@ -24,13 +24,16 @@ interface LocalWorkspaceStore extends LocalWorkspaceSettingsSnapshot {
   addDirectory: () => Promise<LocalWorkspaceDirectoryMeta>;
   removeDirectory: (id: string) => Promise<void>;
   setDefaultDirectory: (id: string | null) => void;
+  setDefaultStorageTarget: (target: ChatStorageTarget) => void;
+  getDefaultStorageTarget: () => ChatStorageTarget;
   markDirectoryStatus: (id: string, patch: Partial<Pick<LocalWorkspaceDirectoryMeta, 'lastPermissionState' | 'lastError'>>) => void;
   getDefaultDirectory: () => LocalWorkspaceDirectoryMeta | null;
   listDefaultDirectoryFiles: () => Promise<LocalWorkspaceFileEntry[]>;
   readDefaultDirectoryTextFiles: (paths: string[]) => Promise<LocalWorkspaceFileContext[]>;
-  listDirectoryFiles: (directoryId: string) => Promise<LocalWorkspaceFileEntry[]>;
+  listDirectoryFiles: (directoryId: string, options?: import('../services/localWorkspaceService').LocalWorkspaceScanOptions) => Promise<LocalWorkspaceFileEntry[]>;
   readDirectoryTextFiles: (directoryId: string, paths: string[]) => Promise<LocalWorkspaceFileContext[]>;
   applyMutations: (directoryId: string, mutations: import('../services/localWorkspaceService').LocalWorkspaceMutation[], dryRun?: boolean) => Promise<{ applied: number; planned: number }>;
+  applyCrossWorkspaceOperations: (operations: import('../services/localWorkspaceService').CrossWorkspaceFileOperation[]) => Promise<{ applied: number; planned: number }>;
   getSelectedFilePaths: (chatId: string) => string[];
   setSelectedFilePaths: (chatId: string, paths: string[]) => void;
   toggleSelectedFilePath: (chatId: string, path: string) => void;
@@ -58,6 +61,12 @@ function getLocalWorkspaceStorageKey() {
 function normalizeDefaultDirectoryId(directories: LocalWorkspaceDirectoryMeta[], defaultDirectoryId: string | null) {
   if (defaultDirectoryId === null) return null;
   return directories.some((item) => item.id === defaultDirectoryId) ? defaultDirectoryId : null;
+}
+
+function normalizeStorageTarget(directories: LocalWorkspaceDirectoryMeta[], target: ChatStorageTarget | undefined, legacyId: string | null): ChatStorageTarget {
+  if (target?.kind === 'workspace' && directories.some((item) => item.id === target.workspaceId)) return target;
+  if (!target && legacyId && directories.some((item) => item.id === legacyId)) return { kind: 'workspace', workspaceId: legacyId };
+  return { kind: 'session' };
 }
 
 function clearSelectedFilesIfDefaultChanged(
@@ -100,6 +109,7 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
     (set, get) => ({
       directories: [],
       defaultDirectoryId: null,
+      defaultStorageTarget: { kind: 'session' },
       selectedFilePathsByChatId: {},
       chatWriteLocks: {},
 
@@ -115,6 +125,7 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
           return {
             directories,
             defaultDirectoryId: hadDirectories ? normalizeDefaultDirectoryId(directories, state.defaultDirectoryId) : directory.id,
+            defaultStorageTarget: normalizeStorageTarget(directories, state.defaultStorageTarget, hadDirectories ? state.defaultDirectoryId : null),
           };
         });
         if (!hadDirectories) {
@@ -135,6 +146,7 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
           return {
             directories,
             defaultDirectoryId,
+            defaultStorageTarget: state.defaultStorageTarget?.kind === 'workspace' && state.defaultStorageTarget.workspaceId === id ? { kind: 'session' } : normalizeStorageTarget(directories, state.defaultStorageTarget, defaultDirectoryId),
             selectedFilePathsByChatId: clearSelectedFilesIfDefaultChanged(state, defaultDirectoryId),
           };
         });
@@ -145,6 +157,7 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
           const defaultDirectoryId = normalizeDefaultDirectoryId(state.directories, id);
           return {
             defaultDirectoryId,
+            defaultStorageTarget: id ? { kind: 'workspace', workspaceId: id } : { kind: 'session' },
             selectedFilePathsByChatId: clearSelectedFilesIfDefaultChanged(state, defaultDirectoryId),
           };
         });
@@ -155,6 +168,22 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
             });
           });
         }
+      },
+
+      setDefaultStorageTarget: (target) => {
+        set((state) => {
+          const normalized = normalizeStorageTarget(state.directories, target, state.defaultDirectoryId);
+          return {
+            defaultStorageTarget: normalized,
+            defaultDirectoryId: normalized.kind === 'workspace' ? normalized.workspaceId : null,
+            selectedFilePathsByChatId: clearSelectedFilesIfDefaultChanged(state, normalized.kind === 'workspace' ? normalized.workspaceId : null),
+          };
+        });
+      },
+
+      getDefaultStorageTarget: () => {
+        const state = get();
+        return normalizeStorageTarget(state.directories, state.defaultStorageTarget, state.defaultDirectoryId);
       },
 
       markDirectoryStatus: (id, patch) => {
@@ -173,7 +202,8 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
 
       getDefaultDirectory: () => {
         const state = get();
-        const id = normalizeDefaultDirectoryId(state.directories, state.defaultDirectoryId);
+        const target = normalizeStorageTarget(state.directories, state.defaultStorageTarget, state.defaultDirectoryId);
+        const id = target.kind === 'workspace' ? target.workspaceId : null;
         return id ? state.directories.find((item) => item.id === id) || null : null;
       },
 
@@ -207,10 +237,10 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
         }
       },
 
-      listDirectoryFiles: async (directoryId) => {
+      listDirectoryFiles: async (directoryId, options) => {
         const directory = get().directories.find((item) => item.id === directoryId);
         if (!directory) return [];
-        return listLocalWorkspaceFiles({ directory });
+        return listLocalWorkspaceFiles({ directory, options });
       },
 
       readDirectoryTextFiles: async (directoryId, paths) => {
@@ -223,6 +253,10 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
         const directory = get().directories.find((item) => item.id === directoryId);
         if (!directory) throw new Error('找不到工作区');
         return (await import('../services/localWorkspaceService')).applyLocalWorkspaceMutations({ directory, mutations, dryRun });
+      },
+
+      applyCrossWorkspaceOperations: async (operations) => {
+        return (await import('../services/localWorkspaceService')).applyCrossWorkspaceFileOperations(operations);
       },
 
       getSelectedFilePaths: (chatId) => get().selectedFilePathsByChatId[chatId] || [],
@@ -339,6 +373,7 @@ export const useLocalWorkspaceStore = create<LocalWorkspaceStore>()(
       partialize: (state) => ({
         directories: state.directories,
         defaultDirectoryId: state.defaultDirectoryId,
+        defaultStorageTarget: state.defaultStorageTarget,
         selectedFilePathsByChatId: state.selectedFilePathsByChatId,
         chatWriteLocks: {},
       }),

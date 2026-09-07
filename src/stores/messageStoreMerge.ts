@@ -3,6 +3,10 @@ import { buildMessageIdentityKeys, getMessageRenderIdentity, isLocalOnlyMessageI
 import { compactMessageMetadata } from '../services/messageMetadataCompaction';
 
 export const MAX_CACHED_MESSAGES_PER_CHAT = 1000;
+// Branch ancestry is graph context, not visible timeline. Retain a larger
+// bounded window for chats that contain branch metadata so a cold device can
+// resolve the active head's parents without exposing sibling branches.
+export const MAX_BRANCH_GRAPH_MESSAGES_PER_CHAT = 5000;
 export const MAX_ACTIVE_MESSAGES_PER_CHAT = 240;
 
 export interface CachedMessageWindow {
@@ -238,6 +242,12 @@ export function hasCompactedNarrativeWindow(window?: CachedMessageWindow | null)
 
 export function trimMessages(messages: Message[]) {
   return dedupeMessages(messages).slice(-MAX_CACHED_MESSAGES_PER_CHAT);
+}
+
+export function trimMessagesWithBranchContext(messages: Message[]) {
+  const deduped = dedupeMessages(messages);
+  const hasBranchGraph = deduped.some((message) => Boolean(message.metadata?.branching));
+  return deduped.slice(-(hasBranchGraph ? MAX_BRANCH_GRAPH_MESSAGES_PER_CHAT : MAX_CACHED_MESSAGES_PER_CHAT));
 }
 
 export function trimActiveMessages(messages: Message[]) {

@@ -459,11 +459,25 @@ async function persistAssistantArtifactsFromReply(params: {
   const workspaceDirectories = resolvedCapabilities.workspaceRead
     ? localWorkspaceState.directories
     : [];
-  const directoryListings = await Promise.all(workspaceDirectories.map(async (directory) => ({
-    directoryId: directory.id,
-    files: await localWorkspaceState.listDirectoryFiles(directory.id).catch(() => []),
-  })));
-  const localWorkspaceFileRegistry = directoryListings.flatMap((entry) => entry.files);
+  // 仅在用户明确要求扫描/查找/列出文件时枚举工作区，避免每轮对话都扫描本地目录。
+  const shouldScanWorkspace = /扫描|列出|枚举|查找|搜索|筛选|统计|大于\s*\d+\s*(?:M|MB|G|GB)|所有文件|文件列表|目录内容|scan|list files|search files|find files/i.test(params.userMessage.content);
+  const scanSizeMatch = params.userMessage.content.match(/大于\s*(\d+(?:\.\d+)?)\s*(MB|M|GB|G)/i);
+  const extensionMatch = params.userMessage.content.match(/(?:扩展名|后缀|extension)\s*[为是:]?\s*\.?([a-z0-9]{1,12})/i);
+  const nameMatch = params.userMessage.content.match(/(?:文件名|名称).*?(?:包含|带有|含有|contains?)\s*[“”"']?([^“”"'，。,\s]{1,80})/i);
+  const pathMatch = params.userMessage.content.match(/(?:目录|路径|path)\s*[为是:]?\s*[“”"']?([^“”"'，。,\s]{1,160})/i);
+  const scanOptions = {
+    ...(scanSizeMatch ? { minSizeBytes: Number(scanSizeMatch[1]) * (scanSizeMatch[2]!.toUpperCase().startsWith('G') ? 1024 ** 3 : 1024 ** 2) } : {}),
+    ...(extensionMatch ? { extension: extensionMatch[1] } : {}),
+    ...(nameMatch ? { nameContains: nameMatch[1] } : {}),
+    ...(pathMatch ? { pathPrefix: pathMatch[1]!.replace(/^\/+|\/+$/g, '') } : {}),
+  };
+  const directoryListings = shouldScanWorkspace
+    ? await Promise.all(workspaceDirectories.map(async (directory) => ({
+      directoryId: directory.id,
+      files: await localWorkspaceState.listDirectoryFiles(directory.id, scanOptions).catch(() => []),
+    })))
+    : [];
+  let localWorkspaceFileRegistry = directoryListings.flatMap((entry) => entry.files);
   const uploadedFileContexts = buildUploadedFileContexts(params.userMessage);
   const plannerFileRegistry = [...localWorkspaceFileRegistry, ...uploadedFileContexts.map((file) => ({ directoryId: file.directoryId, path: file.path, name: file.name, kind: 'file' as const, depth: 1, sizeBytes: file.sizeBytes, mimeType: file.mimeType }))];
   const plan = await planAssistantAgentChange({
@@ -494,6 +508,24 @@ async function persistAssistantArtifactsFromReply(params: {
     signal: params.signal,
     forceArtifact: params.forceArtifact,
   });
+  // Planner may provide a more precise structured scan than the initial intent heuristic.
+  const plannedScan = plan.workspaceScan;
+  const plannedDirectoryIds = plannedScan?.directoryIds?.length ? new Set(plannedScan.directoryIds) : null;
+  if (plannedScan && resolvedCapabilities.workspaceRead) {
+    const refinedListings = await Promise.all(workspaceDirectories
+      .filter((directory) => !plannedDirectoryIds || plannedDirectoryIds.has(directory.id))
+      .map(async (directory) => ({
+        directoryId: directory.id,
+        files: await localWorkspaceState.listDirectoryFiles(directory.id, {
+          ...scanOptions,
+          ...plannedScan,
+        }).catch(() => []),
+      })));
+    if (refinedListings.length) {
+      directoryListings.splice(0, directoryListings.length, ...refinedListings);
+      localWorkspaceFileRegistry = directoryListings.flatMap((entry) => entry.files);
+    }
+  }
   const selectedLocalFiles = selectedLocalWorkspaceFilePaths.length
     ? selectedLocalWorkspaceFilePaths.map((path) => ({ directoryId: defaultLocalWorkspaceDirectory?.id || '', path }))
     : (plan.localFilePaths || []);
@@ -627,6 +659,11 @@ async function persistAssistantArtifactsFromReply(params: {
       if (dataArtifacts.length) {
         patchesCommitted += applied.artifacts.length;
       }
+    }
+    if (patchSet.versionOperations?.length) {
+      const appliedVersions = useAssistantArtifactStore.getState().applyVersionOperations({ chatId: params.chatId, operations: patchSet.versionOperations, timestamp: params.timestamp || Date.now() });
+      content = [content, ...appliedVersions.results.map((result) => result.error ? `版本操作失败：${result.error}` : result.kind === 'restore' ? '已恢复到指定版本，并移除其后的变更。' : '已按要求清理旧版本。')].filter(Boolean).join('\n\n');
+      patchesCommitted += appliedVersions.artifacts.length;
     }
     content = [buildAgentArtifactReplyContent(patchSet), dataResults.length ? formatAssistantDataResults(dataResults) : '']
       .filter(Boolean).join('\n\n');

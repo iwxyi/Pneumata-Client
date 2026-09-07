@@ -40,6 +40,13 @@ export interface AssistantArtifactTextOperation {
   baseVersionId?: string | null;
 }
 
+export interface AssistantArtifactVersionOperation {
+  kind: 'restore' | 'limit';
+  artifactId: string;
+  versionId?: string;
+  keepCount?: number;
+}
+
 export interface AssistantArtifactDataResult {
   operation: AssistantDataOperationKind;
   affectedRows: number;
@@ -181,6 +188,17 @@ export interface AssistantAgentLocalFileRef {
   path: string;
 }
 
+export interface AssistantAgentWorkspaceScanRequest {
+  directoryIds?: string[];
+  pathPrefix?: string;
+  nameContains?: string;
+  extension?: string;
+  minSizeBytes?: number;
+  maxSizeBytes?: number;
+  maxEntries?: number;
+  maxDepth?: number;
+}
+
 export interface AssistantAgentLocalFileContext extends AssistantAgentLocalFileRef {
   name: string;
   mimeType?: string;
@@ -205,6 +223,7 @@ export interface AssistantAgentChangePlan {
   clarificationQuestion?: string;
   searchQuery?: string;
   localFilePaths?: AssistantAgentLocalFileRef[];
+  workspaceScan?: AssistantAgentWorkspaceScanRequest;
   responseExperience?: AssistantResponseExperience;
   confidence: number;
   rationale?: string;
@@ -252,6 +271,7 @@ export interface AssistantAgentPatchSet {
   mediaTasks?: AssistantAgentMediaTask[];
   dataOperations?: AssistantArtifactDataOperation[];
   dataResults?: AssistantArtifactDataResult[];
+  versionOperations?: AssistantArtifactVersionOperation[];
   workspaceOperations?: Array<{
     directoryId: string;
     kind: 'write' | 'delete' | 'move';

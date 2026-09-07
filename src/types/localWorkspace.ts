@@ -10,9 +10,15 @@ export interface LocalWorkspaceDirectoryMeta {
   lastError?: string | null;
 }
 
+export type ChatStorageTarget =
+  | { kind: 'session' }
+  | { kind: 'workspace'; workspaceId: string };
+
 export interface LocalWorkspaceSettingsSnapshot {
   directories: LocalWorkspaceDirectoryMeta[];
   defaultDirectoryId: string | null;
+  /** Explicit default target; legacy defaultDirectoryId is retained for migration. */
+  defaultStorageTarget?: ChatStorageTarget;
   selectedFilePathsByChatId: Record<string, string[]>;
   chatWriteLocks: Record<string, number>;
 }

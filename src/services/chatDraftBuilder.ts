@@ -346,7 +346,22 @@ export function buildGroupChatDraft(input: ChatDraftInput): Omit<GroupChat, 'id'
     },
     modeState: {
       ...DEFAULT_OPEN_CHAT_MODE_STATE,
-      ...(isStudyRoom ? { assistantCapabilities: { agent: true, artifacts: true, updatedAt: Date.now() } } : {}),
+      ...(isStudyRoom ? {
+        agentCapabilities: {
+          enabled: true,
+          chatArtifactRead: true,
+          chatArtifactWrite: true,
+          fileUpload: true,
+          fileDownload: true,
+          workspaceRead: true,
+          // Study rooms may inspect authorized files, but disk mutation/commands stay opt-in.
+          workspaceWrite: false,
+          officeTransform: false,
+          commandExecution: false,
+          systemActions: false,
+          updatedAt: Date.now(),
+        },
+      } : {}),
     },
     scenarioPackage: {
       scenarioId: sessionKind.scenarioId,

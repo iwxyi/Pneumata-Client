@@ -94,6 +94,19 @@ describe('useAssistantArtifactStore', () => {
     expect(artifacts[0].versions).toHaveLength(2);
   });
 
+  it('restores a selected version and trims later versions', () => {
+    const store = useAssistantArtifactStore.getState();
+    const [created] = store.commitPatchSet({ chatId: 'chat-version', messageId: 'm1', timestamp: 100, patches: [{ action: 'create', kind: 'document', title: '文档', content: 'v1' }] });
+    useAssistantArtifactStore.getState().commitPatchSet({ chatId: 'chat-version', messageId: 'm2', timestamp: 200, patches: [{ action: 'update', artifactId: created.id, kind: 'document', title: '文档', content: 'v2', baseVersionId: created.currentVersionId }] });
+    const current = useAssistantArtifactStore.getState().getArtifactsForChat('chat-version')[0];
+    const firstVersionId = current.versions[0].id;
+    const result = useAssistantArtifactStore.getState().applyVersionOperations({ chatId: 'chat-version', operations: [{ kind: 'restore', artifactId: created.id, versionId: firstVersionId }] });
+    expect(result.results[0]?.error).toBeUndefined();
+    const restored = useAssistantArtifactStore.getState().getArtifactsForChat('chat-version')[0];
+    expect(restored.currentVersionId).toBe(firstVersionId);
+    expect(restored.versions).toHaveLength(1);
+  });
+
   it('merges server revision after a cloud push', async () => {
     const [created] = useAssistantArtifactStore.getState().commitPatchSet({
       chatId: 'chat-a',

@@ -33,6 +33,16 @@ export interface LocalWorkspaceFileEntry {
   updatedAt?: number;
 }
 
+export interface LocalWorkspaceScanOptions {
+  pathPrefix?: string;
+  nameContains?: string;
+  extension?: string;
+  minSizeBytes?: number;
+  maxSizeBytes?: number;
+  maxEntries?: number;
+  maxDepth?: number;
+}
+
 export interface LocalWorkspaceFileContext {
   directoryId: string;
   path: string;
@@ -42,6 +52,15 @@ export interface LocalWorkspaceFileContext {
   content: string;
   truncated: boolean;
   originalLength: number;
+}
+
+export interface CrossWorkspaceFileOperation {
+  kind: 'copy' | 'move';
+  sourceDirectory: LocalWorkspaceDirectoryMeta;
+  sourcePath: string;
+  destinationDirectory: LocalWorkspaceDirectoryMeta;
+  destinationPath: string;
+  overwrite?: boolean;
 }
 
 declare global {
@@ -393,17 +412,54 @@ export async function applyLocalWorkspaceMutations(params: {
   return { applied, planned: mutations.length };
 }
 
+/** Copy/move files between authorized workspaces. Move deletes the source only after a successful copy. */
+export async function applyCrossWorkspaceFileOperations(operations: CrossWorkspaceFileOperation[]) {
+  let applied = 0;
+  for (const operation of operations.slice(0, 100)) {
+    if (operation.sourceDirectory.id === operation.destinationDirectory.id
+      && operation.sourcePath === operation.destinationPath) continue;
+    const sourceRoot = await getDirectoryHandle(operation.sourceDirectory.id);
+    const destinationRoot = await getDirectoryHandle(operation.destinationDirectory.id);
+    if (!sourceRoot || !destinationRoot) throw new Error('本地文件夹授权已失效，请重新授权');
+    if (await ensureDirectoryPermission(sourceRoot, false) !== 'granted' || await ensureDirectoryPermission(destinationRoot) !== 'granted') {
+      throw new Error('未获得本地文件夹读写权限');
+    }
+    const source = await getChildHandle(sourceRoot, operation.sourcePath);
+    const destination = await getParentDirectoryHandle(destinationRoot, operation.destinationPath, true);
+    if (!source || !destination) continue;
+    let targetHandle: FileSystemFileHandle;
+    try {
+      targetHandle = await destination.directory.getFileHandle(destination.name, { create: false });
+      if (!operation.overwrite) continue;
+    } catch {
+      targetHandle = await destination.directory.getFileHandle(destination.name, { create: true });
+    }
+    const bytes = await readFileBytes(source);
+    const writable = await targetHandle.createWritable();
+    await writable.write(bytes);
+    await writable.close();
+    if (operation.kind === 'move' && operation.sourcePath !== operation.destinationPath) {
+      const sourceParent = await getParentDirectoryHandle(sourceRoot, operation.sourcePath);
+      if (sourceParent) await sourceParent.directory.removeEntry(sourceParent.name);
+    }
+    applied += 1;
+  }
+  return { applied, planned: Math.min(operations.length, 100) };
+}
+
 export async function listLocalWorkspaceFiles(params: {
   directory: LocalWorkspaceDirectoryMeta;
   maxEntries?: number;
   maxDepth?: number;
+  options?: LocalWorkspaceScanOptions;
 }): Promise<LocalWorkspaceFileEntry[]> {
   const rootHandle = await getDirectoryHandle(params.directory.id);
   if (!rootHandle) throw new Error('本地文件夹授权已失效，请重新授权');
   const permission = await ensureDirectoryPermission(rootHandle, false);
   if (permission !== 'granted') throw new Error('未获得本地文件夹读写权限');
-  const maxEntries = Math.max(1, Math.min(params.maxEntries || 160, 500));
-  const maxDepth = Math.max(1, Math.min(params.maxDepth || 4, 8));
+  const options = params.options || {};
+  const maxEntries = Math.max(1, Math.min(options.maxEntries || params.maxEntries || 160, 500));
+  const maxDepth = Math.max(1, Math.min(options.maxDepth || params.maxDepth || 4, 8));
   const entries: LocalWorkspaceFileEntry[] = [];
 
   async function walk(directory: DirectoryHandle, parentPath: string, depth: number) {
@@ -415,13 +471,19 @@ export async function listLocalWorkspaceFiles(params: {
       if (!name || name.startsWith('.')) continue;
       const path = joinWorkspacePath(parentPath, name);
       if (handle.kind === 'directory') {
-        entries.push({ directoryId: params.directory.id, path, name, kind: 'directory', depth });
+        if (!options.pathPrefix || path.startsWith(options.pathPrefix.replace(/^\/+|\/+$/g, ''))) entries.push({ directoryId: params.directory.id, path, name, kind: 'directory', depth });
         await walk(handle as DirectoryHandle, path, depth + 1);
         continue;
       }
       if (handle.kind !== 'file') continue;
       try {
         const file = await (handle as FileSystemFileHandle).getFile();
+        const normalizedExtension = options.extension?.replace(/^\./, '').toLowerCase();
+        if (options.pathPrefix && !path.startsWith(options.pathPrefix.replace(/^\/+|\/+$/g, ''))) continue;
+        if (options.nameContains && !name.toLowerCase().includes(options.nameContains.toLowerCase())) continue;
+        if (normalizedExtension && !name.toLowerCase().endsWith(`.${normalizedExtension}`)) continue;
+        if (options.minSizeBytes != null && file.size < options.minSizeBytes) continue;
+        if (options.maxSizeBytes != null && file.size > options.maxSizeBytes) continue;
         entries.push({
           directoryId: params.directory.id,
           path,

@@ -230,7 +230,7 @@ function AssistantDataPreview({ item, version, maxRows = 8, edgeRows = 0, showRo
       <Box sx={{ overflow: 'hidden', width: '100%' }}>
         <Box component="table" sx={{ borderCollapse: 'collapse', width: 'max-content', minWidth: '100%', fontSize: 11, color: 'text.primary' }}>
           <Box component="thead">
-          <Box component="tr">{showRowNumbers ? <Box component="th" sx={{ height: 28, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 700, lineHeight: '28px', color: 'text.secondary' }}>#</Box> : null}{preview.columns.map((column) => <Box component="th" key={column} sx={{ height: 28, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 700, lineHeight: '28px' }}>{column}</Box>)}</Box>
+          <Box component="tr">{showRowNumbers ? <Box component="th" sx={{ height: 28, pl: 1.25, pr: 1.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 700, lineHeight: '28px', color: 'text.secondary', minWidth: 42 }}>#</Box> : null}{preview.columns.map((column) => <Box component="th" key={column} sx={{ height: 28, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'left', whiteSpace: 'nowrap', fontWeight: 700, lineHeight: '28px' }}>{column}</Box>)}</Box>
           </Box>
           <Box component="tbody">
             {preview.rows.map((row, index) => (
@@ -238,7 +238,7 @@ function AssistantDataPreview({ item, version, maxRows = 8, edgeRows = 0, showRo
                 {preview.omittedRows > 0 && edgeRows > 0 && index === Math.min(edgeRows, preview.rows.length) ? (
                   <Box component="tr"><Box component="td" colSpan={preview.columns.length + (showRowNumbers ? 1 : 0)} sx={{ height: 24, px: 0.75, borderBottom: '1px solid', borderColor: 'divider', color: 'text.secondary', textAlign: 'center', fontStyle: 'italic' }}>省略中间 {preview.omittedRows} 行</Box></Box>
                 ) : null}
-                <Box component="tr">{showRowNumbers ? <Box component="td" sx={{ height: 26, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'right', color: 'text.secondary', fontVariantNumeric: 'tabular-nums', lineHeight: '26px' }}>{index + 1}</Box> : null}{preview.columns.map((column) => <Box component="td" key={column} title={cell(row[column])} sx={{ height: 26, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '26px' }}>{cell(row[column])}</Box>)}</Box>
+                <Box component="tr">{showRowNumbers ? <Box component="td" sx={{ height: 26, pl: 1.25, pr: 1.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', textAlign: 'left', color: 'text.secondary', fontVariantNumeric: 'tabular-nums', lineHeight: '26px', minWidth: 42 }}>{index + 1}</Box> : null}{preview.columns.map((column) => <Box component="td" key={column} title={cell(row[column])} sx={{ height: 26, px: 0.75, py: 0, borderBottom: '1px solid', borderColor: 'divider', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', lineHeight: '26px' }}>{cell(row[column])}</Box>)}</Box>
               </Fragment>
             ))}
           </Box>

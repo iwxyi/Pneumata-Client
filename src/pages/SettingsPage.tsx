@@ -1476,10 +1476,13 @@ export default function SettingsPage() {
   const compactBubbleMode = settings.compactBubbleMode;
   const compactPrivateBubbleMode = settings.compactPrivateBubbleMode;
   const localWorkspaceDirectories = useLocalWorkspaceStore((state) => state.directories);
-  const defaultLocalWorkspaceDirectoryId = useLocalWorkspaceStore((state) => state.defaultDirectoryId);
+  const persistedStorageTarget = useLocalWorkspaceStore((state) => state.defaultStorageTarget);
+  const defaultStorageTarget = persistedStorageTarget || { kind: 'session' as const };
+  const defaultLocalWorkspaceDirectoryId = defaultStorageTarget.kind === 'workspace' ? defaultStorageTarget.workspaceId : null;
   const addLocalWorkspaceDirectory = useLocalWorkspaceStore((state) => state.addDirectory);
   const removeLocalWorkspaceDirectory = useLocalWorkspaceStore((state) => state.removeDirectory);
   const setDefaultLocalWorkspaceDirectory = useLocalWorkspaceStore((state) => state.setDefaultDirectory);
+  const setDefaultStorageTarget = useLocalWorkspaceStore((state) => state.setDefaultStorageTarget);
   const user = useAuthStore((s) => s.user);
   const authMode = useAuthStore((s) => s.authMode);
   const developerModeDenied = authMode === 'cloud' && user?.developerModeEntitled === false;
@@ -2024,6 +2027,28 @@ export default function SettingsPage() {
                 </Box>
                 {localWorkspaceDirectories.length ? (
                   <Box sx={{ display: 'grid', gap: 1 }}>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0, 1fr) auto',
+                        gap: 1,
+                        alignItems: 'center',
+                        p: 1.25,
+                        borderRadius: 2,
+                        border: '1px solid',
+                        borderColor: defaultStorageTarget.kind === 'session' ? 'primary.main' : 'divider',
+                        bgcolor: defaultStorageTarget.kind === 'session' ? 'primary.main' : 'background.default',
+                        color: defaultStorageTarget.kind === 'session' ? 'primary.contrastText' : 'text.primary',
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="body2" sx={{ fontWeight: 800 }}>{i18n.language.startsWith('zh') ? '会话内存储' : 'Session storage'}</Typography>
+                        <Typography variant="caption" sx={{ display: 'block', opacity: 0.75 }}>{i18n.language.startsWith('zh') ? '保留产物版本并显示在文件面板' : 'Versioned artifacts shown in the file panel'}</Typography>
+                      </Box>
+                      <Button size="small" variant={defaultStorageTarget.kind === 'session' ? 'contained' : 'outlined'} color={defaultStorageTarget.kind === 'session' ? 'inherit' : 'primary'} onClick={() => setDefaultStorageTarget({ kind: 'session' })}>
+                        {defaultStorageTarget.kind === 'session' ? (i18n.language.startsWith('zh') ? '当前默认' : 'Current') : (i18n.language.startsWith('zh') ? '设为默认' : 'Set default')}
+                      </Button>
+                    </Box>
                     {!selectedLocalWorkspaceDirectoryId ? (
                       <Alert severity="info" icon={false} sx={{ py: 0.75 }}>
                         {i18n.language.startsWith('zh')

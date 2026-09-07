@@ -18,6 +18,21 @@ function message(patch: Partial<Message>): Message {
 }
 
 describe('projectCurrentChatMessages', () => {
+  it('preserves branch ancestry for non-render callers even without an explicit cache flag', () => {
+    const chat = {
+      sessionKind: { scenarioId: 'open-chat' },
+      messageBranchState: { enabled: true, activeLeafNodeId: 'tail' },
+    } as never;
+    const cached = Array.from({ length: 50 }, (_, index) => message({
+      id: `node-${index}`,
+      timestamp: index,
+      metadata: { branching: { nodeId: `node-${index}`, parentNodeId: index ? `node-${index - 1}` : null, sequence: index } },
+    }));
+    cached[49] = message({ id: 'tail', timestamp: 49, metadata: { branching: { nodeId: 'tail', parentNodeId: 'node-48', sequence: 49 } } });
+    const projected = projectCurrentChatMessages({ chatId: 'chat-1', chat, activeMessages: [cached.at(-1)!], cachedWindow: { messages: cached, activeLimit: 40 } });
+    expect(projected.at(-1)?.id).toBe('tail');
+    expect(projected.length).toBe(1);
+  });
   it('renders current chat messages from the cached window even when active messages are empty', () => {
     const projected = projectCurrentChatMessages({
       chatId: 'chat-1',
