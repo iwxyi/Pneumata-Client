@@ -253,13 +253,13 @@ const seedMessageBranchingExpression = String.raw`
     now + index,
   ));
   const branchMessages = [
-    message('anchor', '共同上游锚点', now + 30),
-    message('branch-root', '原始版本消息', now + 31),
-    message('original-tail', '原始版本后续', now + 32),
-    message('branch-alt', '新版本消息', now + 33, { branching: { parentNodeId: 'anchor', revisionRootId: 'branch-root', revisionOfMessageId: 'branch-root' } }),
-    message('nested-root', '新版本下的默认子分支', now + 34, { branching: { parentNodeId: 'branch-alt' } }),
-    message('nested-alt', '新版本下恢复的子分支', now + 35, { branching: { parentNodeId: 'branch-alt', revisionRootId: 'nested-root', revisionOfMessageId: 'nested-root' } }),
-    message('nested-tail', '恢复子分支后的后续', now + 36, { branching: { parentNodeId: 'nested-alt' } }),
+    message('anchor', '共同上游锚点', now + 30, { branching: { nodeId: 'anchor', parentNodeId: null, rootNodeId: 'anchor', sequence: 30 } }),
+    message('branch-root', '原始版本消息', now + 31, { branching: { nodeId: 'branch-root', parentNodeId: 'anchor', rootNodeId: 'anchor', sequence: 31 } }),
+    message('original-tail', '原始版本后续', now + 32, { branching: { nodeId: 'original-tail', parentNodeId: 'branch-root', rootNodeId: 'anchor', sequence: 32 } }),
+    message('branch-alt', '新版本消息', now + 33, { branching: { nodeId: 'branch-alt', parentNodeId: 'anchor', rootNodeId: 'anchor', sequence: 33, revisionOfNodeId: 'branch-root' } }),
+    message('nested-root', '新版本下的默认子分支', now + 34, { branching: { nodeId: 'nested-root', parentNodeId: 'branch-alt', rootNodeId: 'anchor', sequence: 34 } }),
+    message('nested-alt', '新版本下恢复的子分支', now + 35, { branching: { nodeId: 'nested-alt', parentNodeId: 'branch-alt', rootNodeId: 'anchor', sequence: 35, revisionOfNodeId: 'nested-root' } }),
+    message('nested-tail', '恢复子分支后的后续', now + 36, { branching: { nodeId: 'nested-tail', parentNodeId: 'nested-alt', rootNodeId: 'anchor', sequence: 36 } }),
   ];
   const fillerAfter = Array.from({ length: 30 }, (_, index) => message(
     'after-' + (index + 1),
