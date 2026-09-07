@@ -31,6 +31,7 @@
     "test:fast": "vitest run --testTimeout=10000 src/types/chat.test.ts src/types/settings.test.ts src/stores/storeMigrations.test.ts src/stores/storePersistenceScope.test.ts src/services/currentChatMessages.test.ts src/services/messageBranching.test.ts src/services/apiErrorMessage.test.ts",
     "test:sync": "vitest run --testTimeout=15000 src/stores/storePersistenceScope.test.ts src/stores/storeMigrations.test.ts src/stores/storeCloudNoopSync.test.ts src/stores/useChatStore.runtimePersistence.test.ts src/stores/useCharacterStore.runtimePersistence.test.ts src/stores/useMessageStore.runtimePersistence.test.ts src/stores/storeSyncScheduler.test.ts src/services/localOutboxProjection.test.ts src/services/localOutboxDb.test.ts src/services/syncConflictRecords.test.ts",
     "test:cloud-sync": "vitest run src/stores/cloudSyncCrossDevice.test.ts src/stores/useMessageStore.test.ts src/stores/useChatStore.runtimePersistence.test.ts src/stores/useMessageStore.runtimePersistence.test.ts src/stores/useAssistantArtifactStore.test.ts src/stores/storeSyncScheduler.test.ts src/services/api.test.ts src/services/localToCloudBootstrap.test.ts src/services/localOutboxProjection.test.ts src/services/localOutboxDb.test.ts src/services/syncConflictRecords.test.ts",
+    "test:full": "node scripts/full-regression.mjs",
     "test:admin-browser-smoke": "node scripts/admin-browser-smoke.mjs",
     "test:deliberation-browser-smoke": "node scripts/deliberation-browser-smoke.mjs",
     "test:message-branching-browser-smoke": "node scripts/message-branching-browser-smoke.mjs",

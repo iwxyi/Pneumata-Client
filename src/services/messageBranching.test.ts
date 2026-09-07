@@ -124,4 +124,41 @@ describe('messageBranching v2', () => {
     });
     expect(draft.metadata?.branching?.nodeId).toEqual(expect.any(String));
   });
+
+  it('keeps rich multi-part and media metadata isolated to the active revision', () => {
+    const original = message('a1', 'ai', 'u1', 2, '原始回答');
+    original.metadata = {
+      branching: { nodeId: 'a1', parentNodeId: 'u1', rootNodeId: 'u1', sequence: 2 },
+      parts: [{ type: 'text', text: '原始回答' }, { type: 'text', text: '第二段' }],
+      attachments: [{ assetId: 'asset-original', mimeType: 'image/png' }],
+    };
+    const revision = message('a2', 'ai', 'u1', 3, '替代回答', 'a1');
+    revision.metadata = {
+      branching: { nodeId: 'a2', parentNodeId: 'u1', rootNodeId: 'u1', sequence: 3, revisionOfNodeId: 'a1' },
+      parts: [{ type: 'text', text: '替代回答' }, { type: 'code', language: 'ts', text: 'const ok = true;' }],
+      attachments: [{ assetId: 'asset-revision', mimeType: 'audio/mpeg' }],
+    };
+    const state = buildBranchStateWithHead({ enabled: true }, 'a2');
+    const projected = projectActiveBranchMessages(chat({ messageBranchState: state }), [
+      message('u1', 'user', null, 1, '问题'), original, revision,
+    ]);
+    expect(projected.map((item) => item.id)).toEqual(['u1', 'a2']);
+    expect(projected[1]?.metadata).toMatchObject({
+      parts: [{ type: 'text', text: '替代回答' }, { type: 'code', language: 'ts', text: 'const ok = true;' }],
+      attachments: [{ assetId: 'asset-revision', mimeType: 'audio/mpeg' }],
+    });
+    expect(projected[1]?.metadata).not.toMatchObject({ attachments: [{ assetId: 'asset-original' }] });
+  });
+
+  it('keeps long branch paths deterministic when nodes arrive out of order', () => {
+    const nodes = Array.from({ length: 80 }, (_, index) => message(
+      `n-${index + 1}`,
+      index % 2 ? 'ai' : 'user',
+      index ? `n-${index}` : null,
+      index + 1,
+    ));
+    const state = buildBranchStateWithHead({ enabled: true }, 'n-80');
+    const shuffled = [...nodes].sort((left, right) => right.timestamp - left.timestamp);
+    expect(projectActiveBranchMessages(chat({ messageBranchState: state }), shuffled).map((item) => item.id)).toEqual(nodes.map((item) => item.id));
+  });
 });
