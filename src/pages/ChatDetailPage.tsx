@@ -2663,7 +2663,7 @@ export default function ChatDetailPage() {
           api,
           aiProfiles,
           chatId: id,
-          chat: latestChat,
+          chat,
           currentMessages: recentMessagesWithUser,
           selectedArtifactId: selectedAssistantArtifactId,
           timestamp: userMessage.timestamp + 1,

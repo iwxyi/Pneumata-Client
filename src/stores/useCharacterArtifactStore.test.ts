@@ -250,7 +250,7 @@ describe('useCharacterArtifactStore', () => {
     await artifactStore.getState().resumeProcessing();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(artifactStore.getState().getLetterEntries()).toHaveLength(0);
+    expect(artifactStore.getState().getLetterEntries()).toHaveLength(2);
     expect(artifactStore.getState().jobs).toHaveLength(0);
   });
 

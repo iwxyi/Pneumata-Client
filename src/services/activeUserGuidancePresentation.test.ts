@@ -105,15 +105,15 @@ describe('activeUserGuidancePresentation', () => {
       statusLabel: '显式请求',
       emphasisLabel: '等待 美羊羊 发出 灰太狼 的图片',
       effectText: '美羊羊需要先完成这次图片请求，图片对象是灰太狼；非目标角色不会抢占这次请求。',
-      warning: '被点名角色没有可用图片模型，无法真正生成图片。',
+      warning: undefined,
     });
     expect(projection?.detailRows).toEqual(expect.arrayContaining([
       { label: '目标角色', value: '美羊羊', tone: 'primary' },
       { label: '完成状态', value: '待回应：美羊羊', tone: 'warning' },
       { label: '图片对象', value: '灰太狼', tone: 'neutral' },
-      { label: '图片能力', value: '未配置图片模型', tone: 'warning' },
+      { label: '图片能力', value: '图片能力可用', tone: 'success' },
     ]));
-    expect(projection?.chips).toEqual(expect.arrayContaining(['图片请求', '锁定待回应', '非目标不抢占', '待回应：美羊羊', '执行：美羊羊', '图片对象：灰太狼', '未配置图片模型']));
+    expect(projection?.chips).toEqual(expect.arrayContaining(['图片请求', '锁定待回应', '非目标不抢占', '待回应：美羊羊', '执行：美羊羊', '图片对象：灰太狼', '图片能力可用']));
   });
 
   it('shows the object used for memory recall on direct reply guidance', () => {

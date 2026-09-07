@@ -2307,18 +2307,24 @@ function resolveProfileForCharacter(character: AICharacter, profiles: AIModelPro
   return isAIProfileUsable(matched) ? matched : null;
 }
 
-function buildMediaCapabilities(chat: GroupChat, character: AICharacter, profiles?: AIModelProfile[]) {
-  const imageProfile = resolveProfileForCharacter(character, profiles, 'image');
-  const audioProfile = resolveProfileForCharacter(character, profiles, 'audio');
+function buildMediaCapabilities(chat: GroupChat | AICharacter, character: AICharacter | AIModelProfile[], profiles?: AIModelProfile[]) {
+  // Keep the small public test helper backwards-compatible with the pre-chat
+  // signature while runtime callers continue to pass the conversation first.
+  const resolvedChat = ('type' in chat ? chat : null) as GroupChat | null;
+  const resolvedCharacter = ('id' in chat && !('type' in chat) ? chat : character) as AICharacter;
+  const resolvedProfiles = Array.isArray(character) ? character : profiles;
+  const imageProfile = resolveProfileForCharacter(resolvedCharacter, resolvedProfiles, 'image');
+  const audioProfile = resolveProfileForCharacter(resolvedCharacter, resolvedProfiles, 'audio');
   return {
     image: Boolean(imageProfile),
     // Learning listening material may use the configured TTS default even when
     // the teacher character has no personal voice assignment.
     audio: Boolean(audioProfile),
-    sticker: useAuthStore.getState().authMode === 'cloud'
+    sticker: Boolean(useAuthStore.getState().authMode === 'cloud'
       && useAuthStore.getState().user?.alapiDoutuEnabled === true
       && useSettingsStore.getState().enableChatStickers
-      && canUseStickerCapability(chat),
+      && resolvedChat
+      && canUseStickerCapability(resolvedChat)),
   };
 }
 

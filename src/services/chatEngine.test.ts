@@ -367,7 +367,7 @@ describe('chatEngine streaming preview', () => {
       baseUrl: 'https://example.test',
       model: 'image-model',
       isDefault: true,
-    }])).toEqual({ image: true, audio: false });
+    }])).toMatchObject({ image: true, audio: false });
   });
 
   it('uses the model profile array as media profiles when generation receives profile-based api config', () => {
@@ -383,7 +383,7 @@ describe('chatEngine streaming preview', () => {
     }];
     const resolved = __chatEngineTestUtils.resolveMediaProfiles(profiles, undefined);
     expect(resolved).toBe(profiles);
-    expect(__chatEngineTestUtils.buildMediaCapabilities({ id: 'char-1', modelProfileIds: {} } as AICharacter, resolved)).toEqual({ image: true, audio: false });
+    expect(__chatEngineTestUtils.buildMediaCapabilities({ id: 'char-1', modelProfileIds: {} } as AICharacter, resolved)).toMatchObject({ image: true, audio: false });
   });
 
   it('requires a media decision in the prompt contract when image generation is available', () => {

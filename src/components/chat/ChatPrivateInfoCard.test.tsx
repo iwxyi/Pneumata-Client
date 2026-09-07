@@ -11,6 +11,7 @@ vi.mock('@mui/material', async () => {
     Box: passthrough('div'),
     Chip: passthrough('span'),
     Stack: passthrough('div'),
+    Tooltip: passthrough('span'),
     Typography: passthrough('span'),
   };
 });
@@ -103,7 +104,7 @@ describe('ChatPrivateInfoCard', () => {
       />,
     );
     expect(html).toContain('私聊记忆主轴');
-    expect(html).toContain('优先读取与当前私聊对象相关的长期记忆');
+    expect(html).toContain('优先读当前私聊相关记忆');
     expect(html).toContain('优先检索与灰太狼相关的私聊记忆');
     expect(html).not.toContain('AI 私聊线程');
     expect(html).not.toContain('可持续自动推进');
@@ -139,7 +140,7 @@ describe('ChatPrivateInfoCard', () => {
     );
 
     expect(html).toContain('单聊记忆主轴');
-    expect(html).toContain('优先读取自己的长期记忆');
+    expect(html).toContain('优先读自己的私聊记忆');
     expect(html).toContain('惦记着小夏提过的事');
     expect(html).toContain('暧昧未确认');
     expect(html).toContain('有关心事项');

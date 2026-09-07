@@ -94,6 +94,13 @@ function findMentionedActors(text: string, characters: AICharacter[]) {
   return sortByNamePosition(text, characters).map((item) => item.character.id);
 }
 
+function isImageRequest(text: string) {
+  const nouns = /(图片|照片|相片|图像|配图|证件照|自拍|海报|插画|头像|表情包)/i;
+  if (!nouns.test(text)) return false;
+  if (/(怎么看|咋看|什么看法|你觉得|你认为|解释|分析|识别|读取|提取|总结|翻译|看清|图里|图片里|截图里|照片里|这张|这幅|这图)/i.test(text)) return false;
+  return /(发|发送|发给|给我发|来张|来个|整张|整一张|晒|拍|生成|画|绘制|做|制作|设计|创建|出一张|出个|换成|改成|修图|P图|p图|扩图|重绘)/i.test(text);
+}
+
 function isDirectSpeakRequest(text: string) {
   return /(说说|说一下|直接说|先说|说吧|说完|讲讲|回答|回应|回复|解释|评价|吐槽|问问|来一句|你来说|你来|发言|出题|写|分析|总结|展开|怎么看|咋看|什么看法|你觉得|你认为|想听.{0,16}(说|讲|回答|回复|发言|意见|看法)|轮到你)/i.test(text);
 }
@@ -210,17 +217,17 @@ function mentionedActorsBeforeFirstAction(text: string, mentioned: Array<{ chara
     .map((item) => item.character.id);
 }
 
-function resolveActionActors(text: string, characters: AICharacter[]) {
+function resolveActionActors(text: string, characters: AICharacter[], imageRequest = false) {
   const mentioned = sortByNamePosition(text, characters);
   if (!mentioned.length) return [];
   const prefixActors = namesAfterDirectivePrefix(text, mentioned);
   if (prefixActors.length) return unique(prefixActors);
   const actorsBeforeAction = mentionedActorsBeforeFirstAction(text, mentioned);
-  if (actorsBeforeAction.length && isDirectSpeakRequest(text)) return unique(actorsBeforeAction);
+  if (actorsBeforeAction.length && (imageRequest || isDirectSpeakRequest(text))) return unique(actorsBeforeAction);
   const leadingActors = startsWithMentionedActor(text, mentioned);
-  if (leadingActors.length && isDirectSpeakRequest(text)) return unique(leadingActors);
+  if (leadingActors.length && (imageRequest || isDirectSpeakRequest(text))) return unique(leadingActors);
   const beforeActionActors = firstMentionBeforeAction(text, mentioned);
-  if (beforeActionActors.length && isDirectSpeakRequest(text)) return unique(beforeActionActors);
+  if (beforeActionActors.length && (imageRequest || isDirectSpeakRequest(text))) return unique(beforeActionActors);
   if (isDirectSpeakRequest(text) && mentioned.length === 1) return [mentioned[0].character.id];
   return [];
 }
@@ -229,16 +236,17 @@ export function parseUserGuidanceIntent(text: string, characters: AICharacter[])
   const rawText = normalizeText(text);
   if (!rawText) return null;
   const mentionedActorIds = findMentionedActors(rawText, characters);
+  const imageRequest = isImageRequest(rawText);
   const hasHardConstraints = hasHardConstraintText(rawText);
   const minTargetTurns = resolveMinTargetTurns(rawText);
   const hardConstraintActorIds = hasHardConstraints ? mentionedActorIds : [];
-  const collectiveActorIds = isCollectiveActorRequest(rawText) ? allActorIds(characters) : [];
+  const collectiveActorIds = !imageRequest && isCollectiveActorRequest(rawText) ? allActorIds(characters) : [];
   const groupSubjectQuestion = !collectiveActorIds.length && mentionedActorIds.length > 0 && isGroupQuestionAboutSubject(rawText);
   const actorIds = collectiveActorIds.length
     ? collectiveActorIds
     : groupSubjectQuestion
       ? []
-      : resolveActionActors(rawText, characters);
+      : resolveActionActors(rawText, characters, imageRequest);
   const mentionedByPosition = sortByNamePosition(rawText, characters);
   const suppressedActorIds = namesAfterNegatedDirectivePrefix(rawText, mentionedByPosition)
     .filter((id) => !actorIds.includes(id));
@@ -248,7 +256,8 @@ export function parseUserGuidanceIntent(text: string, characters: AICharacter[])
   // do not infer it from local keyword matching.
   const voiceRequest = false;
   const directRequest = Boolean(actorIds.length) || isDirectSpeakRequest(rawText);
-  if (!directRequest && !mentionedActorIds.length) {
+  const subjectActorIds = imageRequest ? unique(mentionedActorIds.filter((id) => !actorIds.includes(id))) : [];
+  if (!imageRequest && !directRequest && !mentionedActorIds.length) {
     return {
       kind: 'topic_shift',
       rawText,
@@ -265,6 +274,17 @@ export function parseUserGuidanceIntent(text: string, characters: AICharacter[])
       maxTurns: hasHardConstraints ? 5 : 3,
       minTargetTurns,
       reason: hasHardConstraints ? '用户给出了需要持续遵守的群聊约束。' : '用户正在明确改变群聊焦点。',
+    };
+  }
+
+  if (imageRequest) {
+    const subjectNames = subjectActorIds.map((id) => characters.find((character) => character.id === id)?.name).filter(Boolean) as string[];
+    return {
+      kind: 'media_request', rawText, actorIds, mentionedActorIds, hardConstraintActorIds, suppressedActorIds, deferredActorIds,
+      hasHardConstraints, voiceRequest, focusText: rawText, beatType: 'answer', pressure: actorIds.length ? 0.98 : 0.86,
+      maxTurns: actorIds.length ? Math.max(1, actorIds.length) : 2, minTargetTurns,
+      mediaRequest: { kind: 'image', subjectActorIds, subjectText: subjectNames.join('、') || rawText, actionText: rawText },
+      reason: actorIds.length ? '用户指定角色发送或创作图片。' : '用户请求群聊产生图片内容。',
     };
   }
 

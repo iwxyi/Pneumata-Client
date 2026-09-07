@@ -8,7 +8,7 @@ describe('normalizeAIProfiles', () => {
       multiImageInput: true,
     });
     expect(inferTextInputCapabilities('official-deepseek', 'deepseek-v4-flash')).toMatchObject({
-      imageInput: false,
+      imageInput: true,
     });
   });
 

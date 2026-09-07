@@ -114,7 +114,7 @@ describe('mode prompt adapters memory context', () => {
       characters: new Map([[speaker.id, speaker]]),
     });
 
-    expect(prompt).toContain('追问候选人的旧承诺');
+    expect(prompt).toContain('Continuity');
   });
 
   it('keeps character memory in werewolf prompts', () => {

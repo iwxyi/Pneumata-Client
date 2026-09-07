@@ -110,8 +110,8 @@ function ChatCard({ chat, characters, onClick, onPrefetch, selected = false, sel
   };
   const [avatarTask, setAvatarTask] = useState<AvatarGenerationTaskState | null>(() => avatarGenerationQueue.getLatestTaskForTarget(`chat-avatar:${chat.id}`));
   const [chatAvatarTaskStatus, setChatAvatarTaskStatus] = useState(() => getChatCompletionTaskStatus(chat.id, 'group-avatar'));
-  useEffect(() => avatarGenerationQueue.subscribeTarget(`chat-avatar:${chat.id}`, setAvatarTask), [chat.id]);
-  useEffect(() => subscribeChatCompletionQueue(() => setChatAvatarTaskStatus(getChatCompletionTaskStatus(chat.id, 'group-avatar'))), [chat.id]);
+  useEffect(() => { const unsubscribe = avatarGenerationQueue.subscribeTarget(`chat-avatar:${chat.id}`, setAvatarTask); return () => { unsubscribe?.(); }; }, [chat.id]);
+  useEffect(() => { const unsubscribe = subscribeChatCompletionQueue(() => setChatAvatarTaskStatus(getChatCompletionTaskStatus(chat.id, 'group-avatar'))); return () => { unsubscribe?.(); }; }, [chat.id]);
   const resolvedLatestMessage = sanitizeChatLatestMessage(chat.latestMessage);
   const members = characters.filter((c) => chat.memberIds.includes(c.id));
   const deletedMembers = members.filter((member) => member.deletedAt != null);
@@ -317,7 +317,6 @@ function ChatCard({ chat, characters, onClick, onPrefetch, selected = false, sel
         onContextMenu={handleContextMenu}
         onPointerEnter={onPrefetch}
         onFocus={onPrefetch}
-        onPointerDown={onPrefetch}
         sx={{
           height: '100%',
           width: '100%',

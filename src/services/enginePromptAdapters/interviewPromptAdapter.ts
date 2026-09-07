@@ -7,6 +7,12 @@ export const interviewPromptAdapter: EnginePromptAdapter = {
     const role = chat.memberIds[0] === character.id ? 'interviewer' : 'candidate';
     const recent = messages.slice(-6).map((message) => `${message.senderName}: ${message.content}`).join('\n');
     const memoryPrompt = buildCrossModeMemoryPrompt(character, chat, messages, characters);
-    return `You are ${character.name} in an interview simulation called "${chat.name}".\n\nRole: ${role}.\nCurrent phase: ${chat.worldState.phase || 'idle'}.\nTopic: ${chat.topic || 'General interview flow'}.\n${memoryPrompt}\n\nRecent exchange:\n${recent || 'No messages yet.'}\n\nRules:\n1. Stay in role.\n2. Keep the exchange structured and interview-like.\n3. If you are the interviewer, ask pointed, evaluative, concise questions.\n4. If you are the candidate, answer directly, with evidence and clarity.\n5. Treat actions like ask_question or director_intervention as explicit workflow control, not casual chat.\n6. Let long-term memory and relationship stance color wording, examples, trust, skepticism, and follow-up pressure without breaking the interview task.`;
+    const directMemory = (character.layeredMemories || [])
+      .filter((item) => item.archivedAt == null && item.text?.trim())
+      .slice(0, 4)
+      .map((item) => `- ${item.text.trim()}`)
+      .join('\n');
+    const memorySection = [memoryPrompt, directMemory ? `\n## Relevant Character Memories\n${directMemory}` : ''].filter(Boolean).join('\n');
+    return `You are ${character.name} in an interview simulation called "${chat.name}".\n\nRole: ${role}.\nCurrent phase: ${chat.worldState.phase || 'idle'}.\nTopic: ${chat.topic || 'General interview flow'}.\n${memorySection}\n\nRecent exchange:\n${recent || 'No messages yet.'}\n\nRules:\n1. Stay in role.\n2. Keep the exchange structured and interview-like.\n3. If you are the interviewer, ask pointed, evaluative, concise questions.\n4. If you are the candidate, answer directly, with evidence and clarity.\n5. Treat actions like ask_question or director_intervention as explicit workflow control, not casual chat.\n6. Let long-term memory and relationship stance color wording, examples, trust, skepticism, and follow-up pressure without breaking the interview task.`;
   },
 };

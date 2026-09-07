@@ -45,7 +45,7 @@ describe('WEREWOLF_ENGINE', () => {
   it('exposes werewolf action schema with visibility scopes', () => {
     const chat = buildChat();
     const schema = WEREWOLF_ENGINE.getActionSchema?.({ conversation: chat, participants: WEREWOLF_ENGINE.buildParticipants(chat) });
-    expect(schema?.actions.map((action) => action.type)).toEqual(['wolf_vote', 'inspect_player', 'vote_player', 'director_intervention']);
+    expect(schema?.actions.map((action) => action.type)).toEqual(['wolf_vote', 'inspect_player', 'vote_player', 'director_intervention', 'mute_member']);
     expect(schema?.actions.find((action) => action.type === 'wolf_vote')?.visibility).toBe('pair_private');
     expect(schema?.actions.find((action) => action.type === 'inspect_player')?.visibility).toBe('role_private');
     expect(schema?.actions.find((action) => action.type === 'vote_player')?.visibility).toBe('public');

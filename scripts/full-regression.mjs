@@ -9,14 +9,15 @@ if (args.has('--help') || args.has('-h')) {
 const includeBrowser = args.has('--browser') || args.has('--all');
 const includeLlm = args.has('--llm') || args.has('--all');
 const includeCloud = args.has('--cloud') || args.has('--all');
-const workspaceRoot = resolve(process.cwd());
+const clientRoot = resolve(process.cwd());
+const repoRoot = resolve(clientRoot, '..');
 
 function run(label, command, commandArgs, options = {}) {
   return new Promise((resolvePromise, reject) => {
     const startedAt = Date.now();
     console.log(`[full-test] START ${label}`);
     const child = spawn(command, commandArgs, {
-      cwd: workspaceRoot,
+      cwd: options.cwd || repoRoot,
       stdio: 'inherit',
       env: { ...process.env, ...(options.env || {}) },
       shell: process.platform === 'win32',
@@ -32,21 +33,21 @@ function run(label, command, commandArgs, options = {}) {
 
 async function main() {
   const results = [];
-  results.push(await run('client typecheck', 'npm', ['run', 'typecheck']));
-  results.push(await run('client unit tests', 'npm', ['run', 'test']));
-  results.push(await run('client production bundle', 'npm', ['run', 'build:bundle']));
+  results.push(await run('client typecheck', 'npm', ['run', 'typecheck', '--workspace=Pneumata-Client']));
+  results.push(await run('client unit tests', 'npm', ['run', 'test', '--workspace=Pneumata-Client']));
+  results.push(await run('client production bundle', 'npm', ['run', 'build:bundle', '--workspace=Pneumata-Client']));
   results.push(await run('server tests', 'npm', ['run', 'test', '--workspace=Pneumata-Server']));
   results.push(await run('server build', 'npm', ['run', 'build', '--workspace=Pneumata-Server']));
 
   if (includeCloud) {
-    results.push(await run('cloud sync regression', 'npm', ['run', 'test:cloud-sync']));
+    results.push(await run('cloud sync regression', 'npm', ['run', 'test:cloud-sync', '--workspace=Pneumata-Client']));
   }
   if (includeBrowser) {
-    results.push(await run('message branching browser smoke', 'npm', ['run', 'test:message-branching-browser-smoke']));
-    results.push(await run('story browser smoke', 'npm', ['run', 'test:story-browser-smoke']));
+    results.push(await run('message branching browser smoke', 'npm', ['run', 'test:message-branching-browser-smoke', '--workspace=Pneumata-Client']));
+    results.push(await run('story browser smoke', 'npm', ['run', 'test:story-browser-smoke', '--workspace=Pneumata-Client']));
   }
   if (includeLlm) {
-    results.push(await run('real LLM acceptance', 'npm', ['run', 'test:ai-llm-acceptance', '--', '--run']));
+    results.push(await run('real LLM acceptance', 'npm', ['run', 'test:ai-llm-acceptance', '--workspace=Pneumata-Client', '--', '--run']));
   }
 
   const payload = {
