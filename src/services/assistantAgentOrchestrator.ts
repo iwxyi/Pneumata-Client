@@ -5,6 +5,7 @@ import type {
   AssistantAgentPatch,
   AssistantAgentPatchSet,
   AssistantArtifactDataOperation,
+  AssistantArtifactVersionOperation,
   AssistantArtifactFile,
   AssistantArtifactItem,
   AssistantArtifactKind,
@@ -738,7 +739,8 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
   const versionOperations = Array.isArray(raw.versionOperations) ? raw.versionOperations.slice(0, 20).flatMap((item) => {
     if (!isRecord(item)) return [];
     const artifactId = text(item.artifactId, 160);
-    const kind = item.kind === 'restore' || item.kind === 'limit' ? item.kind : null;
+    const kind: AssistantArtifactVersionOperation['kind'] = item.kind === 'restore' || item.kind === 'limit' ? item.kind : 'restore';
+    if (item.kind !== 'restore' && item.kind !== 'limit') return [];
     if (!artifactId || !kind) return [];
     return [{ artifactId, kind, versionId: text(item.versionId, 240) || undefined, keepCount: Number.isFinite(Number(item.keepCount)) ? Math.max(1, Math.min(50, Math.floor(Number(item.keepCount)))) : undefined }];
   }) : [];

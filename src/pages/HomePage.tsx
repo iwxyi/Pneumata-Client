@@ -555,7 +555,7 @@ export default function HomePage() {
     const unsubscribe = subscribeCharacterCompletionQueue(setCharacterCompletionSummary);
     return () => { unsubscribe(); };
   }, []);
-  useEffect(() => subscribeChatCompletionQueue(setChatCompletionSummary), []);
+  useEffect(() => { const unsubscribe = subscribeChatCompletionQueue(setChatCompletionSummary); return () => { unsubscribe(); }; }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => setCalendarNow(Date.now()), 60_000);
@@ -1310,7 +1310,7 @@ export default function HomePage() {
                   key={chat.id}
                   chat={chat}
                   characters={characters}
-                  displayMode={homeChatDisplayMode}
+                  displayMode={homeChatDisplayMode as 'list' | 'card'}
                   compactCard={homeChatDisplayMode === 'card'}
                   showListDivider={homeChatDisplayMode === 'list' && index < recentChats.length - 1}
                   onClick={() => openChatFromHome(chat)}

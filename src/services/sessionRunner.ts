@@ -386,7 +386,7 @@ export async function runSessionLoop(params: {
           actionFirst: loopDecision.actionFirst,
           rawRunChat: rawLoopDecision.runChat,
           rawRunAction: rawLoopDecision.runAction,
-          analysisStopReason: analysisRunPolicy.trace?.stopReason || null,
+          analysisStopReason: analysisRunPolicy.trace?.reason || null,
           rawDecision: rawLoopDecision,
           loopDecision,
           phase: currentChat.scenarioState?.phase || null,

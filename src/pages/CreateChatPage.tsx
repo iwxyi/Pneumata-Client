@@ -783,7 +783,7 @@ export default function CreateChatPage() {
       const prepared = await prepareAvatarUploadDataUrl(dataUrl, { maxSize: 1536, quality: 0.9 });
       let url = prepared;
       if (authMode === 'cloud') {
-        const asset = await api.createMediaAsset({ chatId: editingChat.id, messageId: `group-visual-${editingChat.id}`, attachmentId: `${kind}-uploaded-${Date.now()}`, kind: 'image', dataUrl: prepared });
+        const asset = await apiClient.createMediaAsset({ chatId: editingChat.id, messageId: `group-visual-${editingChat.id}`, attachmentId: `${kind}-uploaded-${Date.now()}`, kind: 'image', dataUrl: prepared });
         url = asset.url;
       }
       const current = editingChat.groupVisual || {};
@@ -1737,7 +1737,7 @@ export default function CreateChatPage() {
               openTopicInspirationLabel={i18n.language.startsWith('zh') ? '打开热点灵感' : 'Open topic inspiration'}
               batchGenerateMembersLabel={i18n.language.startsWith('zh') ? '生成' : 'Generate'}
             />
-            {editingChat && conversationKind !== 'assistant' ? (
+            {editingChat && editingChat.type !== 'assistant' ? (
               <SurfaceCard sx={{ mt: 2, mb: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
                   <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{isGroupConversation ? '头像和背景' : '聊天背景'}</Typography>

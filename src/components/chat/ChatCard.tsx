@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardActionArea, Box, Typography, Avatar, Chip, Checkbox, CircularProgress, Tooltip } from '@mui/material';
+import type { SxProps, Theme } from '@mui/material/styles';
 import { isImageAvatar } from '../../utils/avatar';
 import DirectIcon from '@mui/icons-material/ChatBubbleOutlined';
 import GroupIcon from '@mui/icons-material/Groups';
@@ -282,7 +283,7 @@ function ChatCard({ chat, characters, onClick, onPrefetch, selected = false, sel
           ...buildSelectionRailSx(selected || multiSelected || !isDirect, isDirect ? 2 : 3),
           opacity: isList ? 0 : (selected || multiSelected ? 0.9 : isDirect ? 0.22 : 0.30),
         },
-      }}
+      } as SxProps<Theme>}
     >
       <CardActionArea
         component="div"

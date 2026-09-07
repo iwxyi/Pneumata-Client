@@ -754,7 +754,7 @@ export async function uploadLocalMessageMediaToCloud(params: {
       chatId: params.cloudMessage.chatId,
       messageId: params.cloudMessage.serverId || params.cloudMessage.id,
       attachmentId: attachment.id,
-      kind: attachment.kind,
+      kind: attachment.kind === 'file' ? 'thumbnail' : attachment.kind,
       dataUrl: attachment.url,
       description: attachment.caption || attachment.altText,
       promptText: attachment.promptText,

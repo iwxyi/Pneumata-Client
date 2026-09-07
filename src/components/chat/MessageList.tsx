@@ -1747,7 +1747,6 @@ export default function MessageList({
     // An explicit branch switch owns the scroll position; do not let the
     // tail-follow effect pull the viewport to the new (possibly longer) tail
     // before the anchor restoration runs.
-    if (scrollTransactionRef.current?.intent === 'explicitJump') return;
     if (!metricsChanged) return;
 
     const tailChanged = currentMetrics.lastItemKey !== previousMetrics.lastItemKey

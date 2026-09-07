@@ -22,13 +22,13 @@ function buildSource(chat: GroupChat, members: AICharacter[], requirement: strin
   if (language === 'zh') return [
     `群聊名称：${compact(chat.name, 120)}`, `主题：${compact(chat.topic, 220)}`, `讨论种子：${compact(chat.topicSeed, 180)}`,
     `氛围：${compact(chat.worldState?.mood, 100)}；焦点：${compact(chat.worldState?.focus, 140)}；近期事件：${compact(chat.worldState?.recentEvent, 140)}`,
-    `会话风格：${chat.style}；玩法：${chat.sessionKind?.label || chat.mode}`, memberHints ? `成员轮廓：\n${memberHints}` : '',
+    `会话风格：${chat.style}；玩法：${chat.sessionKind?.scenarioId || chat.mode}`, memberHints ? `成员轮廓：\n${memberHints}` : '',
     requirement ? `本次用户要求（仅用于本次，不写入长期档案）：${compact(requirement, 420)}` : '',
   ].filter(Boolean).join('\n');
   return [
     `Group name: ${compact(chat.name, 120)}`, `Topic: ${compact(chat.topic, 220)}`, `Seed: ${compact(chat.topicSeed, 180)}`,
     `Mood: ${compact(chat.worldState?.mood, 100)}; focus: ${compact(chat.worldState?.focus, 140)}; recent event: ${compact(chat.worldState?.recentEvent, 140)}`,
-    `Conversation style: ${chat.style}; session: ${chat.sessionKind?.label || chat.mode}`, memberHints ? `Member cues:\n${memberHints}` : '',
+    `Conversation style: ${chat.style}; session: ${chat.sessionKind?.scenarioId || chat.mode}`, memberHints ? `Member cues:\n${memberHints}` : '',
     requirement ? `One-off user request (do not persist it): ${compact(requirement, 420)}` : '',
   ].filter(Boolean).join('\n');
 }

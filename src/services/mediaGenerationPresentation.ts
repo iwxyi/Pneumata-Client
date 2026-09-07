@@ -38,6 +38,7 @@ function formatKind(kind: MessageAttachment['kind']) {
     image: '图片',
     audio: '语音',
     sticker: '表情',
+    file: '文件',
   };
   return labels[kind] || kind;
 }

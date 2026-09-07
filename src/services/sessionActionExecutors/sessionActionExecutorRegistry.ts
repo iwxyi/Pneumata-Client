@@ -4,7 +4,7 @@ import { executeNonChatActionScaffold } from './nonChatActionScaffold';
 
 export type SessionActionExecutor = (chat: GroupChat, action: SessionActionDefinition) => SessionActionExecutionResult | null;
 
-const executors: SessionActionExecutor[] = [executeNonChatActionScaffold];
+const executors: SessionActionExecutor[] = [((chat, action) => executeNonChatActionScaffold(chat, action) as SessionActionExecutionResult | null)];
 
 export function registerSessionActionExecutor(executor: SessionActionExecutor) {
   executors.push(executor);

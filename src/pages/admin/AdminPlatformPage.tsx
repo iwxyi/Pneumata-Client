@@ -1017,7 +1017,6 @@ export default function AdminPlatformPage() {
                               size="small"
                               checked={Boolean(editor.doutuEnabled)}
                               onChange={(event) => setEditor((prev) => ({ ...prev, doutuEnabled: event.target.checked }))}
-                              inputProps={{ 'aria-label': '启用表情包搜索' }}
                             />
                           </TableCell>
                           <TableCell sx={{ minWidth: 148 }}>
@@ -1026,8 +1025,6 @@ export default function AdminPlatformPage() {
                               type="number"
                               value={String(editor.doutuPointCost ?? '')}
                               onChange={(event) => setEditor((prev) => ({ ...prev, doutuPointCost: event.target.value }))}
-                              inputProps={{ min: 0, step: 0.01 }}
-                              InputProps={{ endAdornment: <Typography variant="caption">P</Typography> }}
                             />
                           </TableCell>
                           <TableCell align="right">{Number.isFinite(alapiDoutuCallCount) ? alapiDoutuCallCount.toLocaleString('zh-CN') : 0}</TableCell>

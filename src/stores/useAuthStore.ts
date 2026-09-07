@@ -13,6 +13,7 @@ import { setAssistantArtifactCloudSyncEnabled } from '../services/assistantArtif
 interface User {
   id: string;
   phone: string;
+  email?: string;
   nickname: string;
   avatar: string;
   cloudSyncEntitled?: boolean;
@@ -26,6 +27,10 @@ interface User {
   chatShareEntitled?: boolean;
   developerModeEntitled?: boolean;
   retentionLimits?: Record<string, { storage: number; recall: number }>;
+  cloudStorageBytes?: number;
+  cloudStorageMembershipBytes?: number;
+  cloudStorageAccountBytes?: number;
+  cloudStorageGrants?: Array<{ bytes: number; expiresAt: number | null }>;
 }
 
 type AuthMode = 'cloud' | 'local';
@@ -154,6 +159,7 @@ async function resetLocalWorkspaceStoresForAccountBoundary() {
 }
 
 const AUTH_TOKEN_KEY = storageKey('token');
+const AUTH_REFRESH_TOKEN_KEY = storageKey('refresh-token');
 const AUTH_USER_KEY = storageKey('user');
 const AUTH_MODE_KEY = storageKey('auth-mode');
 function getAuthToken() {
@@ -171,6 +177,10 @@ function getAuthModeRaw() {
 function setAuthToken(token: string) {
   if (typeof localStorage === 'undefined') return;
   localStorage.setItem(AUTH_TOKEN_KEY, token);
+}
+
+function setAuthRefreshToken(token: string) {
+  if (typeof localStorage !== 'undefined') localStorage.setItem(AUTH_REFRESH_TOKEN_KEY, token);
 }
 
 function setAuthUser(user: User) {
@@ -208,6 +218,7 @@ function enableCloudSyncForLogin(user: User | null) {
 function clearAuthTokenAndUser() {
   if (typeof localStorage === 'undefined') return;
   localStorage.removeItem(AUTH_TOKEN_KEY);
+  localStorage.removeItem(AUTH_REFRESH_TOKEN_KEY);
   localStorage.removeItem(AUTH_USER_KEY);
 }
 
@@ -249,6 +260,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     try {
       const result = await api.login(phone, code);
       setAuthToken(result.token);
+      setAuthRefreshToken(result.refreshToken);
       setAuthUser(result.user);
       enableCloudSyncForLogin(result.user);
       setAuthMode('cloud');
@@ -295,7 +307,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
     set({ isLoading: true, isWorkspaceReady: false });
     try {
       const result = await api.passwordLogin(phone, password);
-      setAuthToken(result.token); setAuthUser(result.user); enableCloudSyncForLogin(result.user); setAuthMode('cloud');
+      setAuthToken(result.token); setAuthRefreshToken(result.refreshToken); setAuthUser(result.user); enableCloudSyncForLogin(result.user); setAuthMode('cloud');
       set({ token: result.token, user: result.user, isLoggedIn: true, isLoading: true, isWorkspaceReady: false, authMode: 'cloud' });
       await resetLocalWorkspaceStoresForAccountBoundary();
       await refreshStoresAfterCloudAuth(result.user);
@@ -322,6 +334,8 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 
   logout: async () => {
     set({ isLoading: true, isWorkspaceReady: false });
+    const refreshToken = typeof localStorage !== 'undefined' ? localStorage.getItem(AUTH_REFRESH_TOKEN_KEY) : null;
+    await api.logout(refreshToken || undefined).catch(() => undefined);
     await resetLocalWorkspaceStoresForAccountBoundary();
     clearAuthTokenAndUser();
     setAuthMode('local');
