@@ -207,7 +207,7 @@ const seedMessageBranchingExpression = String.raw`
     topic: '分支测试',
     style: 'free',
     runtimeEvolutionIntensity: 'balanced',
-    memberIds: ['alice'],
+    memberIds: ['alice', 'bob'],
     speed: 1,
     isActive: true,
     allowIntervention: true,
@@ -284,7 +284,7 @@ const seedMessageBranchingExpression = String.raw`
   useSchedulerStore.getState().pause();
   useSettingsStore.setState((state) => ({ ...state, developerMode: false }));
   useCharacterStore.setState({
-    characters: [{ ...baseCharacter, id: 'alice', name: 'Alice' }],
+    characters: [{ ...baseCharacter, id: 'alice', name: 'Alice' }, { ...baseCharacter, id: 'bob', name: 'Bob' }],
     lastSyncedAt: now,
     pendingOperations: [],
     pendingEditSyncCount: 0,
@@ -399,6 +399,10 @@ try {
   await navigate(cdp, '/chats/message-branching-browser-smoke');
   await wait(600);
   const seeded = await evaluate(cdp, seedMessageBranchingExpression, true);
+  // Seed after the initial route hydration. Navigating immediately after a
+  // store injection can race the persistence rehydrate and replace the
+  // deterministic fixture with the pre-seed snapshot.
+  await wait(900);
   await navigate(cdp, `/chats/${seeded.chatId}`);
   await waitFor(cdp, `document.body.innerText.includes('原始版本消息') && document.body.innerText.includes('1/2')`, 12000);
   const result = await evaluate(cdp, smokeAssertionsExpression, true);
