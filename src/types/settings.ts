@@ -16,6 +16,8 @@ export interface APIConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /** Hard ceiling for one response; independent from input/context limits. */
+  maxOutputTokens?: number;
   advancedOptions?: Partial<AIModelAdvancedOptions>;
 }
 
@@ -50,6 +52,14 @@ export interface AIModelProfile extends APIConfig {
   imageCapabilities?: Partial<AIModelImageCapabilities>;
   inputCapabilities?: Partial<AIModelInputCapabilities>;
   advancedOptions?: Partial<AIModelAdvancedOptions>;
+}
+
+export const DEFAULT_MAX_OUTPUT_TOKENS = 65_536;
+export const MAX_ALLOWED_OUTPUT_TOKENS = 1_000_000;
+export function normalizeMaxOutputTokens(value: unknown, fallback = DEFAULT_MAX_OUTPUT_TOKENS) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.min(MAX_ALLOWED_OUTPUT_TOKENS, Math.max(256, Math.floor(parsed)));
 }
 
 export const DEFAULT_INPUT_CAPABILITIES: AIModelInputCapabilities = {
@@ -489,6 +499,7 @@ export function normalizeAIProfiles(aiProfiles?: AIModelProfile[], api?: APIConf
       provider,
       baseUrl,
       model,
+      maxOutputTokens: normalizeMaxOutputTokens(profile.maxOutputTokens),
       id: profile.id || (index === 0 ? 'default' : `profile-${index + 1}`),
       name: profile.name || (index === 0 ? 'Default' : `Model ${index + 1}`),
       type,
@@ -1049,6 +1060,7 @@ export const DEFAULT_API_CONFIG: APIConfig = {
   apiKey: '',
   baseUrl: '/api/ai',
   model: 'deepseek-v4-flash',
+  maxOutputTokens: DEFAULT_MAX_OUTPUT_TOKENS,
 };
 
 export const DEFAULT_IMAGE_CAPABILITIES: AIModelImageCapabilities = {

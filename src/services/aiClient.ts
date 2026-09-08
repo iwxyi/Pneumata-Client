@@ -1,5 +1,5 @@
 import type { APIConfig, AIModelProfile } from '../types/settings';
-import { normalizeAIModelAdvancedOptions } from '../types/settings';
+import { normalizeAIModelAdvancedOptions, normalizeMaxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS } from '../types/settings';
 import { storageKey } from '../constants/brand';
 import { dispatchAuthSessionExpired } from './authSession';
 import { backendUrl } from './backendUrl';
@@ -1395,18 +1395,19 @@ export const generateResponse = async (
   onChunk?: (chunk: string) => void,
   options: GenerateResponseOptions = {},
 ): Promise<string> => {
-  const effectiveSystemPrompt = options.responseFormat === 'json'
+  const effectiveOptions = { ...options, maxTokens: options.maxTokens === undefined ? normalizeMaxOutputTokens(config.maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS) : Math.min(options.maxTokens, normalizeMaxOutputTokens(config.maxOutputTokens, DEFAULT_MAX_OUTPUT_TOKENS)) };
+  const effectiveSystemPrompt = effectiveOptions.responseFormat === 'json'
     ? `${systemPrompt}\n\nReturn exactly one valid json object. Do not wrap it in markdown.`
     : systemPrompt;
-  assertTextInputWithinBudget(effectiveSystemPrompt, messages, options);
+  assertTextInputWithinBudget(effectiveSystemPrompt, messages, effectiveOptions);
   if (usesOfficialProxy(config)) {
-    return generateOfficialResponse(config, effectiveSystemPrompt, messages, onChunk, options);
+    return generateOfficialResponse(config, effectiveSystemPrompt, messages, onChunk, effectiveOptions);
   }
   if (isOpenAICompatibleEndpoint(config)) {
-    return generateOpenAICompatibleResponse(config, effectiveSystemPrompt, messages, onChunk, options);
+    return generateOpenAICompatibleResponse(config, effectiveSystemPrompt, messages, onChunk, effectiveOptions);
   }
   const handler = providerHandlers[config.provider] || generateOpenAICompatibleResponse;
-  return handler(config, effectiveSystemPrompt, messages, onChunk, options);
+  return handler(config, effectiveSystemPrompt, messages, onChunk, effectiveOptions);
 };
 
 export const generateJsonResponse = async (

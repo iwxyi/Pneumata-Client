@@ -42,6 +42,7 @@ function resolveTextProfile(fallback: APIConfig, aiProfiles: AIModelProfile[]) {
       apiKey: profile.apiKey,
       baseUrl: profile.baseUrl,
       model: profile.model,
+      maxOutputTokens: profile.maxOutputTokens,
     } satisfies APIConfig
     : fallback;
   return {
