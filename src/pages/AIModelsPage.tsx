@@ -1627,6 +1627,7 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
                       fullWidth
                       value={profile.maxOutputTokens ?? 65536}
                       onChange={(event) => updateAIProfile(profile.id, { maxOutputTokens: Math.max(256, Math.min(1_000_000, Math.floor(Number(event.target.value) || 65536))) })}
+                      slotProps={{ htmlInput: { min: 256, max: 1_000_000, step: 1 } }}
                       helperText={i18n.language.startsWith('zh') ? '仅限制单次输出，不影响输入上下文；各功能实际取自身需求与此上限的较小值。' : 'Output-only ceiling; input context is independent. Each feature uses the lower of its budget and this ceiling.'}
                       sx={fieldSx()}
                     />
