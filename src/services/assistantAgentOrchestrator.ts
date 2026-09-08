@@ -35,7 +35,10 @@ const MAX_TOTAL_TARGET_CONTEXT_CHARS = 180_000;
 const MAX_SINGLE_TARGET_CONTEXT_CHARS = 80_000;
 const MAX_LOCAL_WORKSPACE_FILES_IN_REGISTRY = 160;
 const MAX_LOCAL_FILE_CONTEXT_CHARS = 120_000;
-const MAX_WRITER_OUTPUT_TOKENS = 32_768;
+// This is an output safety ceiling, not a context-window limit. 64K tokens
+// covers long HTML/document artifacts while keeping accidental runaway output
+// bounded across providers with different maximum-output policies.
+const MAX_WRITER_OUTPUT_TOKENS = 65_536;
 
 export interface CompactImageAttachmentRef {
   id: string;
