@@ -35,6 +35,7 @@ const MAX_TOTAL_TARGET_CONTEXT_CHARS = 180_000;
 const MAX_SINGLE_TARGET_CONTEXT_CHARS = 80_000;
 const MAX_LOCAL_WORKSPACE_FILES_IN_REGISTRY = 160;
 const MAX_LOCAL_FILE_CONTEXT_CHARS = 120_000;
+const MAX_WRITER_OUTPUT_TOKENS = 32_768;
 
 export interface CompactImageAttachmentRef {
   id: string;
@@ -1010,7 +1011,10 @@ export async function writeAssistantAgentPatchSet(params: {
     undefined,
     {
       responseFormat: 'json',
-      maxTokens: 8192,
+      // Complete HTML artifacts can exceed 8K tokens, especially when a model
+      // JSON-escapes Chinese as \uXXXX. Truncation produces an unterminated
+      // JSON string, so the writer needs enough room for the full patch set.
+      maxTokens: MAX_WRITER_OUTPUT_TOKENS,
       signal: params.signal,
       aiUsage: {
         type: 'assistant_chat',

@@ -106,6 +106,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   })));
   const capabilities = normalizeInputCapabilities(inputCapabilities);
   const canAttachImages = capabilities.imageInput;
+  const canAttachFiles = capabilities.fileInput;
   const maxAttachments = capabilities.multiImageInput ? capabilities.maxAttachments : 1;
   const acceptMimeTypes = capabilities.supportedMimeTypes.join(',');
   const hasDraftContent = Boolean(text.trim() || attachments.length > 0);
@@ -316,6 +317,10 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
 
   const addAnyFiles = useCallback(async (selectedFiles: File[]) => {
     if (disabled || isSending || showStopReply || !selectedFiles.length) return;
+    if (!canAttachFiles) {
+      onSendError?.(inputCapabilityWarning || '当前模型不支持文件输入');
+      return;
+    }
     try {
       const remaining = Math.max(0, maxAttachments - attachments.length);
       const uploaded = await readUploadedChatFiles(selectedFiles, { maxFiles: remaining || 1 });
@@ -325,7 +330,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     } catch (error) {
       onSendError?.(error instanceof Error ? error.message : '读取文件失败');
     }
-  }, [attachments.length, disabled, isSending, maxAttachments, onSendError, showStopReply]);
+  }, [attachments.length, canAttachFiles, disabled, inputCapabilityWarning, isSending, maxAttachments, onSendError, showStopReply]);
 
   const handlePickImages = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files || []);
@@ -663,7 +668,6 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
               hidden
               onChange={handlePickImages}
             />
-            <input id="pneumata-chat-file-upload" type="file" multiple hidden onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ''; void addAnyFiles(files); }} />
             <Tooltip title={capabilities.multiImageInput ? '添加图片' : '添加图片'}>
               <span>
                 <IconButton
@@ -675,6 +679,11 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
                 </IconButton>
               </span>
             </Tooltip>
+          </>
+        ) : null}
+        {canAttachFiles ? (
+          <>
+            <input id="pneumata-chat-file-upload" type="file" multiple hidden onChange={(event) => { const files = Array.from(event.target.files || []); event.target.value = ''; void addAnyFiles(files); }} />
             <Tooltip title="添加文件">
               <span><IconButton onClick={() => document.getElementById('pneumata-chat-file-upload')?.click()} disabled={disabled || isSending || attachments.length >= maxAttachments} sx={{ flexShrink: 0, width: 42, height: 42 }}><AttachFileIcon sx={{ fontSize: 20 }} /></IconButton></span>
             </Tooltip>
