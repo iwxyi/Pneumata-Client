@@ -215,10 +215,14 @@ function ChatCard({ chat, characters, onClick, onPrefetch, selected = false, sel
       {directAvatarContent}
     </Box>
   );
-  const groupAvatarUrl = chat.type === 'group' ? chat.groupVisual?.avatarUrl?.trim() : '';
+  // Local-only chats can retain an upload-shaped URL from a previous sync
+  // attempt. It is not fetchable from the server and would otherwise produce
+  // a noisy 404 on every home-page render.
+  const isUnresolvableLocalMediaUrl = (url: string) => chat.id.startsWith('local-chat-') && /\/uploads\/media\//.test(url);
+  const groupAvatarUrl = chat.type === 'group' && !isUnresolvableLocalMediaUrl(chat.groupVisual?.avatarUrl?.trim() || '') ? chat.groupVisual?.avatarUrl?.trim() : '';
   const requestedCardBackgroundUrl = cardBackgroundRendering ? chat.groupVisual?.backgroundUrl?.trim() : '';
   const requestedCardAccentImageUrl = cardThemeRendering
-    ? (groupAvatarUrl || (isImageAvatar(directMember?.avatar) ? directMember.avatar : ''))
+    ? (groupAvatarUrl || (isImageAvatar(directMember?.avatar) && !isUnresolvableLocalMediaUrl(directMember.avatar) ? directMember.avatar : ''))
     : '';
   const backgroundAvailability = useImageResourceAvailability(requestedCardBackgroundUrl);
   const accentAvailability = useImageResourceAvailability(requestedCardAccentImageUrl);
@@ -226,14 +230,13 @@ function ChatCard({ chat, characters, onClick, onPrefetch, selected = false, sel
   const cardAccentImageUrl = accentAvailability === 'ready' ? requestedCardAccentImageUrl : '';
   const isList = displayMode === 'list';
   const isCompactCard = compactCard && !isList;
-  const [groupAvatarUnavailable, setGroupAvatarUnavailable] = useState(false);
-  useEffect(() => setGroupAvatarUnavailable(false), [groupAvatarUrl]);
+  const [groupAvatarUnavailableUrl, setGroupAvatarUnavailableUrl] = useState('');
   const groupAvatarGenerating = avatarTask?.status === 'queued' || avatarTask?.status === 'running' || chatAvatarTaskStatus === 'queued' || chatAvatarTaskStatus === 'running';
   const groupAvatarNode = (
     <Box className="chat-card-avatar-hit" role={onAvatarClick ? 'button' : undefined} tabIndex={onAvatarClick ? 0 : undefined} aria-label={onAvatarClick ? `编辑${chat.name}` : undefined} onKeyDown={(event) => { if (onAvatarClick && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); onAvatarClick(); } }} onClick={(event) => { event.stopPropagation(); onAvatarClick?.(); }} sx={{ position: 'relative', width: 46, height: 46, flexShrink: 0, cursor: onAvatarClick ? 'pointer' : 'default', borderRadius: '50%', ...(onAvatarClick ? buildAvatarDirectHoverSx() : undefined) }}>
       <Avatar
-        src={groupAvatarUrl && !groupAvatarUnavailable ? groupAvatarUrl : undefined}
-        slotProps={{ img: { ...CHAT_CARD_AVATAR_IMG_PROPS, onError: () => setGroupAvatarUnavailable(true) } }}
+        src={groupAvatarUrl && groupAvatarUnavailableUrl !== groupAvatarUrl ? groupAvatarUrl : undefined}
+        slotProps={{ img: { ...CHAT_CARD_AVATAR_IMG_PROPS, onError: () => setGroupAvatarUnavailableUrl(groupAvatarUrl || '') } }}
         sx={{ width: 46, height: 46, bgcolor: 'primary.light', fontSize: '1.05rem' }}
       >
         <GroupIcon fontSize="small" />

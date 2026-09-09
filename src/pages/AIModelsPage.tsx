@@ -1620,20 +1620,6 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
                   )}
 
                   {activeType === 'text' ? (
-                    <TextField
-                      label={i18n.language.startsWith('zh') ? '模型最高输出 Token' : 'Model maximum output tokens'}
-                      type="number"
-                      size="small"
-                      fullWidth
-                      value={profile.maxOutputTokens ?? 65536}
-                      onChange={(event) => updateAIProfile(profile.id, { maxOutputTokens: Math.max(256, Math.min(1_000_000, Math.floor(Number(event.target.value) || 65536))) })}
-                      slotProps={{ htmlInput: { min: 256, max: 1_000_000, step: 1 } }}
-                      helperText={i18n.language.startsWith('zh') ? '仅限制单次输出，不影响输入上下文；各功能实际取自身需求与此上限的较小值。' : 'Output-only ceiling; input context is independent. Each feature uses the lower of its budget and this ceiling.'}
-                      sx={fieldSx()}
-                    />
-                  ) : null}
-
-                  {activeType === 'text' ? (
                     <Box sx={{
                       display: 'grid',
                       gap: 1,
@@ -1653,6 +1639,20 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
                         <Typography variant="caption" color={getInputCapabilityBadge(profile, i18n.language.startsWith('zh') ? 'zh' : 'en') === (i18n.language.startsWith('zh') ? '第三方推断' : '3rd-party inferred') ? 'warning.main' : 'text.secondary'}>
                           {getInputCapabilityBadge(profile, i18n.language.startsWith('zh') ? 'zh' : 'en')}
                         </Typography>
+                      </Box>
+                      <Box sx={{ display: 'grid', gap: 1, mt: 0.5, pt: 1, borderTop: '1px solid', borderColor: 'divider' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {i18n.language.startsWith('zh') ? '输出能力' : 'Output capabilities'}
+                        </Typography>
+                        <TextField
+                          label={i18n.language.startsWith('zh') ? '最高输出 Token' : 'Maximum output tokens'}
+                          type="number"
+                          size="small"
+                          value={profile.maxOutputTokens ?? 65536}
+                          onChange={(event) => updateAIProfile(profile.id, { maxOutputTokens: Math.max(256, Math.min(1_000_000, Math.floor(Number(event.target.value) || 65536))) })}
+                          slotProps={{ htmlInput: { min: 256, max: 1_000_000, step: 1 } }}
+                          sx={fieldSx()}
+                        />
                       </Box>
                       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                         {inputCapabilityLabels.map((item) => {
