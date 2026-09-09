@@ -924,7 +924,10 @@ export default function ChatDetailPage() {
   }, []);
 
   useEffect(() => {
-    if (pendingAppCommand) setVisiblePendingAppCommand(pendingAppCommand);
+    // Keep the rendered choices in lockstep with the pending command store.
+    // Clearing a command must also clear the visible copy so stale choices
+    // cannot remain clickable while the exit animation is running.
+    setVisiblePendingAppCommand(pendingAppCommand);
   }, [pendingAppCommand]);
   const upsertMessageWithLiveReveal = useCallback((message: Message) => {
     const revealKeys = getNarrativeRevealIdentityKeys(message);
@@ -2693,6 +2696,9 @@ export default function ChatDetailPage() {
     if (pendingAppCommandChoiceRef.current) return;
     pendingAppCommandChoiceRef.current = true;
     setPendingAppCommandChoiceId(choiceId);
+    // Hide all choices immediately while the selected action is executing.
+    setVisiblePendingAppCommand(null);
+    setPendingAppCommand(null);
     directReplyAbortRef.current?.abort();
     try {
       await enqueueManualInput(async () => {
