@@ -995,9 +995,9 @@ export default function MembershipPage() {
                         height: '100%',
                         width: '100%',
                         cursor: purchasingPlanCode ? 'default' : 'pointer',
-                        borderColor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.20 : 0.12),
+                        borderColor: (theme) => alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.28 : 0.18),
                         bgcolor: 'background.paper',
-                        boxShadow: (theme) => `0 8px 18px ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.07 : 0.03)}`,
+                        boxShadow: (theme) => `0 8px 18px ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.09 : 0.04)}`,
                         animation: `membershipRiseIn 420ms ${motion.softOut} both`,
                         animationDelay: `${Math.min(planIndex * 45, 180)}ms`,
                         overflow: 'hidden',
@@ -1009,7 +1009,7 @@ export default function MembershipPage() {
                           inset: 1,
                           borderRadius: 'inherit',
                           pointerEvents: 'none',
-                          background: (theme) => `radial-gradient(circle at 76% 18%, ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.18 : 0.12)}, transparent 34%), linear-gradient(135deg, transparent 0%, ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.10 : 0.055)} 100%)`,
+                          background: (theme) => `radial-gradient(circle at 76% 18%, ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.20 : 0.14)}, transparent 34%), linear-gradient(135deg, transparent 0%, ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.11 : 0.06)} 100%)`,
                           opacity: 0,
                           transform: 'translate(18px, -14px) scale(0.86)',
                           transformOrigin: '76% 18%',
@@ -1017,23 +1017,23 @@ export default function MembershipPage() {
                         },
                         '&:hover': {
                           transform: 'translateY(-2px)',
-                          borderColor: (theme) => alpha(theme.palette.primary.main, 0.72),
-                          boxShadow: (theme) => `0 14px 28px ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.22 : 0.13)}`,
+                          borderColor: (theme) => alpha(theme.palette.warning.main, 0.78),
+                          boxShadow: (theme) => `0 14px 28px ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.24 : 0.15)}`,
                           '&::before': {
                             opacity: 1,
                             transform: 'translate(0, 0) scale(1)',
                           },
                           '& .purchaseAction': {
-                            bgcolor: 'primary.main',
-                            borderColor: 'primary.main',
-                            color: 'primary.contrastText',
-                            boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.26 : 0.20)}`,
+                            bgcolor: 'warning.main',
+                            borderColor: 'warning.main',
+                            color: 'warning.contrastText',
+                            boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.28 : 0.22)}`,
                           },
                           '& .purchasePrice': {
-                            color: 'primary.contrastText',
+                            color: 'warning.contrastText',
                           },
                           '& .purchaseOriginalPrice': {
-                            color: 'primary.contrastText',
+                            color: 'warning.contrastText',
                             opacity: 0.7,
                           },
                           '& .durationPill': {
@@ -1054,8 +1054,8 @@ export default function MembershipPage() {
                                     px: 0.8,
                                     py: 0.3,
                                     borderRadius: 999,
-                                    bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.18 : 0.10),
-                                    color: 'primary.main',
+                                    bgcolor: (theme) => alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.18 : 0.10),
+                                    color: 'warning.main',
                                     fontSize: 11,
                                     lineHeight: 1,
                                     fontWeight: 900,
@@ -1358,13 +1358,54 @@ export default function MembershipPage() {
                   <Card
                     key={plan.id}
                     variant="outlined"
+                    onClick={() => {
+                      if (!purchasingPlanCode) void handlePurchase(plan);
+                    }}
                     sx={{
                       borderRadius: membershipRadius.card,
                       height: '100%',
-                      borderColor: (theme) => alpha(theme.palette.info.main, 0.5),
-                      bgcolor: (theme) => alpha(theme.palette.info.main, theme.palette.mode === 'dark' ? 0.1 : 0.035),
+                      borderColor: (theme) => alpha(theme.palette.info.main, theme.palette.mode === 'dark' ? 0.28 : 0.18),
+                      bgcolor: 'background.paper',
+                      cursor: purchasingPlanCode ? 'default' : 'pointer',
                       animation: `membershipRiseIn 420ms ${motion.softOut} both`,
                       animationDelay: `${Math.min(planIndex * 45, 120)}ms`,
+                      overflow: 'hidden',
+                      position: 'relative',
+                      transition: transition(['border-color', 'box-shadow', 'transform'], motion.durations.base, motion.softOut),
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: -30,
+                        right: -26,
+                        width: 92,
+                        height: 92,
+                        borderRadius: 999,
+                        pointerEvents: 'none',
+                        background: (theme) => `radial-gradient(circle, ${alpha(theme.palette.info.main, theme.palette.mode === 'dark' ? 0.20 : 0.11)}, transparent 68%)`,
+                        opacity: 0,
+                        transform: 'translate(22px, -18px) scale(0.58)',
+                        transformOrigin: '100% 0%',
+                        transition: transition(['opacity', 'transform'], motion.durations.slow, motion.emphasized),
+                      },
+                      '&:hover': {
+                        transform: 'translateY(-2px)',
+                        borderColor: (theme) => alpha(theme.palette.info.main, 0.55),
+                        boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.common.black, theme.palette.mode === 'dark' ? 0.22 : 0.08)}`,
+                        '&::before': {
+                          opacity: 1,
+                          transform: 'translate(0, 0) scale(1)',
+                        },
+                        '& .storageValue': {
+                          transform: 'translateY(-1px) scale(1.035)',
+                        },
+                        '& .storagePurchaseAction': {
+                          bgcolor: 'info.main',
+                          borderColor: 'info.main',
+                          color: 'info.contrastText',
+                          boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.info.main, theme.palette.mode === 'dark' ? 0.26 : 0.20)}`,
+                        },
+                      },
+                      ...refinedHoverSx,
                     }}
                   >
                     <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 0.9, height: '100%', p: 1.25, '&:last-child': { pb: 1.25 } }}>
@@ -1373,10 +1414,10 @@ export default function MembershipPage() {
                           <Typography sx={{ fontWeight: 900, minWidth: 0 }} noWrap>{plan.name}</Typography>
                           {planStorageDurationLabel(plan, isZh) ? <Box sx={{ px: 0.8, py: 0.3, borderRadius: 999, bgcolor: (theme) => alpha(theme.palette.info.main, theme.palette.mode === 'dark' ? 0.18 : 0.10), color: 'info.main', fontSize: 11, lineHeight: 1, fontWeight: 900, flex: '0 0 auto' }}>{planStorageDurationLabel(plan, isZh)}</Box> : null}
                         </Stack>
-                        <Chip icon={<CloudOutlinedIcon />} label={formatStorageCompact(planStorageBytes(plan))} color="info" size="small" />
+                        <Chip className="storageValue" icon={<CloudOutlinedIcon />} label={formatStorageCompact(planStorageBytes(plan))} color="info" size="small" sx={{ transition: transition(['transform'], motion.durations.base, motion.gentleSpring) }} />
                       </Stack>
                       <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>{plan.description || planDurationLabel(plan, isZh)}</Typography>
-                      <Button variant="outlined" startIcon={<PaymentIcon />} onClick={() => void handlePurchase(plan)} disabled={Boolean(purchasingPlanCode)}>
+                      <Button className="storagePurchaseAction" color="info" variant="outlined" startIcon={<PaymentIcon />} onClick={(event) => { event.stopPropagation(); void handlePurchase(plan); }} disabled={Boolean(purchasingPlanCode)} sx={{ fontWeight: 900, transition: transition(['background-color', 'border-color', 'color', 'box-shadow'], motion.durations.base, motion.gentleSpring) }}>
                         {formatMoney(plan.price_amount, plan.currency)}
                       </Button>
                     </CardContent>
