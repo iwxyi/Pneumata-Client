@@ -279,19 +279,23 @@ function VoiceStylePreview({ style }: { style: VoiceWaveformStyle }) {
       '@keyframes voicePreviewPulse': { from: { transform: 'scaleY(.58)' }, to: { transform: 'scaleY(1.05)' } },
       '@keyframes voicePreviewFloat': { from: { transform: 'translateY(-3px) scale(.82)' }, to: { transform: 'translateY(3px) scale(1.08)' } },
       '@keyframes voicePreviewSweep': { from: { strokeDashoffset: 28 }, to: { strokeDashoffset: 0 } },
-      '.MuiToggleButton-root:hover &, .Mui-selected &': { '& .voice-preview-motion': { animationPlayState: 'running' } },
+      '@keyframes voicePreviewWave': { '0%, 100%': { transform: 'translateY(1px) scaleY(.86)', opacity: 0.72 }, '50%': { transform: 'translateY(-1px) scaleY(1.08)', opacity: 1 } },
+      '@keyframes voicePreviewBlocks': { from: { transform: 'scaleY(.62)' }, to: { transform: 'scaleY(1.12)' } },
+      '@keyframes voicePreviewSpectrum': { '0%, 100%': { transform: 'scaleY(.72)', opacity: 0.55 }, '50%': { transform: 'scaleY(1.16)', opacity: 1 } },
+      '@keyframes voicePreviewRibbon': { '0%, 100%': { transform: 'translateX(-1px) scaleY(.92)' }, '50%': { transform: 'translateX(1px) scaleY(1.06)' } },
+      '.Mui-selected & .voice-preview-motion': { animationPlayState: 'running' },
       '@media (prefers-reduced-motion: reduce)': { '& .voice-preview-motion': { animation: 'none !important' } },
     })}>
       {style === 'wave' || style === 'neon' || style === 'ribbon' ? (
         <svg viewBox="0 0 72 18" style={{ width: 72, height: 18, overflow: 'visible' }}>
           <defs><linearGradient id={`preview-${style}`} x1="0" y1="0" x2="1" y2="0"><stop stopColor="var(--voice-preview-primary)" /><stop offset="1" stopColor="var(--voice-preview-secondary)" /></linearGradient></defs>
-          <path className="voice-preview-motion" d="M1 12 C8 12 9 3 16 5 S26 15 33 9 S43 2 50 6 S61 14 71 7" fill="none" stroke={style === 'ribbon' ? `url(#preview-${style})` : style === 'neon' ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)'} strokeWidth={style === 'ribbon' ? '3' : '2'} strokeLinecap="round" strokeDasharray={style === 'neon' ? '5 2' : undefined} style={{ filter: style === 'neon' ? 'drop-shadow(0 0 3px var(--voice-preview-secondary))' : undefined, animation: style === 'neon' ? 'voicePreviewSweep 1.1s linear infinite paused' : undefined }} />
+          <path className="voice-preview-motion" d="M1 12 C8 12 9 3 16 5 S26 15 33 9 S43 2 50 6 S61 14 71 7" fill="none" stroke={style === 'ribbon' ? `url(#preview-${style})` : style === 'neon' ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)'} strokeWidth={style === 'ribbon' ? '3' : '2'} strokeLinecap="round" strokeDasharray={style === 'neon' ? '5 2' : undefined} style={{ filter: style === 'neon' ? 'drop-shadow(0 0 3px var(--voice-preview-secondary))' : undefined, animation: `${style === 'neon' ? 'voicePreviewSweep 1.1s linear infinite' : style === 'ribbon' ? 'voicePreviewRibbon 1.8s ease-in-out infinite' : 'voicePreviewWave 1.8s ease-in-out infinite'} paused` }} />
         </svg>
       ) : style === 'orbit' ? (
         <Box sx={{ width: 72, height: 18, position: 'relative', borderTop: '1px dashed', borderColor: 'divider' }}>
           {bars.filter((_, index) => index % 2 === 0).map((height, index) => <Box key={index} className="voice-preview-motion" sx={{ position: 'absolute', left: `${index * 18}%`, top: 7, width: 4, height: 4, borderRadius: '50%', bgcolor: index % 2 ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)', animation: `voicePreviewFloat ${0.75 + index * 0.1}s ease-in-out ${-index * 0.12}s infinite alternate paused` }} />)}
         </Box>
-      ) : bars.map((height, index) => <Box key={index} className="voice-preview-motion" sx={{ width: 3.5, height, borderRadius: 99, background: style === 'spectrum' ? 'linear-gradient(180deg, var(--voice-preview-secondary), var(--voice-preview-primary))' : 'var(--voice-preview-primary)', opacity: style === 'spectrum' ? 0.45 + (index % 4) * 0.14 : 0.82, transformOrigin: 'center', animation: style === 'pulse' ? `voicePreviewPulse ${0.7 + (index % 4) * 0.12}s ease-in-out ${-index * 0.08}s infinite alternate paused` : undefined }} />)}
+      ) : bars.map((height, index) => <Box key={index} className="voice-preview-motion" sx={{ width: 3.5, height, borderRadius: 99, background: style === 'spectrum' ? 'linear-gradient(180deg, var(--voice-preview-secondary), var(--voice-preview-primary))' : 'var(--voice-preview-primary)', opacity: style === 'spectrum' ? 0.72 : 0.82, transformOrigin: 'center', animation: `${style === 'pulse' ? 'voicePreviewPulse' : style === 'spectrum' ? 'voicePreviewSpectrum' : 'voicePreviewBlocks'} ${style === 'pulse' ? 0.7 + (index % 4) * 0.12 : style === 'spectrum' ? 1.15 + (index % 4) * 0.1 : 0.95 + (index % 4) * 0.08}s ease-in-out ${-index * 0.08}s infinite alternate paused` }} />)}
     </Box>
   );
 }
@@ -342,10 +346,6 @@ function buildDeveloperBodySx() {
   return { display: 'flex', flexDirection: 'column', gap: 1.35 };
 }
 
-function buildTopRowSx() {
-  return { display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', gap: 2 };
-}
-
 function buildAccountBubblePreviewSx() {
   return {
     mt: 1.5,
@@ -360,6 +360,8 @@ function buildAccountBubblePreviewSx() {
     px: 1.25,
     py: 1,
     bgcolor: (theme: { palette: { mode: string } }) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.50)' : 'rgba(255,255,255,0.04)',
+    WebkitTapHighlightColor: 'transparent',
+    '&:active': { boxShadow: 'none' },
     backdropFilter: 'blur(16px) saturate(1.08)',
     WebkitBackdropFilter: 'blur(16px) saturate(1.08)',
     transition: 'border-color 160ms ease, background-color 160ms ease',
@@ -1953,27 +1955,12 @@ export default function SettingsPage() {
     general: (): ReactNode => (
           <>
         <SurfaceCard id="settings-card-account" sx={{ order: -30 }} contentSx={buildCardBodySx()}>
-          <Box sx={buildTopRowSx()}>
-            <Box>
-              <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '账号' : 'Account'}</Typography>
-              <Typography variant="body2" color="text.secondary">{authMode === 'local' ? (i18n.language.startsWith('zh') ? '离线本地模式 · 未登录' : 'Local-only mode · Not signed in') : `${user?.nickname || '-'} · ${user?.phone || '-'}`}</Typography>
-            </Box>
-            <Button variant="outlined" onClick={() => navigate('/account')}>{authMode === 'local' ? (i18n.language.startsWith('zh') ? '登录并同步' : 'Sign in & sync') : (i18n.language.startsWith('zh') ? '查看' : 'Open')}</Button>
-          </Box>
-          <Box sx={buildAccountBubblePreviewSx()} onClick={() => setUserBubblePickerOpen(true)}>
-            <Box sx={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', bgcolor: 'action.hover', display: 'grid', placeItems: 'center', overflow: 'hidden' }}>
-              {selfAvatarIsImage ? <Box component="img" src={selfAvatarValue} alt={user?.nickname || 'me'} sx={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : normalizedSelfAvatar ? selfAvatarValue : <DefaultUserAvatarIcon title={user?.nickname || 'User'} />}
-            </Box>
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>{i18n.language.startsWith('zh') ? '我的气泡' : 'My bubble'}</Typography>
-              <Box sx={{ width: 'fit-content', maxWidth: '100%', px: 1.35, py: 0.85, border: userBubblePreview.border, borderRadius: userBubblePreview.borderRadius, boxShadow: userBubblePreview.boxShadow, color: userBubblePreview.color, background: userBubblePreview.background }}>
-                <Typography variant="body2" noWrap>{selfBubblePreviewText}</Typography>
-              </Box>
-            </Box>
-            <Button size="small" variant="text" startIcon={<EditIcon fontSize="small" />} sx={{ flexShrink: 0 }}>
-              {i18n.language.startsWith('zh') ? '设置' : 'Set'}
-            </Button>
-          </Box>
+          <SectionHeader
+            sx={{ mb: 0 }}
+            title={i18n.language.startsWith('zh') ? '账号' : 'Account'}
+            subtitle={authMode === 'local' ? (i18n.language.startsWith('zh') ? '离线本地模式 · 未登录' : 'Local-only mode · Not signed in') : `${user?.nickname || '-'} · ${user?.phone || '-'}`}
+            action={<Button variant="outlined" size="small" onClick={() => navigate('/account')} sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>{authMode === 'local' ? (i18n.language.startsWith('zh') ? '登录并同步' : 'Sign in & sync') : (i18n.language.startsWith('zh') ? '查看' : 'Open')}</Button>}
+          />
         </SurfaceCard>
 
         <SurfaceCard id="settings-card-local-workspace" sx={{ order: -10 }} contentSx={buildCardBodySx()}>
@@ -2282,6 +2269,22 @@ export default function SettingsPage() {
                     : (i18n.language.startsWith('zh') ? `展开更多主题（${hiddenThemePresetCount}）` : `More themes (${hiddenThemePresetCount})`)}
                 </Button>
               ) : null}
+            </Box>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '我的气泡' : 'My bubble'}</Typography>
+              <Box sx={buildAccountBubblePreviewSx()} onClick={() => setUserBubblePickerOpen(true)}>
+                <Box sx={{ flexShrink: 0, width: 34, height: 34, borderRadius: '50%', bgcolor: 'action.hover', display: 'grid', placeItems: 'center', overflow: 'hidden', boxShadow: 'none' }}>
+                  {selfAvatarIsImage ? <Box component="img" src={selfAvatarValue} alt={user?.nickname || 'me'} sx={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /> : normalizedSelfAvatar ? selfAvatarValue : <DefaultUserAvatarIcon title={user?.nickname || 'User'} />}
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ width: 'fit-content', maxWidth: '100%', px: 1.35, py: 0.85, border: userBubblePreview.border, borderRadius: userBubblePreview.borderRadius, boxShadow: userBubblePreview.boxShadow, color: userBubblePreview.color, background: userBubblePreview.background }}>
+                    <Typography variant="body2" noWrap>{selfBubblePreviewText}</Typography>
+                  </Box>
+                </Box>
+                <Button size="small" variant="text" startIcon={<EditIcon fontSize="small" />} sx={{ flexShrink: 0 }}>
+                  {i18n.language.startsWith('zh') ? '设置' : 'Set'}
+                </Button>
+              </Box>
             </Box>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '语音条样式' : 'Voice bar style'}</Typography>
