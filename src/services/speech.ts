@@ -13,6 +13,17 @@ export function usesManagedSpeechProfile(profile: Pick<APIConfig, 'provider' | '
     || ((profile.type === 'tts' || profile.type === 'stt' || profile.type === 'audio') && (baseUrl === '/api' || baseUrl.endsWith('/api')));
 }
 
+/**
+ * Keep audio data URLs compatible with managed STT adapters.
+ * MediaRecorder commonly reports MIME parameters such as `codecs=opus`,
+ * while the server-side adapters expect the canonical `data:<mime>;base64` form.
+ */
+export function normalizeAudioDataUrl(value: string) {
+  const match = String(value || '').match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.+)$/i);
+  if (!match) return value;
+  return `data:${match[1]};base64,${match[2]}`;
+}
+
 export function speechTextFromMessage(content: string) {
   return String(content || '')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')

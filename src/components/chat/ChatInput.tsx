@@ -16,7 +16,7 @@ import { buildImageAttachmentHoverInfo } from '../../services/messageAttachmentH
 import { normalizeInputCapabilities } from '../../types/settings';
 import type { ComposerState } from '../../types/composerState';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { transcribeSpeech, usesManagedSpeechProfile } from '../../services/speech';
+import { normalizeAudioDataUrl, transcribeSpeech, usesManagedSpeechProfile } from '../../services/speech';
 import { transcribeAudioWithAdapter } from '../../services/aiGenerationAdapter';
 import { readUploadedChatFiles } from '../../services/chatFileTransfer';
 
@@ -233,7 +233,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         setIsTranscribing(true);
         try {
           const result = usesManagedSpeechProfile(sttModel)
-            ? await transcribeSpeech({ providerCode: sttModel.provider.startsWith('managed:') ? sttModel.provider.slice('managed:'.length) : undefined, modelId: sttModel.model, audioDataUrl: await blobToDataUrl(blob), fileName: 'voice-input.webm', language: 'zh' })
+            ? await transcribeSpeech({ providerCode: sttModel.provider.startsWith('managed:') ? sttModel.provider.slice('managed:'.length) : undefined, modelId: sttModel.model, audioDataUrl: normalizeAudioDataUrl(await blobToDataUrl(blob)), fileName: 'voice-input.webm', language: 'zh' })
             : await transcribeAudioWithAdapter({ profile: sttModel, file: blob, fileName: 'voice-input.webm', language: 'zh', intent: 'audio-transcription' });
           if (result.text.trim()) {
             setText((current) => {
