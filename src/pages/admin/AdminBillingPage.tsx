@@ -683,10 +683,10 @@ function toMembershipConfigForm(config: Record<string, unknown>): MembershipConf
     : DEFAULT_VIP_TIERS;
   return {
     title: String(config.title || EMPTY_MEMBERSHIP_CONFIG_FORM.title),
-    subtitle: String(config.subtitle || EMPTY_MEMBERSHIP_CONFIG_FORM.subtitle),
+    subtitle: hasOwnRecordValue(config, 'subtitle') ? String(config.subtitle || '') : EMPTY_MEMBERSHIP_CONFIG_FORM.subtitle,
     description: hasOwnRecordValue(config, 'description') ? String(config.description || '') : EMPTY_MEMBERSHIP_CONFIG_FORM.description,
-    benefitsText: (benefits.length ? benefits : EMPTY_MEMBERSHIP_CONFIG_FORM.benefitsText.split('\n')).join('\n'),
-    fulfillmentNote: String(config.fulfillmentNote || EMPTY_MEMBERSHIP_CONFIG_FORM.fulfillmentNote),
+    benefitsText: hasOwnRecordValue(config, 'benefits') ? benefits.join('\n') : EMPTY_MEMBERSHIP_CONFIG_FORM.benefitsText,
+    fulfillmentNote: hasOwnRecordValue(config, 'fulfillmentNote') ? String(config.fulfillmentNote || '') : EMPTY_MEMBERSHIP_CONFIG_FORM.fulfillmentNote,
     tiers: tiers.length ? tiers : DEFAULT_VIP_TIERS,
     entitlements: {
       free: toEntitlementForm(asRecord(config.entitlements).free, DEFAULT_VIP_ENTITLEMENTS.free),
@@ -1561,7 +1561,7 @@ export default function AdminBillingPage() {
   const planStorageValid = !planForm.storageEnabled || toNumber(planForm.storageBytes, 0) > 0;
   const canSavePlan = planHasBenefit && planPointsValid && planStorageValid && Boolean(planForm.code.trim()) && Boolean(planForm.name.trim()) && !savingPlan;
   const hasEnabledMembershipTier = membershipConfigForm.tiers.some((tier) => tier.enabled);
-  const canSaveMembershipConfig = Boolean(membershipConfigForm.title.trim()) && Boolean(membershipConfigForm.benefitsText.trim()) && hasEnabledMembershipTier && !savingMembershipConfig;
+  const canSaveMembershipConfig = Boolean(membershipConfigForm.title.trim()) && hasEnabledMembershipTier && !savingMembershipConfig;
   const selectableVipTiers = membershipConfigForm.tiers.filter((tier) => tier.enabled || tier.code === planForm.vipTierCode);
 
   const loadOfficialProviderOptions = async () => {
@@ -2106,7 +2106,7 @@ export default function AdminBillingPage() {
                 <TextField label="标题" required value={membershipConfigForm.title} onChange={(event) => updateMembershipConfigForm('title', event.target.value)} fullWidth />
                 <TextField label="副标题" value={membershipConfigForm.subtitle} onChange={(event) => updateMembershipConfigForm('subtitle', event.target.value)} fullWidth />
                 <TextField label="介绍文案" value={membershipConfigForm.description} onChange={(event) => updateMembershipConfigForm('description', event.target.value)} fullWidth multiline minRows={2} />
-                <TextField label="统一 VIP 权益（每行一项）" required value={membershipConfigForm.benefitsText} onChange={(event) => updateMembershipConfigForm('benefitsText', event.target.value)} fullWidth multiline minRows={5} />
+                <TextField label="统一 VIP 权益（每行一项）" helperText="可留空；留空后前台不显示统一权益标签。" value={membershipConfigForm.benefitsText} onChange={(event) => updateMembershipConfigForm('benefitsText', event.target.value)} fullWidth multiline minRows={5} />
                 <TextField label="履约说明" value={membershipConfigForm.fulfillmentNote} onChange={(event) => updateMembershipConfigForm('fulfillmentNote', event.target.value)} fullWidth />
                 {!hasEnabledMembershipTier ? <Alert severity="warning">至少需要启用一个 VIP 等级，否则前台无法展示会员套餐。</Alert> : null}
                 <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>

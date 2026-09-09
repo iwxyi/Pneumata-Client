@@ -530,11 +530,9 @@ export default function MembershipPage() {
     }
   };
 
-  const heroStatus = activeSubscription
-    ? (isZh ? '会员生效中' : 'Membership active')
-    : latestSubscription
-      ? (isZh ? '会员已到期' : 'Membership expired')
-      : (isZh ? '尚未开通会员' : 'No membership yet');
+  const displayedSubscription = activeSubscription || latestSubscription;
+  const currentMembershipName = displayedSubscription?.vipTierName || displayedSubscription?.planName || (isZh ? '免费用户' : 'Free user');
+  const membershipExpired = !activeSubscription && Boolean(latestSubscription);
   const pointClaimStatus = membership?.pointClaimStatus || null;
   const dailyClaim = pointClaimStatus?.daily || null;
   const monthlyClaim = pointClaimStatus?.monthly || null;
@@ -647,8 +645,8 @@ export default function MembershipPage() {
             >
               <Stack spacing={1.25}>
                 <Stack direction="row" spacing={1} sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                  <Typography variant="overline" color="text.secondary" sx={{ letterSpacing: 0, fontWeight: 800 }}>
-                    {isZh ? '当前权益' : 'Current benefits'}
+                  <Typography variant="subtitle1" sx={{ fontWeight: 900, minWidth: 0 }} noWrap>
+                    {isZh ? '当前会员：' : 'Current membership: '}{currentMembershipName}
                   </Typography>
                   <IconButton
                     className="benefitRefresh"
@@ -662,41 +660,6 @@ export default function MembershipPage() {
                   </IconButton>
                 </Stack>
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr', gap: 1 }}>
-                  <Box
-                    sx={{
-                      p: 1.25,
-                      borderRadius: membershipRadius.panel,
-                      bgcolor: (theme) => alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.13 : 0.07),
-                      position: 'relative',
-                      overflow: 'hidden',
-                      transition: transition(['background-color', 'transform', 'box-shadow'], motion.durations.slow, motion.gentleSpring),
-                      '&::before': {
-                        content: '""',
-                        position: 'absolute',
-                        inset: 0,
-                        pointerEvents: 'none',
-                        background: (theme) => `radial-gradient(circle at 82% 20%, ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.18 : 0.11)}, transparent 42%)`,
-                        opacity: 0,
-                        transform: 'translate(14px, -10px) scale(0.72)',
-                        transformOrigin: '82% 20%',
-                        transition: transition(['opacity', 'transform'], motion.durations.slow, motion.emphasized),
-                      },
-                      '&:hover': {
-                        transform: 'translateY(-1px)',
-                        boxShadow: (theme) => `0 10px 22px ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.13 : 0.08)}`,
-                        '&::before': {
-                          opacity: 1,
-                          transform: 'translate(0, 0) scale(1)',
-                        },
-                      },
-                    }}
-                  >
-                    <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>{isZh ? '会员套餐' : 'Plan'}</Typography>
-                    <Stack direction="row" spacing={0.75} sx={{ alignItems: 'center', justifyContent: 'space-between', gap: 1, mt: 0.3 }}>
-                      <Typography sx={{ minWidth: 0, fontWeight: 950, lineHeight: 1.25 }} noWrap>{activeSubscription?.vipTierName || activeSubscription?.planName || latestSubscription?.vipTierName || latestSubscription?.planName || (isZh ? '免费用户' : 'Free user')}</Typography>
-                      <Chip size="small" color={activeSubscription ? 'success' : 'default'} label={heroStatus} sx={{ fontWeight: 800, flex: '0 0 auto' }} />
-                    </Stack>
-                  </Box>
                   <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
                     <Box
                       sx={{
@@ -715,7 +678,10 @@ export default function MembershipPage() {
                       }}
                     >
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>{isZh ? '有效期至' : 'Valid until'}</Typography>
-                      <Typography sx={{ mt: 0.25, fontWeight: 900 }}>{formatDate(activeSubscription?.currentPeriodEnd)}</Typography>
+                      <Typography sx={{ mt: 0.25, fontWeight: 900 }}>
+                        {formatDate(displayedSubscription?.currentPeriodEnd)}
+                        {membershipExpired ? <Box component="span" sx={{ ml: 0.75, color: 'error.main', fontSize: '0.78em', fontWeight: 800 }}>{isZh ? '已过期' : 'Expired'}</Box> : null}
+                      </Typography>
                     </Box>
                     <Box
                       sx={{
