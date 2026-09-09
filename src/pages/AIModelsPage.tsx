@@ -436,37 +436,17 @@ const ModelAutocomplete = memo(function ModelAutocomplete({
 ));
 
 const OFFICIAL_MODEL_GROUP_ORDER = [
-  'gpt-5',
-  'codex',
+  'gpt',
   'claude',
-  'o',
-  'gpt-4.5',
-  'gpt-4.1',
-  'gpt-4o',
-  'gpt-4-turbo',
-  'gpt-4-vision',
-  'gpt-4',
-  'gpt-3.5',
-  'embedding',
-  'image',
+  'gemini',
   'other',
 ] as const;
 
 function getOfficialModelGroupKey(model: string) {
   const normalized = model.trim().toLowerCase();
-  if (/^gpt-5(?:[.-]|$)/.test(normalized)) return 'gpt-5';
-  if (/^codex(?:[.-]|$)/.test(normalized)) return 'codex';
+  if (/^(?:gpt-|codex(?:[.-]|$)|o\d)/.test(normalized)) return 'gpt';
   if (/^claude(?:[.-]|$)/.test(normalized)) return 'claude';
-  if (/^o\d/.test(normalized)) return 'o';
-  if (/^gpt-4\.5(?:[.-]|$)/.test(normalized)) return 'gpt-4.5';
-  if (/^gpt-4\.1(?:[.-]|$)/.test(normalized)) return 'gpt-4.1';
-  if (/^gpt-4o(?:[.-]|$)/.test(normalized)) return 'gpt-4o';
-  if (/^gpt-4-turbo/.test(normalized)) return 'gpt-4-turbo';
-  if (/^gpt-4.*vision/.test(normalized)) return 'gpt-4-vision';
-  if (/^gpt-4(?:[.-]|$)/.test(normalized)) return 'gpt-4';
-  if (/^gpt-3\.5/.test(normalized)) return 'gpt-3.5';
-  if (normalized.includes('embedding')) return 'embedding';
-  if (normalized.includes('image') || normalized.includes('dall-e')) return 'image';
+  if (/^gemini(?:[.-]|$)/.test(normalized)) return 'gemini';
   return 'other';
 }
 
@@ -561,37 +541,17 @@ function getOfficialModelGroupLabel(model: string, isZh: boolean) {
   const key = getOfficialModelGroupKey(model);
   if (isZh) {
     const labels: Record<(typeof OFFICIAL_MODEL_GROUP_ORDER)[number], string> = {
-      'gpt-5': 'GPT-5 系列',
-      codex: 'Codex 系列',
+      gpt: 'GPT 系列',
       claude: 'Claude 系列',
-      o: 'o 推理系列',
-      'gpt-4.5': 'GPT-4.5 系列',
-      'gpt-4.1': 'GPT-4.1 系列',
-      'gpt-4o': 'GPT-4o 系列',
-      'gpt-4-turbo': 'GPT-4 Turbo 系列',
-      'gpt-4-vision': 'GPT-4 视觉系列',
-      'gpt-4': 'GPT-4 系列',
-      'gpt-3.5': 'GPT-3.5 系列',
-      embedding: 'Embedding 模型',
-      image: '图像模型',
+      gemini: 'Gemini 系列',
       other: '其他模型',
     };
     return labels[key];
   }
   const labels: Record<(typeof OFFICIAL_MODEL_GROUP_ORDER)[number], string> = {
-    'gpt-5': 'GPT-5',
-    codex: 'Codex',
+    gpt: 'GPT',
     claude: 'Claude',
-    o: 'o reasoning',
-    'gpt-4.5': 'GPT-4.5',
-    'gpt-4.1': 'GPT-4.1',
-    'gpt-4o': 'GPT-4o',
-    'gpt-4-turbo': 'GPT-4 Turbo',
-    'gpt-4-vision': 'GPT-4 Vision',
-    'gpt-4': 'GPT-4',
-    'gpt-3.5': 'GPT-3.5',
-    embedding: 'Embeddings',
-    image: 'Images',
+    gemini: 'Gemini',
     other: 'Other models',
   };
   return labels[key];
@@ -603,6 +563,11 @@ function compareOfficialModels(left: string, right: string) {
   const leftGroupIndex = OFFICIAL_MODEL_GROUP_ORDER.indexOf(leftGroup);
   const rightGroupIndex = OFFICIAL_MODEL_GROUP_ORDER.indexOf(rightGroup);
   if (leftGroupIndex !== rightGroupIndex) return leftGroupIndex - rightGroupIndex;
+  if (leftGroup === 'gpt' || leftGroup === 'claude' || leftGroup === 'gemini') {
+    const version = (value: string) => Number(value.match(/^(?:gpt-|codex-|claude-|gemini-|o)(\d+(?:\.\d+)?)/i)?.[1] || -1);
+    const versionDelta = version(right) - version(left);
+    if (versionDelta !== 0) return versionDelta;
+  }
   return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
 }
 
@@ -1253,8 +1218,7 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
       const options = filterModelsForType(uniqueModels, activeType)
         .map((item) => buildRemoteModelOption(item, activeType, effectiveProfile.provider, profileUsesOfficialProxy, i18n.language.startsWith('zh')));
       if (profileUsesOfficialProxy) {
-        options.sort((left, right) => left.group.localeCompare(right.group, undefined, { numeric: true, sensitivity: 'base' })
-          || compareOfficialModels(left.value, right.value));
+        options.sort((left, right) => compareOfficialModels(left.value, right.value));
       }
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: options }));
       setFetchedModelKeys((prev) => ({ ...prev, [profileId]: fetchKey }));
