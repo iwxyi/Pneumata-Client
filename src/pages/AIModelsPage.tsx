@@ -377,10 +377,13 @@ const ModelAutocomplete = memo(function ModelAutocomplete({
           onCommitModel(value);
         }
       }}
-      renderOption={(props, option) => (
+      renderOption={(props, option) => {
+        const { key, ...optionProps } = props;
+        return (
         <Box
           component="li"
-          {...props}
+          key={key}
+          {...optionProps}
           data-model-profile-id={profileId}
           data-model-option-value={option.value}
           sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}
@@ -405,7 +408,8 @@ const ModelAutocomplete = memo(function ModelAutocomplete({
             )
           ) : null}
         </Box>
-      )}
+        );
+      }}
       renderInput={(params) => (
         <TextField
           {...params}
@@ -529,7 +533,10 @@ function buildRemoteModelOption(model: AvailableModelInfo, type: AIModelType, pr
   const priceLabel = inputPriceLabel || outputPriceLabel
     ? `${inputPriceLabel} ${outputPriceLabel}`.trim()
     : billingDisplay;
-  const label = priceLabel ? `${model.id} ${priceLabel}` : model.id;
+  // Keep the model name independent from billing metadata. The autocomplete
+  // renders prices in their own column; appending them here makes the price
+  // look like part of the model name and also leaks into the input value.
+  const label = model.id;
   if (type === 'image' && provider === 'official-nanobanana') {
     return {
       value: model.id,
