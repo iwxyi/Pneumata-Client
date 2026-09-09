@@ -31,7 +31,6 @@ import {
   normalizeMessage,
   trimActiveMessages,
   trimActiveMessagesForDirection,
-  trimMessages,
   trimMessagesWithBranchContext,
 } from './messageStoreMerge';
 
@@ -936,7 +935,22 @@ export const useMessageStore = create<MessageStore>()(
               }
               if (hasPendingChatCreate(localMessage.chatId)) {
                 scheduleChatSyncFirst();
-                throw new ApiError('chat:create pending: 对应会话尚未完成云端创建，消息稍后重试。', { code: 'CHAT_CREATE_PENDING', status: 409 });
+                if (await reconcilePendingChatCreate(localMessage.chatId)) {
+                  // The chat was created remotely while its local outbox
+                  // marker was still pending; continue with the message.
+                } else {
+                  throw new ApiError('chat:create pending: 对应会话尚未完成云端创建，消息稍后重试。', { code: 'CHAT_CREATE_PENDING', status: 409 });
+                }
+              }
+              const parentNodeId = typeof localMessage.metadata?.branching?.parentNodeId === 'string' ? localMessage.metadata.branching.parentNodeId.trim() : '';
+              const parentPending = parentNodeId && get().pendingOperations.some((operation) => {
+                if (operation.kind !== 'create' || operation.localMessageId === localMessage.id || operation.chatId !== localMessage.chatId) return false;
+                const candidate = operation.payload;
+                const nodeId = candidate?.metadata?.branching?.nodeId;
+                return nodeId === parentNodeId || candidate?.id === parentNodeId || candidate?.clientKey === parentNodeId;
+              });
+              if (parentPending) {
+                throw new ApiError('branch parent pending: 分支父消息尚未完成云端同步，子消息稍后重试。', { code: 'BRANCH_PARENT_PENDING', status: 409 });
               }
               let savedMessage: unknown;
               try {

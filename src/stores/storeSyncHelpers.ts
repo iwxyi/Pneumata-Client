@@ -101,7 +101,7 @@ export function classifySyncError(error: unknown) {
   if (/BRANCH_STATE_CONFLICT|BRANCH_STATE_STALE|BRANCH_NODE_CONFLICT/i.test(code) || /分支状态已被其他设备更新|分支状态已更新|分支节点 ID 已指向其他消息/i.test(message)) {
     return `conflict_ignored: ${message}`;
   }
-  if (/chat:create pending|会话尚未完成云端创建|对应会话尚未完成云端创建/i.test(message)) return `network: ${message}`;
+  if (/chat:create pending|branch parent pending|会话尚未完成云端创建|对应会话尚未完成云端创建|分支父消息尚未完成云端同步/i.test(message)) return `network: ${message}`;
   if (/401|登录已过期|未登录/i.test(message)) return `auth: ${message}`;
   if (/Failed to fetch|NetworkError|fetch/i.test(message)) return `network: ${message}`;
   if (/500|502|503|504|服务器错误/i.test(message)) return `server_unavailable: ${message}`;

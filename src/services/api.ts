@@ -553,6 +553,7 @@ function shouldExpireAuthSession(status: number, code?: string) {
 class ApiClient {
   private aiBalanceCache = new Map<string, { value: Record<string, unknown>; expiresAt: number }>();
   private aiBalanceInFlight = new Map<string, Promise<Record<string, unknown>>>();
+  private authRefreshInFlight: Promise<boolean> | null = null;
 
   private getToken(): string | null {
     return localStorage.getItem(storageKey('token'));
@@ -583,7 +584,36 @@ class ApiClient {
     );
   }
 
+  private async refreshAuthSession(): Promise<boolean> {
+    const refreshToken = localStorage.getItem(storageKey('refresh-token'));
+    if (!refreshToken) return false;
+    if (this.authRefreshInFlight) return this.authRefreshInFlight;
+    this.authRefreshInFlight = (async () => {
+      try {
+        const response = await fetch(backendUrl(`${API_BASE}/auth/refresh`), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }),
+        });
+        if (!response.ok) return false;
+        const result = await this.parseJsonResponse<{ token: string; refreshToken: string; user?: AuthUserResponse }>(response);
+        if (!result.token || !result.refreshToken) return false;
+        localStorage.setItem(storageKey('token'), result.token);
+        localStorage.setItem(storageKey('refresh-token'), result.refreshToken);
+        if (result.user) localStorage.setItem(storageKey('user'), JSON.stringify(result.user));
+        return true;
+      } catch {
+        return false;
+      } finally {
+        this.authRefreshInFlight = null;
+      }
+    })();
+    return this.authRefreshInFlight;
+  }
+
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    return this.requestWithRetry<T>(method, path, body, false);
+  }
+
+  private async requestWithRetry<T>(method: string, path: string, body: unknown, retried: boolean): Promise<T> {
     const url = backendUrl(`${API_BASE}${path}`);
     const options: RequestInit = {
       method,
@@ -600,6 +630,9 @@ class ApiClient {
       const error: { error?: string; detail?: string; code?: string } = await this.parseJsonResponse<{ error?: string; detail?: string; code?: string }>(response).catch(() => ({ error: '请求失败', code: 'REQUEST_FAILED' }));
       const detail = typeof error.detail === 'string' && error.detail ? ` (${error.detail})` : '';
       if (shouldExpireAuthSession(response.status, error.code)) {
+        if (!retried && path !== '/auth/refresh' && await this.refreshAuthSession()) {
+          return this.requestWithRetry<T>(method, path, body, true);
+        }
         dispatchAuthSessionExpired({ status: response.status, path });
       }
       throw new ApiError(`${error.error || `HTTP ${response.status}`}${detail}`, { code: error.code, status: response.status });
@@ -617,11 +650,15 @@ class ApiClient {
   }
 
   async login(phone: string, code: string) {
-    return this.request<{ token: string; user: AuthUserResponse }>('POST', '/auth/login', { phone, code });
+    return this.request<{ token: string; refreshToken: string; user: AuthUserResponse }>('POST', '/auth/login', { phone, code });
   }
 
   async passwordLogin(phone: string, password: string) {
-    return this.request<{ token: string; user: AuthUserResponse }>('POST', '/auth/password-login', { phone, password });
+    return this.request<{ token: string; refreshToken: string; user: AuthUserResponse }>('POST', '/auth/password-login', { phone, password });
+  }
+
+  async logout(refreshToken?: string) {
+    return this.request<{ success: boolean }>('POST', '/auth/logout', { refreshToken });
   }
 
   async sendPasswordCode(captchaToken?: string) {

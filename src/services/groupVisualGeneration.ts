@@ -17,6 +17,20 @@ type GroupVisualPlan = { negativePrompt?: string; backgroundOpacity?: number; pr
 
 function compact(value?: string | null, max = 320) { return value?.trim().replace(/\s+/g, ' ').slice(0, max) || ''; }
 
+async function waitForCloudChat(chatId: string) {
+  if (!chatId.startsWith('local-chat-')) return true;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await api.getChat(chatId);
+      return true;
+    } catch {
+      await useChatStore.getState().resumeSync();
+      await new Promise((resolve) => window.setTimeout(resolve, Math.min(3000, 250 * (attempt + 1))));
+    }
+  }
+  return false;
+}
+
 function buildSource(chat: GroupChat, members: AICharacter[], requirement: string, language: 'zh' | 'en') {
   const memberHints = members.slice(0, 8).map((member) => [member.name, compact(member.background, 100), (member.expertise || []).slice(0, 3).join('、')].filter(Boolean).join('：')).join('\n');
   if (language === 'zh') return [
@@ -108,6 +122,9 @@ export function enqueueGroupVisualGeneration(params: { chat: GroupChat; members:
       const current = latest.groupVisual || {};
       let imageUrl = result.imageDataUrl;
       if (useAuthStore.getState().authMode === 'cloud') {
+        if (!await waitForCloudChat(chat.id)) {
+          throw new Error(language === 'zh' ? '群聊尚未完成云端同步，暂不能保存群聊图片，请稍后重试。' : 'The chat is still syncing to the cloud. Please try again shortly.');
+        }
         try {
           const prepared = await prepareAvatarUploadDataUrl(result.imageDataUrl, { maxSize: 1536, quality: 0.9 });
           const asset = await api.createMediaAsset({
