@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -331,6 +331,9 @@ export default function MembershipPage() {
   const [membership, setMembership] = useState<BillingMembershipResponse | null>(null);
   const [aiBalance, setAiBalance] = useState<Record<string, unknown> | null>(null);
   const [selectedVipTierCode, setSelectedVipTierCode] = useState('basic');
+  const tierCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const tierScrollTimerRef = useRef<number | null>(null);
+  const [tierCardsScrolling, setTierCardsScrolling] = useState(false);
   const [loading, setLoading] = useState(false);
   const [aiBalanceLoading, setAiBalanceLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -445,7 +448,8 @@ export default function MembershipPage() {
   ];
   const selectedVipTier = vipTiers.find((tier) => tier.code === selectedVipTierCode) || vipTiers[0];
   const selectedTierOption = tierOptions.find((tier) => tier.code === selectedVipTierCode) || selectedVipTier || tierOptions[0];
-  const selectedTierIndex = Math.max(0, tierOptions.findIndex((tier) => tier.code === selectedTierOption?.code));
+  const displayTierOptions = tierOptions.filter((tier) => tier.code !== 'free');
+  const selectedTierIndex = Math.max(0, displayTierOptions.findIndex((tier) => tier.code === selectedTierOption?.code));
   const durationCardsJustify = selectedTierIndex <= 0
     ? 'start'
     : selectedTierIndex >= tierOptions.length - 1
@@ -678,10 +682,8 @@ export default function MembershipPage() {
                       }}
                     >
                       <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>{isZh ? '有效期至' : 'Valid until'}</Typography>
-                      <Typography sx={{ mt: 0.25, fontWeight: 900 }}>
-                        {formatDate(displayedSubscription?.currentPeriodEnd)}
-                        {membershipExpired ? <Box component="span" sx={{ ml: 0.75, color: 'error.main', fontSize: '0.78em', fontWeight: 800 }}>{isZh ? '已过期' : 'Expired'}</Box> : null}
-                      </Typography>
+                      <Typography sx={{ mt: 0.25, fontWeight: 900 }}>{formatDate(displayedSubscription?.currentPeriodEnd)}</Typography>
+                      {membershipExpired ? <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.15, fontWeight: 800 }}>{isZh ? '已过期' : 'Expired'}</Typography> : null}
                     </Box>
                     <Box
                       sx={{
@@ -728,8 +730,30 @@ export default function MembershipPage() {
                   {isZh ? '从轻量体验到深度创作，选择适合当前节奏的会员权益。' : 'Pick the membership benefits that match your current creative pace.'}
                 </Typography>
               </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: tierGridTemplateColumns, gridAutoRows: '1fr', gap: 1.25, alignItems: 'stretch' }}>
-                {tierOptions.map((tier, tierIndex) => {
+              <Box
+                onScroll={() => {
+                  setTierCardsScrolling(true);
+                  if (tierScrollTimerRef.current !== null) window.clearTimeout(tierScrollTimerRef.current);
+                  tierScrollTimerRef.current = window.setTimeout(() => setTierCardsScrolling(false), 650);
+                }}
+                sx={{
+                  display: { xs: 'flex', md: 'grid' },
+                  gridTemplateColumns: { md: tierGridTemplateColumns },
+                  gridAutoRows: '1fr',
+                  gap: 1.25,
+                  alignItems: 'stretch',
+                  overflowX: { xs: 'auto', md: 'visible' },
+                  overflowY: { xs: 'hidden', md: 'visible' },
+                  overscrollBehaviorX: 'contain',
+                  pb: { xs: 0.5, md: 0 },
+                  WebkitOverflowScrolling: 'touch',
+                  scrollbarColor: tierCardsScrolling ? 'rgba(120,120,120,.65) transparent' : 'transparent transparent',
+                  '&::-webkit-scrollbar': { height: 6 },
+                  '&::-webkit-scrollbar-track': { background: 'transparent' },
+                  '&::-webkit-scrollbar-thumb': { backgroundColor: tierCardsScrolling ? 'rgba(120,120,120,.65)' : 'transparent', borderRadius: 999 },
+                }}
+              >
+                {displayTierOptions.map((tier, tierIndex) => {
                   const active = tier.code === selectedTierOption?.code;
                   const tierPlans = vipPlans.filter((plan) => planVipTierCode(plan) === tier.code);
                   const tierMinPlan = [...tierPlans].sort((a, b) => toNumber(a.price_amount) - toNumber(b.price_amount))[0];
@@ -737,9 +761,14 @@ export default function MembershipPage() {
                   const isFree = tier.code === 'free';
                   const benefitLines = markdownLines(tier.benefitsMarkdown);
                   return (
-                    <Box key={tier.code} sx={{ position: 'relative', minWidth: 0, display: 'flex' }}>
+                    <Box ref={(node: HTMLDivElement | null) => { tierCardRefs.current[tier.code] = node; }} key={tier.code} sx={{ position: 'relative', minWidth: 0, display: 'flex', flex: { xs: '0 0 min(238px, 78vw)', md: 'initial' }, width: { xs: 'min(238px, 78vw)', md: 'auto' }, minWidth: { xs: 0, md: 0 }, maxWidth: { xs: 'min(238px, 78vw)', md: 'none' }, flexDirection: 'column' }}>
                     <Box
-                      onClick={() => setSelectedVipTierCode(tier.code)}
+                      onClick={() => {
+                        setSelectedVipTierCode(tier.code);
+                        window.requestAnimationFrame(() => {
+                          tierCardRefs.current[tier.code]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                        });
+                      }}
                       sx={{
                         borderRadius: membershipRadius.card,
                         border: '1px solid',
@@ -862,6 +891,8 @@ export default function MembershipPage() {
                           justifyContent: 'space-between',
                           gap: 1,
                           mt: 0.25,
+                          minHeight: 32,
+                          boxSizing: 'border-box',
                           pt: 1,
                           borderTop: '1px solid',
                           borderColor: (theme) => alpha(theme.palette.divider, theme.palette.mode === 'dark' ? 0.56 : 0.72),
@@ -906,6 +937,9 @@ export default function MembershipPage() {
                           ) : null}
                       </Stack>
                     </Box>
+                    <Box sx={{ display: { xs: 'flex', md: 'none' }, justifyContent: 'center', height: 48, visibility: active ? 'visible' : 'hidden' }}>
+                      {active ? <MembershipDownCue sx={{ height: 48 }} /> : null}
+                    </Box>
                     </Box>
                   );
                 })}
@@ -917,7 +951,7 @@ export default function MembershipPage() {
               ) : (
                 <Box
                   sx={{
-                    display: 'grid',
+                    display: { xs: 'none', md: 'grid' },
                     gridTemplateColumns: { xs: '1fr', md: tierGridTemplateColumns },
                     gap: { xs: 0, md: 1.25 },
                     alignItems: 'center',
@@ -925,7 +959,7 @@ export default function MembershipPage() {
                     minHeight: { xs: 58, md: 62 },
                   }}
                 >
-                  {tierOptions.map((tier) => {
+                  {displayTierOptions.map((tier) => {
                     const active = tier.code === selectedTierOption?.code;
                     return (
                       <Box
@@ -944,7 +978,7 @@ export default function MembershipPage() {
                 </Box>
               )}
               {selectedTierOption?.code !== 'free' ? (
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))', gridAutoRows: '1fr', gap: 1.15, alignItems: 'stretch', justifyContent: { xs: 'start', md: durationCardsJustify } }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))' }, gridAutoRows: '1fr', gap: 1.15, alignItems: 'stretch', justifyContent: { xs: 'start', md: durationCardsJustify } }}>
                 {visibleVipPlans.map((plan, planIndex) => {
                   const highlightReason = getPlanMetaText(plan, 'highlightReason');
                   const originalPrice = getPlanMetaNumber(plan, 'originalPriceAmount');
@@ -1139,7 +1173,7 @@ export default function MembershipPage() {
                   {isZh ? '点数用于官方 AI 调用，适合在灵感集中时补充更稳定的创作余量。' : 'Points power official AI calls when you need more room for focused creation.'}
                 </Typography>
               </Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))', gridAutoRows: '1fr', gap: 1, alignItems: 'stretch', justifyContent: 'start' }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))' }, gridAutoRows: '1fr', gap: 1, alignItems: 'stretch', justifyContent: 'start' }}>
                 {availablePointClaimItems.map((item, claimIndex) => {
                   const claiming = claimingPointKind === item.kind;
                   return (
@@ -1319,7 +1353,7 @@ export default function MembershipPage() {
           {storagePlans.length > 0 ? (
             <Stack spacing={{ xs: 1.55, sm: 1.85 }} sx={membershipBlockSx}>
               <Box><Typography variant="h6" sx={{ fontWeight: 950 }}>{isZh ? '容量包' : 'Storage packs'}</Typography><Typography variant="body2" color="text.secondary">{isZh ? '容量包可叠加使用，并按套餐有效期自动到期。' : 'Storage packs stack and expire according to each plan.'}</Typography></Box>
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))', gridAutoRows: '1fr', gap: 1, alignItems: 'stretch', justifyContent: 'start' }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))' }, gridAutoRows: '1fr', gap: 1, alignItems: 'stretch', justifyContent: 'start' }}>
                 {storagePlans.map((plan, planIndex) => (
                   <Card
                     key={plan.id}
@@ -1369,14 +1403,16 @@ export default function MembershipPage() {
             ) : (
               <Stack divider={<Divider flexItem />} spacing={0}>
                 {recentOrders.map((order) => (
-                  <Box key={String(order.id)} sx={{ py: 1.2, display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1.4fr 0.8fr 0.8fr auto' }, gap: 1, alignItems: 'center' }}>
-                    <Box sx={{ minWidth: 0 }}>
+                  <Box key={String(order.id)} sx={{ py: 1.2, display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr) auto', sm: 'minmax(0, 1fr) auto' }, gap: { xs: 1, sm: 2 }, alignItems: 'center' }}>
+                    <Box sx={{ minWidth: 0, display: 'grid', gap: 0.15 }}>
                       <Typography noWrap sx={{ fontWeight: 800 }}>{orderPlanName(order)}</Typography>
                       <Typography variant="caption" color="text.secondary" noWrap>{orderNo(order)}</Typography>
+                      <Typography variant="caption" color="text.secondary" noWrap sx={{ opacity: 0.78, fontWeight: 500 }}>{formatDateTime(orderCreatedAt(order))}</Typography>
                     </Box>
-                    <Typography variant="body2" color="text.secondary">{formatDateTime(orderCreatedAt(order))}</Typography>
-                    <Typography sx={{ fontWeight: 800 }}>{formatMoney(order.amount, order.currency)}</Typography>
-                    <Chip size="small" color={orderStatusColor(order.status)} label={orderStatusLabel(order.status, isZh)} />
+                    <Box sx={{ display: 'grid', justifyItems: 'end', alignContent: 'center', gap: 0.65 }}>
+                      <Typography sx={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{formatMoney(order.amount, order.currency)}</Typography>
+                      <Chip size="small" color={orderStatusColor(order.status)} label={orderStatusLabel(order.status, isZh)} />
+                    </Box>
                   </Box>
                 ))}
               </Stack>
