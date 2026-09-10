@@ -14,7 +14,6 @@ import PhoneIcon from '@mui/icons-material/Phone';
 import LockIcon from '@mui/icons-material/Lock';
 import { useAuthStore } from '../stores/useAuthStore';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import { getLastCloudPhone } from '../services/authSession';
 import { getSmsCaptchaToken } from '../services/captcha';
 
@@ -32,7 +31,6 @@ function resolveLoginRedirect(state: LoginLocationState) {
 }
 
 export default function LoginPage() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { login, loginWithPassword, sendCode, enterLocalMode, isLoggedIn, isLoading, token, authMode } = useAuthStore();
@@ -46,9 +44,28 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [mockCode, setMockCode] = useState('');
   const [sendingCode, setSendingCode] = useState(false);
+  const [loginAttempted, setLoginAttempted] = useState(false);
   const locationState = location.state as LoginLocationState;
   const loginReason = locationState?.reason;
   const redirectTarget = resolveLoginRedirect(locationState);
+
+  const dismissLoginReason = useCallback(() => {
+    if (!loginReason) return;
+    // Keep the intended redirect target, but do not let a stale session reason
+    // mask errors from the new login attempt.
+    navigate(location.pathname, {
+      replace: true,
+      state: locationState?.from ? { from: locationState.from } : null,
+    });
+  }, [loginReason, location.pathname, locationState?.from, navigate]);
+
+  const getLoginErrorMessage = useCallback((err: unknown, fallback: string) => {
+    if (err instanceof TypeError && /fetch|network|failed/i.test(err.message)) {
+      return '无法连接服务器，请检查后端服务或网络连接后重试';
+    }
+    if (err instanceof Error && err.message.trim()) return err.message;
+    return fallback;
+  }, []);
 
   // Countdown timer
   useEffect(() => {
@@ -60,6 +77,8 @@ export default function LoginPage() {
   }, [countdown]);
 
   const handleSendCode = useCallback(async () => {
+    setLoginAttempted(true);
+    dismissLoginReason();
     if (!phone || phone.length < 5) {
       setError('请输入有效的手机号');
       return;
@@ -77,13 +96,15 @@ export default function LoginPage() {
         setCode(result.code); // Auto-fill in dev mode
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '发送验证码失败');
+      setError(getLoginErrorMessage(err, '发送验证码失败'));
     } finally {
       setSendingCode(false);
     }
-  }, [phone, sendCode]);
+  }, [dismissLoginReason, getLoginErrorMessage, phone, sendCode]);
 
   const handleLogin = useCallback(async () => {
+    setLoginAttempted(true);
+    dismissLoginReason();
     if (!phone || (loginMethod === 'code' ? !code : !password)) {
       setError(loginMethod === 'code' ? '请输入手机号和验证码' : '请输入手机号和密码');
       return;
@@ -95,9 +116,9 @@ export default function LoginPage() {
       if (loginMethod === 'code') await login(phone, code); else await loginWithPassword(phone, password);
       navigate(redirectTarget, { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : '登录失败');
+      setError(getLoginErrorMessage(err, '登录失败'));
     }
-  }, [phone, code, password, loginMethod, login, loginWithPassword, navigate, redirectTarget]);
+  }, [dismissLoginReason, getLoginErrorMessage, phone, code, password, loginMethod, login, loginWithPassword, navigate, redirectTarget]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -155,7 +176,7 @@ export default function LoginPage() {
           </Alert>
         )}
 
-        {loginReason === 'expired' && !error ? (
+        {loginReason === 'expired' && !error && !loginAttempted ? (
           <Alert severity="warning" sx={{ mb: 2 }}>
             登录已过期，请重新获取验证码登录。
           </Alert>
