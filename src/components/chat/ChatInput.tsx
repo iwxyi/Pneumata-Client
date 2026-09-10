@@ -211,6 +211,38 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     reader.readAsDataURL(blob);
   }), []);
 
+  const encodeSpeechWav = useCallback(async (blob: Blob) => {
+    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioContextCtor) return blob;
+    const context = new AudioContextCtor();
+    try {
+      const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+      const targetRate = 16_000;
+      const frameCount = Math.max(1, Math.ceil(decoded.duration * targetRate));
+      const offline = new OfflineAudioContext(1, frameCount, targetRate);
+      const source = offline.createBufferSource();
+      source.buffer = decoded;
+      source.connect(offline.destination);
+      source.start();
+      const rendered = await offline.startRendering();
+      const samples = rendered.getChannelData(0);
+      const wav = new ArrayBuffer(44 + samples.length * 2);
+      const view = new DataView(wav);
+      const write = (offset: number, value: string) => Array.from(value).forEach((char, index) => view.setUint8(offset + index, char.charCodeAt(0)));
+      write(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); write(8, 'WAVE');
+      write(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+      view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+      write(36, 'data'); view.setUint32(40, samples.length * 2, true);
+      for (let index = 0; index < samples.length; index += 1) {
+        const sample = Math.max(-1, Math.min(1, samples[index]));
+        view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      }
+      return new Blob([wav], { type: 'audio/wav' });
+    } finally {
+      await context.close().catch(() => undefined);
+    }
+  }, []);
+
   const startRecording = useCallback(async () => {
     if (isRecording || recordingStartingRef.current || disabled || isSending || isTranscribing || !sttModel || !navigator.mediaDevices?.getUserMedia) {
       if (!sttModel) onSendError?.('请先在模型页面配置语音（STT）模型');
@@ -228,13 +260,17 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
         recordingStreamRef.current = null;
-        const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        if (!blob.size) return;
+        const recordedBlob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+        if (!recordedBlob.size) return;
         setIsTranscribing(true);
         try {
+          const blob = usesManagedSpeechProfile(sttModel) && sttModel.provider.includes('volcengine')
+            ? await encodeSpeechWav(recordedBlob)
+            : recordedBlob;
+          const fileName = blob.type.includes('wav') ? 'voice-input.wav' : 'voice-input.webm';
           const result = usesManagedSpeechProfile(sttModel)
-            ? await transcribeSpeech({ providerCode: sttModel.provider.startsWith('managed:') ? sttModel.provider.slice('managed:'.length) : undefined, modelId: sttModel.model, audioDataUrl: normalizeAudioDataUrl(await blobToDataUrl(blob)), fileName: 'voice-input.webm', language: 'zh' })
-            : await transcribeAudioWithAdapter({ profile: sttModel, file: blob, fileName: 'voice-input.webm', language: 'zh', intent: 'audio-transcription' });
+            ? await transcribeSpeech({ providerCode: sttModel.provider.startsWith('managed:') ? sttModel.provider.slice('managed:'.length) : undefined, modelId: sttModel.model, audioDataUrl: normalizeAudioDataUrl(await blobToDataUrl(blob)), fileName, language: 'zh' })
+            : await transcribeAudioWithAdapter({ profile: sttModel, file: blob, fileName, language: 'zh', intent: 'audio-transcription' });
           if (result.text.trim()) {
             setText((current) => {
               const next = current.trim() ? `${current.trim()} ${result.text.trim()}` : result.text.trim();
@@ -258,7 +294,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     } finally {
       recordingStartingRef.current = false;
     }
-  }, [blobToDataUrl, disabled, inputFocused, isRecording, isSending, isTranscribing, onSendError, publishDraftActivity, sttModel]);
+  }, [blobToDataUrl, disabled, encodeSpeechWav, inputFocused, isRecording, isSending, isTranscribing, onSendError, publishDraftActivity, sttModel]);
 
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current;
