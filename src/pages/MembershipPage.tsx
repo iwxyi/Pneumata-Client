@@ -455,7 +455,10 @@ export default function MembershipPage() {
     : selectedTierIndex >= tierOptions.length - 1
       ? 'end'
       : 'center';
-  const tierGridTemplateColumns = 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))';
+  // Desktop tier cards should retain a calm, readable width instead of
+  // stretching across the whole content column. The same tracks are reused
+  // by the cue row below so the arrow remains anchored to the selected card.
+  const tierGridTemplateColumns = `repeat(${Math.max(displayTierOptions.length, 1)}, minmax(220px, 238px))`;
   const selectedTierPlans = vipPlans.filter((plan) => planVipTierCode(plan) === (selectedTierOption?.code || 'basic'));
   const visibleVipPlans = selectedTierPlans;
   const activeSubscription = membership?.activeSubscription || null;
@@ -739,6 +742,9 @@ export default function MembershipPage() {
                 sx={{
                   display: { xs: 'flex', md: 'grid' },
                   gridTemplateColumns: { md: tierGridTemplateColumns },
+                  width: { md: 'fit-content' },
+                  maxWidth: '100%',
+                  mx: { md: 'auto' },
                   gridAutoRows: '1fr',
                   gap: 1.25,
                   alignItems: 'stretch',
@@ -953,6 +959,9 @@ export default function MembershipPage() {
                   sx={{
                     display: { xs: 'none', md: 'grid' },
                     gridTemplateColumns: { xs: '1fr', md: tierGridTemplateColumns },
+                    width: { md: 'fit-content' },
+                    maxWidth: '100%',
+                    mx: { md: 'auto' },
                     gap: { xs: 0, md: 1.25 },
                     alignItems: 'center',
                     my: { xs: 0.25, sm: 0.5, md: 0.1 },
