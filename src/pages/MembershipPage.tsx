@@ -13,7 +13,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
-import { alpha } from '@mui/material/styles';
+import { alpha, type Theme } from '@mui/material/styles';
 import BoltIcon from '@mui/icons-material/Bolt';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloudOutlinedIcon from '@mui/icons-material/CloudOutlined';
@@ -53,6 +53,19 @@ const membershipRadius = {
 const membershipBlockSx = {
   scrollMarginTop: 88,
 };
+
+// Each purchase family has its own quiet accent.  The colors are deliberately
+// slightly desaturated so the cards feel premium instead of reading like
+// default warning/success/info alerts.
+const membershipAccents = {
+  vip: { light: '#A66A1F', dark: '#E2B565' },
+  points: { light: '#2E8B67', dark: '#6BC79E' },
+  storage: { light: '#3E73B8', dark: '#7FAEF3' },
+} as const;
+
+function membershipAccent(theme: Theme, kind: keyof typeof membershipAccents) {
+  return membershipAccents[kind][theme.palette.mode === 'dark' ? 'dark' : 'light'];
+}
 
 const DEFAULT_MEMBERSHIP_CONFIG: BillingMembershipConfig = {
   title: 'VIP 会员',
@@ -449,12 +462,6 @@ export default function MembershipPage() {
   const selectedVipTier = vipTiers.find((tier) => tier.code === selectedVipTierCode) || vipTiers[0];
   const selectedTierOption = tierOptions.find((tier) => tier.code === selectedVipTierCode) || selectedVipTier || tierOptions[0];
   const displayTierOptions = tierOptions.filter((tier) => tier.code !== 'free');
-  const selectedTierIndex = Math.max(0, displayTierOptions.findIndex((tier) => tier.code === selectedTierOption?.code));
-  const durationCardsJustify = selectedTierIndex <= 0
-    ? 'start'
-    : selectedTierIndex >= tierOptions.length - 1
-      ? 'end'
-      : 'center';
   // Desktop tier cards should retain a calm, readable width instead of
   // stretching across the whole content column. The same tracks are reused
   // by the cue row below so the arrow remains anchored to the selected card.
@@ -987,7 +994,7 @@ export default function MembershipPage() {
                 </Box>
               )}
               {selectedTierOption?.code !== 'free' ? (
-              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))' }, gridAutoRows: '1fr', gap: 1.15, alignItems: 'stretch', justifyContent: { xs: 'start', md: durationCardsJustify } }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(auto-fit, minmax(min(100%, 188px), 238px))' }, gridAutoRows: '1fr', gap: 1.15, alignItems: 'stretch', justifyContent: 'start' }}>
                 {visibleVipPlans.map((plan, planIndex) => {
                   const highlightReason = getPlanMetaText(plan, 'highlightReason');
                   const originalPrice = getPlanMetaNumber(plan, 'originalPriceAmount');
@@ -1004,9 +1011,9 @@ export default function MembershipPage() {
                         height: '100%',
                         width: '100%',
                         cursor: purchasingPlanCode ? 'default' : 'pointer',
-                        borderColor: (theme) => alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.28 : 0.18),
+                        borderColor: (theme) => alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.46 : 0.30),
                         bgcolor: 'background.paper',
-                        boxShadow: (theme) => `0 8px 18px ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.09 : 0.04)}`,
+                        boxShadow: (theme) => `0 8px 18px ${alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.12 : 0.06)}`,
                         animation: `membershipRiseIn 420ms ${motion.softOut} both`,
                         animationDelay: `${Math.min(planIndex * 45, 180)}ms`,
                         overflow: 'hidden',
@@ -1018,7 +1025,7 @@ export default function MembershipPage() {
                           inset: 1,
                           borderRadius: 'inherit',
                           pointerEvents: 'none',
-                          background: (theme) => `radial-gradient(circle at 76% 18%, ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.20 : 0.14)}, transparent 34%), linear-gradient(135deg, transparent 0%, ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.11 : 0.06)} 100%)`,
+                          background: (theme) => `radial-gradient(circle at 76% 18%, ${alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.24 : 0.16)}, transparent 34%), linear-gradient(135deg, transparent 0%, ${alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.13 : 0.07)} 100%)`,
                           opacity: 0,
                           transform: 'translate(18px, -14px) scale(0.86)',
                           transformOrigin: '76% 18%',
@@ -1026,23 +1033,23 @@ export default function MembershipPage() {
                         },
                         '&:hover': {
                           transform: 'translateY(-2px)',
-                          borderColor: (theme) => alpha(theme.palette.warning.main, 0.78),
-                          boxShadow: (theme) => `0 14px 28px ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.24 : 0.15)}`,
+                          borderColor: (theme) => alpha(membershipAccent(theme, 'vip'), 0.86),
+                          boxShadow: (theme) => `0 14px 28px ${alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.28 : 0.18)}`,
                           '&::before': {
                             opacity: 1,
                             transform: 'translate(0, 0) scale(1)',
                           },
                           '& .purchaseAction': {
-                            bgcolor: 'warning.main',
-                            borderColor: 'warning.main',
-                            color: 'warning.contrastText',
-                            boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.28 : 0.22)}`,
+                            bgcolor: (theme) => membershipAccent(theme, 'vip'),
+                            borderColor: (theme) => membershipAccent(theme, 'vip'),
+                            color: '#fffaf0',
+                            boxShadow: (theme) => `0 12px 24px ${alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.34 : 0.24)}`,
                           },
                           '& .purchasePrice': {
-                            color: 'warning.contrastText',
+                            color: '#fffaf0',
                           },
                           '& .purchaseOriginalPrice': {
-                            color: 'warning.contrastText',
+                            color: '#fffaf0',
                             opacity: 0.7,
                           },
                           '& .durationPill': {
@@ -1063,8 +1070,8 @@ export default function MembershipPage() {
                                     px: 0.8,
                                     py: 0.3,
                                     borderRadius: 999,
-                                    bgcolor: (theme) => alpha(theme.palette.warning.main, theme.palette.mode === 'dark' ? 0.18 : 0.10),
-                                    color: 'warning.main',
+                                    bgcolor: (theme) => alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.22 : 0.12),
+                                    color: (theme) => membershipAccent(theme, 'vip'),
                                     fontSize: 11,
                                     lineHeight: 1,
                                     fontWeight: 900,
@@ -1112,6 +1119,8 @@ export default function MembershipPage() {
                             mt: 'auto',
                             minHeight: 36,
                             py: 0.65,
+                            color: (theme) => membershipAccent(theme, 'vip'),
+                            borderColor: (theme) => alpha(membershipAccent(theme, 'vip'), 0.64),
                             position: 'relative',
                             overflow: 'hidden',
                             transition: transition(['background-color', 'border-color', 'color', 'box-shadow', 'transform'], motion.durations.base, motion.gentleSpring),
@@ -1126,19 +1135,19 @@ export default function MembershipPage() {
                               opacity: 0,
                             },
                             '&:hover': {
-                              bgcolor: 'primary.main',
-                              borderColor: 'primary.main',
-                              color: 'primary.contrastText',
+                              bgcolor: (theme) => membershipAccent(theme, 'vip'),
+                              borderColor: (theme) => membershipAccent(theme, 'vip'),
+                              color: '#fffaf0',
                               transform: 'translateY(-1px)',
-                              boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.30 : 0.22)}`,
+                              boxShadow: (theme) => `0 12px 24px ${alpha(membershipAccent(theme, 'vip'), theme.palette.mode === 'dark' ? 0.34 : 0.24)}`,
                               '&::before': {
                                 animation: `membershipSheen 780ms ${motion.softOut}`,
                               },
                               '& .purchasePrice': {
-                                color: 'primary.contrastText',
+                                color: '#f4fff9',
                               },
                               '& .purchaseOriginalPrice': {
-                                color: 'primary.contrastText',
+                                color: '#f4fff9',
                                 opacity: 0.7,
                               },
                             },
@@ -1267,6 +1276,8 @@ export default function MembershipPage() {
                       sx={{
                         borderRadius: membershipRadius.card,
                         height: '100%',
+                        borderColor: (theme) => alpha(membershipAccent(theme, 'points'), theme.palette.mode === 'dark' ? 0.46 : 0.30),
+                        bgcolor: 'background.paper',
                         cursor: purchasingPlanCode ? 'default' : 'pointer',
                         animation: `membershipRiseIn 420ms ${motion.softOut} both`,
                         animationDelay: `${Math.min((availablePointClaimItems.length + pointIndex) * 45, 220)}ms`,
@@ -1282,7 +1293,7 @@ export default function MembershipPage() {
                           height: 92,
                           borderRadius: 999,
                           pointerEvents: 'none',
-                          background: (theme) => `radial-gradient(circle, ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.20 : 0.11)}, transparent 68%)`,
+                          background: (theme) => `radial-gradient(circle, ${alpha(membershipAccent(theme, 'points'), theme.palette.mode === 'dark' ? 0.24 : 0.15)}, transparent 68%)`,
                           opacity: 0,
                           transform: 'translate(22px, -18px) scale(0.58)',
                           transformOrigin: '100% 0%',
@@ -1290,8 +1301,8 @@ export default function MembershipPage() {
                         },
                         '&:hover': {
                           transform: 'translateY(-2px)',
-                          borderColor: (theme) => alpha(theme.palette.primary.main, 0.44),
-                          boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.common.black, theme.palette.mode === 'dark' ? 0.22 : 0.08)}`,
+                          borderColor: (theme) => alpha(membershipAccent(theme, 'points'), 0.82),
+                          boxShadow: (theme) => `0 12px 24px ${alpha(membershipAccent(theme, 'points'), theme.palette.mode === 'dark' ? 0.24 : 0.14)}`,
                           '&::before': {
                             opacity: 1,
                             transform: 'translate(0, 0) scale(1)',
@@ -1300,10 +1311,10 @@ export default function MembershipPage() {
                             transform: 'translateY(-1px) scale(1.035)',
                           },
                           '& .purchaseAction': {
-                            bgcolor: 'primary.main',
-                            borderColor: 'primary.main',
-                            color: 'primary.contrastText',
-                            boxShadow: (theme) => `0 12px 24px ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.26 : 0.20)}`,
+                            bgcolor: (theme) => membershipAccent(theme, 'points'),
+                            borderColor: (theme) => membershipAccent(theme, 'points'),
+                            color: '#f4fff9',
+                            boxShadow: (theme) => `0 12px 24px ${alpha(membershipAccent(theme, 'points'), theme.palette.mode === 'dark' ? 0.32 : 0.24)}`,
                           },
                         },
                         ...refinedHoverSx,
@@ -1326,7 +1337,12 @@ export default function MembershipPage() {
                             event.stopPropagation();
                             void handlePurchase(plan);
                           }}
-                          sx={{ fontWeight: 900, transition: transition(['background-color', 'border-color', 'color', 'box-shadow'], motion.durations.base, motion.gentleSpring) }}
+                          sx={{
+                            fontWeight: 900,
+                            color: (theme) => membershipAccent(theme, 'points'),
+                            borderColor: (theme) => alpha(membershipAccent(theme, 'points'), 0.62),
+                            transition: transition(['background-color', 'border-color', 'color', 'box-shadow'], motion.durations.base, motion.gentleSpring),
+                          }}
                         >
                           {purchasing ? (isZh ? '正在发起支付' : 'Starting payment') : formatMoney(plan.price_amount, plan.currency)}
                         </Button>
