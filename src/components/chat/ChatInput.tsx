@@ -310,38 +310,18 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recordingStreamRef.current = stream;
-      if (typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持录音');
-      const isVolcengineStt = usesManagedSpeechProfile(sttModel) && (
-        String(sttModel.provider || '').toLowerCase().includes('volcengine')
-        || String(sttModel.model || '').toLowerCase().includes('volcengine')
-      );
-      if (isVolcengineStt) {
-        const context = new AudioContext();
-        const source = context.createMediaStreamSource(stream);
-        const processor = context.createScriptProcessor(4096, 1, 1);
-        const muted = context.createGain();
-        muted.gain.value = 0;
-        const chunks: Float32Array[] = [];
-        processor.onaudioprocess = (event) => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
-        source.connect(processor);
-        processor.connect(muted);
-        muted.connect(context.destination);
-        pcmRecorderRef.current = { context, source, processor, muted, chunks };
-        setIsRecording(true);
-        return;
-      }
-      const recorder = new MediaRecorder(stream);
-      recordedChunksRef.current = [];
-      recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data); };
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        recordingStreamRef.current = null;
-        const recordedBlob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
-        if (!recordedBlob.size) return;
-        await transcribeRecording(recordedBlob);
-      };
-      recorderRef.current = recorder;
-      recorder.start();
+      if (!window.AudioContext) throw new Error('当前浏览器不支持 WAV 语音输入，请使用新版 Chrome、Edge 或 Safari');
+      const context = new AudioContext();
+      const source = context.createMediaStreamSource(stream);
+      const processor = context.createScriptProcessor(4096, 1, 1);
+      const muted = context.createGain();
+      muted.gain.value = 0;
+      const chunks: Float32Array[] = [];
+      processor.onaudioprocess = (event) => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      source.connect(processor);
+      processor.connect(muted);
+      muted.connect(context.destination);
+      pcmRecorderRef.current = { context, source, processor, muted, chunks };
       setIsRecording(true);
     } catch (error) {
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
