@@ -774,7 +774,7 @@ export default function MembershipPage() {
                   const isFree = tier.code === 'free';
                   const benefitLines = markdownLines(tier.benefitsMarkdown);
                   return (
-                    <Box ref={(node: HTMLDivElement | null) => { tierCardRefs.current[tier.code] = node; }} key={tier.code} sx={{ position: 'relative', minWidth: 0, display: 'flex', flex: { xs: '0 0 min(238px, 78vw)', md: 'initial' }, width: { xs: 'min(238px, 78vw)', md: 'auto' }, minWidth: { xs: 0, md: 0 }, maxWidth: { xs: 'min(238px, 78vw)', md: 'none' }, flexDirection: 'column' }}>
+                    <Box ref={(node: HTMLDivElement | null) => { tierCardRefs.current[tier.code] = node; }} key={tier.code} sx={{ position: 'relative', display: 'flex', flex: { xs: '0 0 min(238px, 78vw)', md: 'initial' }, width: { xs: 'min(238px, 78vw)', md: 'auto' }, minWidth: { xs: 0, md: 0 }, maxWidth: { xs: 'min(238px, 78vw)', md: 'none' }, flexDirection: 'column' }}>
                     <Box
                       onClick={() => {
                         setSelectedVipTierCode(tier.code);

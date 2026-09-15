@@ -68,7 +68,7 @@ import { resolveSessionFamilyKey } from '../services/sessionEngineKeys';
 import { isAssistantArtifactCloudSyncEnabled, setAssistantArtifactCloudSyncEnabled } from '../services/assistantArtifactCloudSyncPreference';
 import { hasRoomCapability } from '../services/capabilityRuntime';
 import { useAssistantArtifactStore } from '../stores/useAssistantArtifactStore';
-import type { AssistantHtmlInteractionPayload } from '../features/assistantHtml/AssistantHtmlFrame';
+import type { AssistantHtmlInteractionPayload, AssistantHtmlRuntimeError } from '../features/assistantHtml/AssistantHtmlFrame';
 import { writeAssistantAgentDefaultEnabled } from '../services/assistantAgentPreference';
 import { isChatBlockedByMissingRequiredCharacters } from '../services/chatAvailability';
 import { getPendingAppCommand, subscribePendingAppCommand, type PendingAppCommand } from '../features/appCommand/pendingCommandStore';
@@ -2403,6 +2403,43 @@ export default function ChatDetailPage() {
     });
   }, []);
 
+  const handleHtmlRepair = useCallback(async (runtimeError: AssistantHtmlRuntimeError) => {
+    if (!chat || !id || chat.type !== 'assistant' || chatInteractionDisabled) return;
+    await enqueueManualInput(async () => {
+      const artifact = useAssistantArtifactStore.getState().items.find((item) => item.id === runtimeError.artifactId && item.kind === 'html' && item.deletedAt == null);
+      if (!artifact) throw new Error('需要修复的页面已不存在。');
+      const detail = [
+        `错误类型：${runtimeError.kind}`,
+        `错误信息：${runtimeError.message}`,
+        runtimeError.source ? `来源：${runtimeError.source}${runtimeError.line ? `:${runtimeError.line}:${runtimeError.column || 0}` : ''}` : '',
+        runtimeError.stack ? `堆栈：${runtimeError.stack.slice(0, 3000)}` : '',
+      ].filter(Boolean).join('\n');
+      const userMessage = await addMessageStable({
+        chatId: id,
+        type: 'user',
+        senderId: 'user',
+        senderName: currentUser?.nickname?.trim() || '我',
+        content: `请修复页面「${artifact.title}」。运行诊断如下：\n${detail}\n\n请仅更新这个页面产物，保留已有功能，并说明修复结果。`,
+        emotion: 0,
+        timestamp: getNextMessageTimestamp(),
+        metadata: { assistantHtmlRuntimeError: { ...runtimeError, reportedAt: Date.now() } },
+      });
+      void updateChat(id, { lastMessageAt: userMessage.timestamp, latestMessage: userMessage });
+      setSelectedAssistantArtifactId(artifact.id);
+      setIsDirectReplyPending(true);
+      try {
+        const { runAssistantChatReplyFlow } = await import('../services/assistantChatFlow');
+        await runAssistantChatReplyFlow({
+          api, aiProfiles, chatId: id, chat, currentMessages: [...currentChatMessages, userMessage],
+          selectedArtifactId: artifact.id, timestamp: userMessage.timestamp + 1,
+          upsertMessage: upsertMessageStable, updateChat,
+        });
+      } finally {
+        setIsDirectReplyPending(false);
+      }
+    });
+  }, [addMessageStable, aiProfiles, api, chat, chatInteractionDisabled, currentChatMessages, currentUser?.nickname, enqueueManualInput, getNextMessageTimestamp, id, updateChat, upsertMessageStable]);
+
   const handleHtmlSubmit = useCallback(async (input: AssistantHtmlInteractionPayload) => {
     // Assistant HTML submissions are also the structured answer surface for
     // learning-progress rooms. Keep the same artifact/version protocol, but
@@ -4136,7 +4173,8 @@ export default function ChatDetailPage() {
             artifactId={fullscreenAssistantArtifactId}
             onClose={handleCloseAssistantHtmlFullscreen}
             onAutosave={handleHtmlAutosave}
-            onSubmit={handleHtmlSubmit}
+          onSubmit={handleHtmlSubmit}
+          onRepair={handleHtmlRepair}
           />
         </Suspense>
       ) : null}
@@ -4171,6 +4209,7 @@ export default function ChatDetailPage() {
                     onSelectedArtifactChange={setSelectedAssistantArtifactId}
                     onHtmlAutosave={handleHtmlAutosave}
                     onHtmlSubmit={handleHtmlSubmit}
+                    onHtmlRepair={handleHtmlRepair}
                     onAgentEnabledChange={agentEntitled ? (enabled) => {
                       writeAssistantAgentDefaultEnabled(enabled);
                       const aiSearchAvailable = authMode === 'cloud' && currentUser?.aiSearchEntitled === true;

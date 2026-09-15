@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Box, CircularProgress, Typography } from '@mui/material';
+import { Box, Button, CircularProgress, Typography } from '@mui/material';
+import ContentCopyOutlinedIcon from '@mui/icons-material/ContentCopyOutlined';
 import type { AssistantArtifactVersion, AssistantHtmlRuntimeManifest } from '../../types/assistantArtifact';
 import { buildAssistantHtmlDocument } from './assistantHtmlDocument';
 import { parseAssistantHtmlBridgeEvent } from './assistantHtmlBridge';
@@ -13,6 +14,17 @@ export interface AssistantHtmlInteractionPayload {
   interactionId: string;
   resultType: 'form' | 'quiz' | 'selection' | 'custom';
   payload: Record<string, unknown>;
+}
+
+export interface AssistantHtmlRuntimeError {
+  artifactId: string;
+  versionId: string;
+  message: string;
+  kind: 'runtime' | 'unhandledrejection' | 'console' | 'resource';
+  stack?: string;
+  source?: string;
+  line?: number;
+  column?: number;
 }
 
 function createHtmlChannelToken() {
@@ -37,6 +49,8 @@ export default function AssistantHtmlFrame({
   onAutosave,
   onSubmit,
   onOpenFullscreen,
+  onRuntimeError,
+  onRequestRepair,
 }: {
   artifactId: string;
   version: AssistantArtifactVersion;
@@ -48,13 +62,17 @@ export default function AssistantHtmlFrame({
   onAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onOpenFullscreen?: () => void;
+  onRuntimeError?: (error: AssistantHtmlRuntimeError) => void;
+  onRequestRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
 }) {
   const theme = useTheme();
   const frameRef = useRef<HTMLIFrameElement | null>(null);
-  const channelToken = useMemo(createHtmlChannelToken, [artifactId, version.id]);
+  const channelToken = useMemo(() => `${artifactId}:${version.id}:${createHtmlChannelToken()}`, [artifactId, version.id]);
   const [height, setHeight] = useState(manifest.viewport?.preferredHeight || (inline ? 280 : 720));
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
+  const [lastRuntimeError, setLastRuntimeError] = useState<AssistantHtmlRuntimeError | null>(null);
+  const [repairing, setRepairing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const interactionId = manifest.submission?.interactionId || '';
   const baseVersionId = version.stage === 'autosave' && version.baseVersionId ? version.baseVersionId : version.id;
@@ -67,6 +85,7 @@ export default function AssistantHtmlFrame({
     interactionState: version.interactionState,
     readOnly,
     displayMode: theme.palette.mode,
+    applicationOrigin: window.location.origin,
   }), [artifactId, channelToken, manifest, readOnly, theme.palette.mode, version]);
 
   useEffect(() => {
@@ -90,8 +109,21 @@ export default function AssistantHtmlFrame({
         return;
       }
       if (message.type === 'error') {
-        logDeveloperDiagnostic('html-artifact:iframe-error', { artifactId, error: message.error || 'unknown' }, 'error', 'chat-window');
-        setError(String(message.error || 'HTML 交互脚本执行失败'));
+        const info = message.errorInfo;
+        const runtimeError: AssistantHtmlRuntimeError = {
+          artifactId,
+          versionId: version.id,
+          message: String(info?.message || message.error || 'HTML 交互脚本执行失败'),
+          kind: info?.kind || 'runtime',
+          stack: info?.stack || undefined,
+          source: info?.source || undefined,
+          line: info?.line || undefined,
+          column: info?.column || undefined,
+        };
+        logDeveloperDiagnostic('html-artifact:iframe-error', { ...runtimeError }, 'error', 'chat-window');
+        setError(runtimeError.message);
+        setLastRuntimeError(runtimeError);
+        onRuntimeError?.(runtimeError);
         return;
       }
       if (message.type === 'open_fullscreen') {
@@ -122,11 +154,15 @@ export default function AssistantHtmlFrame({
     };
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [artifactId, baseVersionId, channelToken, inline, interactionId, manifest, onAutosave, onOpenFullscreen, onSubmit, readOnly, version.id]);
+  }, [artifactId, baseVersionId, channelToken, inline, interactionId, manifest, onAutosave, onOpenFullscreen, onRuntimeError, onSubmit, readOnly, version.id]);
 
   useEffect(() => {
-    setReady(false);
-    setError('');
+    const resetTimer = window.setTimeout(() => {
+      setReady(false);
+      setError('');
+      setLastRuntimeError(null);
+    }, 0);
+    return () => window.clearTimeout(resetTimer);
   }, [srcDoc]);
 
   return (
@@ -164,7 +200,31 @@ export default function AssistantHtmlFrame({
         sx={{ width: '100%', height: fillContainer ? '100%' : inline ? height : 'calc(100dvh - 110px)', minHeight: fillContainer ? 0 : inline ? 160 : 420, border: 0, display: 'block', pointerEvents: interactive ? 'auto' : 'none', bgcolor: theme.palette.mode === 'dark' ? '#181a20' : '#fff' }}
       />
       {!ready ? <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>正在加载交互内容…</Typography> : null}
-      {error ? <Typography variant="caption" color="error" sx={{ display: 'block', mt: 0.5 }}>{error}</Typography> : null}
+      {error ? (
+        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75, mt: 0.5 }}>
+          <Typography variant="caption" color="error" sx={{ flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{error}</Typography>
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<ContentCopyOutlinedIcon fontSize="inherit" />}
+            onClick={() => {
+              const detail = [`artifactId: ${artifactId}`, `versionId: ${version.id}`, error].join('\n');
+              void navigator.clipboard?.writeText(detail);
+            }}
+            sx={{ minWidth: 'auto', flexShrink: 0, textTransform: 'none' }}
+          >复制诊断</Button>
+          {onRequestRepair && lastRuntimeError ? <Button
+            size="small"
+            variant="contained"
+            disabled={repairing}
+            onClick={() => {
+              setRepairing(true);
+              void Promise.resolve(onRequestRepair(lastRuntimeError)).finally(() => setRepairing(false));
+            }}
+            sx={{ flexShrink: 0, textTransform: 'none' }}
+          >{repairing ? '正在请求修复' : '让助手修复'}</Button> : null}
+        </Box>
+      ) : null}
     </Box>
   );
 }

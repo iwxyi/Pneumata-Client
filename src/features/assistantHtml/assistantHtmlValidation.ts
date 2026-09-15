@@ -63,7 +63,7 @@ export function normalizeAssistantHtmlRuntime(value: unknown, html = '', preferr
   return {
     schemaVersion: 1,
     presentation,
-    executionMode: 'declarative',
+    executionMode: value.executionMode === 'sandboxed_web' ? 'sandboxed_web' : 'declarative',
     viewport: presentation === 'inline' ? { preferredHeight: 280, maxInlineHeight: 480 } : { preferredHeight: 720 },
     autosave,
     submission,

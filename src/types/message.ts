@@ -233,6 +233,17 @@ export interface MessageMetadata {
     payload: Record<string, unknown>;
     submittedAt: number;
   };
+  assistantHtmlRuntimeError?: {
+    artifactId: string;
+    versionId: string;
+    message: string;
+    kind: 'runtime' | 'unhandledrejection' | 'console' | 'resource';
+    stack?: string;
+    source?: string;
+    line?: number;
+    column?: number;
+    reportedAt: number;
+  };
   workspaceMutationPlan?: {
     id: string;
     directoryId: string;

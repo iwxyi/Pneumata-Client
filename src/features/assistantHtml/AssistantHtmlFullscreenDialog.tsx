@@ -8,7 +8,7 @@ import NavigateNextOutlinedIcon from '@mui/icons-material/NavigateNextOutlined';
 import { copyTextToClipboard } from '../../utils/clipboard';
 import { ensureAssistantArtifactStoreHydrated, useAssistantArtifactStore } from '../../stores/useAssistantArtifactStore';
 import type { AssistantArtifactItem, AssistantArtifactVersion } from '../../types/assistantArtifact';
-import AssistantHtmlFrame, { type AssistantHtmlInteractionPayload } from './AssistantHtmlFrame';
+import AssistantHtmlFrame, { type AssistantHtmlInteractionPayload, type AssistantHtmlRuntimeError } from './AssistantHtmlFrame';
 
 function currentVersion(item: AssistantArtifactItem) {
   return item.versions.find((version) => version.id === item.currentVersionId) || item.versions.at(-1) || null;
@@ -36,23 +36,26 @@ function downloadHtml(item: AssistantArtifactItem, version: AssistantArtifactVer
   URL.revokeObjectURL(url);
 }
 
-export default function AssistantHtmlFullscreenDialog({ artifactId, onClose, onAutosave, onSubmit }: {
+export default function AssistantHtmlFullscreenDialog({ artifactId, onClose, onAutosave, onSubmit, onRepair }: {
   artifactId: string | null;
   onClose: () => void;
   onAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
 }) {
   const artifact = useAssistantArtifactStore((state) => state.items.find((item) => item.id === artifactId && item.kind === 'html' && item.deletedAt == null) || null);
   const [versionId, setVersionId] = useState<string | null>(null);
-  const historyMarkerRef = useRef(`assistant-html-fullscreen:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`);
+  const historyMarkerRef = useRef(`assistant-html-fullscreen:${artifactId || 'none'}`);
 
   useEffect(() => {
     if (artifactId) void ensureAssistantArtifactStoreHydrated();
   }, [artifactId]);
 
   useEffect(() => {
-    setVersionId(artifact ? currentVersion(artifact)?.id || null : null);
-  }, [artifact?.id]);
+    const nextVersionId = artifact ? currentVersion(artifact)?.id || null : null;
+    const timer = window.setTimeout(() => setVersionId(nextVersionId), 0);
+    return () => window.clearTimeout(timer);
+  }, [artifact]);
 
   useEffect(() => {
     if (!artifactId) return undefined;
@@ -110,6 +113,7 @@ export default function AssistantHtmlFullscreenDialog({ artifactId, onClose, onA
               readOnly={version.id !== latestVersion?.id && version.stage !== 'autosave'}
               onAutosave={onAutosave}
               onSubmit={onSubmit}
+              onRequestRepair={onRepair}
             />
           </DialogContent>
         </>

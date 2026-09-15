@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, Divider, IconButton, MenuItem, Select, Stack, Switch, Tooltip, Typography } from '@mui/material';
+import { Box, Button, Checkbox, Chip, CircularProgress, Dialog, DialogContent, DialogTitle, IconButton, MenuItem, Select, Stack, Switch, Tooltip, Typography } from '@mui/material';
 import ArticleOutlinedIcon from '@mui/icons-material/ArticleOutlined';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
 import CloseOutlinedIcon from '@mui/icons-material/CloseOutlined';
@@ -35,7 +35,7 @@ import { copyTextToClipboard } from '../../utils/clipboard';
 import { ensureAssistantArtifactStoreHydrated, getAssistantArtifactCurrentContent, useAssistantArtifactStore } from '../../stores/useAssistantArtifactStore';
 import { useLocalWorkspaceStore } from '../../stores/useLocalWorkspaceStore';
 import type { LocalWorkspaceFileEntry } from '../../services/localWorkspaceService';
-import AssistantHtmlFrame, { type AssistantHtmlInteractionPayload } from '../../features/assistantHtml/AssistantHtmlFrame';
+import AssistantHtmlFrame, { type AssistantHtmlInteractionPayload, type AssistantHtmlRuntimeError } from '../../features/assistantHtml/AssistantHtmlFrame';
 import AssistantHtmlStaticFrame from '../../features/assistantHtml/AssistantHtmlStaticFrame';
 import { getAssistantArtifactDataPreview } from '../../services/assistantArtifactData';
 import { CopyTextDialog } from '../common/CopyTextDialog';
@@ -47,6 +47,7 @@ interface AssistantAgentPanelProps {
   onAgentEnabledChange?: (enabled: boolean) => void;
   onHtmlAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onHtmlSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onHtmlRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
 }
 
 const artifactKindLabels: Record<AssistantArtifactKind, string> = {
@@ -501,7 +502,7 @@ function ArtifactThumbnail({ item, mode, expanded = false }: { item: AssistantAr
   );
 }
 
-function ArtifactPreview({ item, version, expanded = false, fullscreen = false, hideMermaidLoading = false, onMermaidRenderSettled, onHtmlAutosave, onHtmlSubmit }: {
+function ArtifactPreview({ item, version, expanded = false, fullscreen = false, hideMermaidLoading = false, onMermaidRenderSettled, onHtmlAutosave, onHtmlSubmit, onHtmlRepair }: {
   item: AssistantArtifactItem;
   version?: AssistantArtifactVersion | null;
   expanded?: boolean;
@@ -510,6 +511,7 @@ function ArtifactPreview({ item, version, expanded = false, fullscreen = false, 
   onMermaidRenderSettled?: () => void;
   onHtmlAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onHtmlSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onHtmlRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
 }) {
   const content = version ? getArtifactVersionContent(version) : getAssistantArtifactCurrentContent(item);
   if (!content) {
@@ -524,7 +526,7 @@ function ArtifactPreview({ item, version, expanded = false, fullscreen = false, 
   if (item.kind === 'html') {
     if (version?.htmlRuntime) {
       const readOnly = version.id !== item.currentVersionId;
-      return <AssistantHtmlFrame artifactId={item.id} version={version} manifest={version.htmlRuntime} readOnly={readOnly} onAutosave={onHtmlAutosave} onSubmit={onHtmlSubmit} />;
+      return <AssistantHtmlFrame artifactId={item.id} version={version} manifest={version.htmlRuntime} readOnly={readOnly} onAutosave={onHtmlAutosave} onSubmit={onHtmlSubmit} onRequestRepair={onHtmlRepair} />;
     }
     return (
       <AssistantHtmlStaticFrame artifactId={item.id} versionId={version?.id || item.currentVersionId} title={item.title} html={content} sx={{ width: '100%', minHeight: expanded ? '72vh' : 360, border: 0, borderRadius: 1 }} />
@@ -561,12 +563,14 @@ function AssistantArtifactList({
   onSelectedArtifactChange,
   onHtmlAutosave,
   onHtmlSubmit,
+  onHtmlRepair,
 }: {
   chatId: string;
   selectedArtifactId?: string | null;
   onSelectedArtifactChange?: (artifactId: string | null) => void;
   onHtmlAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onHtmlSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onHtmlRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
 }) {
   const artifactItems = useAssistantArtifactStore((state) => state.items);
   const [viewMode, setViewMode] = useState<ArtifactViewMode>('list');
@@ -596,8 +600,10 @@ function AssistantArtifactList({
 
   useEffect(() => {
     if (selectedArtifactId && artifacts.some((item) => item.id === selectedArtifactId)) {
-      setSelectedId(selectedArtifactId);
+      const timer = window.setTimeout(() => setSelectedId(selectedArtifactId), 0);
+      return () => window.clearTimeout(timer);
     }
+    return undefined;
   }, [artifacts, selectedArtifactId]);
 
   const selected = useMemo(() => (
@@ -605,7 +611,11 @@ function AssistantArtifactList({
   ), [artifacts, selectedId]);
 
   useEffect(() => {
-    if (selectedId && !artifacts.some((item) => item.id === selectedId)) setSelectedId(null);
+    if (selectedId && !artifacts.some((item) => item.id === selectedId)) {
+      const timer = window.setTimeout(() => setSelectedId(null), 0);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
   }, [artifacts, selectedId]);
   useEffect(() => {
     onSelectedArtifactChange?.(selected?.id || null);
@@ -659,7 +669,11 @@ function AssistantArtifactList({
     fullscreenZoomRef.current?.resetTransform(0);
   }, [fullscreenId, fullscreenVersionId]);
   useEffect(() => {
-    if (!fullscreenItem) setPendingFullscreenVersionId(null);
+    if (!fullscreenItem) {
+      const timer = window.setTimeout(() => setPendingFullscreenVersionId(null), 0);
+      return () => window.clearTimeout(timer);
+    }
+    return undefined;
   }, [fullscreenItem]);
   const stepFullscreenVersion = (direction: -1 | 1) => {
     if (!fullscreenItem || fullscreenVersionIndex < 0 || isFullscreenVersionRendering) return;
@@ -1054,7 +1068,7 @@ function AssistantArtifactList({
                           justifyContent: 'center',
                         }}
                       >
-                        <ArtifactPreview item={fullscreenItem} version={fullscreenVersion} expanded fullscreen onHtmlAutosave={onHtmlAutosave} onHtmlSubmit={onHtmlSubmit} />
+                        <ArtifactPreview item={fullscreenItem} version={fullscreenVersion} expanded fullscreen onHtmlAutosave={onHtmlAutosave} onHtmlSubmit={onHtmlSubmit} onHtmlRepair={onHtmlRepair} />
                         {pendingFullscreenVersion ? (
                           <Box
                             aria-hidden
@@ -1080,7 +1094,7 @@ function AssistantArtifactList({
                   </Box>
                 ) : (
                   <>
-                    <ArtifactPreview item={fullscreenItem} version={fullscreenVersion} expanded fullscreen onHtmlAutosave={onHtmlAutosave} onHtmlSubmit={onHtmlSubmit} />
+                    <ArtifactPreview item={fullscreenItem} version={fullscreenVersion} expanded fullscreen onHtmlAutosave={onHtmlAutosave} onHtmlSubmit={onHtmlSubmit} onHtmlRepair={onHtmlRepair} />
                     {pendingFullscreenVersion ? (
                       <Box
                         aria-hidden
@@ -1120,6 +1134,7 @@ export default function AssistantAgentPanel({
   onAgentEnabledChange,
   onHtmlAutosave,
   onHtmlSubmit,
+  onHtmlRepair,
 }: AssistantAgentPanelProps) {
   const capabilities = chat.modeState.assistantCapabilities || {};
   const genericCapabilities = chat.modeState.agentCapabilities || {};
@@ -1166,6 +1181,7 @@ export default function AssistantAgentPanel({
                 onSelectedArtifactChange={onSelectedArtifactChange}
                 onHtmlAutosave={onHtmlAutosave}
                 onHtmlSubmit={onHtmlSubmit}
+                onHtmlRepair={onHtmlRepair}
               />
             </>
           ) : (

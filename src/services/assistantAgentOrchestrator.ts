@@ -393,7 +393,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
     '版本管理：如用户要求恢复到指定版本，输出 versionOperations kind=restore；如要求仅保留最近 N 个版本，输出 kind=limit keepCount=N。restore 会以指定版本为当前版本并丢弃其后版本，limit 不得删除当前版本。',
   );
   if (options.includeHtml) sections.push(
-    'HTML：structured_input 生成小型交互控件，interactive_workspace 生成完整页面，visual_explanation 按规模选择；禁止 script、事件属性、iframe/object/embed、外部资源和网络请求，只用声明式控件与 data-pneumata-action。submission.fields 必须与 name 一致；提交回流必须 update 原产物并使用完整新版本。颜色使用 --pneumata-* 变量，并提供 light/dark 属性主题和 prefers-color-scheme dark；HTML 只是交互手段，不在 assistantMessage 输出源码。',
+    'HTML：structured_input 生成小型交互控件，interactive_workspace 生成完整页面，visual_explanation 按规模选择。HTML 可使用外部 https/http 资源、脚本和网络请求；运行环境会阻止本应用、localhost、回环和内网地址。禁止 iframe/object/embed，以及 parent/top、Cookie 和应用存储访问。submission.fields 必须与 name 一致；提交回流必须 update 原产物并使用完整新版本。颜色使用 --pneumata-* 变量，并提供 light/dark 属性主题和 prefers-color-scheme dark；HTML 只是交互手段，不在 assistantMessage 输出源码。',
   );
   sections.push('assistantMessage 是用户可见的简短自然回复，不重复完整产物正文。');
   if (options.includeImages) sections.push(
@@ -418,8 +418,8 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
     '11. 如果 assistantMessage、patch content 或 files 中需要写应用内链接，必须使用跨平台 AppLink：ssmm://character/{id}?action=edit、ssmm://chat/{id}?action=open、ssmm://settings?action=open&tab=models&card=models。禁止输出 /characters/...、/chats/...、#/...、http://localhost/... 或任何平台私有路由。',
     '11.1 只有当 ID 来自用户输入、recentConversation、artifactRegistry、targetArtifacts、localFiles 或其他明确上下文时，才能写入 AppLink；禁止编造角色、会话、产物或文件 ID。外部网页来源继续使用 https:// 链接。',
     '12. 遵循 changePlan.responseExperience。structured_input 生成简洁 HTML 表单片段；interactive_workspace 生成 <!doctype html>/<html> 完整交互文档；visual_explanation 根据内容规模生成 HTML 片段或完整文档，并优先可读、可比较的视觉表达。这三类使用 kind=html；需要提交时输出 htmlRuntime。不要在用户可见文案中谈论 HTML、网页、全屏、气泡、presentation 或 viewport。source_code 不应进入 Writer；若意外收到，必须返回 patches=[]。',
-    '12.1 HTML 不得包含 script、onclick/onchange 等事件属性、iframe/object/embed、外部 src/href、网络请求或表单 action。交互只使用标准 input/select/textarea/form，以及 data-pneumata-action=save|submit|reset|open_fullscreen|close。',
-    '12.2 htmlRuntime.executionMode 固定为 declarative。submission.fields 必须完整列出允许提交的字段名、类型、必填、长度和选项，并与 HTML 中 name 属性一致。',
+    '12.1 HTML 可以包含脚本、事件属性与外部 HTTP(S) src/href、请求或表单 action；禁止 iframe/object/embed、javascript: URL，以及访问 parent/top、Cookie 和应用存储。交互表单仍应使用标准 input/select/textarea/form 和 data-pneumata-action。',
+    '12.2 联网或脚本驱动页面的 htmlRuntime.executionMode 设为 sandboxed_web；普通静态/表单页面使用 declarative。submission.fields 必须完整列出允许提交的字段名、类型、必填、长度和选项，并与 HTML 中 name 属性一致。',
     '12.3 如果 userMessage.htmlSubmission 存在，本轮必须 update 其目标 HTML 产物，baseVersionId 使用提交版本，生成包含审批、批改、分析、结果或下一步交互的完整新版本；不得创建无关的新产物。',
     '12.4 HTML 正文只能放在 patches[].content，严禁放进 assistantMessage 的 Markdown 代码块或直接正文。assistantMessage 只保留一句简短说明；程序会提供产物打开入口。',
     '',

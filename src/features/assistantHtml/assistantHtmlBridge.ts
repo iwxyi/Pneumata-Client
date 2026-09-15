@@ -9,6 +9,14 @@ export interface AssistantHtmlBridgeEvent {
   height?: number;
   payload?: Record<string, unknown>;
   error?: string;
+  errorInfo?: {
+    kind?: 'runtime' | 'unhandledrejection' | 'console' | 'resource';
+    message?: string;
+    stack?: string;
+    source?: string;
+    line?: number;
+    column?: number;
+  };
 }
 
 export function parseAssistantHtmlBridgeEvent(params: {

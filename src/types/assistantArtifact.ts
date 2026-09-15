@@ -104,7 +104,7 @@ export interface AssistantHtmlSubmissionField {
 export interface AssistantHtmlRuntimeManifest {
   schemaVersion: 1;
   presentation: 'inline' | 'fullscreen' | 'both';
-  executionMode: 'declarative';
+  executionMode: 'declarative' | 'sandboxed_web';
   viewport?: {
     preferredHeight?: number;
     maxInlineHeight?: number;
