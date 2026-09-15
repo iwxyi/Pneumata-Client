@@ -304,7 +304,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   }, [blobToDataUrl, encodeSpeechWav, inputFocused, onSendError, publishDraftActivity, sttModel]);
 
   const openRealtimeStt = useCallback(() => {
-    if (!sttModel || !usesManagedSpeechProfile(sttModel)) return null;
+    if (!sttModel) return null;
     const token = localStorage.getItem(storageKey('token'));
     if (!token) return null;
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
