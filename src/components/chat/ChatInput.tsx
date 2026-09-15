@@ -264,7 +264,9 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         if (!recordedBlob.size) return;
         setIsTranscribing(true);
         try {
-          const blob = usesManagedSpeechProfile(sttModel) && sttModel.provider.includes('volcengine')
+          const isVolcengineStt = String(sttModel.provider || '').toLowerCase().includes('volcengine')
+            || String(sttModel.model || '').toLowerCase().includes('volcengine');
+          const blob = usesManagedSpeechProfile(sttModel) && isVolcengineStt
             ? await encodeSpeechWav(recordedBlob)
             : recordedBlob;
           const fileName = blob.type.includes('wav') ? 'voice-input.wav' : 'voice-input.webm';
