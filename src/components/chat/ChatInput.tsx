@@ -19,6 +19,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { normalizeAudioDataUrl, transcribeSpeech, usesManagedSpeechProfile } from '../../services/speech';
 import { transcribeAudioWithAdapter } from '../../services/aiGenerationAdapter';
 import { readUploadedChatFiles } from '../../services/chatFileTransfer';
+import { storageKey } from '../../constants/brand';
 
 interface ChatInputProps {
   mode: 'guide' | 'speakAs' | 'memberSpeak';
@@ -131,6 +132,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     muted: GainNode;
     chunks: Float32Array[];
   } | null>(null);
+  const realtimeSttRef = useRef<{ socket: WebSocket; active: boolean; failed: boolean; transcript: string; pending: ArrayBuffer[] } | null>(null);
   const recordingStartingRef = useRef(false);
   const recordedChunksRef = useRef<Blob[]>([]);
   const sttModel = useSettingsStore((state) => state.aiProfiles.find((profile) => profile.type === 'stt' && (profile.isDefault || profile.provider))
@@ -300,6 +302,34 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     }
   }, [blobToDataUrl, encodeSpeechWav, inputFocused, onSendError, publishDraftActivity, sttModel]);
 
+  const openRealtimeStt = useCallback(() => {
+    if (!sttModel || !usesManagedSpeechProfile(sttModel)) return null;
+    const token = localStorage.getItem(storageKey('token'));
+    if (!token) return null;
+    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const socket = new WebSocket(`${scheme}//${window.location.host}/api/speech/stt/stream?token=${encodeURIComponent(token)}`);
+    const session = { socket, active: false, failed: false, transcript: '', pending: [] as ArrayBuffer[] };
+    socket.onmessage = (event) => {
+      try {
+        const message = JSON.parse(String(event.data || '')) as { type?: string; text?: string };
+        if (message.type === 'ready') {
+          session.active = true;
+          for (const chunk of session.pending) socket.send(chunk);
+          session.pending = [];
+        }
+        if (message.type === 'transcript' && typeof message.text === 'string') {
+          session.active = true;
+          session.transcript = message.text;
+          setText(message.text);
+          publishDraftActivity(message.text, inputFocused);
+        }
+        if (message.type === 'error') session.failed = true;
+      } catch { session.failed = true; }
+    };
+    socket.onerror = () => { session.failed = true; };
+    return session;
+  }, [inputFocused, publishDraftActivity, sttModel]);
+
   const startRecording = useCallback(async () => {
     if (isRecording || recordingStartingRef.current || disabled || isSending || isTranscribing || !sttModel || !navigator.mediaDevices?.getUserMedia) {
       if (!sttModel) onSendError?.('请先在模型页面配置语音（STT）模型');
@@ -317,7 +347,25 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       const muted = context.createGain();
       muted.gain.value = 0;
       const chunks: Float32Array[] = [];
-      processor.onaudioprocess = (event) => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      const realtime = openRealtimeStt();
+      realtimeSttRef.current = realtime;
+      processor.onaudioprocess = (event) => {
+        const chunk = new Float32Array(event.inputBuffer.getChannelData(0));
+        chunks.push(chunk);
+        if (realtime && realtime.socket.readyState === WebSocket.OPEN) {
+          const ratio = context.sampleRate / 16_000;
+          const pcm = new Int16Array(Math.max(1, Math.round(chunk.length / ratio)));
+          pcm.forEach((_sample, index) => {
+            const sourceIndex = Math.min(chunk.length - 1, Math.floor(index * ratio));
+            const sample = chunk[sourceIndex] || 0;
+            pcm[index] = Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 0x8000 : 0x7fff);
+          });
+          if (realtime.socket.readyState === WebSocket.OPEN) {
+            if (realtime.active) realtime.socket.send(pcm.buffer);
+            else realtime.pending.push(pcm.buffer);
+          }
+        }
+      };
       source.connect(processor);
       processor.connect(muted);
       muted.connect(context.destination);
@@ -342,7 +390,14 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
       recordingStreamRef.current = null;
       setIsRecording(false);
-      void pcmRecorder.context.close().then(() => transcribeRecording(encodePcmWav(pcmRecorder.chunks, pcmRecorder.context.sampleRate)));
+      const realtime = realtimeSttRef.current;
+      realtimeSttRef.current = null;
+      if (realtime?.socket.readyState === WebSocket.OPEN) realtime.socket.close();
+      const wav = encodePcmWav(pcmRecorder.chunks, pcmRecorder.context.sampleRate);
+      void pcmRecorder.context.close().then(() => {
+        if (realtime?.active && !realtime.failed && realtime.transcript.trim()) return;
+        void transcribeRecording(wav);
+      });
       return;
     }
     const recorder = recorderRef.current;
@@ -361,6 +416,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     pcmRecorder?.source.disconnect();
     pcmRecorder?.muted.disconnect();
     void pcmRecorder?.context.close();
+    realtimeSttRef.current?.socket.close();
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
