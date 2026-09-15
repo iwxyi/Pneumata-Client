@@ -5,7 +5,6 @@ import StopRoundedIcon from '@mui/icons-material/StopRounded';
 import CloseIcon from '@mui/icons-material/Close';
 import ImageIcon from '@mui/icons-material/ImageOutlined';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
-import MicIcon from '@mui/icons-material/MicNone';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useUIStore } from '../../stores/useUIStore';
@@ -20,6 +19,7 @@ import { normalizeAudioDataUrl, transcribeSpeech, usesManagedSpeechProfile } fro
 import { transcribeAudioWithAdapter } from '../../services/aiGenerationAdapter';
 import { readUploadedChatFiles } from '../../services/chatFileTransfer';
 import { storageKey } from '../../constants/brand';
+import VoiceInputButton from '../common/VoiceInputButton';
 
 interface ChatInputProps {
   mode: 'guide' | 'speakAs' | 'memberSpeak';
@@ -133,9 +133,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     chunks: Float32Array[];
   } | null>(null);
   const realtimeSttRef = useRef<{ socket: WebSocket; active: boolean; failed: boolean; transcript: string; pending: ArrayBuffer[] } | null>(null);
-  const voicePointerRef = useRef<{ timer: number | null; longPress: boolean; suppressClick: boolean }>({ timer: null, longPress: false, suppressClick: false });
   const recordingStartingRef = useRef(false);
-  const recordedChunksRef = useRef<Blob[]>([]);
   const sttModel = useSettingsStore((state) => state.aiProfiles.find((profile) => profile.type === 'stt' && (profile.isDefault || profile.provider))
     || state.aiProfiles.find((profile) => profile.type === 'audio' && (profile.audioCapability === 'stt' || profile.audioCapability === 'both')));
 
@@ -835,55 +833,14 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
             </Tooltip>
           </>
         ) : null}
-        <Tooltip title={isTranscribing ? '语音识别中' : isRecording ? '点击结束录音' : '点击切换录音；长按说话、松开结束'} arrow>
-          <span>
-            <IconButton
-              color={isRecording ? 'error' : 'default'}
-              aria-label="语音输入"
-              disabled={disabled || isSending || isTranscribing}
-              onPointerDown={(event) => {
-                event.preventDefault();
-                const pointer = voicePointerRef.current;
-                pointer.longPress = false;
-                pointer.timer = window.setTimeout(() => {
-                  pointer.longPress = true;
-                  pointer.suppressClick = true;
-                  if (!isRecording) void startRecording();
-                }, 260);
-              }}
-              onPointerUp={() => {
-                const pointer = voicePointerRef.current;
-                if (pointer.timer !== null) window.clearTimeout(pointer.timer);
-                pointer.timer = null;
-                if (pointer.longPress) stopRecording();
-              }}
-              onPointerLeave={() => {
-                const pointer = voicePointerRef.current;
-                if (pointer.timer !== null) window.clearTimeout(pointer.timer);
-                pointer.timer = null;
-                if (pointer.longPress && isRecording) stopRecording();
-              }}
-              onClick={() => {
-                const pointer = voicePointerRef.current;
-                if (pointer.suppressClick) { pointer.suppressClick = false; return; }
-                if (isRecording) stopRecording(); else void startRecording();
-              }}
-              sx={{
-                flexShrink: 0,
-                width: 42,
-                height: 42,
-                ...(canAttachImages ? { ml: -0.75 } : {}),
-                ...(isRecording ? {
-                  bgcolor: 'error.main',
-                  color: 'error.contrastText',
-                  '&:hover': { bgcolor: 'error.dark' },
-                } : {}),
-              }}
-            >
-              {isTranscribing ? <CircularProgress size={20} /> : <MicIcon />}
-            </IconButton>
-          </span>
-        </Tooltip>
+        <VoiceInputButton
+          isRecording={isRecording}
+          isTranscribing={isTranscribing}
+          disabled={disabled || isSending}
+          onStart={startRecording}
+          onStop={stopRecording}
+          sx={canAttachImages ? { ml: -0.75 } : undefined}
+        />
         <TextField
           fullWidth
           multiline

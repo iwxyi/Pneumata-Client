@@ -6,6 +6,9 @@ import { useNavigate } from 'react-router-dom';
 import SurfaceCard from '../../components/common/SurfaceCard';
 import AppSnackbar from '../../components/common/AppSnackbar';
 import { useAppLinkHandler } from '../../hooks/useAppLinkHandler';
+import { useSpeechInput } from '../../hooks/useSpeechInput';
+import VoiceInputButton from '../../components/common/VoiceInputButton';
+import { useSettingsStore } from '../../stores/useSettingsStore';
 import type { AppCommandCandidate, AppCommandChoice, AppCommandRoute, LocalActionPlan } from '../appCommand/commandTypes';
 import { getRandomHomeCommandPlaceholderIndex, HOME_COMMAND_PLACEHOLDERS, resolveHomeCommandSubmissionValue } from './placeholders';
 
@@ -58,6 +61,8 @@ export default function HomeCommandLauncher() {
   const [feedback, setFeedback] = useState<CommandFeedback | null>(null);
   const [pending, setPending] = useState<PendingConfirmation | null>(null);
   const preloadedRef = useRef(false);
+  const sttModel = useSettingsStore((state) => state.aiProfiles.find((profile) => profile.type === 'stt' && (profile.isDefault || profile.provider))
+    || state.aiProfiles.find((profile) => profile.type === 'audio' && (profile.audioCapability === 'stt' || profile.audioCapability === 'both')));
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -73,9 +78,9 @@ export default function HomeCommandLauncher() {
     void import('./handleHomeCommand');
   };
 
-  const submit = async () => {
-    const hasTypedInput = input.trim().length > 0;
-    const value = resolveHomeCommandSubmissionValue(input, placeholder);
+  const submit = async (rawInput = input) => {
+    const hasTypedInput = rawInput.trim().length > 0;
+    const value = resolveHomeCommandSubmissionValue(rawInput, placeholder);
     if (!value || loading) return;
     if (!hasTypedInput) {
       setInput(value);
@@ -106,6 +111,15 @@ export default function HomeCommandLauncher() {
       setLoading(false);
     }
   };
+
+  const speechInput = useSpeechInput({
+    profile: sttModel,
+    disabled: loading,
+    getBaseText: () => input,
+    onTranscript: setInput,
+    onFinalized: (text) => { if (text.trim()) { setInput(text); void submit(text); } },
+    onError: (message) => setFeedback({ severity: 'error', title: '语音输入失败', message }),
+  });
 
   const confirm = async () => {
     if (!pending || loading) return;
@@ -206,7 +220,7 @@ export default function HomeCommandLauncher() {
           }}
           sx={{
             display: 'grid',
-            gridTemplateColumns: { xs: '1fr', sm: 'minmax(0, 1fr) auto' },
+            gridTemplateColumns: 'minmax(0, 1fr) auto auto',
             gap: 1,
             alignItems: 'stretch',
           }}
@@ -227,14 +241,22 @@ export default function HomeCommandLauncher() {
             multiline
             minRows={1}
             maxRows={4}
+            sx={{ minWidth: 0 }}
             slotProps={{ htmlInput: { 'aria-label': '自然语言指令' } }}
+          />
+          <VoiceInputButton
+            isRecording={speechInput.isRecording}
+            isTranscribing={speechInput.isTranscribing}
+            disabled={loading}
+            onStart={speechInput.startRecording}
+            onStop={speechInput.stopRecording}
           />
           <Button
             type="submit"
             variant="contained"
             disabled={loading}
             startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
-            sx={{ minWidth: { xs: '100%', sm: 104 } }}
+            sx={{ minWidth: 84, whiteSpace: 'nowrap' }}
           >
             执行
           </Button>
