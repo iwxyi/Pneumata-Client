@@ -133,6 +133,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     chunks: Float32Array[];
   } | null>(null);
   const realtimeSttRef = useRef<{ socket: WebSocket; active: boolean; failed: boolean; transcript: string; pending: ArrayBuffer[] } | null>(null);
+  const voicePointerRef = useRef<{ timer: number | null; longPress: boolean; suppressClick: boolean }>({ timer: null, longPress: false, suppressClick: false });
   const recordingStartingRef = useRef(false);
   const recordedChunksRef = useRef<Blob[]>([]);
   const sttModel = useSettingsStore((state) => state.aiProfiles.find((profile) => profile.type === 'stt' && (profile.isDefault || profile.provider))
@@ -378,7 +379,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     } finally {
       recordingStartingRef.current = false;
     }
-  }, [disabled, isRecording, isSending, isTranscribing, onSendError, sttModel, transcribeRecording]);
+  }, [disabled, isRecording, isSending, isTranscribing, onSendError, openRealtimeStt, sttModel, transcribeRecording]);
 
   const stopRecording = useCallback(() => {
     const pcmRecorder = pcmRecorderRef.current;
@@ -834,13 +835,39 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
             </Tooltip>
           </>
         ) : null}
-        <Tooltip title={isTranscribing ? '语音识别中' : isRecording ? '点击结束录音' : '点击开始录音'} arrow>
+        <Tooltip title={isTranscribing ? '语音识别中' : isRecording ? '点击结束录音' : '点击切换录音；长按说话、松开结束'} arrow>
           <span>
             <IconButton
               color={isRecording ? 'error' : 'default'}
               aria-label="语音输入"
               disabled={disabled || isSending || isTranscribing}
-              onClick={() => { if (isRecording) stopRecording(); else void startRecording(); }}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                const pointer = voicePointerRef.current;
+                pointer.longPress = false;
+                pointer.timer = window.setTimeout(() => {
+                  pointer.longPress = true;
+                  pointer.suppressClick = true;
+                  if (!isRecording) void startRecording();
+                }, 260);
+              }}
+              onPointerUp={() => {
+                const pointer = voicePointerRef.current;
+                if (pointer.timer !== null) window.clearTimeout(pointer.timer);
+                pointer.timer = null;
+                if (pointer.longPress) stopRecording();
+              }}
+              onPointerLeave={() => {
+                const pointer = voicePointerRef.current;
+                if (pointer.timer !== null) window.clearTimeout(pointer.timer);
+                pointer.timer = null;
+                if (pointer.longPress && isRecording) stopRecording();
+              }}
+              onClick={() => {
+                const pointer = voicePointerRef.current;
+                if (pointer.suppressClick) { pointer.suppressClick = false; return; }
+                if (isRecording) stopRecording(); else void startRecording();
+              }}
               sx={{
                 flexShrink: 0,
                 width: 42,
