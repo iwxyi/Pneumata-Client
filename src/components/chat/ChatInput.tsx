@@ -124,6 +124,13 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   const imageDragDepthRef = useRef(0);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStreamRef = useRef<MediaStream | null>(null);
+  const pcmRecorderRef = useRef<{
+    context: AudioContext;
+    source: MediaStreamAudioSourceNode;
+    processor: ScriptProcessorNode;
+    muted: GainNode;
+    chunks: Float32Array[];
+  } | null>(null);
   const recordingStartingRef = useRef(false);
   const recordedChunksRef = useRef<Blob[]>([]);
   const sttModel = useSettingsStore((state) => state.aiProfiles.find((profile) => profile.type === 'stt' && (profile.isDefault || profile.provider))
@@ -243,6 +250,56 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     }
   }, []);
 
+  const encodePcmWav = useCallback((chunks: Float32Array[], sourceRate: number) => {
+    const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    const source = new Float32Array(length);
+    let offset = 0;
+    for (const chunk of chunks) { source.set(chunk, offset); offset += chunk.length; }
+    const targetRate = 16_000;
+    const samples = new Float32Array(Math.max(1, Math.round(source.length * targetRate / sourceRate)));
+    for (let index = 0; index < samples.length; index += 1) {
+      const position = index * sourceRate / targetRate;
+      const left = Math.floor(position);
+      const right = Math.min(left + 1, source.length - 1);
+      const fraction = position - left;
+      samples[index] = (source[left] || 0) * (1 - fraction) + (source[right] || 0) * fraction;
+    }
+    const wav = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(wav);
+    const write = (at: number, value: string) => Array.from(value).forEach((char, index) => view.setUint8(at + index, char.charCodeAt(0)));
+    write(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); write(8, 'WAVE');
+    write(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+    write(36, 'data'); view.setUint32(40, samples.length * 2, true);
+    samples.forEach((sample, index) => view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 0x8000 : 0x7fff), true));
+    return new Blob([wav], { type: 'audio/wav' });
+  }, []);
+
+  const transcribeRecording = useCallback(async (recordedBlob: Blob) => {
+    if (!sttModel) return;
+    setIsTranscribing(true);
+    try {
+      const isVolcengineStt = String(sttModel.provider || '').toLowerCase().includes('volcengine')
+        || String(sttModel.model || '').toLowerCase().includes('volcengine');
+      const blob = usesManagedSpeechProfile(sttModel) && isVolcengineStt && !recordedBlob.type.includes('wav')
+        ? await encodeSpeechWav(recordedBlob)
+        : recordedBlob;
+      const fileName = blob.type.includes('wav') ? 'voice-input.wav' : 'voice-input.webm';
+      const result = usesManagedSpeechProfile(sttModel)
+        ? await transcribeSpeech({ providerCode: sttModel.provider.startsWith('managed:') ? sttModel.provider.slice('managed:'.length) : undefined, modelId: sttModel.model, audioDataUrl: normalizeAudioDataUrl(await blobToDataUrl(blob)), fileName, language: 'zh' })
+        : await transcribeAudioWithAdapter({ profile: sttModel, file: blob, fileName, language: 'zh', intent: 'audio-transcription' });
+      if (result.text.trim()) setText((current) => {
+        const next = current.trim() ? `${current.trim()} ${result.text.trim()}` : result.text.trim();
+        publishDraftActivity(next, inputFocused);
+        return next;
+      });
+    } catch (error) {
+      onSendError?.(error instanceof Error ? error.message : '语音转文字失败');
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [blobToDataUrl, encodeSpeechWav, inputFocused, onSendError, publishDraftActivity, sttModel]);
+
   const startRecording = useCallback(async () => {
     if (isRecording || recordingStartingRef.current || disabled || isSending || isTranscribing || !sttModel || !navigator.mediaDevices?.getUserMedia) {
       if (!sttModel) onSendError?.('请先在模型页面配置语音（STT）模型');
@@ -254,6 +311,25 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recordingStreamRef.current = stream;
       if (typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持录音');
+      const isVolcengineStt = usesManagedSpeechProfile(sttModel) && (
+        String(sttModel.provider || '').toLowerCase().includes('volcengine')
+        || String(sttModel.model || '').toLowerCase().includes('volcengine')
+      );
+      if (isVolcengineStt) {
+        const context = new AudioContext();
+        const source = context.createMediaStreamSource(stream);
+        const processor = context.createScriptProcessor(4096, 1, 1);
+        const muted = context.createGain();
+        muted.gain.value = 0;
+        const chunks: Float32Array[] = [];
+        processor.onaudioprocess = (event) => chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+        source.connect(processor);
+        processor.connect(muted);
+        muted.connect(context.destination);
+        pcmRecorderRef.current = { context, source, processor, muted, chunks };
+        setIsRecording(true);
+        return;
+      }
       const recorder = new MediaRecorder(stream);
       recordedChunksRef.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size) recordedChunksRef.current.push(event.data); };
@@ -262,29 +338,7 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
         recordingStreamRef.current = null;
         const recordedBlob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         if (!recordedBlob.size) return;
-        setIsTranscribing(true);
-        try {
-          const isVolcengineStt = String(sttModel.provider || '').toLowerCase().includes('volcengine')
-            || String(sttModel.model || '').toLowerCase().includes('volcengine');
-          const blob = usesManagedSpeechProfile(sttModel) && isVolcengineStt
-            ? await encodeSpeechWav(recordedBlob)
-            : recordedBlob;
-          const fileName = blob.type.includes('wav') ? 'voice-input.wav' : 'voice-input.webm';
-          const result = usesManagedSpeechProfile(sttModel)
-            ? await transcribeSpeech({ providerCode: sttModel.provider.startsWith('managed:') ? sttModel.provider.slice('managed:'.length) : undefined, modelId: sttModel.model, audioDataUrl: normalizeAudioDataUrl(await blobToDataUrl(blob)), fileName, language: 'zh' })
-            : await transcribeAudioWithAdapter({ profile: sttModel, file: blob, fileName, language: 'zh', intent: 'audio-transcription' });
-          if (result.text.trim()) {
-            setText((current) => {
-              const next = current.trim() ? `${current.trim()} ${result.text.trim()}` : result.text.trim();
-              publishDraftActivity(next, inputFocused);
-              return next;
-            });
-          }
-        } catch (error) {
-          onSendError?.(error instanceof Error ? error.message : '语音转文字失败');
-        } finally {
-          setIsTranscribing(false);
-        }
+        await transcribeRecording(recordedBlob);
       };
       recorderRef.current = recorder;
       recorder.start();
@@ -296,20 +350,37 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     } finally {
       recordingStartingRef.current = false;
     }
-  }, [blobToDataUrl, disabled, encodeSpeechWav, inputFocused, isRecording, isSending, isTranscribing, onSendError, publishDraftActivity, sttModel]);
+  }, [disabled, isRecording, isSending, isTranscribing, onSendError, sttModel, transcribeRecording]);
 
   const stopRecording = useCallback(() => {
+    const pcmRecorder = pcmRecorderRef.current;
+    if (pcmRecorder) {
+      pcmRecorderRef.current = null;
+      pcmRecorder.processor.disconnect();
+      pcmRecorder.source.disconnect();
+      pcmRecorder.muted.disconnect();
+      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
+      recordingStreamRef.current = null;
+      setIsRecording(false);
+      void pcmRecorder.context.close().then(() => transcribeRecording(encodePcmWav(pcmRecorder.chunks, pcmRecorder.context.sampleRate)));
+      return;
+    }
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
     else recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
     recordingStreamRef.current = null;
     recorderRef.current = null;
     setIsRecording(false);
-  }, []);
+  }, [encodePcmWav, transcribeRecording]);
 
   useEffect(() => () => {
     const recorder = recorderRef.current;
     if (recorder && recorder.state !== 'inactive') recorder.stop();
+    const pcmRecorder = pcmRecorderRef.current;
+    pcmRecorder?.processor.disconnect();
+    pcmRecorder?.source.disconnect();
+    pcmRecorder?.muted.disconnect();
+    void pcmRecorder?.context.close();
     recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
