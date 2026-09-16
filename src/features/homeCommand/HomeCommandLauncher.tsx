@@ -208,9 +208,22 @@ export default function HomeCommandLauncher() {
       }}
     >
       <Box sx={{ display: 'grid', gap: 1.25 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <AutoAwesomeIcon color="primary" fontSize="small" />
-          <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>你想做什么</Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+            <AutoAwesomeIcon color="primary" fontSize="small" />
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>你想做什么</Typography>
+          </Box>
+          <VoiceInputButton
+            isRecording={speechInput.isRecording}
+            isTranscribing={speechInput.isTranscribing}
+            disabled={loading}
+            onStart={speechInput.startRecording}
+            onStop={speechInput.stopRecording}
+            sx={{
+              width: 38,
+              height: 38,
+            }}
+          />
         </Box>
         <Box
           component="form"
@@ -220,7 +233,7 @@ export default function HomeCommandLauncher() {
           }}
           sx={{
             display: 'grid',
-            gridTemplateColumns: 'minmax(0, 1fr) auto auto',
+            gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) auto' },
             gap: 1,
             alignItems: 'stretch',
           }}
@@ -244,19 +257,12 @@ export default function HomeCommandLauncher() {
             sx={{ minWidth: 0 }}
             slotProps={{ htmlInput: { 'aria-label': '自然语言指令' } }}
           />
-          <VoiceInputButton
-            isRecording={speechInput.isRecording}
-            isTranscribing={speechInput.isTranscribing}
-            disabled={loading}
-            onStart={speechInput.startRecording}
-            onStop={speechInput.stopRecording}
-          />
           <Button
             type="submit"
             variant="contained"
             disabled={loading}
             startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
-            sx={{ minWidth: 84, whiteSpace: 'nowrap' }}
+            sx={{ minWidth: 0, px: 2, whiteSpace: 'nowrap', justifySelf: { xs: 'end', sm: 'auto' } }}
           >
             执行
           </Button>
