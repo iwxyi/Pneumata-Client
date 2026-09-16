@@ -52,7 +52,7 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
   const [isTranscribing, setIsTranscribing] = useState(false);
   const startingRef = useRef(false);
   const recorderRef = useRef<{ context: AudioContext; source: MediaStreamAudioSourceNode; processor: ScriptProcessorNode; muted: GainNode; stream: MediaStream; chunks: Float32Array[] } | null>(null);
-  const realtimeRef = useRef<{ socket: WebSocket; ready: boolean; failed: boolean; transcript: string; pending: ArrayBuffer[] } | null>(null);
+  const realtimeRef = useRef<{ socket: WebSocket; ready: boolean; failed: boolean; final: boolean; transcript: string; pending: ArrayBuffer[] } | null>(null);
   const baseTextRef = useRef('');
   const optionsRef = useRef({ getBaseText, onTranscript, onFinalized, onError });
   optionsRef.current = { getBaseText, onTranscript, onFinalized, onError };
@@ -79,11 +79,11 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
       const session = (() => {
         const token = localStorage.getItem(storageKey('token')); if (!token) return null;
         const socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/speech/stt/stream?token=${encodeURIComponent(token)}`);
-        const next = { socket, ready: false, failed: false, transcript: '', pending: [] as ArrayBuffer[] };
+        const next = { socket, ready: false, failed: false, final: false, transcript: '', pending: [] as ArrayBuffer[] };
         socket.onmessage = (event) => {
           try { const message = JSON.parse(String(event.data || '')) as { type?: string; text?: string };
             if (message.type === 'ready') { next.ready = true; next.pending.forEach((chunk) => socket.send(chunk)); next.pending = []; }
-            if (message.type === 'transcript' && typeof message.text === 'string') { next.transcript = message.text; optionsRef.current.onTranscript(present(message.text)); }
+            if (message.type === 'transcript' && typeof message.text === 'string') { next.transcript = message.text; next.final = Boolean((message as { final?: boolean }).final); optionsRef.current.onTranscript(present(message.text)); }
             if (message.type === 'error') next.failed = true;
           } catch (error) { next.failed = true; console.warn('实时语音消息解析失败', error); }
         };
@@ -97,10 +97,17 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
     } catch (error) { cleanup(); optionsRef.current.onError(error instanceof Error ? error.message : '无法访问麦克风'); } finally { startingRef.current = false; }
   }, [cleanup, disabled, isRecording, isTranscribing, present, profile]);
   const stopRecording = useCallback(() => {
-    const recorder = recorderRef.current; if (!recorder) return; const realtime = realtimeRef.current; cleanup(); setIsRecording(false);
-    if (realtime?.transcript.trim() && !realtime.failed) { optionsRef.current.onFinalized?.(present(realtime.transcript)); return; }
-    const wav = encodeWav(recorder.chunks, recorder.context.sampleRate); setIsTranscribing(true);
-    void (async () => { try { const result = usesManagedSpeechProfile(profile!) ? await transcribeSpeech({ providerCode: profile!.provider.startsWith('managed:') ? profile!.provider.slice('managed:'.length) : undefined, modelId: profile!.model, audioDataUrl: normalizeAudioDataUrl(await dataUrl(wav)), fileName: 'voice-input.wav', language }) : await transcribeAudioWithAdapter({ profile: profile!, file: wav, fileName: 'voice-input.wav', language, intent: 'audio-transcription' }); const text = present(result.text); if (result.text.trim()) optionsRef.current.onTranscript(text); optionsRef.current.onFinalized?.(text); } catch (error) { optionsRef.current.onError(error instanceof Error ? error.message : '语音转文字失败'); } finally { setIsTranscribing(false); } })();
+    const recorder = recorderRef.current; if (!recorder) return; const realtime = realtimeRef.current; recorderRef.current = null; recorder.processor.disconnect(); recorder.source.disconnect(); recorder.muted.disconnect(); recorder.stream.getTracks().forEach((track) => track.stop()); void recorder.context.close(); setIsRecording(false);
+    const wav = encodeWav(recorder.chunks, recorder.context.sampleRate);
+    const fallback = () => {
+      realtime?.socket.close(); realtimeRef.current = null; setIsTranscribing(true);
+      void (async () => { try { const result = usesManagedSpeechProfile(profile!) ? await transcribeSpeech({ providerCode: profile!.provider.startsWith('managed:') ? profile!.provider.slice('managed:'.length) : undefined, modelId: profile!.model, audioDataUrl: normalizeAudioDataUrl(await dataUrl(wav)), fileName: 'voice-input.wav', language }) : await transcribeAudioWithAdapter({ profile: profile!, file: wav, fileName: 'voice-input.wav', language, intent: 'audio-transcription' }); const text = present(result.text); if (result.text.trim()) optionsRef.current.onTranscript(text); optionsRef.current.onFinalized?.(text); } catch (error) { optionsRef.current.onError(error instanceof Error ? error.message : '语音转文字失败'); } finally { setIsTranscribing(false); } })();
+    };
+    if (!realtime || realtime.failed || realtime.socket.readyState !== WebSocket.OPEN) { fallback(); return; }
+    realtime.socket.send(JSON.stringify({ type: 'stop' }));
+    const deadline = window.setTimeout(() => { if (realtime.transcript.trim() && !realtime.failed) { optionsRef.current.onFinalized?.(present(realtime.transcript)); realtime.socket.close(); realtimeRef.current = null; } else fallback(); }, 1500);
+    const handleFinal = () => { if (!realtime.final) return; window.clearTimeout(deadline); realtime.socket.removeEventListener('message', handleFinal); optionsRef.current.onFinalized?.(present(realtime.transcript)); realtime.socket.close(); realtimeRef.current = null; };
+    realtime.socket.addEventListener('message', handleFinal);
   }, [cleanup, language, present, profile]);
   useEffect(() => cleanup, [cleanup]);
   return { isRecording, isTranscribing, startRecording, stopRecording };
