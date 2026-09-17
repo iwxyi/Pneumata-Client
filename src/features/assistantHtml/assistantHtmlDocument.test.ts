@@ -28,7 +28,7 @@ describe('assistant HTML viewer display mode', () => {
     const bridgeIndex = document.indexOf('parent.postMessage');
     const authoredIndex = document.lastIndexOf('addEventListener("click"');
     expect(bridgeIndex).toBeLessThan(authoredIndex);
-    expect(document).toContain('nonce="script-channel"');
+    expect(document).toContain('<script>');
   });
 
   it('does not confuse ordinary function declarations with the Function constructor', () => {
@@ -51,7 +51,7 @@ describe('assistant HTML viewer display mode', () => {
     expect(document).toContain("classList.remove('hidden')");
   });
 
-  it('still rejects the dynamic Function constructor', () => {
+  it('preserves dynamic code used by ordinary browser mini-apps', () => {
     const document = buildAssistantHtmlDocument({
       html: '<script>const run = new Function("return 1"); run();</script>',
       manifest,
@@ -59,7 +59,7 @@ describe('assistant HTML viewer display mode', () => {
       artifactId: 'artifact-constructor',
       versionId: 'version-constructor',
     });
-    expect(document).not.toContain('new Function');
+    expect(document).toContain('new Function');
   });
 
   it('preserves safe inline button handlers for authored quizzes', () => {
@@ -73,14 +73,12 @@ describe('assistant HTML viewer display mode', () => {
     expect(document).toContain('onclick="this.textContent=\'已选择\'"');
   });
 
-  it('uses static professional conversion for legacy HTML in dark mode', () => {
+  it('preserves authored legacy HTML in dark mode', () => {
     const document = build('dark');
-    expect(document).toContain('.card{background:#111318;color:#dce0e3}');
+    expect(document).toContain('.card{background:#fff;color:#111}');
     expect(document).toContain('displayMode":"dark"');
     expect(document).toContain('applyDisplayMode()');
-    expect(document).not.toContain('html{color-scheme:dark}');
     expect(document).not.toContain('setViewerColor');
-    expect(document).not.toContain('getComputedStyle');
   });
 
   it('keeps the original HTML available in light mode', () => {
@@ -97,7 +95,7 @@ describe('assistant HTML viewer display mode', () => {
     expect(transformAssistantCssColors('.card{background:#fff;color:#111827;border:1px solid #e5e7eb}')).toContain('background:#111318');
   });
 
-  it('prefers an artifact native theme contract over compatibility conversion', () => {
+  it('keeps native theme contracts intact', () => {
     const document = buildAssistantHtmlDocument({
       html: '<style>:root,html[data-pneumata-theme="light"]{--pneumata-bg:#fff}html[data-pneumata-theme="dark"]{--pneumata-bg:#111}@media (prefers-color-scheme:dark){:root{--pneumata-bg:#111}}body{background:var(--pneumata-bg)}</style><div>主题内容</div>',
       manifest,
@@ -108,11 +106,10 @@ describe('assistant HTML viewer display mode', () => {
     });
     expect(document).toContain('hasNativeThemeContract":true');
     expect(document).toContain("setAttribute('data-pneumata-theme',config.displayMode)");
-    expect(document).toContain('html{color-scheme:dark}');
     expect(document).toContain('if(!config.hasNativeThemeContract)return');
   });
 
-  it('uses professional conversion fallback for an incomplete native theme contract', () => {
+  it('does not rewrite incomplete native theme contracts', () => {
     const document = buildAssistantHtmlDocument({
       html: '<style>:root{--pneumata-bg:#fff}html[data-pneumata-theme="dark"]{--pneumata-bg:#111}</style><div>不完整主题</div>',
       manifest,
@@ -122,7 +119,54 @@ describe('assistant HTML viewer display mode', () => {
       displayMode: 'dark',
     });
     expect(document).toContain('hasNativeThemeContract":false');
-    expect(document).not.toContain('html{color-scheme:dark}');
+    expect(document).toContain('--pneumata-bg:#fff');
+  });
+
+  it('keeps canvas, SVG, iframe and external scripts in the authored document', () => {
+    const document = buildAssistantHtmlDocument({
+      html: '<!doctype html><html><head><script src="https://cdn.example.test/game.js"></script></head><body><canvas id="board"></canvas><svg><path d="M0 0" /></svg><iframe src="https://example.test"></iframe><script>const topRow=[];document.querySelector("#board").getContext("2d");</script></body></html>',
+      manifest,
+      channelToken: 'canvas-channel',
+      artifactId: 'artifact-canvas',
+      versionId: 'version-canvas',
+    });
+    expect(document).toContain('<canvas id="board"></canvas>');
+    expect(document).toContain('<svg><path d="M0 0" /></svg>');
+    expect(document).toContain('<iframe src="https://example.test"></iframe>');
+    expect(document).toContain('src="https://cdn.example.test/game.js"');
+    expect(document).toContain('const topRow=[]');
+    expect(document.indexOf('parent.postMessage')).toBeLessThan(document.indexOf('src="https://cdn.example.test/game.js"'));
+  });
+
+  it('reports handled page failures that only appear in visible status text', () => {
+    const document = buildAssistantHtmlDocument({
+      html: '<p>关卡生成失败，请点击重玩本关再试一次。</p>',
+      manifest,
+      channelToken: 'page-state-channel',
+      artifactId: 'artifact-page-state',
+      versionId: 'version-page-state',
+    });
+    expect(document).toContain('window.pneumataReportError=reportAuthoredError');
+    expect(document).toContain('页面可见状态');
+    expect(document).toContain('page_state');
+    expect(document).toContain('MutationObserver');
+    expect(document).toContain('replace(/\\s+/g');
+    expect(document).toContain('[^。！？\\n]');
+  });
+
+  it('keeps historical runtime errors visible without repeating them in the console', () => {
+    const document = buildAssistantHtmlDocument({
+      html: '<script>console.error("historical failure")</script>',
+      manifest,
+      channelToken: 'historical-error-channel',
+      artifactId: 'artifact-history',
+      versionId: 'version-history',
+      readOnly: true,
+    });
+    expect(document).toContain('"quietRuntimeErrors":true');
+    expect(document).toContain('if(!config.quietRuntimeErrors)originalConsoleError(...args)');
+    expect(document).toContain('if(config.quietRuntimeErrors)event.preventDefault()');
+    expect(document).toContain("describeError('console'");
   });
 
 });

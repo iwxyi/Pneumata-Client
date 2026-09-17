@@ -114,6 +114,13 @@ type PendingStoryChoiceVisual = {
   selectedValue: string;
   options: NarrativeStoryChoiceOption[];
 };
+type HtmlRepairRetryState = {
+  chatId: string;
+  artifactId: string;
+  runtimeError: AssistantHtmlRuntimeError;
+  userMessage: Message;
+  message: string;
+};
 type HomeCommandChatLocationState = {
   homeCommandInitialMessage?: string;
   homeCommandStartAgent?: boolean;
@@ -860,6 +867,7 @@ export default function ChatDetailPage() {
   const [keyboardInset, setKeyboardInset] = useState(0);
   const [composerInjectedAttachments, setComposerInjectedAttachments] = useState<MessageAttachment[]>([]);
   const [isDirectReplyPending, setIsDirectReplyPending] = useState(false);
+  const [htmlRepairRetry, setHtmlRepairRetry] = useState<HtmlRepairRetryState | null>(null);
   const [readOnlyEmphasis, setReadOnlyEmphasis] = useState(true);
 
   const loopTokenRef = useRef<string | null>(null);
@@ -2403,11 +2411,53 @@ export default function ChatDetailPage() {
     });
   }, []);
 
+  const runHtmlRepairReply = useCallback(async (request: Omit<HtmlRepairRetryState, 'message'>, messageContext: Message[]) => {
+    if (!chat || !id || request.chatId !== id || chat.type !== 'assistant' || chatInteractionDisabled) return;
+    const artifact = useAssistantArtifactStore.getState().items.find((item) => item.id === request.artifactId && item.kind === 'html' && item.deletedAt == null);
+    if (!artifact) {
+      setHtmlRepairRetry({ ...request, message: '需要修复的页面已不存在。' });
+      return;
+    }
+    setSelectedAssistantArtifactId(artifact.id);
+    setIsDirectReplyPending(true);
+    try {
+      const { runAssistantChatReplyFlow } = await import('../services/assistantChatFlow');
+      const currentMessages = messageContext.some((message) => message.id === request.userMessage.id)
+        ? messageContext
+        : [...messageContext, request.userMessage];
+      await runAssistantChatReplyFlow({
+        api, aiProfiles, chatId: id, chat, currentMessages,
+        selectedArtifactId: artifact.id, timestamp: request.userMessage.timestamp + 1,
+        upsertMessage: upsertMessageStable, updateChat,
+      });
+      setHtmlRepairRetry(null);
+    } catch (error) {
+      if (!isGenerationCancelledError(error)) {
+        const isFormatError = error instanceof Error && error.name === 'AssistantAgentFormatError';
+        if (!isFormatError) {
+          logDeveloperDiagnostic('html-artifact:repair-failed', {
+            errorType: error instanceof Error ? error.name : 'UnknownError',
+          }, 'error', 'chat-window');
+        }
+        const message = isFormatError
+          ? 'Agent 返回的页面更新格式不正确，原页面未修改。'
+          : '页面修复未完成，原页面未修改。';
+        setHtmlRepairRetry({ ...request, message });
+      }
+    } finally {
+      setIsDirectReplyPending(false);
+    }
+  }, [aiProfiles, api, chat, chatInteractionDisabled, id, updateChat, upsertMessageStable]);
+
   const handleHtmlRepair = useCallback(async (runtimeError: AssistantHtmlRuntimeError) => {
     if (!chat || !id || chat.type !== 'assistant' || chatInteractionDisabled) return;
+    setHtmlRepairRetry(null);
     await enqueueManualInput(async () => {
       const artifact = useAssistantArtifactStore.getState().items.find((item) => item.id === runtimeError.artifactId && item.kind === 'html' && item.deletedAt == null);
-      if (!artifact) throw new Error('需要修复的页面已不存在。');
+      if (!artifact) {
+        showErrorToast('需要修复的页面已不存在。');
+        return;
+      }
       const detail = [
         `错误类型：${runtimeError.kind}`,
         `错误信息：${runtimeError.message}`,
@@ -2425,20 +2475,20 @@ export default function ChatDetailPage() {
         metadata: { assistantHtmlRuntimeError: { ...runtimeError, reportedAt: Date.now() } },
       });
       void updateChat(id, { lastMessageAt: userMessage.timestamp, latestMessage: userMessage });
-      setSelectedAssistantArtifactId(artifact.id);
-      setIsDirectReplyPending(true);
-      try {
-        const { runAssistantChatReplyFlow } = await import('../services/assistantChatFlow');
-        await runAssistantChatReplyFlow({
-          api, aiProfiles, chatId: id, chat, currentMessages: [...currentChatMessages, userMessage],
-          selectedArtifactId: artifact.id, timestamp: userMessage.timestamp + 1,
-          upsertMessage: upsertMessageStable, updateChat,
-        });
-      } finally {
-        setIsDirectReplyPending(false);
-      }
+      await runHtmlRepairReply({ chatId: id, artifactId: artifact.id, runtimeError, userMessage }, [...currentChatMessages, userMessage]);
     });
-  }, [addMessageStable, aiProfiles, api, chat, chatInteractionDisabled, currentChatMessages, currentUser?.nickname, enqueueManualInput, getNextMessageTimestamp, id, updateChat, upsertMessageStable]);
+  }, [addMessageStable, chat, chatInteractionDisabled, currentChatMessages, currentUser?.nickname, enqueueManualInput, getNextMessageTimestamp, id, runHtmlRepairReply, showErrorToast, updateChat]);
+
+  const handleRetryHtmlRepair = useCallback(() => {
+    if (!htmlRepairRetry || htmlRepairRetry.chatId !== id) return;
+    const request = htmlRepairRetry;
+    setHtmlRepairRetry(null);
+    void enqueueManualInput(() => runHtmlRepairReply(request, currentChatMessages));
+  }, [currentChatMessages, enqueueManualInput, htmlRepairRetry, id, runHtmlRepairReply]);
+
+  useEffect(() => {
+    setHtmlRepairRetry(null);
+  }, [id]);
 
   const handleHtmlSubmit = useCallback(async (input: AssistantHtmlInteractionPayload) => {
     // Assistant HTML submissions are also the structured answer surface for
@@ -3285,6 +3335,21 @@ export default function ChatDetailPage() {
     return () => observer.disconnect();
   }, [hasStoryTailStatusContent, isRemoteDeletedChat, pendingAppCommand]);
 
+  const htmlRepairErrorContent = htmlRepairRetry?.chatId === id ? (
+    <Alert
+      role="alert"
+      severity="error"
+      variant="outlined"
+      action={(
+        <Button color="inherit" size="small" onClick={handleRetryHtmlRepair} disabled={isDirectReplyPending}>
+          重试
+        </Button>
+      )}
+      sx={{ alignItems: 'center', '& .MuiAlert-message': { overflowWrap: 'anywhere' } }}
+    >
+      {htmlRepairRetry?.message}
+    </Alert>
+  ) : null;
   const composerTopContent = storyBranchSuggestionContent || visiblePendingAppCommand ? (
     <Stack spacing={0.75}>
       <Collapse
@@ -4006,6 +4071,7 @@ export default function ChatDetailPage() {
             onOpenHtmlFullscreen={chat && (isAssistantChat || hasRoomCapability(chat, 'html-interactive')) ? handleOpenAssistantHtmlFullscreen : undefined}
             onHtmlAutosave={(isAssistantChat || isLearningProgressRoom) && !chatInteractionDisabled ? handleHtmlAutosave : undefined}
             onHtmlSubmit={(isAssistantChat || isLearningProgressRoom) && !chatInteractionDisabled ? handleHtmlSubmit : undefined}
+            onHtmlRepair={isAssistantChat && !chatInteractionDisabled ? handleHtmlRepair : undefined}
             onConfirmWorkspaceMutationPlan={!chatInteractionDisabled ? confirmWorkspaceMutationPlan : undefined}
             selfMemberId={effectiveAiDirectPerspectiveMemberId}
             onReachTop={handleNearTop}
@@ -4103,6 +4169,11 @@ export default function ChatDetailPage() {
             },
           }}
         >
+          {htmlRepairErrorContent ? (
+            <Box sx={{ width: '100%', maxWidth: 760, mx: 'auto', px: { xs: 1.5, sm: 2.5, md: 3 } }}>
+              {htmlRepairErrorContent}
+            </Box>
+          ) : null}
           <SessionComposerHost
             surfaces={effectiveComposerSurfaces}
             speakAsCharacterName={effectiveSpeakAsChar?.name}

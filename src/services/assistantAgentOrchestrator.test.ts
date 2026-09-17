@@ -717,4 +717,76 @@ describe('assistantAgentOrchestrator validation', () => {
     expect(patchSet.patches).toEqual([]);
     expect(patchSet.assistantMessage).toContain('上下文不足');
   });
+
+  it('does not automatically retry malformed HTML repair output', async () => {
+    generateResponseMock.mockResolvedValue('这不是 JSON');
+    const plan: AssistantAgentChangePlan = {
+      intent: 'update',
+      responseExperience: 'interactive_workspace',
+      scope: { targetMode: 'single', artifactIds: ['artifact-a'] },
+      operations: [{ kind: 'content_edit', instruction: '修复页面运行错误' }],
+      requiresConfirmation: false,
+      confidence: 1,
+    };
+    const userMessage: Message = {
+      id: 'message-user',
+      chatId: 'chat-a',
+      type: 'user',
+      senderId: 'user',
+      senderName: '用户',
+      content: '请修复这个页面',
+      emotion: 0,
+      timestamp: 2,
+      isDeleted: false,
+      metadata: {
+        assistantHtmlRuntimeError: {
+          artifactId: 'artifact-a',
+          versionId: 'version-a',
+          message: "Cannot read properties of null (reading 'n')",
+          kind: 'runtime',
+          reportedAt: 2,
+        },
+      },
+    };
+
+    await expect(writeAssistantAgentPatchSet({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a',
+      messages: [],
+      userMessage,
+      plan,
+      existingArtifacts: [artifact({
+        kind: 'html',
+        title: '围堵猫咪',
+        language: 'html',
+        versions: [{
+          id: 'version-a', artifactId: 'artifact-a', content: '<!doctype html><canvas></canvas>', language: 'html', sourceMessageId: 'message-a', createdAt: 1,
+        }],
+      })],
+    })).rejects.toMatchObject({ name: 'AssistantAgentFormatError' });
+
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('HTML 运行诊断修复');
+  });
+
+  it('does not retain malformed model output on format errors', async () => {
+    generateResponseMock.mockResolvedValue('sensitive malformed response');
+    const request = writeAssistantAgentPatchSet({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a',
+      messages: [],
+      userMessage: {
+        id: 'message-user', chatId: 'chat-a', type: 'user', senderId: 'user', senderName: '用户', content: '创建文档', emotion: 0, timestamp: 1, isDeleted: false,
+      },
+      plan: {
+        intent: 'create', scope: { targetMode: 'unknown', artifactIds: [] }, operations: [{ kind: 'create', instruction: '创建文档' }], requiresConfirmation: false, confidence: 1,
+      },
+      existingArtifacts: [],
+    });
+
+    const error = await request.catch((reason: unknown) => reason);
+    expect(error).toMatchObject({ name: 'AssistantAgentFormatError' });
+    expect(error).not.toHaveProperty('rawResponse');
+    expect(JSON.stringify(error)).not.toContain('sensitive malformed response');
+  });
 });

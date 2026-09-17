@@ -18,7 +18,7 @@ import { useSettingsStore } from '../../stores/useSettingsStore';
 import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
 import { buildStoryNodeProgress, type StoryNodeProgressChip } from '../../services/storyNodeProgress';
 import type { MessageBranchVersionInfo } from '../../services/messageBranching';
-import type { AssistantHtmlInteractionPayload } from '../../features/assistantHtml/AssistantHtmlFrame';
+import type { AssistantHtmlInteractionPayload, AssistantHtmlRuntimeError } from '../../features/assistantHtml/AssistantHtmlFrame';
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { motion, prefersReducedMotion, transition } from '../../styles/motion';
 import { buildMessageListRenderItems, type MessageListRenderItem } from './messageListRenderItems';
@@ -87,6 +87,7 @@ interface MessageListProps {
   onOpenHtmlFullscreen?: (artifactId: string) => void;
   onHtmlAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onHtmlSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onHtmlRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
   onConfirmWorkspaceMutationPlan?: (message: Message) => void | Promise<void>;
   readOnly?: boolean;
   branchVersionInfoByMessageId?: Record<string, MessageBranchVersionInfo | null | undefined>;
@@ -515,6 +516,7 @@ export default function MessageList({
   onOpenHtmlFullscreen,
   onHtmlAutosave,
   onHtmlSubmit,
+  onHtmlRepair,
   onConfirmWorkspaceMutationPlan,
   readOnly = false,
   branchVersionInfoByMessageId,
@@ -713,13 +715,14 @@ export default function MessageList({
       onOpenHtmlFullscreen={item.pending ? undefined : onOpenHtmlFullscreen}
       onHtmlAutosave={item.pending || readOnly ? undefined : onHtmlAutosave}
       onHtmlSubmit={item.pending || readOnly ? undefined : onHtmlSubmit}
+      onHtmlRepair={item.pending || readOnly ? undefined : onHtmlRepair}
       onConfirmWorkspaceMutationPlan={item.pending || readOnly ? undefined : onConfirmWorkspaceMutationPlan}
       branchVersionInfo={branchVersionInfoByMessageId?.[options?.message?.id || item.message.id] || null}
       pending={item.pending}
       selfMemberId={selfMemberId}
       privateConversation={privateConversation}
     />
-  ), [branchVersionInfoByMessageId, characters, currentUser, onAddImagesToReference, onAnalyzeMessage, onCharacterAvatarClick, onConfirmWorkspaceMutationPlan, onCreateRevision, onDeleteMessage, onExpressionFeedback, onHtmlAutosave, onHtmlSubmit, onOpenArtifact, onOpenHtmlFullscreen, onRegenerate, onRetryMedia, onSwitchRevision, onWithdrawMessage, openChatDiagram, openChatImage, privateConversation, readOnly, selfMemberId]);
+  ), [branchVersionInfoByMessageId, characters, currentUser, onAddImagesToReference, onAnalyzeMessage, onCharacterAvatarClick, onConfirmWorkspaceMutationPlan, onCreateRevision, onDeleteMessage, onExpressionFeedback, onHtmlAutosave, onHtmlRepair, onHtmlSubmit, onOpenArtifact, onOpenHtmlFullscreen, onRegenerate, onRetryMedia, onSwitchRevision, onWithdrawMessage, openChatDiagram, openChatImage, privateConversation, readOnly, selfMemberId]);
 
   const renderMessageItem = useCallback((item: MessageListRenderItem) => {
     const anchorProps = {

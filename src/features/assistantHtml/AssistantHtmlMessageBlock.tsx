@@ -1,8 +1,8 @@
-import { Box } from '@mui/material';
+import { Box, Chip } from '@mui/material';
 import type { Message } from '../../types/message';
 import type { AssistantArtifactItem } from '../../types/assistantArtifact';
 import { useAssistantArtifactStore } from '../../stores/useAssistantArtifactStore';
-import AssistantHtmlFrame, { type AssistantHtmlInteractionPayload } from './AssistantHtmlFrame';
+import AssistantHtmlFrame, { type AssistantHtmlInteractionPayload, type AssistantHtmlRuntimeError } from './AssistantHtmlFrame';
 import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
 
 type ArtifactRef = NonNullable<NonNullable<NonNullable<Message['metadata']>['assistant']>['artifacts']>[number];
@@ -18,25 +18,28 @@ function resolveInlineVersion(artifact: AssistantArtifactItem, ref: ArtifactRef)
   return attempt || referenced;
 }
 
-export default function AssistantHtmlMessageBlock({ artifactRef, onAutosave, onSubmit, onOpenArtifact, onOpenFullscreen }: {
+export default function AssistantHtmlMessageBlock({ artifactRef, onAutosave, onSubmit, onOpenFullscreen, onRequestRepair }: {
   artifactRef: ArtifactRef;
   onAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
-  onOpenArtifact?: (artifactId: string) => void;
   onOpenFullscreen?: (artifactId: string) => void;
+  onRequestRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
 }) {
   const artifact = useAssistantArtifactStore((state) => state.items.find((item) => item.id === artifactRef.id && item.deletedAt == null) || null);
   if (!artifact || artifact.kind !== 'html') return null;
   const version = resolveInlineVersion(artifact, artifactRef);
   const manifest = version?.htmlRuntime;
   if (!version || !manifest) return null;
+  const isCurrentVersion = version.id === artifact.currentVersionId;
+  const hasNewerVersion = !isCurrentVersion;
   const interactive = Boolean(manifest.submission)
     && artifactRef.presentation !== 'fullscreen_html'
     && (manifest.presentation === 'inline' || manifest.presentation === 'both');
-  const readOnly = version.id !== artifact.currentVersionId && version.stage !== 'autosave';
+  const readOnly = !isCurrentVersion;
   if (interactive) {
     return (
-      <Box sx={{ width: '100%', border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden', bgcolor: 'background.paper' }}>
+      <Box sx={{ position: 'relative', width: '100%', border: '1px solid', borderColor: 'divider', borderRadius: 1, overflow: 'hidden', bgcolor: 'background.paper' }}>
+        {hasNewerVersion ? <Chip label="已更新" size="small" color="primary" sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1, pointerEvents: 'none' }} /> : null}
         <AssistantHtmlFrame
           artifactId={artifact.id}
           version={version}
@@ -45,6 +48,7 @@ export default function AssistantHtmlMessageBlock({ artifactRef, onAutosave, onS
           readOnly={readOnly}
           onAutosave={onAutosave}
           onSubmit={onSubmit}
+          onRequestRepair={isCurrentVersion ? onRequestRepair : undefined}
         />
       </Box>
     );
@@ -80,9 +84,8 @@ export default function AssistantHtmlMessageBlock({ artifactRef, onAutosave, onS
         '&:hover': onOpenFullscreen ? { borderColor: 'primary.main' } : undefined,
       }}
     >
-      <Box sx={{ pointerEvents: 'none' }}>
-        <AssistantHtmlFrame artifactId={artifact.id} version={version} manifest={previewManifest} inline readOnly interactive={false} onOpenFullscreen={() => onOpenFullscreen?.(artifact.id)} />
-      </Box>
+      {hasNewerVersion ? <Chip label="已更新" size="small" color="primary" sx={{ position: 'absolute', top: 8, right: 8, zIndex: 1, pointerEvents: 'none' }} /> : null}
+      <AssistantHtmlFrame artifactId={artifact.id} version={version} manifest={previewManifest} inline readOnly interactive={false} onOpenFullscreen={() => onOpenFullscreen?.(artifact.id)} onRequestRepair={isCurrentVersion ? onRequestRepair : undefined} />
     </Box>
   );
 }

@@ -16,6 +16,7 @@ const SUPPRESSED_ROUTINE_LOCATIONS = new Set([
   'chat-store:restoreLocalChats:start',
   'message-window:persist-merge', 'message-window:hydrate-cache-start', 'message-window:hydrate-cache-done',
   'message-window:page-projection', 'message-window:open', 'message-window:hydrated', 'message-window:load-start',
+  'message-window:load-fetched', 'message-window:load-merged',
   'chat-detail:bootstrap:start', 'chat-detail:bootstrap:local-chat', 'chat-detail:bootstrap:loaded-chat', 'chat-detail:bootstrap:load-members',
   'chat-detail:open-window:skip-duplicate',
   'chat-window:open', 'manual-input:task-start', 'manual-input:task-finished',
@@ -27,6 +28,7 @@ const SUPPRESSED_ROUTINE_LOCATIONS = new Set([
   'story-run:start-gate', 'story-run:started', 'story-run:pause-gate',
   'chat-run:modules-ready',
   'html-artifact:click', 'html-artifact:keyboard-open', 'html-artifact:open-request',
+  'html-artifact:iframe-load',
 ]);
 
 interface DeveloperDiagnosticEntry {

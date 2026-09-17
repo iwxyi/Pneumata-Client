@@ -1,6 +1,6 @@
 import type { GroupChat } from '../types/chat';
 import type { Message, MessageAttachment, MessageMetadata } from '../types/message';
-import type { AssistantAgentLocalFileContext, AssistantAgentPatchSet, AssistantArtifactDataResult } from '../types/assistantArtifact';
+import type { AssistantAgentChangePlan, AssistantAgentLocalFileContext, AssistantAgentPatchSet, AssistantArtifactDataResult } from '../types/assistantArtifact';
 import type { AIModelInputCapabilities, APIConfig, AIModelProfile } from '../types/settings';
 import { getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 import { createStreamingLocalMessage, persistLocalFirstMessage } from './chatCommitMessage';
@@ -481,7 +481,7 @@ async function persistAssistantArtifactsFromReply(params: {
   let localWorkspaceFileRegistry = directoryListings.flatMap((entry) => entry.files);
   const uploadedFileContexts = buildUploadedFileContexts(params.userMessage);
   const plannerFileRegistry = [...localWorkspaceFileRegistry, ...uploadedFileContexts.map((file) => ({ directoryId: file.directoryId, path: file.path, name: file.name, kind: 'file' as const, depth: 1, sizeBytes: file.sizeBytes, mimeType: file.mimeType }))];
-  const plan = await planAssistantAgentChange({
+  let plan = await planAssistantAgentChange({
     api: params.api,
     chatId: params.chatId,
     messages: params.messages,
@@ -509,6 +509,23 @@ async function persistAssistantArtifactsFromReply(params: {
     signal: params.signal,
     forceArtifact: params.forceArtifact,
   });
+  const runtimeRepair = params.userMessage.metadata?.assistantHtmlRuntimeError;
+  const repairTarget = runtimeRepair
+    ? existingArtifacts.find((artifact) => artifact.id === (params.selectedArtifactId || runtimeRepair.artifactId) && artifact.kind === 'html' && artifact.deletedAt == null)
+    : null;
+  if (runtimeRepair && repairTarget) {
+    plan = {
+      ...plan,
+      intent: 'update',
+      responseExperience: 'interactive_workspace',
+      scope: { targetMode: 'single', artifactIds: [repairTarget.id] },
+      operations: [{ kind: 'structure_edit', instruction: `修复 HTML 运行错误：${runtimeRepair.message}` }],
+      requiresConfirmation: false,
+      clarificationQuestion: '',
+      confidence: 1,
+      rationale: 'runtime_error_repair',
+    } satisfies AssistantAgentChangePlan;
+  }
   // Planner may provide a more precise structured scan than the initial intent heuristic.
   const plannedScan = plan.workspaceScan;
   const plannedDirectoryIds = plannedScan?.directoryIds?.length ? new Set(plannedScan.directoryIds) : null;
@@ -633,7 +650,7 @@ async function persistAssistantArtifactsFromReply(params: {
   let content = plan.clarificationQuestion || '我需要先确认要处理哪个产物。';
   let patchesCommitted = 0;
   if (plan.intent === 'create' || plan.intent === 'update') {
-    const patchSet = await writeAssistantAgentPatchSet({
+    let patchSet = await writeAssistantAgentPatchSet({
       api: params.api,
       chatId: params.chatId,
       messages: params.messages,
@@ -643,6 +660,12 @@ async function persistAssistantArtifactsFromReply(params: {
       localFiles,
       signal: params.signal,
     });
+    if (runtimeRepair && repairTarget && !patchSet.patches.some((patch) => patch.action === 'update' && patch.kind === 'html' && patch.artifactId === repairTarget.id)) {
+      patchSet = {
+        ...patchSet,
+        assistantMessage: '页面修复没有生成可应用的新版本，原页面未改变。请重试。',
+      };
+    }
     let dataResults: AssistantArtifactDataResult[] = [];
     let dataArtifacts = [] as Awaited<ReturnType<typeof useAssistantArtifactStore.getState>>['items'];
     if (patchSet.dataOperations?.length) {

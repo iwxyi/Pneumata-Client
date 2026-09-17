@@ -110,10 +110,10 @@ export default function AssistantHtmlFullscreenDialog({ artifactId, onClose, onA
               version={version}
               manifest={version.htmlRuntime}
               fillContainer
-              readOnly={version.id !== latestVersion?.id && version.stage !== 'autosave'}
+              readOnly={version.id !== latestVersion?.id}
               onAutosave={onAutosave}
               onSubmit={onSubmit}
-              onRequestRepair={onRepair}
+              onRequestRepair={version.id === latestVersion?.id ? onRepair : undefined}
             />
           </DialogContent>
         </>

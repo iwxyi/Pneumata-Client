@@ -23,7 +23,7 @@ import AppSnackbar from '../common/AppSnackbar';
 import { CopyTextDialog } from '../common/CopyTextDialog';
 import { EXPRESSION_FEEDBACK_MENU_GROUPS, type ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import { copyTextToClipboard } from '../../utils/clipboard';
-import type { AssistantHtmlInteractionPayload } from '../../features/assistantHtml/AssistantHtmlFrame';
+import type { AssistantHtmlInteractionPayload, AssistantHtmlRuntimeError } from '../../features/assistantHtml/AssistantHtmlFrame';
 import { getNarrativeDisplayBlocks, hasNarrativeReaderBlocks, isNarrativeParagraphMessage, shouldUseCompactMediaBubble, shouldUseCompactMessageBubble } from './messageBubblePresentation';
 import { DefaultUserAvatarIcon, TopicGuideAvatarIcon } from '../common/IdentityIcons';
 import AssistantHtmlMessageBlock from '../../features/assistantHtml/AssistantHtmlMessageBlock';
@@ -58,6 +58,7 @@ interface MessageBubbleProps {
   onOpenHtmlFullscreen?: (artifactId: string) => void;
   onHtmlAutosave?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
   onHtmlSubmit?: (input: AssistantHtmlInteractionPayload) => void | Promise<void>;
+  onHtmlRepair?: (error: AssistantHtmlRuntimeError) => void | Promise<void>;
   onConfirmWorkspaceMutationPlan?: (message: Message) => void | Promise<void>;
 }
 
@@ -124,7 +125,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-function MessageBubble({ message, character, characters = [], onDelete, onWithdraw, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onAddImagesToReference, onOpenDiagram, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onRegenerate, onSwitchRevision, onOpenArtifact, onOpenHtmlFullscreen, onHtmlAutosave, onHtmlSubmit, onConfirmWorkspaceMutationPlan }: MessageBubbleProps) {
+function MessageBubble({ message, character, characters = [], onDelete, onWithdraw, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onAddImagesToReference, onOpenDiagram, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onRegenerate, onSwitchRevision, onOpenArtifact, onOpenHtmlFullscreen, onHtmlAutosave, onHtmlSubmit, onHtmlRepair, onConfirmWorkspaceMutationPlan }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -661,7 +662,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
             </Box>
           ) : null}
           {previewHtmlArtifactRefs.map((artifact) => (
-            <AssistantHtmlMessageBlock key={`${artifact.id}:${artifact.versionId || 'current'}`} artifactRef={artifact} onOpenFullscreen={onOpenHtmlFullscreen} />
+            <AssistantHtmlMessageBlock key={`${artifact.id}:${artifact.versionId || 'current'}`} artifactRef={artifact} onOpenFullscreen={onOpenHtmlFullscreen} onRequestRepair={onHtmlRepair} />
           ))}
         </Box>
 
@@ -687,7 +688,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
                 artifactRef={artifact}
                 onAutosave={onHtmlAutosave}
                 onSubmit={onHtmlSubmit}
-                onOpenArtifact={onOpenArtifact}
+                onRequestRepair={onHtmlRepair}
               />
             ))}
           </Box>
@@ -900,7 +901,8 @@ function areMessageBubblePropsEqual(previous: MessageBubbleProps, next: MessageB
     && previous.onOpenArtifact === next.onOpenArtifact
     && previous.onOpenHtmlFullscreen === next.onOpenHtmlFullscreen
     && previous.onHtmlAutosave === next.onHtmlAutosave
-    && previous.onHtmlSubmit === next.onHtmlSubmit;
+    && previous.onHtmlSubmit === next.onHtmlSubmit
+    && previous.onHtmlRepair === next.onHtmlRepair;
 }
 
 export default memo(MessageBubble, areMessageBubblePropsEqual);

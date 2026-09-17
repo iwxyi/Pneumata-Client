@@ -482,8 +482,7 @@ async function parseSSEStream(
   onData: (parsed: Record<string, unknown>) => void,
 ) {
   if (!response.ok || !response.body) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(errorText || `Streaming request failed: ${response.status}`);
+    throw await createPublicAiRequestError(response, 'Streaming request failed');
   }
 
   const reader = response.body.getReader();
@@ -526,10 +525,20 @@ async function parseSSEStream(
 
 async function parseJsonResponse<T>(response: Response, fallbackPrefix: string): Promise<T> {
   if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(errorText || `${fallbackPrefix}: ${response.status}`);
+    throw await createPublicAiRequestError(response, fallbackPrefix);
   }
   return response.json() as Promise<T>;
+}
+
+async function createPublicAiRequestError(response: Response, fallbackPrefix: string) {
+  // Official-provider failures may include routing, pricing, or upstream
+  // details. They are useful in server logs but must never become chat text.
+  await response.text().catch(() => '');
+  if (response.status === 401) return new Error('AI 服务认证已失效，请重新登录后重试。');
+  if (response.status === 403) return new Error('当前账号无权使用该 AI 服务或模型。');
+  if (response.status === 429) return new Error('AI 服务请求过于频繁，请稍后重试。');
+  if (response.status >= 400 && response.status < 500) return new Error('所选模型当前不可用，请切换模型后重试。');
+  return new Error(`${fallbackPrefix}：AI 服务暂时不可用，请稍后重试。`);
 }
 
 async function urlToBlob(value: string, fallbackMimeType = 'image/png') {

@@ -26,7 +26,7 @@ describe('assistant HTML safety', () => {
     }, '<!doctype html><html><body><form><input name="choice" /></form></body></html>', 'inline_interaction');
     expect(manifest?.presentation).toBe('inline');
   });
-  it('blocks dangerous embedding and data-exfiltration scripts while allowing external styles', () => {
+  it('preserves normal browser markup while installing the runtime bridge', () => {
     const document = buildAssistantHtmlDocument({
       html: '<html><head><style>@import "https://bad.test/a.css";</style><script>steal()</script></head><body><iframe src="https://bad.test"></iframe><button onclick="steal()">提交</button></body></html>',
       manifest,
@@ -35,11 +35,10 @@ describe('assistant HTML safety', () => {
       versionId: 'version-1',
     });
 
-    expect(document).not.toContain('steal()');
-    expect(document).not.toContain('<iframe');
+    expect(document).toContain('steal()');
+    expect(document).toContain('<iframe');
     expect(document).toContain('@import "https://bad.test/a.css"');
-    expect(document).toContain('connect-src http: https:');
-    expect(document).toContain("script-src 'nonce-token-1'");
+    expect(document).toContain('<script>');
     expect(document).toContain("parent.postMessage");
     expect(document).toContain("action==='submit'");
   });

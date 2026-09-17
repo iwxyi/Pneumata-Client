@@ -237,7 +237,7 @@ export interface MessageMetadata {
     artifactId: string;
     versionId: string;
     message: string;
-    kind: 'runtime' | 'unhandledrejection' | 'console' | 'resource';
+    kind: 'runtime' | 'unhandledrejection' | 'console' | 'resource' | 'page_state';
     stack?: string;
     source?: string;
     line?: number;

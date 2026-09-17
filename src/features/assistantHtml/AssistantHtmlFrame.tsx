@@ -7,6 +7,7 @@ import { parseAssistantHtmlBridgeEvent } from './assistantHtmlBridge';
 import { validateAssistantHtmlPayload } from './assistantHtmlValidation';
 import { useTheme } from '@mui/material/styles';
 import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
+import { getAssistantHtmlRuntimeError, rememberAssistantHtmlRuntimeError } from './assistantHtmlRuntimeErrorCache';
 
 export interface AssistantHtmlInteractionPayload {
   artifactId: string;
@@ -20,7 +21,7 @@ export interface AssistantHtmlRuntimeError {
   artifactId: string;
   versionId: string;
   message: string;
-  kind: 'runtime' | 'unhandledrejection' | 'console' | 'resource';
+  kind: 'runtime' | 'unhandledrejection' | 'console' | 'resource' | 'page_state';
   stack?: string;
   source?: string;
   line?: number;
@@ -70,8 +71,9 @@ export default function AssistantHtmlFrame({
   const channelToken = useMemo(() => `${artifactId}:${version.id}:${createHtmlChannelToken()}`, [artifactId, version.id]);
   const [height, setHeight] = useState(manifest.viewport?.preferredHeight || (inline ? 280 : 720));
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState('');
-  const [lastRuntimeError, setLastRuntimeError] = useState<AssistantHtmlRuntimeError | null>(null);
+  const cachedRuntimeError = getAssistantHtmlRuntimeError(artifactId, version.id);
+  const [error, setError] = useState(() => cachedRuntimeError?.message || '');
+  const [lastRuntimeError, setLastRuntimeError] = useState<AssistantHtmlRuntimeError | null>(() => cachedRuntimeError);
   const [repairing, setRepairing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const interactionId = manifest.submission?.interactionId || '';
@@ -120,7 +122,16 @@ export default function AssistantHtmlFrame({
           line: info?.line || undefined,
           column: info?.column || undefined,
         };
-        logDeveloperDiagnostic('html-artifact:iframe-error', { ...runtimeError }, 'error', 'chat-window');
+        const previousError = getAssistantHtmlRuntimeError(artifactId, version.id);
+        const isRepeatedError = previousError?.kind === runtimeError.kind
+          && previousError.message === runtimeError.message
+          && previousError.source === runtimeError.source
+          && previousError.line === runtimeError.line
+          && previousError.column === runtimeError.column;
+        if (!readOnly && !isRepeatedError) {
+          logDeveloperDiagnostic('html-artifact:iframe-error', { ...runtimeError }, 'error', 'chat-window');
+        }
+        rememberAssistantHtmlRuntimeError(runtimeError);
         setError(runtimeError.message);
         setLastRuntimeError(runtimeError);
         onRuntimeError?.(runtimeError);
@@ -157,16 +168,16 @@ export default function AssistantHtmlFrame({
   }, [artifactId, baseVersionId, channelToken, inline, interactionId, manifest, onAutosave, onOpenFullscreen, onRuntimeError, onSubmit, readOnly, version.id]);
 
   useEffect(() => {
-    const resetTimer = window.setTimeout(() => {
-      setReady(false);
-      setError('');
-      setLastRuntimeError(null);
+    const timer = window.setTimeout(() => {
+      const cached = getAssistantHtmlRuntimeError(artifactId, version.id);
+      setError(cached?.message || '');
+      setLastRuntimeError(cached);
     }, 0);
-    return () => window.clearTimeout(resetTimer);
-  }, [srcDoc]);
+    return () => window.clearTimeout(timer);
+  }, [artifactId, version.id]);
 
   return (
-    <Box sx={{ position: 'relative', width: '100%', height: fillContainer ? '100%' : 'auto', minHeight: fillContainer ? 0 : inline ? 160 : 'calc(100dvh - 110px)', flex: fillContainer ? 1 : undefined }}>
+    <Box sx={{ position: 'relative', width: '100%', height: fillContainer ? '100%' : 'auto', minHeight: fillContainer ? 0 : inline ? 160 : 'calc(100dvh - 110px)', flex: fillContainer ? 1 : undefined, display: fillContainer ? 'flex' : undefined, flexDirection: fillContainer ? 'column' : undefined }}>
       {!ready ? <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}><CircularProgress size={20} /></Box> : null}
       {submitting ? (
         <Box sx={{ position: 'absolute', inset: 0, zIndex: 2, display: 'grid', placeItems: 'center', bgcolor: 'rgba(15,18,24,0.42)', backdropFilter: 'blur(2px)' }}>
@@ -190,29 +201,40 @@ export default function AssistantHtmlFrame({
             if (!frameRef.current?.contentWindow) return;
             setReady((current) => {
               if (!current) {
-                logDeveloperDiagnostic('html-artifact:iframe-runtime-missing', { artifactId, versionId: version.id }, 'error', 'chat-window');
+                if (!readOnly) logDeveloperDiagnostic('html-artifact:iframe-runtime-missing', { artifactId, versionId: version.id }, 'error', 'chat-window');
                 setError('HTML 页面已加载，但交互脚本未执行');
               }
               return current;
             });
           }, 1200);
         }}
-        sx={{ width: '100%', height: fillContainer ? '100%' : inline ? height : 'calc(100dvh - 110px)', minHeight: fillContainer ? 0 : inline ? 160 : 420, border: 0, display: 'block', pointerEvents: interactive ? 'auto' : 'none', bgcolor: theme.palette.mode === 'dark' ? '#181a20' : '#fff' }}
+        sx={{ width: '100%', height: fillContainer ? 'auto' : inline ? height : 'calc(100dvh - 110px)', minHeight: fillContainer ? 0 : inline ? 160 : 420, flex: fillContainer ? 1 : undefined, border: 0, display: 'block', pointerEvents: interactive ? 'auto' : 'none', bgcolor: theme.palette.mode === 'dark' ? '#181a20' : '#fff' }}
       />
       {!ready ? <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>正在加载交互内容…</Typography> : null}
       {error ? (
-        <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75, mt: 0.5 }}>
+        <Box
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+          sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.75, mt: fillContainer ? 0 : 0.5, px: fillContainer ? 1.5 : 0, py: fillContainer ? 1 : 0, borderTop: fillContainer ? '1px solid' : undefined, borderColor: fillContainer ? 'divider' : undefined, bgcolor: fillContainer ? 'background.paper' : undefined, flexShrink: 0 }}
+        >
           <Typography variant="caption" color="error" sx={{ flex: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{error}</Typography>
           <Button
             size="small"
             variant="text"
             startIcon={<ContentCopyOutlinedIcon fontSize="inherit" />}
             onClick={() => {
-              const detail = [`artifactId: ${artifactId}`, `versionId: ${version.id}`, error].join('\n');
+              const detail = [
+                `artifactId: ${artifactId}`,
+                `versionId: ${version.id}`,
+                `错误类型: ${lastRuntimeError?.kind || 'runtime'}`,
+                `错误信息: ${lastRuntimeError?.message || error}`,
+                lastRuntimeError?.source ? `来源: ${lastRuntimeError.source}${lastRuntimeError.line ? `:${lastRuntimeError.line}:${lastRuntimeError.column || 0}` : ''}` : '',
+                lastRuntimeError?.stack ? `堆栈:\n${lastRuntimeError.stack}` : '',
+              ].filter(Boolean).join('\n');
               void navigator.clipboard?.writeText(detail);
             }}
             sx={{ minWidth: 'auto', flexShrink: 0, textTransform: 'none' }}
-          >复制诊断</Button>
+          >复制</Button>
           {onRequestRepair && lastRuntimeError ? <Button
             size="small"
             variant="contained"
@@ -222,7 +244,7 @@ export default function AssistantHtmlFrame({
               void Promise.resolve(onRequestRepair(lastRuntimeError)).finally(() => setRepairing(false));
             }}
             sx={{ flexShrink: 0, textTransform: 'none' }}
-          >{repairing ? '正在请求修复' : '让助手修复'}</Button> : null}
+          >{repairing ? '正在修复' : '修复'}</Button> : null}
         </Box>
       ) : null}
     </Box>

@@ -1,68 +1,14 @@
 import type { AssistantHtmlRuntimeManifest } from '../../types/assistantArtifact';
-import { transformAssistantCssColors, transformAssistantInlineStyles } from './assistantHtmlDarkTheme';
 
 function escapeScriptJson(value: unknown) {
   return JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
 }
 
-function stripUnsafeHtml(source: string, applicationOrigin: string) {
-  return source
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<(?:iframe|object|embed|base)\b[^>]*>[\s\S]*?<\/(?:iframe|object|embed|base)\s*>/gi, '')
-    .replace(/<(?:iframe|object|embed|base)\b[^>]*\/?\s*>/gi, '')
-    .replace(/<meta\b[^>]*http-equiv\s*=\s*["']?refresh["']?[^>]*>/gi, '')
-    // Keep authored UI handlers. The sandbox gives this document a unique
-    // origin and the runtime below blocks application and local-network URLs.
-    .replace(/\s+(on[a-z]+)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, (full, name: string, value: string) => {
-      return /on(?:error|load|beforeunload|unload)/i.test(name) || /(?:parent|top|document\.cookie|steal)/i.test(value) ? '' : full;
-    })
-    .replace(/\s+(?:src|href|action|formaction)\s*=\s*(?:"javascript:[^"]*"|'javascript:[^']*')/gi, '')
-    .replace(/\s+(?:src|href|action|formaction)\s*=\s*("([^"]*)"|'([^']*)')/gi, (full, _quoted: string, doubleQuoted: string, singleQuoted: string) => {
-      const value = doubleQuoted || singleQuoted || '';
-      return /^https?:\/\//i.test(value) && isBlockedExternalUrl(value, applicationOrigin) ? '' : full;
-    })
-    .replace(/<input\b([^>]*?)type\s*=\s*["']?(?:file|password)["']?([^>]*)>/gi, '<input$1type="text" disabled$2>');
-}
-
-function bodyContent(source: string, applicationOrigin: string) {
-  const withoutFence = source.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
-  const bodyMatch = withoutFence.match(/<body\b[^>]*>([\s\S]*?)<\/body\s*>/i);
-  return stripUnsafeHtml(bodyMatch?.[1] || withoutFence, applicationOrigin);
-}
-
-function isBlockedExternalUrl(value: string, applicationOrigin: string) {
-  try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
-    const applicationHost = new URL(applicationOrigin).hostname.toLowerCase();
-    return host === applicationHost || host === 'localhost' || host === '127.0.0.1' || host === '::1'
-      || /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
-  } catch {
-    return true;
-  }
-}
-
-function extractLocalScripts(source: string, nonce: string, applicationOrigin: string) {
-  return Array.from(source.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi))
-    .flatMap((match) => {
-      const attributes = match[0].match(/^<script\b([^>]*)>/i)?.[1] || '';
-      const sourceUrl = attributes.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1];
-      if (sourceUrl) {
-        if (!/^https?:\/\//i.test(sourceUrl) || isBlockedExternalUrl(sourceUrl, applicationOrigin)) return [];
-        return [`<script nonce="${nonce}" src="${sourceUrl}"></script>`];
-      }
-      const script = match[1]?.trim() || '';
-      if (!script || /\b(?:parent|top|steal|document\.cookie)\b/i.test(script) || /\b(?:new\s+)?Function\s*\(/.test(script)) return [];
-      return [`<script nonce="${nonce}">${script}</script>`];
-    })
-    .join('');
-}
-
-function safeStyleContent(source: string) {
-  return Array.from(source.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi))
-    .map((match) => match[1] || '')
-    .join('\n')
-    .replace(/url\s*\(\s*["']?javascript:[^)]+\)/gi, 'none');
+function injectRuntime(source: string, runtime: string) {
+  const script = `<script>${runtime}</script>`;
+  if (/<head\b[^>]*>/i.test(source)) return source.replace(/(<head\b[^>]*>)/i, `$1${script}`);
+  if (/<html\b[^>]*>/i.test(source)) return source.replace(/(<html\b[^>]*>)/i, `$1<head>${script}</head>`);
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${script}</head><body>${source}</body></html>`;
 }
 
 export function buildAssistantHtmlDocument(params: {
@@ -76,14 +22,11 @@ export function buildAssistantHtmlDocument(params: {
   displayMode?: 'light' | 'dark';
   applicationOrigin?: string;
 }) {
-  const hasNativeThemeContract = /--pneumata-(?:bg|surface|text|muted|border|accent)\s*:/iu.test(params.html)
-    && /html\s*\[\s*data-pneumata-theme\s*=\s*["']light["']/iu.test(params.html)
-    && /html\s*\[\s*data-pneumata-theme\s*=\s*["']dark["']/iu.test(params.html)
-    && /prefers-color-scheme\s*:\s*dark/iu.test(params.html);
-  const shouldConvertLegacyTheme = !hasNativeThemeContract && params.displayMode === 'dark';
-  // CSP nonce-source accepts a base64 token; channel tokens contain prefixes
-  // and punctuation that some browsers reject silently.
-  const nonce = params.channelToken.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80) || 'pneumataNonce';
+  const source = params.html.trim().replace(/^```(?:html)?\s*/i, '').replace(/\s*```$/i, '');
+  const hasNativeThemeContract = /--pneumata-(?:bg|surface|text|muted|border|accent)\s*:/iu.test(source)
+    && /html\s*\[\s*data-pneumata-theme\s*=\s*["']light["']/iu.test(source)
+    && /html\s*\[\s*data-pneumata-theme\s*=\s*["']dark["']/iu.test(source)
+    && /prefers-color-scheme\s*:\s*dark/iu.test(source);
   const runtimeConfig = {
     channelToken: params.channelToken,
     artifactId: params.artifactId,
@@ -93,6 +36,7 @@ export function buildAssistantHtmlDocument(params: {
     initialState: params.interactionState || {},
     autosaveDebounceMs: params.manifest.autosave?.debounceMs || 900,
     readOnly: params.readOnly === true,
+    quietRuntimeErrors: params.readOnly === true,
     displayMode: params.displayMode || 'light',
     hasNativeThemeContract,
     applicationOrigin: params.applicationOrigin || 'https://pneumata.invalid',
@@ -117,16 +61,16 @@ document.addEventListener('click',(event)=>{const node=event.target;const target
 document.addEventListener('submit',(event)=>{event.preventDefault();if(!config.readOnly)send('submit',{payload:read()});});
 const report=()=>send('resize',{height:Math.min(Math.max(document.documentElement.scrollHeight,160),1600)});if(typeof ResizeObserver==='function')new ResizeObserver(report).observe(document.documentElement);else window.addEventListener('resize',report);
 const describeError=(kind,error,source,line,column)=>{const message=error instanceof Error?error.message:String(error||'HTML运行时错误');const stack=error instanceof Error?error.stack:'';send('error',{error:message,errorInfo:{kind,message,stack:stack||'',source:source||'',line:Number(line)||0,column:Number(column)||0}});};
-window.addEventListener('error',(event)=>{if(event.target&&event.target!==window){const target=event.target;describeError('resource',target.tagName+'资源加载失败',target.src||target.href||'',0,0);return;}describeError('runtime',event.error||event.message,event.filename,event.lineno,event.colno);},true);
-window.addEventListener('unhandledrejection',(event)=>describeError('unhandledrejection',event.reason,'',0,0));
-const originalConsoleError=console.error.bind(console);console.error=(...args)=>{originalConsoleError(...args);describeError('console',args.map((item)=>typeof item==='string'?item:(item&&item.message)||String(item)).join(' '),'',0,0);};
-restore();applyDisplayMode();report();send('ready',{height:document.documentElement.scrollHeight});})();`;
-  const styles = shouldConvertLegacyTheme ? transformAssistantCssColors(safeStyleContent(params.html)) : safeStyleContent(params.html);
-  const displayStyles = hasNativeThemeContract && params.displayMode ? `html{color-scheme:${params.displayMode}}` : '';
-  const body = bodyContent(params.html, runtimeConfig.applicationOrigin).replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gi, '');
-  const userScripts = extractLocalScripts(params.html, nonce, runtimeConfig.applicationOrigin);
-  const transformedBody = shouldConvertLegacyTheme ? transformAssistantInlineStyles(body) : body;
-  // Install the bridge first so errors from authored scripts are observable,
-  // then run the authored scripts after the DOM has been created.
-  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' http: https:; img-src data: blob: http: https:; font-src data: http: https:; script-src 'nonce-${nonce}' http: https:; connect-src http: https:; form-action http: https:; frame-src 'none'; object-src 'none'; base-uri 'none'"><style>html,body{margin:0;padding:0;background:transparent;color:#111827;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}button,input,select,textarea{font:inherit}${styles}${displayStyles}</style></head><body>${transformedBody}<script nonce="${nonce}">${runtime}</script>${userScripts}</body></html>`;
+window.addEventListener('error',(event)=>{if(config.quietRuntimeErrors)event.preventDefault();if(event.target&&event.target!==window){const target=event.target;describeError('resource',target.tagName+'资源加载失败',target.src||target.href||'',0,0);return;}describeError('runtime',event.error||event.message,event.filename,event.lineno,event.colno);},true);
+window.addEventListener('unhandledrejection',(event)=>{if(config.quietRuntimeErrors)event.preventDefault();describeError('unhandledrejection',event.reason,'',0,0);});
+try{const originalConsoleError=console.error.bind(console);console.error=(...args)=>{if(!config.quietRuntimeErrors)originalConsoleError(...args);describeError('console',args.map((item)=>typeof item==='string'?item:(item&&item.message)||String(item)).join(' '),'',0,0);};}catch(error){describeError('runtime',error,'',0,0);}
+const reportAuthoredError=(error,context)=>{const message=error instanceof Error?error.message:String(error||'页面运行失败');const stack=error instanceof Error?error.stack:'';send('error',{error:message,errorInfo:{kind:'page_state',message,stack:stack||'',source:context?'页面主动上报：'+String(context).slice(0,160):'页面主动上报',line:0,column:0}});};
+window.pneumataReportError=reportAuthoredError;
+let lastVisibleFailure='';const reportVisibleFailure=()=>{const bodyText=String(document.body?.innerText||'').replace(/\\s+/g,' ').trim();const match=bodyText.match(/(?:关卡|页面|数据|内容|初始化|加载|生成|请求|保存|提交)[^。！？\\n]{0,80}(?:失败|错误)[^。！？\\n]{0,120}(?:重试|再试|重玩|刷新)[^。！？\\n]{0,40}/u);const message=match?.[0]?.trim()||'';if(message&&message!==lastVisibleFailure){lastVisibleFailure=message;reportAuthoredError(message,'页面可见状态');}};
+const initialize=()=>{restore();applyDisplayMode();report();send('ready',{height:document.documentElement.scrollHeight});reportVisibleFailure();if(document.body&&typeof MutationObserver==='function')new MutationObserver(reportVisibleFailure).observe(document.body,{childList:true,characterData:true,subtree:true});};
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',initialize,{once:true});else initialize();})();`;
+  // Keep the authored document intact. This must stay a minimal wrapper so
+  // third-party libraries, canvas apps and normal browser APIs behave exactly
+  // as they do in a standalone HTML file.
+  return injectRuntime(source, runtime);
 }

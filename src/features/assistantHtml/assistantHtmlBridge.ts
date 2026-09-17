@@ -10,7 +10,7 @@ export interface AssistantHtmlBridgeEvent {
   payload?: Record<string, unknown>;
   error?: string;
   errorInfo?: {
-    kind?: 'runtime' | 'unhandledrejection' | 'console' | 'resource';
+    kind?: 'runtime' | 'unhandledrejection' | 'console' | 'resource' | 'page_state';
     message?: string;
     stack?: string;
     source?: string;
