@@ -1,4 +1,4 @@
-import type { ReactNode, SyntheticEvent } from 'react';
+import type { ReactNode } from 'react';
 import Alert from '@mui/material/Alert';
 import type { AlertColor, AlertProps } from '@mui/material/Alert';
 import Portal from '@mui/material/Portal';
@@ -19,7 +19,7 @@ interface AppSnackbarProps {
 
 const bottomOffsets: Record<SnackbarOffset, { xs: string; sm: number }> = {
   none: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 20px)', sm: 28 },
-  navigation: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 78px)', sm: 28 },
+  navigation: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 92px)', sm: 28 },
   composer: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 116px)', sm: 104 },
 };
 
@@ -33,11 +33,11 @@ export default function AppSnackbar({
   offset = 'navigation',
   alertVariant,
 }: AppSnackbarProps) {
-  const handleSnackbarClose = (_event: SyntheticEvent | Event, _reason?: string) => {
+  const handleSnackbarClose = () => {
     onClose();
   };
 
-  const handleAlertClose = (_event: SyntheticEvent) => {
+  const handleAlertClose = () => {
     onClose();
   };
 

@@ -63,7 +63,6 @@ export default function BottomNav() {
   const handlePointerDown = (index: number, event: ReactPointerEvent) => {
     if (!event.isPrimary) return;
     if (event.pointerType === 'mouse' && event.button !== 0) return;
-
     pointerRef.current = {
       index,
       x: event.clientX,
@@ -177,38 +176,31 @@ export default function BottomNav() {
     <Paper
       sx={{
         position: 'fixed',
-        left: 0,
-        right: 0,
-        bottom: 0,
+        left: 'max(env(safe-area-inset-left, 0px), 24px)',
+        right: 'max(env(safe-area-inset-right, 0px), 24px)',
+        bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         zIndex: 1200,
-        px: 1.25,
-        pt: 0.5,
-        pb: 'calc(env(safe-area-inset-bottom, 0px) + 6px)',
-        borderRadius: 0,
+        px: 0.5,
+        py: 0.45,
+        borderRadius: '20px',
         overflow: 'hidden',
-        borderTop: '1px solid',
-        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.08)' : 'rgba(226,232,240,0.10)',
-        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(245,245,247,0.70)' : 'rgba(10,10,15,0.42)',
-        backdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
-        WebkitBackdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(22px) saturate(0.96) brightness(1.015) contrast(0.92)' : 'blur(20px) saturate(0.90) brightness(0.84)',
+        border: '1px solid',
+        borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.78)' : 'rgba(226,232,240,0.13)',
+        bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(248,249,252,0.76)' : 'rgba(19,20,29,0.72)',
+        backdropFilter: 'blur(24px) saturate(1.12)',
+        WebkitBackdropFilter: 'blur(24px) saturate(1.12)',
         boxShadow: (theme) => theme.palette.mode === 'light'
-          ? '0 -10px 24px rgba(15,23,42,0.035), 0 1px 0 rgba(255,255,255,0.54) inset'
-          : '0 -12px 30px rgba(0,0,0,0.12), 0 1px 0 rgba(255,255,255,0.08) inset',
+          ? '0 12px 30px rgba(15,23,42,0.14), 0 1px 0 rgba(255,255,255,0.72) inset'
+          : '0 14px 32px rgba(0,0,0,0.30), 0 1px 0 rgba(255,255,255,0.08) inset',
         '&::before': {
           content: '""',
           position: 'absolute',
-          left: 0,
-          right: 0,
-          top: -42,
-          height: 42,
+          inset: 0,
+          borderRadius: 'inherit',
           pointerEvents: 'none',
-          backdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(20px) saturate(0.92) brightness(0.84)',
-          WebkitBackdropFilter: (theme) => theme.palette.mode === 'light' ? 'blur(32px) saturate(0.74) brightness(1.18) contrast(0.66)' : 'blur(20px) saturate(0.92) brightness(0.84)',
-          maskImage: 'linear-gradient(to top, rgba(0,0,0,0.68), rgba(0,0,0,0.20) 62%, transparent)',
-          WebkitMaskImage: 'linear-gradient(to top, rgba(0,0,0,0.68), rgba(0,0,0,0.20) 62%, transparent)',
           background: (theme) => theme.palette.mode === 'light'
-            ? 'linear-gradient(rgba(245,245,247,0), rgba(245,245,247,0.18))'
-            : 'linear-gradient(rgba(10,10,15,0), rgba(10,10,15,0.12))',
+            ? 'linear-gradient(115deg, rgba(255,255,255,0.52), rgba(255,255,255,0) 54%)'
+            : 'linear-gradient(115deg, rgba(255,255,255,0.09), rgba(255,255,255,0) 54%)',
         },
       }}
       elevation={0}
@@ -226,39 +218,31 @@ export default function BottomNav() {
         }}
         showLabels
         sx={{
-          height: 54,
+          height: 50,
           position: 'relative',
           bgcolor: 'transparent',
-          borderRadius: 1.5,
+          borderRadius: '16px',
           '&::before': {
             content: '""',
             position: 'absolute',
             zIndex: 0,
-            top: 2,
-            bottom: 2,
-            left: `calc(${visualIndex * 25}% + 0.5%)`,
-            width: '24%',
-            borderRadius: 1.25,
+            top: 3,
+            bottom: 3,
+            left: `calc(${visualIndex * 25}% + 0.75%)`,
+            width: '23.5%',
+            borderRadius: '13px',
             pointerEvents: 'none',
             background: (theme) => theme.palette.mode === 'light'
-              ? 'rgba(255,255,255,0.72)'
-              : 'rgba(255,255,255,0.075)',
+              ? 'rgba(255,255,255,0.88)'
+              : 'rgba(255,255,255,0.10)',
             border: '1px solid',
             borderColor: (theme) => theme.palette.mode === 'light'
-              ? 'rgba(15,23,42,0.055)'
-              : 'rgba(226,232,240,0.09)',
+              ? 'rgba(15,23,42,0.06)'
+              : 'rgba(226,232,240,0.12)',
             boxShadow: (theme) => theme.palette.mode === 'light'
-              ? '0 4px 14px rgba(15,23,42,0.06)'
-              : '0 4px 16px rgba(0,0,0,0.16)',
-            transition: !isPressPreviewing
-              ? [
-                transition(['left'], motion.durations.navTrack, motion.navTrack),
-                transition(['background-color', 'box-shadow'], motion.durations.base),
-              ].join(', ')
-              : [
-                transition(['left'], motion.durations.instant, motion.navDrag),
-                transition(['background-color', 'box-shadow'], motion.durations.base),
-              ].join(', '),
+              ? '0 5px 14px rgba(15,23,42,0.09)'
+              : '0 5px 16px rgba(0,0,0,0.22)',
+            transition: transition(['left', 'transform'], motion.durations.navTrack, motion.navTrack),
             transform: isPressPreviewing ? 'scaleX(0.965)' : 'scaleX(1)',
             transformOrigin: 'center',
             willChange: 'left',
@@ -268,15 +252,28 @@ export default function BottomNav() {
             color: 'text.secondary',
             position: 'relative',
             zIndex: 1,
-            borderRadius: 1,
+            borderRadius: '12px',
             mx: 0.2,
             my: 0.25,
             py: 0.25,
             backgroundColor: 'transparent',
             touchAction: 'pan-y',
-            transition: transition(['color', 'opacity'], motion.durations.base),
-            '&:hover': {
-              bgcolor: 'transparent',
+            transition: transition(['color', 'opacity', 'background-color', 'transform'], motion.durations.fast, motion.softOut),
+            '@media (hover: hover) and (pointer: fine)': {
+              '&:hover:not(.Mui-selected)': {
+                color: 'text.primary',
+                bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.055)' : 'rgba(255,255,255,0.075)',
+                transform: 'translateY(-1px)',
+              },
+              '&:hover .PneumataNavIcon': {
+                transform: 'translateY(-1px)',
+              },
+            },
+            '&:focus-visible': {
+              outline: '2px solid',
+              outlineColor: 'primary.main',
+              outlineOffset: -2,
+              bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.055)' : 'rgba(255,255,255,0.075)',
             },
             '& .MuiTouchRipple-root': {
               display: 'none',
@@ -292,13 +289,13 @@ export default function BottomNav() {
             color: 'primary.main',
           },
           '& .MuiBottomNavigationAction-label': {
-            fontSize: 10.5,
+            fontSize: 10,
             fontWeight: 650,
             lineHeight: 1.15,
             transform: 'none',
             transition: transition(['color', 'opacity'], motion.durations.label),
             '&.Mui-selected': {
-              fontSize: 10.5,
+              fontSize: 10,
               transform: 'none',
               transitionDelay: `${motion.durations.selectedDelay}ms`,
             },
@@ -311,7 +308,7 @@ export default function BottomNav() {
             className="PneumataNavButton"
             disableRipple
             label={t(item.labelKey)}
-            icon={<AnimatedNavIcon kind={item.iconKind} active={visualIndex === index} size={24} />}
+            icon={<AnimatedNavIcon kind={item.iconKind} active={visualIndex === index} size={23} />}
             onPointerDown={(event) => handlePointerDown(index, event)}
             onPointerMove={handlePointerMove}
             onPointerUp={handlePointerUp}
