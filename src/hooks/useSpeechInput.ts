@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { transcribeAudioWithAdapter } from '../services/aiGenerationAdapter';
+import { ApiError, api } from '../services/api';
 import { normalizeAudioDataUrl, transcribeSpeech, usesManagedSpeechProfile } from '../services/speech';
 import { storageKey } from '../constants/brand';
 import type { AIModelProfile } from '../types/settings';
@@ -72,6 +73,10 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
     if (!navigator.mediaDevices?.getUserMedia) { optionsRef.current.onError(microphoneError()); return; }
     startingRef.current = true;
     try {
+      // WebSocket cannot reuse the HTTP client's Authorization header. Verify the
+      // browser's current login state before opening the microphone, so a rejected
+      // realtime handshake never degrades into a misleading post-recording error.
+      await api.getMe();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       if (!window.AudioContext) throw new Error('当前浏览器不支持 WAV 语音输入，请使用新版 Chrome、Edge 或 Safari');
       baseTextRef.current = optionsRef.current.getBaseText();
@@ -94,7 +99,11 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
       const chunks: Float32Array[] = [];
       processor.onaudioprocess = (event) => { const chunk = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(chunk); if (!session || session.socket.readyState !== WebSocket.OPEN) return; const ratio = context.sampleRate / 16_000; const pcm = new Int16Array(Math.max(1, Math.round(chunk.length / ratio))); pcm.forEach((_item, index) => { const sample = chunk[Math.min(chunk.length - 1, Math.floor(index * ratio))] || 0; pcm[index] = Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 0x8000 : 0x7fff); }); if (session.ready) session.socket.send(pcm.buffer); else session.pending.push(pcm.buffer); };
       source.connect(processor); processor.connect(muted); muted.connect(context.destination); recorderRef.current = { context, source, processor, muted, stream, chunks }; setIsRecording(true);
-    } catch (error) { cleanup(); optionsRef.current.onError(error instanceof Error ? error.message : '无法访问麦克风'); } finally { startingRef.current = false; }
+    } catch (error) {
+      cleanup();
+      if (error instanceof ApiError && error.status === 401) optionsRef.current.onError('当前登录状态未被服务器接受，请重新登录后再使用语音输入');
+      else optionsRef.current.onError(error instanceof Error ? error.message : '无法访问麦克风');
+    } finally { startingRef.current = false; }
   }, [cleanup, disabled, isRecording, isTranscribing, present, profile]);
   const stopRecording = useCallback(() => {
     const recorder = recorderRef.current; if (!recorder) return; const realtime = realtimeRef.current; recorderRef.current = null; recorder.processor.disconnect(); recorder.source.disconnect(); recorder.muted.disconnect(); recorder.stream.getTracks().forEach((track) => track.stop()); void recorder.context.close(); setIsRecording(false);
