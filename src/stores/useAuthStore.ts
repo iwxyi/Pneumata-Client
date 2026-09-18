@@ -375,7 +375,10 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
       const user = await api.getMe();
       setAuthUser(user);
       enableCloudSyncForLogin(user);
-      set({ user, isLoggedIn: true, authMode: 'cloud' });
+      // api may have refreshed an expired access token while loading /me.
+      // Keep Zustand aligned with the persisted token so bootstrap and route
+      // guards do not continue to reason about the expired token.
+      set({ token: getAuthToken(), user, isLoggedIn: true, authMode: 'cloud' });
       await refreshStoresAfterCloudAuth(user, { deferRemoteRefresh: true });
       if (!isCloudSyncUserDisabled()) await refreshRemoteStoresAfterCloudAuth(user);
       set({ isLoading: false, isWorkspaceReady: true });

@@ -570,6 +570,19 @@ class ApiClient {
     return headers;
   }
 
+  getAccessTokenExpiresAt(token = this.getToken()): number | null {
+    if (!token) return null;
+    try {
+      const payload = token.split('.')[1];
+      if (!payload) return null;
+      const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+      const decoded = JSON.parse(atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '='))) as { exp?: unknown };
+      return typeof decoded.exp === 'number' ? decoded.exp * 1000 : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async parseJsonResponse<T>(response: Response): Promise<T> {
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
@@ -593,7 +606,11 @@ class ApiClient {
         const response = await fetch(backendUrl(`${API_BASE}/auth/refresh`), {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ refreshToken }),
         });
-        if (!response.ok) return false;
+        if (!response.ok) {
+          // Another tab may have rotated the token while this request was in flight.
+          // Re-read storage before treating the session as expired.
+          return localStorage.getItem(storageKey('refresh-token')) !== refreshToken;
+        }
         const result = await this.parseJsonResponse<{ token: string; refreshToken: string; user?: AuthUserResponse }>(response);
         if (!result.token || !result.refreshToken) return false;
         localStorage.setItem(storageKey('token'), result.token);
@@ -601,12 +618,28 @@ class ApiClient {
         if (result.user) localStorage.setItem(storageKey('user'), JSON.stringify(result.user));
         return true;
       } catch {
-        return false;
+        return localStorage.getItem(storageKey('refresh-token')) !== refreshToken;
       } finally {
         this.authRefreshInFlight = null;
       }
     })();
     return this.authRefreshInFlight;
+  }
+
+  /** Refresh before expiry so normal activity never reaches the expired-token path. */
+  async refreshAuthIfNeeded(options: { force?: boolean } = {}): Promise<boolean> {
+    const token = this.getToken();
+    if (!token) return false;
+    const expiresAt = this.getAccessTokenExpiresAt(token);
+    if (expiresAt === null) return false;
+    if (!options.force && expiresAt !== null && expiresAt - Date.now() > 5 * 60_000) return false;
+    return this.refreshAuthSession();
+  }
+
+  getAuthRefreshDelayMs() {
+    const expiresAt = this.getAccessTokenExpiresAt();
+    if (expiresAt === null) return null;
+    return Math.max(0, expiresAt - Date.now() - 5 * 60_000);
   }
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {

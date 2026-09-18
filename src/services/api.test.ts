@@ -160,6 +160,58 @@ describe('api sync changes', () => {
 
     expect(events).toEqual([]);
   });
+
+  it('refreshes an expired access token and retries the original request', async () => {
+    installLocalStorage({
+      'pneumata-auth-mode': 'cloud',
+      'pneumata-token': 'expired-token',
+      'pneumata-refresh-token': 'refresh-token-1',
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: '登录已过期' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockResolvedValueOnce(jsonResponse({ token: 'token-2', refreshToken: 'refresh-token-2' }))
+      .mockResolvedValueOnce(jsonResponse({ id: 'user-1', phone: '+8613800000000', nickname: '用户', avatar: '🍵' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.getMe()).resolves.toMatchObject({ id: 'user-1' });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(localStorage.getItem('pneumata-token')).toBe('token-2');
+    expect(localStorage.getItem('pneumata-refresh-token')).toBe('refresh-token-2');
+    expect(fetchMock.mock.calls[2]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({ Authorization: 'Bearer token-2' }),
+    }));
+  });
+
+  it('accepts a refresh token rotated by another tab', async () => {
+    installLocalStorage({
+      'pneumata-auth-mode': 'cloud',
+      'pneumata-token': 'expired-token',
+      'pneumata-refresh-token': 'refresh-token-1',
+    });
+    const refreshResponse = new Response(JSON.stringify({ error: '会话已被刷新' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: '登录已过期' }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }))
+      .mockImplementationOnce(async () => {
+        localStorage.setItem('pneumata-token', 'token-from-other-tab');
+        localStorage.setItem('pneumata-refresh-token', 'refresh-token-from-other-tab');
+        return refreshResponse;
+      })
+      .mockResolvedValueOnce(jsonResponse({ id: 'user-1', phone: '+8613800000000', nickname: '用户', avatar: '🍵' }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(api.getMe()).resolves.toMatchObject({ id: 'user-1' });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(localStorage.getItem('pneumata-refresh-token')).toBe('refresh-token-from-other-tab');
+  });
 });
 
 describe('api getAiBalance cache', () => {

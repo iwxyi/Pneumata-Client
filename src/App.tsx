@@ -273,6 +273,41 @@ function AuthBootstrap() {
     void checkAuth();
   }, [authMode, checkAuth, isAdminRoute, token]);
 
+  useEffect(() => {
+    if (isAdminRoute || authMode !== 'cloud' || !token) return;
+    let disposed = false;
+    let timer: number | null = null;
+    const refresh = async () => {
+      if (document.visibilityState === 'hidden' || !navigator.onLine) return;
+      const refreshed = await api.refreshAuthIfNeeded();
+      if (!disposed && refreshed) {
+        useAuthStore.setState({ token: localStorage.getItem('pneumata-token') });
+      }
+      if (!disposed) schedule();
+    };
+    const schedule = () => {
+      if (timer !== null) window.clearTimeout(timer);
+      const delay = api.getAuthRefreshDelayMs();
+      // Unknown/non-JWT tokens are left to the normal request/401 fallback.
+      if (delay === null) return;
+      timer = window.setTimeout(() => { void refresh(); }, delay);
+    };
+    const onResume = () => { void refresh(); };
+    window.addEventListener('focus', onResume);
+    window.addEventListener('online', onResume);
+    window.addEventListener('storage', onResume);
+    document.addEventListener('visibilitychange', onResume);
+    schedule();
+    return () => {
+      disposed = true;
+      if (timer !== null) window.clearTimeout(timer);
+      window.removeEventListener('focus', onResume);
+      window.removeEventListener('online', onResume);
+      window.removeEventListener('storage', onResume);
+      document.removeEventListener('visibilitychange', onResume);
+    };
+  }, [authMode, isAdminRoute, token]);
+
   return null;
 }
 
