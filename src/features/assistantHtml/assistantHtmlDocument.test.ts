@@ -138,7 +138,7 @@ describe('assistant HTML viewer display mode', () => {
     expect(document.indexOf('parent.postMessage')).toBeLessThan(document.indexOf('src="https://cdn.example.test/game.js"'));
   });
 
-  it('reports handled page failures that only appear in visible status text', () => {
+  it('does not infer runtime errors from visible status text', () => {
     const document = buildAssistantHtmlDocument({
       html: '<p>关卡生成失败，请点击重玩本关再试一次。</p>',
       manifest,
@@ -147,11 +147,10 @@ describe('assistant HTML viewer display mode', () => {
       versionId: 'version-page-state',
     });
     expect(document).toContain('window.pneumataReportError=reportAuthoredError');
-    expect(document).toContain('页面可见状态');
-    expect(document).toContain('page_state');
-    expect(document).toContain('MutationObserver');
-    expect(document).toContain('replace(/\\s+/g');
-    expect(document).toContain('[^。！？\\n]');
+    expect(document).not.toContain('页面可见状态');
+    expect(document).not.toContain('MutationObserver');
+    expect(document).toContain('kind:\'runtime\'');
+    expect(document).toContain('normalized.stack||\'\'');
   });
 
   it('keeps historical runtime errors visible without repeating them in the console', () => {
@@ -166,7 +165,21 @@ describe('assistant HTML viewer display mode', () => {
     expect(document).toContain('"quietRuntimeErrors":true');
     expect(document).toContain('if(!config.quietRuntimeErrors)originalConsoleError(...args)');
     expect(document).toContain('if(config.quietRuntimeErrors)event.preventDefault()');
-    expect(document).toContain("describeError('console'");
+    expect(document).toContain("kind:'console'");
+    expect(document).toContain("source:'console.error'");
+  });
+
+  it('buffers initialization diagnostics until the host handshake', () => {
+    const document = buildAssistantHtmlDocument({
+      html: '<script>throw new Error("initial failure")</script>',
+      manifest,
+      channelToken: 'handshake-channel',
+      artifactId: 'artifact-handshake',
+      versionId: 'version-handshake',
+    });
+    expect(document).toContain('let hostReady=false;const pending=[]');
+    expect(document).toContain("data.type!=='host_ready'");
+    expect(document).toContain('while(pending.length)post(pending.shift())');
   });
 
 });

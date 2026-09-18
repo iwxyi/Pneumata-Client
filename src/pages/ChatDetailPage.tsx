@@ -2451,6 +2451,10 @@ export default function ChatDetailPage() {
 
   const handleHtmlRepair = useCallback(async (runtimeError: AssistantHtmlRuntimeError) => {
     if (!chat || !id || chat.type !== 'assistant' || chatInteractionDisabled) return;
+    if (runtimeError.kind === 'page_state') {
+      showErrorToast('页面只显示了失败状态，但没有上报具体异常，暂时无法自动修复。请让页面代码调用 window.pneumataReportError(error, "具体阶段")。');
+      return;
+    }
     setHtmlRepairRetry(null);
     await enqueueManualInput(async () => {
       const artifact = useAssistantArtifactStore.getState().items.find((item) => item.id === runtimeError.artifactId && item.kind === 'html' && item.deletedAt == null);

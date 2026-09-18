@@ -9,6 +9,7 @@ import { copyTextToClipboard } from '../../utils/clipboard';
 import { ensureAssistantArtifactStoreHydrated, useAssistantArtifactStore } from '../../stores/useAssistantArtifactStore';
 import type { AssistantArtifactItem, AssistantArtifactVersion } from '../../types/assistantArtifact';
 import AssistantHtmlFrame, { type AssistantHtmlInteractionPayload, type AssistantHtmlRuntimeError } from './AssistantHtmlFrame';
+import { CopyTextDialog } from '../../components/common/CopyTextDialog';
 
 function currentVersion(item: AssistantArtifactItem) {
   return item.versions.find((version) => version.id === item.currentVersionId) || item.versions.at(-1) || null;
@@ -21,7 +22,14 @@ function visibleVersion(item: AssistantArtifactItem, versionId: string | null) {
 function versionLabel(item: AssistantArtifactItem, version: AssistantArtifactVersion | null) {
   if (!version) return '';
   const index = item.versions.findIndex((entry) => entry.id === version.id);
-  return index < 0 ? '' : `${index + 1} / ${item.versions.length}`;
+  if (index < 0) return '';
+  const storedTotal = Number.isFinite(item.revision) && (item.revision || 0) > 0 ? item.revision : 0;
+  const maxVersionRevision = Math.max(0, ...item.versions.map((entry) => Number(entry.revision) || 0));
+  const total = Math.max(item.versions.length, storedTotal, maxVersionRevision);
+  const revision = total > item.versions.length
+    ? total - item.versions.length + index + 1
+    : (Number.isFinite(version.revision) && (version.revision || 0) > 0 ? version.revision : index + 1);
+  return `${revision} / ${total}`;
 }
 
 function downloadHtml(item: AssistantArtifactItem, version: AssistantArtifactVersion) {
@@ -45,6 +53,7 @@ export default function AssistantHtmlFullscreenDialog({ artifactId, onClose, onA
 }) {
   const artifact = useAssistantArtifactStore((state) => state.items.find((item) => item.id === artifactId && item.kind === 'html' && item.deletedAt == null) || null);
   const [versionId, setVersionId] = useState<string | null>(null);
+  const [copyFallback, setCopyFallback] = useState<string | null>(null);
   const historyMarkerRef = useRef(`assistant-html-fullscreen:${artifactId || 'none'}`);
 
   useEffect(() => {
@@ -99,7 +108,7 @@ export default function AssistantHtmlFullscreenDialog({ artifactId, onClose, onA
               <Typography variant="caption" color="text.secondary" sx={{ minWidth: 48, textAlign: 'center' }}>{versionLabel(artifact, version)}</Typography>
               {version.stage === 'autosave' ? <Chip size="small" color="warning" variant="outlined" label="自动保存" sx={{ height: 22 }} /> : null}
               <IconButton onClick={() => stepVersion(1)} disabled={versionIndex < 0 || versionIndex >= artifact.versions.length - 1} aria-label="下一版本"><NavigateNextOutlinedIcon /></IconButton>
-              <IconButton onClick={() => void copyTextToClipboard(version.content)} aria-label="复制 HTML"><ContentCopyOutlinedIcon /></IconButton>
+              <IconButton onClick={async () => { if (!(await copyTextToClipboard(version.content))) setCopyFallback(version.content); }} aria-label="复制 HTML"><ContentCopyOutlinedIcon /></IconButton>
               <IconButton onClick={() => downloadHtml(artifact, version)} aria-label="下载 HTML"><DownloadOutlinedIcon /></IconButton>
               <IconButton onClick={requestClose} aria-label="关闭 HTML 页面"><CloseOutlinedIcon /></IconButton>
             </Stack>
@@ -118,6 +127,7 @@ export default function AssistantHtmlFullscreenDialog({ artifactId, onClose, onA
           </DialogContent>
         </>
       ) : null}
+      <CopyTextDialog open={Boolean(copyFallback)} label="HTML 内容" value={copyFallback || ''} onClose={() => setCopyFallback(null)} />
     </Dialog>
   );
 }

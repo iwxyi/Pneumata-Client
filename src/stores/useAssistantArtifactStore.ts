@@ -351,7 +351,7 @@ export const useAssistantArtifactStore = create<AssistantArtifactStore>()(
               dataDescriptor: draft.dataDescriptor,
               stage: draft.versionStage || (draft.kind === 'html' ? (existing ? 'ai_result' : 'generated') : undefined),
               updatedAt: now + index,
-              revision: 1,
+              revision: (existing?.versions.at(-1)?.revision || existing?.revision || 0) + 1,
               createdAt: now + index,
             };
             if (existing) {
@@ -368,6 +368,7 @@ export const useAssistantArtifactStore = create<AssistantArtifactStore>()(
                 dataDescriptor: draft.dataDescriptor || existing.dataDescriptor,
                 currentVersionId: version.id,
                 versions: [...existing.versions, version].slice(-MAX_VERSIONS_PER_ARTIFACT),
+                revision: version.revision,
                 sourceMessageId: messageId,
                 updatedAt: now + index,
               };

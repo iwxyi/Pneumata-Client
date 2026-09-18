@@ -8,6 +8,8 @@ import { validateAssistantHtmlPayload } from './assistantHtmlValidation';
 import { useTheme } from '@mui/material/styles';
 import { logDeveloperDiagnostic } from '../../services/developerDiagnostics';
 import { getAssistantHtmlRuntimeError, rememberAssistantHtmlRuntimeError } from './assistantHtmlRuntimeErrorCache';
+import { copyTextToClipboard } from '../../utils/clipboard';
+import { CopyTextDialog } from '../../components/common/CopyTextDialog';
 
 export interface AssistantHtmlInteractionPayload {
   artifactId: string;
@@ -70,12 +72,15 @@ export default function AssistantHtmlFrame({
   const frameRef = useRef<HTMLIFrameElement | null>(null);
   const channelToken = useMemo(() => `${artifactId}:${version.id}:${createHtmlChannelToken()}`, [artifactId, version.id]);
   const [height, setHeight] = useState(manifest.viewport?.preferredHeight || (inline ? 280 : 720));
-  const [ready, setReady] = useState(false);
+  const [loadedVersionId, setLoadedVersionId] = useState<string | null>(null);
+  const bridgeReadyRef = useRef(false);
+  const loaded = loadedVersionId === version.id;
   const cachedRuntimeError = getAssistantHtmlRuntimeError(artifactId, version.id);
   const [error, setError] = useState(() => cachedRuntimeError?.message || '');
   const [lastRuntimeError, setLastRuntimeError] = useState<AssistantHtmlRuntimeError | null>(() => cachedRuntimeError);
   const [repairing, setRepairing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [copyFallback, setCopyFallback] = useState<string | null>(null);
   const interactionId = manifest.submission?.interactionId || '';
   const baseVersionId = version.stage === 'autosave' && version.baseVersionId ? version.baseVersionId : version.id;
   const srcDoc = useMemo(() => buildAssistantHtmlDocument({
@@ -102,7 +107,7 @@ export default function AssistantHtmlFrame({
       });
       if (!message) return;
       if (message.type === 'ready' || message.type === 'resize') {
-        setReady(true);
+        bridgeReadyRef.current = true;
         const nextHeight = Number(message.height || 0);
         if (Number.isFinite(nextHeight) && nextHeight > 0) {
           const maxHeight = inline ? manifest.viewport?.maxInlineHeight || 480 : 1600;
@@ -122,6 +127,7 @@ export default function AssistantHtmlFrame({
           line: info?.line || undefined,
           column: info?.column || undefined,
         };
+        if (runtimeError.kind === 'page_state') return;
         const previousError = getAssistantHtmlRuntimeError(artifactId, version.id);
         const isRepeatedError = previousError?.kind === runtimeError.kind
           && previousError.message === runtimeError.message
@@ -131,10 +137,10 @@ export default function AssistantHtmlFrame({
         if (!readOnly && !isRepeatedError) {
           logDeveloperDiagnostic('html-artifact:iframe-error', { ...runtimeError }, 'error', 'chat-window');
         }
-        rememberAssistantHtmlRuntimeError(runtimeError);
-        setError(runtimeError.message);
-        setLastRuntimeError(runtimeError);
-        onRuntimeError?.(runtimeError);
+        const effectiveError = rememberAssistantHtmlRuntimeError(runtimeError);
+        setError(effectiveError.message);
+        setLastRuntimeError(effectiveError);
+        if (effectiveError === runtimeError) onRuntimeError?.(runtimeError);
         return;
       }
       if (message.type === 'open_fullscreen') {
@@ -151,16 +157,15 @@ export default function AssistantHtmlFrame({
           resultType: manifest.submission.resultType,
           payload,
         };
-        setError('');
         if (message.type === 'autosave') void onAutosave?.(input);
         if (message.type === 'submit') {
           setSubmitting(true);
           void Promise.resolve(onSubmit?.(input)).catch((reason) => {
-            setError(reason instanceof Error ? reason.message : '提交失败');
+            if (!getAssistantHtmlRuntimeError(artifactId, version.id)) setError(reason instanceof Error ? reason.message : '提交失败');
           }).finally(() => setSubmitting(false));
         }
       } catch (reason) {
-        setError(reason instanceof Error ? reason.message : '提交内容无效');
+        if (!getAssistantHtmlRuntimeError(artifactId, version.id)) setError(reason instanceof Error ? reason.message : '提交内容无效');
       }
     };
     window.addEventListener('message', handleMessage);
@@ -178,7 +183,7 @@ export default function AssistantHtmlFrame({
 
   return (
     <Box sx={{ position: 'relative', width: '100%', height: fillContainer ? '100%' : 'auto', minHeight: fillContainer ? 0 : inline ? 160 : 'calc(100dvh - 110px)', flex: fillContainer ? 1 : undefined, display: fillContainer ? 'flex' : undefined, flexDirection: fillContainer ? 'column' : undefined }}>
-      {!ready ? <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}><CircularProgress size={20} /></Box> : null}
+      {!loaded ? <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', pointerEvents: 'none' }}><CircularProgress size={20} /></Box> : null}
       {submitting ? (
         <Box sx={{ position: 'absolute', inset: 0, zIndex: 2, display: 'grid', placeItems: 'center', bgcolor: 'rgba(15,18,24,0.42)', backdropFilter: 'blur(2px)' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, borderRadius: 1, bgcolor: 'background.paper', color: 'text.primary', boxShadow: 3 }}>
@@ -195,22 +200,22 @@ export default function AssistantHtmlFrame({
         sandbox="allow-scripts allow-forms"
         onLoad={() => {
           logDeveloperDiagnostic('html-artifact:iframe-load', { artifactId, versionId: version.id }, 'info', 'chat-window');
+          bridgeReadyRef.current = false;
+          setLoadedVersionId(version.id);
+          frameRef.current?.contentWindow?.postMessage({ type: 'host_ready', channelToken, artifactId, versionId: version.id }, '*');
           // A load event without a bridge-ready event means the document
           // rendered but its runtime script did not execute.
           window.setTimeout(() => {
             if (!frameRef.current?.contentWindow) return;
-            setReady((current) => {
-              if (!current) {
-                if (!readOnly) logDeveloperDiagnostic('html-artifact:iframe-runtime-missing', { artifactId, versionId: version.id }, 'error', 'chat-window');
-                setError('HTML 页面已加载，但交互脚本未执行');
-              }
-              return current;
-            });
+            if (!bridgeReadyRef.current) {
+              if (!readOnly) logDeveloperDiagnostic('html-artifact:iframe-runtime-missing', { artifactId, versionId: version.id }, 'error', 'chat-window');
+              setError('HTML 页面已加载，但交互脚本未执行');
+            }
           }, 1200);
         }}
         sx={{ width: '100%', height: fillContainer ? 'auto' : inline ? height : 'calc(100dvh - 110px)', minHeight: fillContainer ? 0 : inline ? 160 : 420, flex: fillContainer ? 1 : undefined, border: 0, display: 'block', pointerEvents: interactive ? 'auto' : 'none', bgcolor: theme.palette.mode === 'dark' ? '#181a20' : '#fff' }}
       />
-      {!ready ? <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>正在加载交互内容…</Typography> : null}
+      {!loaded ? <Typography variant="caption" color="warning.main" sx={{ display: 'block', mt: 0.5 }}>正在加载交互内容…</Typography> : null}
       {error ? (
         <Box
           onClick={(event) => event.stopPropagation()}
@@ -222,7 +227,7 @@ export default function AssistantHtmlFrame({
             size="small"
             variant="text"
             startIcon={<ContentCopyOutlinedIcon fontSize="inherit" />}
-            onClick={() => {
+            onClick={async () => {
               const detail = [
                 `artifactId: ${artifactId}`,
                 `versionId: ${version.id}`,
@@ -231,7 +236,7 @@ export default function AssistantHtmlFrame({
                 lastRuntimeError?.source ? `来源: ${lastRuntimeError.source}${lastRuntimeError.line ? `:${lastRuntimeError.line}:${lastRuntimeError.column || 0}` : ''}` : '',
                 lastRuntimeError?.stack ? `堆栈:\n${lastRuntimeError.stack}` : '',
               ].filter(Boolean).join('\n');
-              void navigator.clipboard?.writeText(detail);
+              if (!(await copyTextToClipboard(detail))) setCopyFallback(detail);
             }}
             sx={{ minWidth: 'auto', flexShrink: 0, textTransform: 'none' }}
           >复制</Button>
@@ -247,6 +252,12 @@ export default function AssistantHtmlFrame({
           >{repairing ? '正在修复' : '修复'}</Button> : null}
         </Box>
       ) : null}
+      <CopyTextDialog
+        open={Boolean(copyFallback)}
+        label="HTML 错误详情"
+        value={copyFallback || ''}
+        onClose={() => setCopyFallback(null)}
+      />
     </Box>
   );
 }
