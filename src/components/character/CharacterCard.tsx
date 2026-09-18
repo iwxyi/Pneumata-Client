@@ -105,6 +105,7 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
       sx={{
         ...buildInteractiveSurfaceSx({ selected: Boolean(selected) }),
         height: '100%',
+        containerType: 'inline-size',
         contentVisibility: 'auto',
         containIntrinsicSize: '132px',
         overflow: 'hidden',
@@ -151,6 +152,10 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
               '&:active': {
                 transform: 'scale(0.94)',
               },
+              '@container (max-width: 175px)': {
+                top: 4,
+                right: 4,
+              },
             }}
           >
             <MoreIcon fontSize="small" />
@@ -168,20 +173,30 @@ export default function CharacterCard({ character, onEdit, onDelete, onStartDire
             height: '100%',
           }}
         >
-          <CardContent sx={{ p: 2, pr: (onEdit || onDelete) ? 6 : 2, height: '100%', '&:last-child': { pb: 2 } }}>
-            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+          <CardContent sx={{
+            p: 2,
+            pr: (onEdit || onDelete) ? 6 : 2,
+            height: '100%',
+            '&:last-child': { pb: 2 },
+            '@container (max-width: 175px)': {
+              p: 1.25,
+              pr: (onEdit || onDelete) ? 4.75 : 1.25,
+              '&:last-child': { pb: 1.25 },
+            },
+          }}>
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, '@container (max-width: 175px)': { gap: 0.75 } }}>
               <Avatar
                 className="character-card-avatar"
                 src={isImageAvatar(character.avatar) ? resolveSafeAvatarSrc(character.avatar) : undefined}
                 slotProps={{ img: { onError: () => rememberFailedAvatarUrl(character.avatar), loading: 'lazy', decoding: 'async' } }}
-                sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light' }}>
+                sx={{ width: 48, height: 48, fontSize: '1.5rem', bgcolor: 'primary.light', '@container (max-width: 175px)': { width: 40, height: 40, fontSize: '1.2rem' } }}>
                 {isImageAvatar(character.avatar) ? undefined : character.avatar}
               </Avatar>
               <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
+                <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600, '@container (max-width: 175px)': { fontSize: '0.9rem', lineHeight: 1.25 } }}>
                   {character.name}
                 </Typography>
-                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5, '@container (max-width: 175px)': { gap: 0.35, mt: 0.35, '& .MuiChip-root': { height: 20, maxWidth: '100%', fontSize: '0.68rem' }, '& .MuiChip-label': { px: 0.65, overflow: 'hidden', textOverflow: 'ellipsis' } } }}>
                   {topTraits.map((trait) => (
                     <Chip key={trait} label={trait} size="small" variant="outlined" />
                   ))}

@@ -750,7 +750,7 @@ export default function CharacterLibraryPage() {
             const taskId = avatarGenerationQueue.enqueue(imageProfile, visualPlan.prompt, { targetKey: `character-visual:${current.id}`, characterId: null, description: `${current.name.trim() || '未命名角色'} · 形象图${visualPlan.fallbackUsed ? '（基础模板）' : ''}`, negativePrompt: visualPlan.negativePrompt, seed: visualIdentity.seed });
             const state = await avatarGenerationQueue.waitForTask(taskId);
             if (!state.imageDataUrl) throw new Error('图片生成未返回图像');
-            const asset = await api.createCharacterVisualAsset(current.id, { dataUrl: state.imageDataUrl, label: '形象图', source: 'generated', isPrimary: true });
+            await api.createCharacterVisualAsset(current.id, { dataUrl: state.imageDataUrl, label: '形象图', source: 'generated', isPrimary: true });
             // 视觉资产由独立接口持久化，重新加载详情，避免同一资产同时出现在
             // visual_identity 和 character_visual_assets 中而显示重复。
             await useCharacterStore.getState().loadCharacters();
@@ -909,7 +909,7 @@ export default function CharacterLibraryPage() {
   }, [setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav]);
 
   return (
-    <Box sx={{ position: 'relative', containerType: 'inline-size', p: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 82px)', sm: 12 } }}>
+    <Box sx={{ position: 'relative', containerType: 'inline-size', px: { xs: 1.5, sm: 3 }, py: 3, pt: { xs: 1, sm: 1, md: 3 }, pb: { xs: 'calc(env(safe-area-inset-bottom, 0px) + 82px)', sm: 12 } }}>
       {loadError || duplicateCharacterCount > 0 ? (
         <Box sx={buildFloatingTabContainerSx()}>
           {loadError ? (
@@ -948,6 +948,7 @@ export default function CharacterLibraryPage() {
       ) : null}
 
       <CharacterGroupFilterBar
+        collapsible
         allLabel={i18n.language.startsWith('zh') ? '全部' : 'All'}
         allValue="all"
         allCount={custom.length}
@@ -971,7 +972,7 @@ export default function CharacterLibraryPage() {
         </Alert>
       ) : null}
       {(isLoading && characters.length === 0) || (view === 'card' && libraryLoading && libraryItems.length === 0) ? (
-        <ListSkeletonGrid />
+        <ListSkeletonGrid sx={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: { xs: 1, sm: 1.5 } }} />
       ) : displayChars.length === 0 ? (
         <EmptyState
           variant="plain"
@@ -985,11 +986,17 @@ export default function CharacterLibraryPage() {
       ) : (
         <Box
           sx={{
-            ...(view === 'list' ? buildListGridSx() : {
+            ...(view === 'list' ? {
+              ...buildListGridSx(),
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            } : {
               display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 196px), 1fr))',
-              gap: 1.5,
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              '@container (min-width: 620px)': {
+                gridTemplateColumns: 'repeat(auto-fill, minmax(196px, 1fr))',
+              },
             }),
+            gap: { xs: 1, sm: 1.5 },
             alignItems: 'stretch',
           }}
         >

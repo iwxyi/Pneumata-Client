@@ -1,13 +1,15 @@
 import { Box, Skeleton } from '@mui/material';
+import type { SxProps, Theme } from '@mui/material/styles';
 import { buildListGridSx } from '../../styles/interaction';
 
 interface ListSkeletonGridProps {
   count?: number;
+  sx?: SxProps<Theme>;
 }
 
-export default function ListSkeletonGrid({ count = 6 }: ListSkeletonGridProps) {
+export default function ListSkeletonGrid({ count = 6, sx }: ListSkeletonGridProps) {
   return (
-    <Box sx={buildListGridSx()}>
+    <Box sx={[buildListGridSx(), ...(Array.isArray(sx) ? sx : [sx])]}>
       {Array.from({ length: count }).map((_, index) => (
         <Box
           key={index}
