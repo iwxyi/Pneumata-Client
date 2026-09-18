@@ -124,7 +124,8 @@ function buildStatGridSx() {
     display: 'grid',
     gridTemplateColumns: {
       xs: 'repeat(auto-fit, minmax(104px, 1fr))',
-      sm: 'repeat(auto-fit, minmax(116px, 142px))',
+      sm: 'repeat(3, minmax(0, 1fr))',
+      lg: 'repeat(4, minmax(0, 1fr))',
     },
     columnGap: { xs: 0.75, sm: 1 },
     rowGap: { xs: 1, sm: 1.25 },
@@ -196,7 +197,7 @@ function buildStatCardSx() {
   return {
     width: '100%',
     height: '100%',
-    maxWidth: { xs: 'none', sm: 142 },
+    maxWidth: 'none',
     minWidth: 0,
     position: 'relative',
     overflow: 'visible',

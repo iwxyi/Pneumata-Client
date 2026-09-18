@@ -27,7 +27,7 @@ type NavPreview = {
   phase: 'pointer' | 'commit';
 };
 
-export default function BottomNav() {
+export default function BottomNav({ compact = false }: { compact?: boolean }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation();
@@ -176,12 +176,16 @@ export default function BottomNav() {
     <Paper
       sx={{
         position: 'fixed',
-        left: 'max(env(safe-area-inset-left, 0px), 24px)',
-        right: 'max(env(safe-area-inset-right, 0px), 24px)',
+        left: compact
+          ? 'max(env(safe-area-inset-left, 0px), 32px)'
+          : 'max(env(safe-area-inset-left, 0px), 24px)',
+        right: compact
+          ? 'max(env(safe-area-inset-right, 0px), 32px)'
+          : 'max(env(safe-area-inset-right, 0px), 24px)',
         bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
         zIndex: 1200,
         px: 0.5,
-        py: 0.45,
+        py: compact ? 0.2 : 0.45,
         borderRadius: '20px',
         overflow: 'hidden',
         border: '1px solid',
@@ -192,6 +196,8 @@ export default function BottomNav() {
         boxShadow: (theme) => theme.palette.mode === 'light'
           ? '0 12px 30px rgba(15,23,42,0.14), 0 1px 0 rgba(255,255,255,0.72) inset'
           : '0 14px 32px rgba(0,0,0,0.30), 0 1px 0 rgba(255,255,255,0.08) inset',
+        transform: compact ? 'translateY(5px)' : 'translateY(0)',
+        transition: `left 420ms ${motion.gentleSpring}, right 420ms ${motion.gentleSpring}, transform 420ms ${motion.gentleSpring}, border-radius 360ms ${motion.softOut}`,
         '&::before': {
           content: '""',
           position: 'absolute',
@@ -218,7 +224,8 @@ export default function BottomNav() {
         }}
         showLabels
         sx={{
-          height: 50,
+          height: compact ? 44 : 50,
+          transition: `height 360ms ${motion.softOut}`,
           position: 'relative',
           bgcolor: 'transparent',
           borderRadius: '16px',
@@ -226,11 +233,11 @@ export default function BottomNav() {
             content: '""',
             position: 'absolute',
             zIndex: 0,
-            top: 3,
-            bottom: 3,
+            top: compact ? 2 : 3,
+            bottom: compact ? 2 : 3,
             left: `calc(${visualIndex * 25}% + 0.75%)`,
             width: '23.5%',
-            borderRadius: '13px',
+            borderRadius: compact ? '11px' : '13px',
             pointerEvents: 'none',
             background: (theme) => theme.palette.mode === 'light'
               ? 'rgba(255,255,255,0.88)'
@@ -242,8 +249,8 @@ export default function BottomNav() {
             boxShadow: (theme) => theme.palette.mode === 'light'
               ? '0 5px 14px rgba(15,23,42,0.09)'
               : '0 5px 16px rgba(0,0,0,0.22)',
-            transition: transition(['left', 'transform'], motion.durations.navTrack, motion.navTrack),
-            transform: isPressPreviewing ? 'scaleX(0.965)' : 'scaleX(1)',
+            transition: transition(['left', 'transform'], 380, motion.navTrack),
+            transform: `${isPressPreviewing ? 'scaleX(0.965)' : 'scaleX(1)'} scaleY(${compact ? 0.94 : 1})`,
             transformOrigin: 'center',
             willChange: 'left',
           },
@@ -254,11 +261,11 @@ export default function BottomNav() {
             zIndex: 1,
             borderRadius: '12px',
             mx: 0.2,
-            my: 0.25,
-            py: 0.25,
+            my: compact ? 0 : 0.25,
+            py: compact ? 0 : 0.25,
             backgroundColor: 'transparent',
             touchAction: 'pan-y',
-            transition: transition(['color', 'opacity', 'background-color', 'transform'], motion.durations.fast, motion.softOut),
+            transition: transition(['color', 'opacity', 'background-color', 'transform'], 380, motion.softOut),
             '@media (hover: hover) and (pointer: fine)': {
               '&:hover:not(.Mui-selected)': {
                 color: 'text.primary',
@@ -293,7 +300,8 @@ export default function BottomNav() {
             fontWeight: 650,
             lineHeight: 1.15,
             transform: 'none',
-            transition: transition(['color', 'opacity'], motion.durations.label),
+            opacity: compact ? 0.72 : 1,
+            transition: transition(['color', 'opacity'], 340, motion.softOut),
             '&.Mui-selected': {
               fontSize: 10,
               transform: 'none',

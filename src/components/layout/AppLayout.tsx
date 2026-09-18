@@ -328,7 +328,7 @@ export default function AppLayout() {
           </Box>
 
           {isMobile && !hideMobileBottomNav ? (
-            <BottomNav />
+            <BottomNav compact={effectiveHeaderHidden} />
           ) : null}
           <AppSnackbar
             open={diagnosticToast.open}

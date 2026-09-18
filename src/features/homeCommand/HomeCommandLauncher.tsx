@@ -206,6 +206,10 @@ export default function HomeCommandLauncher() {
       sx={{
         borderColor: 'divider',
       }}
+      contentSx={{
+        pb: { xs: 1.25, sm: 1.5 },
+        '&:last-child': { pb: { xs: 1.25, sm: 1.5 } },
+      }}
     >
       <Box sx={{ display: 'grid', gap: 1.25 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
