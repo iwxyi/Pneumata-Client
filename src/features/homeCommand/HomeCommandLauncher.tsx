@@ -207,11 +207,11 @@ export default function HomeCommandLauncher() {
         borderColor: 'divider',
       }}
       contentSx={{
-        pb: { xs: 1.25, sm: 1.5 },
-        '&:last-child': { pb: { xs: 1.25, sm: 1.5 } },
+        pb: { xs: 1, sm: 1.25 },
+        '&:last-child': { pb: { xs: 1, sm: 1.25 } },
       }}
     >
-      <Box sx={{ display: 'grid', gap: 1.25 }}>
+      <Box sx={{ display: 'grid', gap: 1.25, '& > .MuiCollapse-hidden': { display: 'none' } }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
             <AutoAwesomeIcon color="primary" fontSize="small" />

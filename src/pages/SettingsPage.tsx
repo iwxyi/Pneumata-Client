@@ -262,10 +262,18 @@ const VOICE_STYLE_OPTIONS: Array<{ value: VoiceWaveformStyle; zh: string; en: st
   { value: 'pulse', zh: '呼吸脉冲', en: 'Pulse' },
   { value: 'orbit', zh: '轨道粒子', en: 'Orbit' },
   { value: 'ribbon', zh: '丝带曲线', en: 'Ribbon' },
+  { value: 'echo', zh: '回声涟漪', en: 'Echo' },
+  { value: 'constellation', zh: '星图节点', en: 'Constellation' },
+  { value: 'helix', zh: '双螺旋', en: 'Helix' },
+  { value: 'comet', zh: '彗星轨迹', en: 'Comet' },
 ];
 
-function VoiceStylePreview({ style }: { style: VoiceWaveformStyle }) {
-  const bars = Array.from({ length: 12 }, (_, index) => 7 + ((index * 11 + 5) % 13));
+const POPULAR_VOICE_STYLE_COUNT = 4;
+
+function VoiceStylePreview({ style, selected }: { style: VoiceWaveformStyle; selected: boolean }) {
+  const bars = [8, 13, 18, 11, 16, 20, 14, 9, 17, 12, 7];
+  const playState = selected ? 'running' : 'paused';
+  const svgMotionStyle = { animationPlayState: playState } as const;
   return (
     <Box className="voice-style-preview" aria-hidden="true" sx={(theme) => ({
       '--voice-preview-primary': theme.palette.primary.main,
@@ -274,28 +282,77 @@ function VoiceStylePreview({ style }: { style: VoiceWaveformStyle }) {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: 0.35,
+      gap: 0.3,
       overflow: 'hidden',
-      '@keyframes voicePreviewPulse': { from: { transform: 'scaleY(.58)' }, to: { transform: 'scaleY(1.05)' } },
-      '@keyframes voicePreviewFloat': { from: { transform: 'translateY(-3px) scale(.82)' }, to: { transform: 'translateY(3px) scale(1.08)' } },
-      '@keyframes voicePreviewSweep': { from: { strokeDashoffset: 28 }, to: { strokeDashoffset: 0 } },
-      '@keyframes voicePreviewWave': { '0%, 100%': { transform: 'translateY(1px) scaleY(.86)', opacity: 0.72 }, '50%': { transform: 'translateY(-1px) scaleY(1.08)', opacity: 1 } },
-      '@keyframes voicePreviewBlocks': { from: { transform: 'scaleY(.62)' }, to: { transform: 'scaleY(1.12)' } },
-      '@keyframes voicePreviewSpectrum': { '0%, 100%': { transform: 'scaleY(.72)', opacity: 0.55 }, '50%': { transform: 'scaleY(1.16)', opacity: 1 } },
-      '@keyframes voicePreviewRibbon': { '0%, 100%': { transform: 'translateX(-1px) scaleY(.92)' }, '50%': { transform: 'translateX(1px) scaleY(1.06)' } },
-      '.Mui-selected & .voice-preview-motion': { animationPlayState: 'running' },
+      '@keyframes voicePreviewWaveDrift': { from: { strokeDashoffset: 0 }, to: { strokeDashoffset: -36 } },
+      '@keyframes voicePreviewWaveBreathe': { '0%, 100%': { transform: 'scaleY(.82)' }, '50%': { transform: 'scaleY(1.08)' } },
+      '@keyframes voicePreviewBlockBeat': { '0%, 18%, 100%': { transform: 'scaleY(.5)', opacity: 0.48 }, '38%': { transform: 'scaleY(1.12)', opacity: 1 }, '58%': { transform: 'scaleY(.72)', opacity: 0.72 } },
+      '@keyframes voicePreviewNeonRun': { from: { strokeDashoffset: 42 }, to: { strokeDashoffset: -42 } },
+      '@keyframes voicePreviewNeonGlow': { '0%, 100%': { opacity: 0.55 }, '50%': { opacity: 1 } },
+      '@keyframes voicePreviewSpectrumRise': { '0%, 100%': { transform: 'scaleY(.35)', filter: 'saturate(.8)' }, '45%': { transform: 'scaleY(1.08)', filter: 'saturate(1.35)' }, '68%': { transform: 'scaleY(.62)' } },
+      '@keyframes voicePreviewPulseBreath': { '0%, 100%': { transform: 'scaleY(.48)', opacity: 0.42 }, '50%': { transform: 'scaleY(1)', opacity: 1 } },
+      '@keyframes voicePreviewOrbit': { from: { transform: 'rotate(0deg) translateX(25px) rotate(0deg)' }, to: { transform: 'rotate(360deg) translateX(25px) rotate(-360deg)' } },
+      '@keyframes voicePreviewOrbitReverse': { from: { transform: 'rotate(360deg) translateX(15px) rotate(-360deg)' }, to: { transform: 'rotate(0deg) translateX(15px) rotate(0deg)' } },
+      '@keyframes voicePreviewRibbonFlow': { '0%, 100%': { transform: 'translateX(-2px) skewX(-2deg)' }, '50%': { transform: 'translateX(2px) skewX(2deg)' } },
+      '@keyframes voicePreviewRibbonShimmer': { from: { strokeDashoffset: 28 }, to: { strokeDashoffset: -28 } },
+      '@keyframes voicePreviewEcho': { '0%': { transform: 'scale(.55)', opacity: 0 }, '35%': { opacity: 0.8 }, '100%': { transform: 'scale(1.15)', opacity: 0 } },
+      '@keyframes voicePreviewStars': { '0%, 100%': { transform: 'scale(.72)', opacity: 0.5 }, '50%': { transform: 'scale(1.35)', opacity: 1 } },
+      '@keyframes voicePreviewHelix': { '0%, 100%': { transform: 'translateY(-4px)' }, '50%': { transform: 'translateY(4px)' } },
+      '@keyframes voicePreviewComet': { from: { strokeDashoffset: 62 }, to: { strokeDashoffset: -20 } },
       '@media (prefers-reduced-motion: reduce)': { '& .voice-preview-motion': { animation: 'none !important' } },
     })}>
-      {style === 'wave' || style === 'neon' || style === 'ribbon' ? (
-        <svg viewBox="0 0 72 18" style={{ width: 72, height: 18, overflow: 'visible' }}>
-          <defs><linearGradient id={`preview-${style}`} x1="0" y1="0" x2="1" y2="0"><stop stopColor="var(--voice-preview-primary)" /><stop offset="1" stopColor="var(--voice-preview-secondary)" /></linearGradient></defs>
-          <path className="voice-preview-motion" d="M1 12 C8 12 9 3 16 5 S26 15 33 9 S43 2 50 6 S61 14 71 7" fill="none" stroke={style === 'ribbon' ? `url(#preview-${style})` : style === 'neon' ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)'} strokeWidth={style === 'ribbon' ? '3' : '2'} strokeLinecap="round" strokeDasharray={style === 'neon' ? '5 2' : undefined} style={{ filter: style === 'neon' ? 'drop-shadow(0 0 3px var(--voice-preview-secondary))' : undefined, animation: `${style === 'neon' ? 'voicePreviewSweep 1.1s linear infinite' : style === 'ribbon' ? 'voicePreviewRibbon 1.8s ease-in-out infinite' : 'voicePreviewWave 1.8s ease-in-out infinite'} paused` }} />
+      {style === 'wave' ? (
+        <svg viewBox="0 0 76 20" style={{ width: 76, height: 20, overflow: 'visible' }}>
+          <path d="M1 10 C7 10 8 4 14 4 S22 16 28 16 S36 5 42 5 S50 14 56 14 S64 7 75 7" fill="none" stroke="var(--voice-preview-primary)" strokeWidth="1.8" strokeLinecap="round" opacity=".22" />
+          <path className="voice-preview-motion" d="M1 10 C7 10 8 4 14 4 S22 16 28 16 S36 5 42 5 S50 14 56 14 S64 7 75 7" fill="none" stroke="var(--voice-preview-primary)" strokeWidth="2.2" strokeLinecap="round" strokeDasharray="9 5" style={{ ...svgMotionStyle, animation: 'voicePreviewWaveDrift 1.45s linear infinite, voicePreviewWaveBreathe 2.2s ease-in-out infinite', animationPlayState: playState, transformOrigin: 'center' }} />
+        </svg>
+      ) : style === 'blocks' ? bars.map((height, index) => (
+        <Box key={index} className="voice-preview-motion" sx={{ width: 4, height, borderRadius: 0.75, bgcolor: 'var(--voice-preview-primary)', transformOrigin: 'center', animation: `voicePreviewBlockBeat 1.35s cubic-bezier(.2,.8,.25,1) ${-(index % 6) * 0.11}s infinite`, animationPlayState: playState }} />
+      )) : style === 'neon' ? (
+        <svg viewBox="0 0 76 20" style={{ width: 76, height: 20, overflow: 'visible' }}>
+          <path d="M1 12 C9 12 10 4 18 5 S28 16 36 9 S47 3 54 8 S65 14 75 6" fill="none" stroke="var(--voice-preview-secondary)" strokeWidth="5" strokeLinecap="round" opacity=".16" style={{ filter: 'blur(2px)' }} />
+          <path className="voice-preview-motion" d="M1 12 C9 12 10 4 18 5 S28 16 36 9 S47 3 54 8 S65 14 75 6" fill="none" stroke="var(--voice-preview-secondary)" strokeWidth="2" strokeLinecap="round" strokeDasharray="7 4 2 4" style={{ animation: 'voicePreviewNeonRun 1.15s linear infinite, voicePreviewNeonGlow 1.8s ease-in-out infinite', animationPlayState: playState, filter: 'drop-shadow(0 0 3px var(--voice-preview-secondary))' }} />
+        </svg>
+      ) : style === 'spectrum' ? bars.map((height, index) => (
+        <Box key={index} className="voice-preview-motion" sx={{ width: 3.5, height, borderRadius: 99, background: 'linear-gradient(180deg, var(--voice-preview-secondary), var(--voice-preview-primary))', transformOrigin: 'bottom', animation: `voicePreviewSpectrumRise ${0.92 + (index % 5) * 0.1}s cubic-bezier(.4,0,.2,1) ${-index * 0.085}s infinite`, animationPlayState: playState }} />
+      )) : style === 'pulse' ? bars.map((height, index) => {
+        const distance = Math.abs(index - (bars.length - 1) / 2);
+        return <Box key={index} className="voice-preview-motion" sx={{ width: distance < 1 ? 4.5 : 3, height: Math.max(7, 20 - distance * 2.1), borderRadius: 99, bgcolor: distance < 2 ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)', transformOrigin: 'center', animation: `voicePreviewPulseBreath 1.5s ease-in-out ${distance * 0.08}s infinite`, animationPlayState: playState }} />;
+      }) : style === 'echo' ? (
+        <Box sx={{ width: 72, height: 20, position: 'relative', display: 'grid', placeItems: 'center' }}>
+          {[0, 1, 2].map((index) => <Box key={index} className="voice-preview-motion" sx={{ position: 'absolute', width: 58, height: 16, border: '1.5px solid', borderColor: index === 1 ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)', borderRadius: '50%', animation: `voicePreviewEcho 2s ease-out ${index * 0.55}s infinite`, animationPlayState: playState }} />)}
+          <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: 'var(--voice-preview-primary)' }} />
+        </Box>
+      ) : style === 'constellation' ? (
+        <Box sx={{ width: 72, height: 20, position: 'relative' }}>
+          <svg viewBox="0 0 72 20" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}><path d="M4 14 L17 6 L31 13 L45 4 L57 12 L68 7" fill="none" stroke="var(--voice-preview-primary)" strokeWidth=".8" opacity=".4" /></svg>
+          {[[4, 14], [17, 6], [31, 13], [45, 4], [57, 12], [68, 7]].map(([left, top], index) => <Box key={left} className="voice-preview-motion" sx={{ position: 'absolute', left: left - 2, top: top - 2, width: index % 3 === 0 ? 5 : 4, height: index % 3 === 0 ? 5 : 4, borderRadius: '50%', bgcolor: index % 2 ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)', animation: `voicePreviewStars 1.65s ease-in-out ${index * 0.16}s infinite`, animationPlayState: playState }} />)}
+        </Box>
+      ) : style === 'helix' ? (
+        <Box sx={{ width: 72, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          {Array.from({ length: 9 }, (_, index) => <Box key={index} sx={{ width: 2, height: 12, position: 'relative', bgcolor: 'divider' }}><Box className="voice-preview-motion" sx={{ position: 'absolute', left: -1.5, top: -1.5, width: 5, height: 5, borderRadius: '50%', bgcolor: 'var(--voice-preview-primary)', animation: `voicePreviewHelix 1.45s ease-in-out ${index * 0.11}s infinite`, animationPlayState: playState }} /><Box className="voice-preview-motion" sx={{ position: 'absolute', left: -1.5, bottom: -1.5, width: 5, height: 5, borderRadius: '50%', bgcolor: 'var(--voice-preview-secondary)', animation: `voicePreviewHelix 1.45s ease-in-out ${index * 0.11 + 0.72}s infinite reverse`, animationPlayState: playState }} /></Box>)}
+        </Box>
+      ) : style === 'comet' ? (
+        <svg viewBox="0 0 76 20" style={{ width: 76, height: 20, overflow: 'visible' }}>
+          <path d="M1 13 C13 13 14 5 25 7 S39 16 49 9 S63 4 75 8" fill="none" stroke="var(--voice-preview-primary)" strokeWidth="1.4" opacity=".2" />
+          <path className="voice-preview-motion" d="M1 13 C13 13 14 5 25 7 S39 16 49 9 S63 4 75 8" fill="none" stroke="var(--voice-preview-secondary)" strokeWidth="2.5" strokeLinecap="round" strokeDasharray="2 60" style={{ animation: 'voicePreviewComet 1.75s linear infinite', animationPlayState: playState, filter: 'drop-shadow(0 0 4px var(--voice-preview-secondary))' }} />
         </svg>
       ) : style === 'orbit' ? (
-        <Box sx={{ width: 72, height: 18, position: 'relative', borderTop: '1px dashed', borderColor: 'divider' }}>
-          {bars.filter((_, index) => index % 2 === 0).map((height, index) => <Box key={index} className="voice-preview-motion" sx={{ position: 'absolute', left: `${index * 18}%`, top: 7, width: 4, height: 4, borderRadius: '50%', bgcolor: index % 2 ? 'var(--voice-preview-secondary)' : 'var(--voice-preview-primary)', animation: `voicePreviewFloat ${0.75 + index * 0.1}s ease-in-out ${-index * 0.12}s infinite alternate paused` }} />)}
+        <Box sx={{ width: 72, height: 20, position: 'relative', display: 'grid', placeItems: 'center' }}>
+          <Box sx={{ position: 'absolute', width: 54, height: 15, border: '1px solid', borderColor: 'divider', borderRadius: '50%' }} />
+          <Box sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: 'var(--voice-preview-primary)', boxShadow: '0 0 7px color-mix(in srgb, var(--voice-preview-primary) 60%, transparent)' }} />
+          <Box className="voice-preview-motion" sx={{ position: 'absolute', width: 4.5, height: 4.5, borderRadius: '50%', bgcolor: 'var(--voice-preview-secondary)', animation: 'voicePreviewOrbit 2.2s linear infinite', animationPlayState: playState }} />
+          <Box className="voice-preview-motion" sx={{ position: 'absolute', width: 3, height: 3, borderRadius: '50%', bgcolor: 'var(--voice-preview-primary)', animation: 'voicePreviewOrbitReverse 1.55s linear infinite', animationPlayState: playState }} />
         </Box>
-      ) : bars.map((height, index) => <Box key={index} className="voice-preview-motion" sx={{ width: 3.5, height, borderRadius: 99, background: style === 'spectrum' ? 'linear-gradient(180deg, var(--voice-preview-secondary), var(--voice-preview-primary))' : 'var(--voice-preview-primary)', opacity: style === 'spectrum' ? 0.72 : 0.82, transformOrigin: 'center', animation: `${style === 'pulse' ? 'voicePreviewPulse' : style === 'spectrum' ? 'voicePreviewSpectrum' : 'voicePreviewBlocks'} ${style === 'pulse' ? 0.7 + (index % 4) * 0.12 : style === 'spectrum' ? 1.15 + (index % 4) * 0.1 : 0.95 + (index % 4) * 0.08}s ease-in-out ${-index * 0.08}s infinite alternate paused` }} />)}
+      ) : (
+        <svg viewBox="0 0 76 20" style={{ width: 76, height: 20, overflow: 'visible' }}>
+          <defs><linearGradient id="preview-ribbon" x1="0" y1="0" x2="1" y2="0"><stop stopColor="var(--voice-preview-primary)" /><stop offset=".52" stopColor="var(--voice-preview-secondary)" /><stop offset="1" stopColor="var(--voice-preview-primary)" /></linearGradient></defs>
+          <g className="voice-preview-motion" style={{ animation: 'voicePreviewRibbonFlow 2.4s ease-in-out infinite', animationPlayState: playState, transformOrigin: 'center' }}>
+            <path d="M1 7 C12 1 18 17 29 12 S45 2 54 8 S66 17 75 10" fill="none" stroke="url(#preview-ribbon)" strokeWidth="3.5" strokeLinecap="round" opacity=".38" />
+            <path className="voice-preview-motion" d="M1 7 C12 1 18 17 29 12 S45 2 54 8 S66 17 75 10" fill="none" stroke="url(#preview-ribbon)" strokeWidth="1.7" strokeLinecap="round" strokeDasharray="12 5" style={{ animation: 'voicePreviewRibbonShimmer 1.8s linear infinite', animationPlayState: playState }} />
+          </g>
+        </svg>
+      )}
     </Box>
   );
 }
@@ -1507,6 +1564,7 @@ export default function SettingsPage() {
   const [expandedBackupKeys, setExpandedBackupKeys] = useState<BackupSectionKey[]>(DEFAULT_EXPANDED_KEYS);
   const [expandedRestoreKeys, setExpandedRestoreKeys] = useState<BackupSectionKey[]>(DEFAULT_EXPANDED_KEYS);
   const [showAllThemePresets, setShowAllThemePresets] = useState(false);
+  const [showAllVoiceStyles, setShowAllVoiceStyles] = useState(false);
   const [localWorkspaceBusy, setLocalWorkspaceBusy] = useState(false);
   const [localWorkspaceExpanded, setLocalWorkspaceExpanded] = useState(() => localWorkspaceDirectories.length > 0);
   const [developerEntitlementRefreshRequested, setDeveloperEntitlementRefreshRequested] = useState(false);
@@ -1537,6 +1595,13 @@ export default function SettingsPage() {
     ? APP_THEME_PRESETS
     : (selectedThemeIsPopular ? popularThemePresets : [...popularThemePresets, selectedThemePreset]);
   const hiddenThemePresetCount = Math.max(0, APP_THEME_PRESETS.length - POPULAR_THEME_PRESET_COUNT);
+  const popularVoiceStyles = VOICE_STYLE_OPTIONS.slice(0, POPULAR_VOICE_STYLE_COUNT);
+  const selectedVoiceStyle = VOICE_STYLE_OPTIONS.find((option) => option.value === settings.chatAppearance.voiceWaveformStyle);
+  const selectedVoiceStyleIsPopular = popularVoiceStyles.some((option) => option.value === selectedVoiceStyle?.value);
+  const visibleVoiceStyles = showAllVoiceStyles
+    ? VOICE_STYLE_OPTIONS
+    : (selectedVoiceStyle && !selectedVoiceStyleIsPopular ? [...popularVoiceStyles, selectedVoiceStyle] : popularVoiceStyles);
+  const hiddenVoiceStyleCount = Math.max(0, VOICE_STYLE_OPTIONS.length - POPULAR_VOICE_STYLE_COUNT);
   const backupStats = useMemo(() => buildLiveBackupStats({
     characters: useCharacterStore.getState().characters,
     chats: useChatStore.getState().chats,
@@ -2289,13 +2354,24 @@ export default function SettingsPage() {
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '语音条样式' : 'Voice bar style'}</Typography>
               <ToggleButtonGroup value={settings.chatAppearance.voiceWaveformStyle} exclusive onChange={(_, value) => value && settings.setChatAppearance({ voiceWaveformStyle: value as VoiceWaveformStyle })} size="small" sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: 0.55, width: '100%' }}>
-                {VOICE_STYLE_OPTIONS.map((option) => (
+                {visibleVoiceStyles.map((option) => (
                   <ToggleButton key={option.value} value={option.value} sx={{ display: 'grid', gap: 0.25, px: 0.65, py: 0.5, minWidth: 0, minHeight: 50, borderRadius: 1.5, textTransform: 'none', whiteSpace: 'normal', '&.Mui-selected': { boxShadow: '0 0 0 1px color-mix(in srgb, var(--mui-palette-primary-main) 45%, transparent)' } }}>
-                    <VoiceStylePreview style={option.value} />
+                    <VoiceStylePreview style={option.value} selected={settings.chatAppearance.voiceWaveformStyle === option.value} />
                     <Typography variant="caption" sx={{ fontWeight: 650, lineHeight: 1.1 }}>{i18n.language.startsWith('zh') ? option.zh : option.en}</Typography>
                   </ToggleButton>
                 ))}
               </ToggleButtonGroup>
+              <Button
+                size="small"
+                variant="text"
+                endIcon={<ExpandMoreIcon sx={{ transform: showAllVoiceStyles ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 160ms ease' }} />}
+                onClick={() => setShowAllVoiceStyles((value) => !value)}
+                sx={{ mt: 0.75, px: 0.5, fontWeight: 650 }}
+              >
+                {showAllVoiceStyles
+                  ? (i18n.language.startsWith('zh') ? '收起语音样式' : 'Show fewer voice styles')
+                  : (i18n.language.startsWith('zh') ? `展开更多样式（${hiddenVoiceStyleCount}）` : `More voice styles (${hiddenVoiceStyleCount})`)}
+              </Button>
             </Box>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 500 }} gutterBottom>{i18n.language.startsWith('zh') ? '信件背景' : 'Letter background'}</Typography>

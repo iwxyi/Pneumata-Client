@@ -900,7 +900,7 @@ export interface UsageStats {
 export interface ChatAppearanceSettings {
   maxContentWidth: number;
   maxContentWidthUnlimited: boolean;
-  voiceWaveformStyle: 'wave' | 'blocks' | 'neon' | 'spectrum' | 'pulse' | 'orbit' | 'ribbon';
+  voiceWaveformStyle: 'wave' | 'blocks' | 'neon' | 'spectrum' | 'pulse' | 'orbit' | 'ribbon' | 'echo' | 'constellation' | 'helix' | 'comet';
   storyReader: {
     fontFamily: 'default' | 'serif' | 'sans';
     fontSize: number;

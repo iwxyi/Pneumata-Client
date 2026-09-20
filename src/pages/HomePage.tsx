@@ -123,12 +123,15 @@ function buildStatGridSx() {
   return {
     display: 'grid',
     gridTemplateColumns: {
-      xs: 'repeat(auto-fit, minmax(104px, 1fr))',
+      xs: 'repeat(2, minmax(0, 1fr))',
       sm: 'repeat(3, minmax(0, 1fr))',
       lg: 'repeat(4, minmax(0, 1fr))',
     },
-    columnGap: { xs: 0.75, sm: 1 },
-    rowGap: { xs: 1, sm: 1.25 },
+    '@media (min-width: 360px) and (max-width: 599.95px)': {
+      gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    },
+    columnGap: { xs: 0.55, sm: 1 },
+    rowGap: { xs: 0.8, sm: 1.25 },
     mt: 1,
     px: 0,
     pb: 0.75,
@@ -261,8 +264,8 @@ function buildStatCenterSx() {
   return {
     width: '100%',
     minHeight: { xs: 78, sm: 88 },
-    py: { xs: 1.15, sm: 1.35 },
-    px: { xs: 0.55, sm: 0.9 },
+    py: { xs: 1, sm: 1.35 },
+    px: { xs: 0.3, sm: 0.9 },
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
@@ -316,7 +319,7 @@ function buildStatLabelSx() {
     justifyContent: 'center',
     overflow: 'hidden',
     color: 'text.secondary',
-    fontSize: { xs: '0.7rem', sm: '0.78rem' },
+    fontSize: { xs: '0.66rem', sm: '0.78rem' },
     '& > span': {
       display: '-webkit-box',
       WebkitLineClamp: 2,

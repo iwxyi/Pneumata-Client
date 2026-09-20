@@ -82,6 +82,14 @@ export function VoicePlaybackBar({
   const gradientId = useId().replace(/:/g, '');
   const waveformPathValue = useMemo(() => waveformPath(waveform, 260, 38), [waveform]);
   const visibleBars = waveform.length ? waveform.map((sample) => 20 + sample * 80) : Array.from({ length: 36 }, () => 28);
+  const constellationPoints = useMemo(() => {
+    const samples = (waveform.length ? waveform : Array.from({ length: 7 }, (_, index) => 0.3 + (index % 3) * 0.2));
+    const step = Math.max(1, Math.floor(samples.length / 7));
+    return Array.from({ length: 7 }, (_, index) => {
+      const sample = samples[Math.min(samples.length - 1, index * step)] || 0.5;
+      return { x: 8 + index * 40.5, y: 31 - sample * 24 };
+    });
+  }, [waveform]);
 
   useEffect(() => {
     let cancelled = false;
@@ -157,7 +165,7 @@ export function VoicePlaybackBar({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress * 100)}
-          sx={{ position: 'relative', flex: 1, height: 30, cursor: 'pointer', touchAction: 'none', outline: 'none', '&:focus-visible': { borderRadius: 1, boxShadow: '0 0 0 2px rgba(255,112,67,.48)' } }}
+          sx={{ position: 'relative', flex: 1, height: 30, cursor: 'pointer', touchAction: 'none', outline: 'none', '&:focus-visible': { borderRadius: 1, boxShadow: '0 0 0 2px rgba(255,112,67,.48)' }, '@keyframes voiceEchoRing': { '0%': { transform: 'scale(.55)', opacity: 0 }, '35%': { opacity: 0.75 }, '100%': { transform: 'scale(1.08)', opacity: 0 } }, '@keyframes voiceStarPulse': { '0%, 100%': { transform: 'scale(.72)', opacity: 0.55 }, '50%': { transform: 'scale(1.35)', opacity: 1 } }, '@keyframes voiceHelix': { '0%, 100%': { transform: 'translateY(-5px)' }, '50%': { transform: 'translateY(5px)' } }, '@keyframes voiceComet': { from: { strokeDashoffset: 280 }, to: { strokeDashoffset: -30 } }, '@media (prefers-reduced-motion: reduce)': { '& .voice-playback-motion': { animation: 'none !important' } } }}
           onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); seekAt(event.clientX); }}
           onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekAt(event.clientX); }}
           onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); seekAt(event.clientX); }}
@@ -180,6 +188,23 @@ export function VoicePlaybackBar({
             <Box aria-hidden="true" sx={{ height: '100%', display: 'flex', alignItems: 'center', gap: '2px', overflow: 'hidden' }}>
               {visibleBars.map((peak, index) => <Box key={index} sx={{ flex: 1, minWidth: 2, height: `${Math.max(24, peak)}%`, borderRadius: 1, background: 'linear-gradient(180deg, var(--voice-secondary), var(--voice-accent))', opacity: 0.44 + (index % 5) * 0.11, boxShadow: '0 0 6px color-mix(in srgb, var(--voice-secondary) 55%, transparent)' }} />)}
             </Box>
+          ) : waveformStyle === 'echo' ? (
+            <Box aria-hidden="true" sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-around', overflow: 'hidden' }}>
+              {Array.from({ length: 7 }, (_, index) => <Box key={index} sx={{ position: 'relative', width: 26, height: 22, display: 'grid', placeItems: 'center' }}><Box sx={{ width: 3.5, height: 3.5, borderRadius: '50%', bgcolor: index % 2 ? 'var(--voice-secondary)' : 'var(--voice-accent)' }} />{[0, 1].map((ring) => <Box key={ring} className="voice-playback-motion" sx={{ position: 'absolute', width: 24, height: 14, border: '1px solid', borderColor: index % 2 ? 'var(--voice-secondary)' : 'var(--voice-accent)', borderRadius: '50%', animation: playing ? `voiceEchoRing 1.8s ease-out ${ring * 0.7 + index * 0.08}s infinite` : 'none' }} />)}</Box>)}
+            </Box>
+          ) : waveformStyle === 'constellation' ? (
+            <svg viewBox="0 0 260 38" preserveAspectRatio="none" aria-hidden="true" style={{ width: '100%', height: '100%', display: 'block', overflow: 'visible' }}>
+              <polyline points={constellationPoints.map((point) => `${point.x},${point.y}`).join(' ')} fill="none" stroke="var(--voice-accent)" strokeWidth="1" opacity=".34" vectorEffect="non-scaling-stroke" />
+              {constellationPoints.map((point, index) => <circle key={point.x} className="voice-playback-motion" cx={point.x} cy={point.y} r={index % 3 === 0 ? 3 : 2.2} fill={index % 2 ? 'var(--voice-secondary)' : 'var(--voice-accent)'} style={{ transformBox: 'fill-box', transformOrigin: 'center', animation: playing ? `voiceStarPulse 1.7s ease-in-out ${index * 0.16}s infinite` : 'none', filter: 'drop-shadow(0 0 3px var(--voice-accent))' }} />)}
+            </svg>
+          ) : waveformStyle === 'helix' ? (
+            <Box aria-hidden="true" sx={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-around', overflow: 'hidden' }}>
+              {Array.from({ length: 18 }, (_, index) => <Box key={index} sx={{ width: 2, height: 14, position: 'relative', bgcolor: 'divider' }}><Box className="voice-playback-motion" sx={{ position: 'absolute', left: -1.5, top: -1.5, width: 5, height: 5, borderRadius: '50%', bgcolor: 'var(--voice-accent)', animation: playing ? `voiceHelix 1.5s ease-in-out ${index * 0.085}s infinite` : 'none' }} /><Box className="voice-playback-motion" sx={{ position: 'absolute', left: -1.5, bottom: -1.5, width: 5, height: 5, borderRadius: '50%', bgcolor: 'var(--voice-secondary)', animation: playing ? `voiceHelix 1.5s ease-in-out ${index * 0.085 + 0.75}s infinite reverse` : 'none' }} /></Box>)}
+            </Box>
+          ) : waveformStyle === 'comet' ? (
+            <svg viewBox="0 0 260 38" preserveAspectRatio="none" aria-hidden="true" style={{ width: '100%', height: '100%', display: 'block', overflow: 'visible' }}>
+              {waveformPathValue ? <><path d={waveformPathValue} fill="none" stroke="var(--voice-accent)" strokeWidth="1.5" opacity=".2" vectorEffect="non-scaling-stroke" /><path className="voice-playback-motion" d={waveformPathValue} fill="none" stroke="var(--voice-secondary)" strokeWidth="3" strokeLinecap="round" strokeDasharray="3 275" vectorEffect="non-scaling-stroke" style={{ animation: playing ? 'voiceComet 2.1s linear infinite' : 'none', filter: 'drop-shadow(0 0 4px var(--voice-secondary))' }} /></> : null}
+            </svg>
           ) : waveformStyle === 'orbit' ? (
             <Box aria-hidden="true" sx={{ height: '100%', position: 'relative', overflow: 'hidden' }}>
               {visibleBars.filter((_, index) => index % 5 === 0).map((peak, index) => <Box key={index} sx={{ position: 'absolute', left: `${index * 7.15}%`, top: `${50 - peak * 0.25}%`, width: 4 + peak * 0.03, height: 4 + peak * 0.03, borderRadius: '50%', bgcolor: index % 2 ? 'var(--voice-secondary)' : 'var(--voice-accent)', opacity: 0.46 + peak / 190, boxShadow: '0 0 8px color-mix(in srgb, var(--voice-accent) 65%, transparent)', animation: playing ? `voiceOrbit ${1.1 + (index % 4) * 0.2}s ease-in-out ${-index * 0.13}s infinite alternate` : 'none', '@keyframes voiceOrbit': { from: { transform: 'translateY(-4px) scale(.84)' }, to: { transform: 'translateY(4px) scale(1.12)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none' } }} />)}

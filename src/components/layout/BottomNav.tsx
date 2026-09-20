@@ -198,6 +198,21 @@ export default function BottomNav({ compact = false }: { compact?: boolean }) {
           : '0 14px 32px rgba(0,0,0,0.30), 0 1px 0 rgba(255,255,255,0.08) inset',
         transform: compact ? 'translateY(5px)' : 'translateY(0)',
         transition: `left 420ms ${motion.gentleSpring}, right 420ms ${motion.gentleSpring}, transform 420ms ${motion.gentleSpring}, border-radius 360ms ${motion.softOut}`,
+        '@media (prefers-reduced-motion: reduce)': {
+          transition: 'none',
+          transform: 'none',
+          '&::before': { transition: 'none' },
+          '& .MuiBottomNavigation-root, & .MuiBottomNavigationAction-root, & .MuiBottomNavigationAction-label, & .PneumataNavIcon': {
+            transition: 'none !important',
+          },
+          '& .MuiBottomNavigation-root::before': {
+            transition: 'none !important',
+            transform: 'none !important',
+          },
+          '& .MuiBottomNavigationAction-root, & .PneumataNavIcon': {
+            transform: 'none !important',
+          },
+        },
         '&::before': {
           content: '""',
           position: 'absolute',
@@ -226,6 +241,9 @@ export default function BottomNav({ compact = false }: { compact?: boolean }) {
         sx={{
           height: compact ? 44 : 50,
           transition: `height 360ms ${motion.softOut}`,
+          '@media (prefers-reduced-motion: reduce)': {
+            transition: 'none',
+          },
           position: 'relative',
           bgcolor: 'transparent',
           borderRadius: '16px',
@@ -266,6 +284,9 @@ export default function BottomNav({ compact = false }: { compact?: boolean }) {
             backgroundColor: 'transparent',
             touchAction: 'pan-y',
             transition: transition(['color', 'opacity', 'background-color', 'transform'], 380, motion.softOut),
+            '@media (prefers-reduced-motion: reduce)': {
+              transition: 'none',
+            },
             '@media (hover: hover) and (pointer: fine)': {
               '&:hover:not(.Mui-selected)': {
                 color: 'text.primary',
@@ -287,6 +308,9 @@ export default function BottomNav({ compact = false }: { compact?: boolean }) {
             },
             '& .PneumataNavIcon': {
               transition: transition(['transform'], motion.durations.navIcon, motion.navTrack),
+              '@media (prefers-reduced-motion: reduce)': {
+                transition: 'none',
+              },
             },
             '&.Mui-selected .PneumataNavIcon': {
               transform: 'translateY(-0.5px)',
@@ -302,6 +326,9 @@ export default function BottomNav({ compact = false }: { compact?: boolean }) {
             transform: 'none',
             opacity: compact ? 0.72 : 1,
             transition: transition(['color', 'opacity'], 340, motion.softOut),
+            '@media (prefers-reduced-motion: reduce)': {
+              transition: 'none',
+            },
             '&.Mui-selected': {
               fontSize: 10,
               transform: 'none',

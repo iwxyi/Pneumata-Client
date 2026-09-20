@@ -359,7 +359,7 @@ function syncState(state: Partial<AppSettings> & { api?: APIConfig; aiProfiles?:
       ...(state.chatAppearance || {}),
       maxContentWidth: Math.max(560, Math.min(1080, Math.round(Number(state.chatAppearance?.maxContentWidth || DEFAULT_CHAT_APPEARANCE_SETTINGS.maxContentWidth)))),
       maxContentWidthUnlimited: Boolean(state.chatAppearance?.maxContentWidthUnlimited),
-      voiceWaveformStyle: ['wave', 'blocks', 'neon', 'spectrum', 'pulse', 'orbit', 'ribbon'].includes(state.chatAppearance?.voiceWaveformStyle || '')
+      voiceWaveformStyle: ['wave', 'blocks', 'neon', 'spectrum', 'pulse', 'orbit', 'ribbon', 'echo', 'constellation', 'helix', 'comet'].includes(state.chatAppearance?.voiceWaveformStyle || '')
         ? state.chatAppearance?.voiceWaveformStyle as ChatAppearanceSettings['voiceWaveformStyle']
         : DEFAULT_CHAT_APPEARANCE_SETTINGS.voiceWaveformStyle,
       storyReader: {
