@@ -1,5 +1,16 @@
 import { api } from './api';
 import type { APIConfig, AIModelProfile } from '../types/settings';
+import { storageKey } from '../constants/brand';
+import { getBackendOrigin } from './backendUrl';
+
+function realtimeEnvironment() {
+  const target = new URL(getBackendOrigin() || window.location.origin);
+  return {
+    protocol: target.protocol,
+    host: target.host,
+    token: localStorage.getItem(storageKey('token')) || '',
+  };
+}
 
 export function usesManagedSpeechProfile(profile: Pick<APIConfig, 'provider' | 'baseUrl'> & Partial<Pick<AIModelProfile, 'type'>>) {
   const provider = String(profile.provider || '');
@@ -22,6 +33,23 @@ export function normalizeAudioDataUrl(value: string) {
   const match = String(value || '').match(/^data:([^;,]+)(?:;[^,]*)?;base64,(.+)$/i);
   if (!match) return value;
   return `data:${match[1]};base64,${match[2]}`;
+}
+
+export function realtimeSpeechUrl(
+  profile: Pick<APIConfig, 'provider' | 'model'>,
+  environment = realtimeEnvironment(),
+) {
+  const providerCode = profile.provider.startsWith('managed:')
+    ? profile.provider.slice('managed:'.length)
+    : profile.provider.startsWith('official-')
+      ? profile.provider.slice('official-'.length)
+      : '';
+  const params = new URLSearchParams();
+  if (environment.token) params.set('token', environment.token);
+  if (providerCode && providerCode !== 'official') params.set('providerCode', providerCode);
+  if (profile.model.trim()) params.set('modelId', profile.model.trim());
+  const scheme = environment.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${scheme}//${environment.host}/api/speech/stt/stream?${params.toString()}`;
 }
 
 export function speechTextFromMessage(content: string) {

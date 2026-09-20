@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { transcribeAudioWithAdapter } from '../services/aiGenerationAdapter';
 import { ApiError, api } from '../services/api';
-import { normalizeAudioDataUrl, transcribeSpeech, usesManagedSpeechProfile } from '../services/speech';
-import { storageKey } from '../constants/brand';
+import { normalizeAudioDataUrl, realtimeSpeechUrl, transcribeSpeech, usesManagedSpeechProfile } from '../services/speech';
 import type { AIModelProfile } from '../types/settings';
 
 type SpeechInputOptions = {
@@ -53,7 +52,7 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
   const [isTranscribing, setIsTranscribing] = useState(false);
   const startingRef = useRef(false);
   const recorderRef = useRef<{ context: AudioContext; source: MediaStreamAudioSourceNode; processor: ScriptProcessorNode; muted: GainNode; stream: MediaStream; chunks: Float32Array[] } | null>(null);
-  const realtimeRef = useRef<{ socket: WebSocket; ready: boolean; failed: boolean; final: boolean; transcript: string; pending: ArrayBuffer[] } | null>(null);
+  const realtimeRef = useRef<{ socket: WebSocket; ready: boolean; failed: boolean; final: boolean; transcript: string; pending: ArrayBuffer[]; failureReason: string; failureReported: boolean; readyTimer: number | null } | null>(null);
   const baseTextRef = useRef('');
   const optionsRef = useRef({ getBaseText, onTranscript, onFinalized, onError });
   optionsRef.current = { getBaseText, onTranscript, onFinalized, onError };
@@ -65,7 +64,9 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
   const cleanup = useCallback(() => {
     const recorder = recorderRef.current; recorderRef.current = null;
     if (recorder) { recorder.processor.disconnect(); recorder.source.disconnect(); recorder.muted.disconnect(); recorder.stream.getTracks().forEach((track) => track.stop()); void recorder.context.close(); }
-    const realtime = realtimeRef.current; realtimeRef.current = null; realtime?.socket.close();
+    const realtime = realtimeRef.current; realtimeRef.current = null;
+    if (realtime && realtime.readyTimer !== null) window.clearTimeout(realtime.readyTimer);
+    realtime?.socket.close();
   }, []);
   const startRecording = useCallback(async () => {
     if (isRecording || startingRef.current || disabled || isTranscribing) return;
@@ -82,22 +83,43 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
       baseTextRef.current = optionsRef.current.getBaseText();
       const context = new AudioContext(); const source = context.createMediaStreamSource(stream); const processor = context.createScriptProcessor(4096, 1, 1); const muted = context.createGain(); muted.gain.value = 0;
       const session = (() => {
-        const token = localStorage.getItem(storageKey('token')); if (!token) return null;
-        const socket = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/speech/stt/stream?token=${encodeURIComponent(token)}`);
-        const next = { socket, ready: false, failed: false, final: false, transcript: '', pending: [] as ArrayBuffer[] };
+        if (!usesManagedSpeechProfile(profile)) {
+          optionsRef.current.onError('当前 STT 配置不支持服务端实时转写，将在录音结束后进行整段转写。');
+          return null;
+        }
+        const socket = new WebSocket(realtimeSpeechUrl(profile));
+        const next = { socket, ready: false, failed: false, final: false, transcript: '', pending: [] as ArrayBuffer[], failureReason: '', failureReported: false, readyTimer: null as number | null };
+        const fail = (reason: string) => {
+          next.failed = true;
+          next.failureReason = reason;
+          if (next.readyTimer !== null) window.clearTimeout(next.readyTimer);
+          if (next.failureReported) return;
+          next.failureReported = true;
+          optionsRef.current.onError(`实时语音输入失败，已切换为录音结束后转写。原因：${reason}`);
+        };
+        next.readyTimer = window.setTimeout(() => {
+          if (!next.ready) fail('实时服务在 10 秒内未完成初始化');
+        }, 10_000);
         socket.onmessage = (event) => {
           try { const message = JSON.parse(String(event.data || '')) as { type?: string; text?: string };
-            if (message.type === 'ready') { next.ready = true; next.pending.forEach((chunk) => socket.send(chunk)); next.pending = []; }
+            if (message.type === 'ready') { next.ready = true; if (next.readyTimer !== null) window.clearTimeout(next.readyTimer); next.pending.forEach((chunk) => socket.send(chunk)); next.pending = []; }
             if (message.type === 'transcript' && typeof message.text === 'string') { next.transcript = message.text; next.final = Boolean((message as { final?: boolean }).final); optionsRef.current.onTranscript(present(message.text)); }
-            if (message.type === 'error') next.failed = true;
-          } catch (error) { next.failed = true; console.warn('实时语音消息解析失败', error); }
+            if (message.type === 'error') {
+              fail((message as { error?: string }).error || '服务端拒绝实时转写');
+            }
+          } catch (error) { fail(error instanceof Error ? `服务端消息无法解析：${error.message}` : '服务端消息无法解析'); }
         };
-        socket.onerror = () => { next.failed = true; };
+        socket.onerror = () => { next.failed = true; next.failureReason ||= `无法连接实时服务（${socket.url.replace(/token=[^&]+/, 'token=***')}）`; };
+        socket.onclose = (event) => {
+          if (next.ready && (next.final || realtimeRef.current !== next)) return;
+          const detail = event.reason.trim() || next.failureReason || `连接被关闭（code=${event.code || 1006}）`;
+          fail(detail);
+        };
         return next;
       })();
       realtimeRef.current = session;
       const chunks: Float32Array[] = [];
-      processor.onaudioprocess = (event) => { const chunk = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(chunk); if (!session || session.socket.readyState !== WebSocket.OPEN) return; const ratio = context.sampleRate / 16_000; const pcm = new Int16Array(Math.max(1, Math.round(chunk.length / ratio))); pcm.forEach((_item, index) => { const sample = chunk[Math.min(chunk.length - 1, Math.floor(index * ratio))] || 0; pcm[index] = Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 0x8000 : 0x7fff); }); if (session.ready) session.socket.send(pcm.buffer); else session.pending.push(pcm.buffer); };
+      processor.onaudioprocess = (event) => { const chunk = new Float32Array(event.inputBuffer.getChannelData(0)); chunks.push(chunk); if (!session || session.failed || session.socket.readyState === WebSocket.CLOSING || session.socket.readyState === WebSocket.CLOSED) return; const ratio = context.sampleRate / 16_000; const pcm = new Int16Array(Math.max(1, Math.round(chunk.length / ratio))); pcm.forEach((_item, index) => { const sample = chunk[Math.min(chunk.length - 1, Math.floor(index * ratio))] || 0; pcm[index] = Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 0x8000 : 0x7fff); }); if (session.ready && session.socket.readyState === WebSocket.OPEN) session.socket.send(pcm.buffer); else session.pending.push(pcm.buffer); };
       source.connect(processor); processor.connect(muted); muted.connect(context.destination); recorderRef.current = { context, source, processor, muted, stream, chunks }; setIsRecording(true);
     } catch (error) {
       cleanup();
@@ -109,15 +131,16 @@ export function useSpeechInput({ profile, disabled, language = 'zh', getBaseText
     const recorder = recorderRef.current; if (!recorder) return; const realtime = realtimeRef.current; recorderRef.current = null; recorder.processor.disconnect(); recorder.source.disconnect(); recorder.muted.disconnect(); recorder.stream.getTracks().forEach((track) => track.stop()); void recorder.context.close(); setIsRecording(false);
     const wav = encodeWav(recorder.chunks, recorder.context.sampleRate);
     const fallback = () => {
+      if (realtime && realtime.readyTimer !== null) window.clearTimeout(realtime.readyTimer);
       realtime?.socket.close(); realtimeRef.current = null; setIsTranscribing(true);
-      void (async () => { try { const result = usesManagedSpeechProfile(profile!) ? await transcribeSpeech({ providerCode: profile!.provider.startsWith('managed:') ? profile!.provider.slice('managed:'.length) : undefined, modelId: profile!.model, audioDataUrl: normalizeAudioDataUrl(await dataUrl(wav)), fileName: 'voice-input.wav', language }) : await transcribeAudioWithAdapter({ profile: profile!, file: wav, fileName: 'voice-input.wav', language, intent: 'audio-transcription' }); const text = present(result.text); if (result.text.trim()) optionsRef.current.onTranscript(text); optionsRef.current.onFinalized?.(text); } catch (error) { optionsRef.current.onError(error instanceof Error ? error.message : '语音转文字失败'); } finally { setIsTranscribing(false); } })();
+      void (async () => { try { const result = usesManagedSpeechProfile(profile!) ? await transcribeSpeech({ providerCode: profile!.provider.startsWith('managed:') ? profile!.provider.slice('managed:'.length) : undefined, modelId: profile!.model, audioDataUrl: normalizeAudioDataUrl(await dataUrl(wav)), fileName: 'voice-input.wav', language }) : await transcribeAudioWithAdapter({ profile: profile!, file: wav, fileName: 'voice-input.wav', language, intent: 'audio-transcription' }); const text = present(result.text); if (result.text.trim()) optionsRef.current.onTranscript(text); optionsRef.current.onFinalized?.(text); if (realtime?.failureReason) optionsRef.current.onError(`已通过录音结束后转写完成输入。实时失败原因：${realtime.failureReason}`); } catch (error) { optionsRef.current.onError(`录音结束后的语音转文字也失败了。原因：${error instanceof Error ? error.message : '未知错误'}`); } finally { setIsTranscribing(false); } })();
     };
     if (!realtime || realtime.failed || realtime.socket.readyState !== WebSocket.OPEN) { fallback(); return; }
     realtime.socket.send(JSON.stringify({ type: 'stop' }));
-    const deadline = window.setTimeout(() => { if (realtime.transcript.trim() && !realtime.failed) { optionsRef.current.onFinalized?.(present(realtime.transcript)); realtime.socket.close(); realtimeRef.current = null; } else fallback(); }, 1500);
+    const deadline = window.setTimeout(() => { if (realtime.transcript.trim() && !realtime.failed) { optionsRef.current.onError('实时语音服务未在 1.5 秒内返回最终帧，已使用最后一条实时转写结果。'); optionsRef.current.onFinalized?.(present(realtime.transcript)); realtime.socket.close(); realtimeRef.current = null; } else { realtime.failureReason ||= '结束录音后未收到最终转写结果'; if (!realtime.failureReported) { realtime.failureReported = true; optionsRef.current.onError(`实时语音输入失败，已切换为录音结束后转写。原因：${realtime.failureReason}`); } fallback(); } }, 1500);
     const handleFinal = () => { if (!realtime.final) return; window.clearTimeout(deadline); realtime.socket.removeEventListener('message', handleFinal); optionsRef.current.onFinalized?.(present(realtime.transcript)); realtime.socket.close(); realtimeRef.current = null; };
     realtime.socket.addEventListener('message', handleFinal);
-  }, [cleanup, language, present, profile]);
+  }, [language, present, profile]);
   useEffect(() => cleanup, [cleanup]);
   return { isRecording, isTranscribing, startRecording, stopRecording };
 }

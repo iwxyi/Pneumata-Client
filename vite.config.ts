@@ -181,6 +181,7 @@ export default defineConfig(({ mode }) => {
     '/api': {
       target: 'http://localhost:5170',
       changeOrigin: true,
+      ws: true,
       configure(proxy) {
         proxy.on('proxyReq', (proxyRequest, request) => {
           setForwardedHeaders(proxyRequest, request)

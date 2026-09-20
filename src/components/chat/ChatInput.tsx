@@ -15,11 +15,9 @@ import { buildImageAttachmentHoverInfo } from '../../services/messageAttachmentH
 import { normalizeInputCapabilities } from '../../types/settings';
 import type { ComposerState } from '../../types/composerState';
 import { useSettingsStore } from '../../stores/useSettingsStore';
-import { normalizeAudioDataUrl, transcribeSpeech, usesManagedSpeechProfile } from '../../services/speech';
-import { transcribeAudioWithAdapter } from '../../services/aiGenerationAdapter';
 import { readUploadedChatFiles } from '../../services/chatFileTransfer';
-import { storageKey } from '../../constants/brand';
 import VoiceInputButton from '../common/VoiceInputButton';
+import { useSpeechInput } from '../../hooks/useSpeechInput';
 
 interface ChatInputProps {
   mode: 'guide' | 'speakAs' | 'memberSpeak';
@@ -82,24 +80,12 @@ function buildAttachmentId() {
   return `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function getMicrophoneSupportError() {
-  if (typeof window !== 'undefined' && window.location.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)) {
-    return '语音输入需要安全连接，请使用 HTTPS 打开页面（当前是 HTTP）';
-  }
-  if (typeof window !== 'undefined' && !window.isSecureContext) {
-    return '语音输入需要安全页面，请使用 HTTPS 或 localhost 打开';
-  }
-  return '当前浏览器不支持麦克风输入，请检查浏览器权限或更换浏览器';
-}
-
 export default function ChatInput({ mode, characterName, onSend, onClose, placeholderOverride, sendingLabel, hideSpeakAsChip, onSendError, onOpenPanel, onDraftActivity, inputCapabilities, inputCapabilityWarning, autoFocus, topContent, injectedAttachments, onInjectedAttachmentsConsumed, isReplyPending = false, onStopReply, disabled = false, disabledReason, composerState }: ChatInputProps) {
   const [text, setText] = useState('');
   const [attachments, setAttachments] = useState<MessageAttachment[]>([]);
   const [isSending, setIsSending] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const [isImageDragActive, setIsImageDragActive] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isTranscribing, setIsTranscribing] = useState(false);
   const { t } = useTranslation();
   const { setRightPanelGestureOffset, setRightPanelGestureDragging } = useUIStore(useShallow((state) => ({
     setRightPanelGestureOffset: state.setRightPanelGestureOffset,
@@ -123,17 +109,6 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
   const panelHandleCleanupRef = useRef<(() => void) | null>(null);
   const panelHandleClickSuppressedRef = useRef(false);
   const imageDragDepthRef = useRef(0);
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const recordingStreamRef = useRef<MediaStream | null>(null);
-  const pcmRecorderRef = useRef<{
-    context: AudioContext;
-    source: MediaStreamAudioSourceNode;
-    processor: ScriptProcessorNode;
-    muted: GainNode;
-    chunks: Float32Array[];
-  } | null>(null);
-  const realtimeSttRef = useRef<{ socket: WebSocket; active: boolean; failed: boolean; transcript: string; pending: ArrayBuffer[] } | null>(null);
-  const recordingStartingRef = useRef(false);
   const sttModel = useSettingsStore((state) => state.aiProfiles.find((profile) => profile.type === 'stt' && (profile.isDefault || profile.provider))
     || state.aiProfiles.find((profile) => profile.type === 'audio' && (profile.audioCapability === 'stt' || profile.audioCapability === 'both')));
 
@@ -178,6 +153,17 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
     });
   }, [inputFocused, onDraftActivity]);
 
+  const speechInput = useSpeechInput({
+    profile: sttModel,
+    disabled: disabled || isSending,
+    getBaseText: () => text,
+    onTranscript: (nextText) => {
+      setText(nextText);
+      publishDraftActivity(nextText, inputFocused);
+    },
+    onError: (message) => onSendError?.(message),
+  });
+
   const handleSend = async () => {
     const content = text.trim();
     const outgoingAttachments = attachments;
@@ -211,213 +197,6 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
       void handleSend();
     }
   };
-
-  const blobToDataUrl = useCallback((blob: Blob) => new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('读取录音失败'));
-    reader.readAsDataURL(blob);
-  }), []);
-
-  const encodeSpeechWav = useCallback(async (blob: Blob) => {
-    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AudioContextCtor) return blob;
-    const context = new AudioContextCtor();
-    try {
-      const decoded = await context.decodeAudioData(await blob.arrayBuffer());
-      const targetRate = 16_000;
-      const frameCount = Math.max(1, Math.ceil(decoded.duration * targetRate));
-      const offline = new OfflineAudioContext(1, frameCount, targetRate);
-      const source = offline.createBufferSource();
-      source.buffer = decoded;
-      source.connect(offline.destination);
-      source.start();
-      const rendered = await offline.startRendering();
-      const samples = rendered.getChannelData(0);
-      const wav = new ArrayBuffer(44 + samples.length * 2);
-      const view = new DataView(wav);
-      const write = (offset: number, value: string) => Array.from(value).forEach((char, index) => view.setUint8(offset + index, char.charCodeAt(0)));
-      write(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); write(8, 'WAVE');
-      write(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-      view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-      write(36, 'data'); view.setUint32(40, samples.length * 2, true);
-      for (let index = 0; index < samples.length; index += 1) {
-        const sample = Math.max(-1, Math.min(1, samples[index]));
-        view.setInt16(44 + index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
-      }
-      return new Blob([wav], { type: 'audio/wav' });
-    } finally {
-      await context.close().catch(() => undefined);
-    }
-  }, []);
-
-  const encodePcmWav = useCallback((chunks: Float32Array[], sourceRate: number) => {
-    const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
-    const source = new Float32Array(length);
-    let offset = 0;
-    for (const chunk of chunks) { source.set(chunk, offset); offset += chunk.length; }
-    const targetRate = 16_000;
-    const samples = new Float32Array(Math.max(1, Math.round(source.length * targetRate / sourceRate)));
-    for (let index = 0; index < samples.length; index += 1) {
-      const position = index * sourceRate / targetRate;
-      const left = Math.floor(position);
-      const right = Math.min(left + 1, source.length - 1);
-      const fraction = position - left;
-      samples[index] = (source[left] || 0) * (1 - fraction) + (source[right] || 0) * fraction;
-    }
-    const wav = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(wav);
-    const write = (at: number, value: string) => Array.from(value).forEach((char, index) => view.setUint8(at + index, char.charCodeAt(0)));
-    write(0, 'RIFF'); view.setUint32(4, 36 + samples.length * 2, true); write(8, 'WAVE');
-    write(12, 'fmt '); view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-    view.setUint32(24, targetRate, true); view.setUint32(28, targetRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-    write(36, 'data'); view.setUint32(40, samples.length * 2, true);
-    samples.forEach((sample, index) => view.setInt16(44 + index * 2, Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 0x8000 : 0x7fff), true));
-    return new Blob([wav], { type: 'audio/wav' });
-  }, []);
-
-  const transcribeRecording = useCallback(async (recordedBlob: Blob) => {
-    if (!sttModel) return;
-    setIsTranscribing(true);
-    try {
-      const isVolcengineStt = String(sttModel.provider || '').toLowerCase().includes('volcengine')
-        || String(sttModel.model || '').toLowerCase().includes('volcengine');
-      const blob = usesManagedSpeechProfile(sttModel) && isVolcengineStt && !recordedBlob.type.includes('wav')
-        ? await encodeSpeechWav(recordedBlob)
-        : recordedBlob;
-      const fileName = blob.type.includes('wav') ? 'voice-input.wav' : 'voice-input.webm';
-      const result = usesManagedSpeechProfile(sttModel)
-        ? await transcribeSpeech({ providerCode: sttModel.provider.startsWith('managed:') ? sttModel.provider.slice('managed:'.length) : undefined, modelId: sttModel.model, audioDataUrl: normalizeAudioDataUrl(await blobToDataUrl(blob)), fileName, language: 'zh' })
-        : await transcribeAudioWithAdapter({ profile: sttModel, file: blob, fileName, language: 'zh', intent: 'audio-transcription' });
-      if (result.text.trim()) setText((current) => {
-        const next = current.trim() ? `${current.trim()} ${result.text.trim()}` : result.text.trim();
-        publishDraftActivity(next, inputFocused);
-        return next;
-      });
-    } catch (error) {
-      onSendError?.(error instanceof Error ? error.message : '语音转文字失败');
-    } finally {
-      setIsTranscribing(false);
-    }
-  }, [blobToDataUrl, encodeSpeechWav, inputFocused, onSendError, publishDraftActivity, sttModel]);
-
-  const openRealtimeStt = useCallback(() => {
-    if (!sttModel) return null;
-    const token = localStorage.getItem(storageKey('token'));
-    if (!token) return null;
-    const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${scheme}//${window.location.host}/api/speech/stt/stream?token=${encodeURIComponent(token)}`);
-    const session = { socket, active: false, failed: false, transcript: '', pending: [] as ArrayBuffer[] };
-    socket.onmessage = (event) => {
-      try {
-        const message = JSON.parse(String(event.data || '')) as { type?: string; text?: string };
-        if (message.type === 'ready') {
-          session.active = true;
-          for (const chunk of session.pending) socket.send(chunk);
-          session.pending = [];
-        }
-        if (message.type === 'transcript' && typeof message.text === 'string') {
-          session.active = true;
-          session.transcript = message.text;
-          setText(message.text);
-          publishDraftActivity(message.text, inputFocused);
-        }
-        if (message.type === 'error') session.failed = true;
-      } catch { session.failed = true; }
-    };
-    socket.onerror = () => { session.failed = true; };
-    return session;
-  }, [inputFocused, publishDraftActivity, sttModel]);
-
-  const startRecording = useCallback(async () => {
-    if (isRecording || recordingStartingRef.current || disabled || isSending || isTranscribing || !sttModel || !navigator.mediaDevices?.getUserMedia) {
-      if (!sttModel) onSendError?.('请先在模型页面配置语音（STT）模型');
-      else if (!navigator.mediaDevices?.getUserMedia) onSendError?.(getMicrophoneSupportError());
-      return;
-    }
-    recordingStartingRef.current = true;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      recordingStreamRef.current = stream;
-      if (!window.AudioContext) throw new Error('当前浏览器不支持 WAV 语音输入，请使用新版 Chrome、Edge 或 Safari');
-      const context = new AudioContext();
-      const source = context.createMediaStreamSource(stream);
-      const processor = context.createScriptProcessor(4096, 1, 1);
-      const muted = context.createGain();
-      muted.gain.value = 0;
-      const chunks: Float32Array[] = [];
-      const realtime = openRealtimeStt();
-      realtimeSttRef.current = realtime;
-      processor.onaudioprocess = (event) => {
-        const chunk = new Float32Array(event.inputBuffer.getChannelData(0));
-        chunks.push(chunk);
-        if (realtime && realtime.socket.readyState === WebSocket.OPEN) {
-          const ratio = context.sampleRate / 16_000;
-          const pcm = new Int16Array(Math.max(1, Math.round(chunk.length / ratio)));
-          pcm.forEach((_sample, index) => {
-            const sourceIndex = Math.min(chunk.length - 1, Math.floor(index * ratio));
-            const sample = chunk[sourceIndex] || 0;
-            pcm[index] = Math.max(-1, Math.min(1, sample)) * (sample < 0 ? 0x8000 : 0x7fff);
-          });
-          if (realtime.socket.readyState === WebSocket.OPEN) {
-            if (realtime.active) realtime.socket.send(pcm.buffer);
-            else realtime.pending.push(pcm.buffer);
-          }
-        }
-      };
-      source.connect(processor);
-      processor.connect(muted);
-      muted.connect(context.destination);
-      pcmRecorderRef.current = { context, source, processor, muted, chunks };
-      setIsRecording(true);
-    } catch (error) {
-      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
-      recordingStreamRef.current = null;
-      onSendError?.(error instanceof Error ? error.message : '无法访问麦克风');
-    } finally {
-      recordingStartingRef.current = false;
-    }
-  }, [disabled, isRecording, isSending, isTranscribing, onSendError, openRealtimeStt, sttModel, transcribeRecording]);
-
-  const stopRecording = useCallback(() => {
-    const pcmRecorder = pcmRecorderRef.current;
-    if (pcmRecorder) {
-      pcmRecorderRef.current = null;
-      pcmRecorder.processor.disconnect();
-      pcmRecorder.source.disconnect();
-      pcmRecorder.muted.disconnect();
-      recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
-      recordingStreamRef.current = null;
-      setIsRecording(false);
-      const realtime = realtimeSttRef.current;
-      realtimeSttRef.current = null;
-      if (realtime?.socket.readyState === WebSocket.OPEN) realtime.socket.close();
-      const wav = encodePcmWav(pcmRecorder.chunks, pcmRecorder.context.sampleRate);
-      void pcmRecorder.context.close().then(() => {
-        if (realtime?.active && !realtime.failed && realtime.transcript.trim()) return;
-        void transcribeRecording(wav);
-      });
-      return;
-    }
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') recorder.stop();
-    else recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
-    recordingStreamRef.current = null;
-    recorderRef.current = null;
-    setIsRecording(false);
-  }, [encodePcmWav, transcribeRecording]);
-
-  useEffect(() => () => {
-    const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') recorder.stop();
-    const pcmRecorder = pcmRecorderRef.current;
-    pcmRecorder?.processor.disconnect();
-    pcmRecorder?.source.disconnect();
-    pcmRecorder?.muted.disconnect();
-    void pcmRecorder?.context.close();
-    realtimeSttRef.current?.socket.close();
-    recordingStreamRef.current?.getTracks().forEach((track) => track.stop());
-  }, []);
 
   const addImageFiles = useCallback(async (selectedFiles: File[]) => {
     if (disabled || isSending || showStopReply) return;
@@ -834,11 +613,11 @@ export default function ChatInput({ mode, characterName, onSend, onClose, placeh
           </>
         ) : null}
         <VoiceInputButton
-          isRecording={isRecording}
-          isTranscribing={isTranscribing}
+          isRecording={speechInput.isRecording}
+          isTranscribing={speechInput.isTranscribing}
           disabled={disabled || isSending}
-          onStart={startRecording}
-          onStop={stopRecording}
+          onStart={speechInput.startRecording}
+          onStop={speechInput.stopRecording}
           sx={canAttachImages ? { ml: -0.75 } : undefined}
         />
         <TextField
