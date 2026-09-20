@@ -731,6 +731,7 @@ export default function AdminAIProviderPage() {
   const [publicModelLoading, setPublicModelLoading] = useState(false);
   const [publicModelError, setPublicModelError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [usageStatsError, setUsageStatsError] = useState<string | null>(null);
   const usesInternalLedger = isDeepSeek || isMoacode || String(providerConfig?.billingMode || '') === 'internal_ledger';
@@ -868,6 +869,7 @@ export default function AdminAIProviderPage() {
   const saveConfig = async () => {
     setSaving(true);
     setError(null);
+    setSaveWarning(null);
     try {
       const payload: Record<string, unknown> = {
         name: form.name,
@@ -910,6 +912,12 @@ export default function AdminAIProviderPage() {
       if (nextAdminToken !== loadedSecrets.adminToken) payload.adminToken = nextAdminToken;
       if (nextForwardKey !== loadedSecrets.forwardKey) payload.forwardKey = nextForwardKey;
       const updated = await adminApi.updateAiProviderConfig(providerCode, payload);
+      const pricingRefresh = updated.pricingRefresh && typeof updated.pricingRefresh === 'object'
+        ? updated.pricingRefresh as Record<string, unknown>
+        : null;
+      if (pricingRefresh?.status === 'failed') {
+        setSaveWarning(String(pricingRefresh.message || 'Cookie 已保存，但模型价格刷新失败，已保留旧数据，请稍后重试。'));
+      }
       const updatedAdminToken = typeof updated.adminToken === 'string' ? updated.adminToken : nextAdminToken;
       const updatedForwardKey = typeof updated.forwardKey === 'string' ? updated.forwardKey : nextForwardKey;
       setProviderConfig(updated);
@@ -1192,6 +1200,7 @@ export default function AdminAIProviderPage() {
 
       {tab === 0 ? (
         <Stack spacing={1.25}>
+          {saveWarning ? <Alert severity="warning">{saveWarning}</Alert> : null}
           <AdminSection title="主账号配置">
             <Stack spacing={1.25}>
               <Box sx={configGridSx}>
