@@ -105,7 +105,7 @@ const SHORT_MEDIA_MESSAGE_LENGTH = 120;
 
 export function shouldUseCompactMediaBubble(message: Message) {
   const attachments = message.metadata?.attachments || [];
-  const hasRenderableMedia = attachments.some((attachment) => attachment.kind === 'image' || attachment.kind === 'audio');
+  const hasRenderableMedia = attachments.some((attachment) => attachment.kind === 'image' || attachment.kind === 'sticker' || attachment.kind === 'audio');
   if (!hasRenderableMedia) return false;
   const rawContent = message.content.trim();
   const normalizedContent = rawContent.replace(/\s+/g, '').trim();

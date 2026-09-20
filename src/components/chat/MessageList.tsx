@@ -1975,6 +1975,8 @@ export default function MessageList({
                     top: `${virtualItem.start}px`,
                     left: 0,
                     width: '100%',
+                    minWidth: 0,
+                    maxWidth: '100%',
                     contain: 'layout paint style',
                   }}
                 >

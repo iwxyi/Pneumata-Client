@@ -85,7 +85,8 @@ function parseAttachmentRatio(attachment: Pick<MessageAttachment, 'width' | 'hei
   return 4 / 3;
 }
 
-function getAttachmentMaxWidth(ratio: number) {
+function getAttachmentMaxWidth(ratio: number, kind: MessageAttachment['kind'] = 'image') {
+  if (kind === 'sticker') return 240;
   if (ratio < 0.82) return 300;
   if (ratio < 1.2) return 360;
   if (ratio < 1.7) return 440;
@@ -148,8 +149,9 @@ function MessageImageAttachment({
   const [viewportHeight, setViewportHeight] = useState(() => (typeof window === 'undefined' ? 900 : window.innerHeight));
   const displaySize = naturalSize || knownSize;
   const ratioValue = displaySize ? displaySize.width / displaySize.height : parseAttachmentRatio(attachment);
-  const maxWidth = getAttachmentMaxWidth(ratioValue);
-  const maxHeight = Math.min(viewportHeight * 0.56, 520);
+  const isSticker = attachment.kind === 'sticker';
+  const maxWidth = getAttachmentMaxWidth(ratioValue, attachment.kind);
+  const maxHeight = Math.min(viewportHeight * 0.56, isSticker ? 240 : 520);
   const width = getAttachmentDisplayWidth({ displaySize, ratioValue, maxWidth, maxHeight });
   const imageSource = attachment.url?.startsWith('/') ? backendUrl(attachment.url) : attachment.url;
   useEffect(() => {
@@ -165,6 +167,7 @@ function MessageImageAttachment({
         display: 'grid',
         gap: 0.45,
         width,
+        minWidth: 0,
         maxWidth: '100%',
         justifySelf: 'start',
       }}
@@ -198,7 +201,7 @@ function MessageImageAttachment({
             sx={{
               width: '100%',
               height: 'auto',
-              maxHeight: 'min(56vh, 520px)',
+              maxHeight: isSticker ? 'min(56vh, 240px)' : 'min(56vh, 520px)',
               objectFit: 'contain',
               display: 'block',
               cursor: onOpenImage ? 'zoom-in' : 'default',
@@ -321,18 +324,19 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
   const attachments = message.metadata?.attachments || [];
   const shouldHideMediaPlaceholderText = shouldHideGeneratedMediaPlaceholderText(message);
   const isAttachmentProcessing = (status: string | undefined) => status === 'queued' || status === 'generating' || status === 'placeholder';
-  const getMediaFrameStyle = (attachment: Pick<MessageAttachment, 'width' | 'height' | 'aspectRatio'>) => {
+  const getMediaFrameStyle = (attachment: Pick<MessageAttachment, 'kind' | 'width' | 'height' | 'aspectRatio'>) => {
     const knownSize = getAttachmentKnownSize(attachment);
     const ratioValue = parseAttachmentRatio(attachment);
     const ratio = `${ratioValue} / 1`;
-    const maxWidth = getAttachmentMaxWidth(ratioValue);
+    const isSticker = attachment.kind === 'sticker';
+    const maxWidth = getAttachmentMaxWidth(ratioValue, attachment.kind);
     const viewportHeight = typeof window === 'undefined' ? 900 : window.innerHeight;
-    const maxHeight = Math.min(viewportHeight * 0.56, 520);
+    const maxHeight = Math.min(viewportHeight * 0.56, isSticker ? 240 : 520);
     const width = getAttachmentDisplayWidth({ displaySize: knownSize, ratioValue, maxWidth, maxHeight });
     return {
       width,
       maxWidth: '100%',
-      maxHeight: 'min(56vh, 520px)',
+      maxHeight: isSticker ? 'min(56vh, 240px)' : 'min(56vh, 520px)',
       justifySelf: 'start',
       aspectRatio: ratio,
       borderRadius: 1.5,
@@ -419,12 +423,12 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
     return null;
   };
   return (
-    <Box sx={{ display: 'grid', gap: 0.9, width: compactMediaLayout ? 'fit-content' : 'auto', maxWidth: '100%' }}>
+    <Box sx={{ display: 'grid', gap: 0.9, width: compactMediaLayout ? 'fit-content' : 'auto', minWidth: 0, maxWidth: '100%' }}>
       {visibleContentParts.map((part, index) => {
         if (part.kind === 'text') {
           if (!part.text.trim()) return null;
           return (
-            <Box key={`text-${index}`} sx={{ typography: 'body2', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text', '& table': { width: '100%', borderCollapse: 'collapse' }, '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 } }}>
+            <Box key={`text-${index}`} sx={{ typography: 'body2', minWidth: 0, maxWidth: '100%', overflow: 'hidden', overflowWrap: 'anywhere', wordBreak: 'break-word', userSelect: 'text', WebkitUserSelect: 'text', '& table': { width: '100%', borderCollapse: 'collapse' }, '& th, & td': { border: '1px solid', borderColor: 'divider', px: 0.75, py: 0.4 } }}>
               <MarkdownText
                 text={part.text}
                 forceRich={message.metadata?.format === 'markdown'}
@@ -454,7 +458,7 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
 
 export function shouldHideGeneratedMediaPlaceholderText(message: Pick<Message, 'content' | 'metadata'>) {
   const attachments = message.metadata?.attachments || [];
-  const hasMediaAttachments = attachments.some((attachment) => attachment.kind === 'image' || attachment.kind === 'audio');
+  const hasMediaAttachments = attachments.some((attachment) => attachment.kind === 'image' || attachment.kind === 'sticker' || attachment.kind === 'audio');
   if (!hasMediaAttachments) return false;
   return [
     '正在生成图片，完成后会自动显示。',

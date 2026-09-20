@@ -544,8 +544,8 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
   }
 
   return (
-    <Box sx={{ width: '100%' }}>
-      <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: wrapperJustify, px: hidePrivateChatIdentity ? { xs: 2, sm: 3 } : 2, py: 0.75, gap: hidePrivateChatIdentity ? 0 : 1.25, alignItems: 'flex-start' }}>
+    <Box sx={{ width: '100%', minWidth: 0, maxWidth: '100%' }}>
+      <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', width: '100%', minWidth: 0, maxWidth: '100%', justifyContent: wrapperJustify, px: hidePrivateChatIdentity ? { xs: 2, sm: 3 } : 2, py: 0.75, gap: hidePrivateChatIdentity ? 0 : 1.25, alignItems: 'flex-start' }}>
         {!isUser && !hidePrivateChatIdentity ? (
           <Box onClick={handleAvatarClick} sx={{ cursor: message.type === 'ai' && !pending ? 'pointer' : 'default', flexShrink: 0 }}>
             {avatar && isImageAvatar(avatar) ? (
@@ -596,7 +596,10 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
             {...bubbleHandlers}
             sx={{
               width: compactMediaBubble ? 'fit-content' : undefined,
+              minWidth: 0,
               maxWidth: '100%',
+              boxSizing: 'border-box',
+              overflow: 'hidden',
               justifySelf: compactMediaBubble ? (isUser ? 'end' : 'start') : undefined,
               px: 1.4,
               py: 1,

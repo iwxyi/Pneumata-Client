@@ -19,6 +19,8 @@ function PlainMarkdownText({ text }: { text: string }) {
       sx={{
         fontSize: 'inherit',
         lineHeight: 1.95,
+        minWidth: 0,
+        maxWidth: '100%',
         '& p': { mt: 0, mb: 0.95, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
         '& > :last-child': { mb: 0 },
       }}

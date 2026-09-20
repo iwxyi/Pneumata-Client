@@ -147,6 +147,33 @@ describe('MessageBubble event rendering', () => {
     expect(shouldUseCompactMediaBubble(message)).toBe(true);
   });
 
+  it('uses the compact media layout for sticker-only messages', () => {
+    const message: Message = {
+      id: 'm-sticker',
+      chatId: 'c1',
+      senderId: 'assistant',
+      senderName: '助手',
+      type: 'ai',
+      content: '',
+      timestamp: 1,
+      metadata: {
+        attachments: [{
+          id: 'sticker-1',
+          kind: 'sticker',
+          status: 'ready',
+          altText: '表情包',
+          url: 'data:image/png;base64,AAA',
+          width: 1024,
+          height: 1024,
+          createdAt: 1,
+          updatedAt: 1,
+        }],
+      },
+    };
+
+    expect(shouldUseCompactMediaBubble(message)).toBe(true);
+  });
+
   it('keeps rich markdown media messages on the normal text layout', () => {
     const message: Message = {
       id: 'm-markdown-image',

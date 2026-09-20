@@ -22,6 +22,15 @@ describe('ChatMessageContent media layout', () => {
     })).toBe(520);
   });
 
+  it('can cap oversized sticker media to the compact sticker boundary', () => {
+    expect(getAttachmentDisplayWidth({
+      displaySize: { width: 1024, height: 1024 },
+      ratioValue: 1,
+      maxWidth: 240,
+      maxHeight: 240,
+    })).toBe(240);
+  });
+
   it('hides generated image queue placeholder text when media attachments exist', () => {
     expect(shouldHideGeneratedMediaPlaceholderText({
       content: '正在生成图片，完成后会自动显示。',
@@ -31,6 +40,23 @@ describe('ChatMessageContent media layout', () => {
           kind: 'image',
           status: 'ready',
           altText: '红烧肉照片',
+          url: 'data:image/png;base64,AAA',
+          createdAt: 1,
+          updatedAt: 1,
+        }],
+      },
+    })).toBe(true);
+  });
+
+  it('hides generated media placeholder text for sticker attachments', () => {
+    expect(shouldHideGeneratedMediaPlaceholderText({
+      content: '正在生成图片，完成后会自动显示。',
+      metadata: {
+        attachments: [{
+          id: 'sticker-1',
+          kind: 'sticker',
+          status: 'ready',
+          altText: '表情包',
           url: 'data:image/png;base64,AAA',
           createdAt: 1,
           updatedAt: 1,

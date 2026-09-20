@@ -101,6 +101,8 @@ function RichMarkdownText({
         sx={{
           fontSize: 'inherit',
           lineHeight: 1.95,
+          minWidth: 0,
+          maxWidth: '100%',
           '& > :first-of-type': { mt: 0 },
           '& > :last-child': { mb: 0 },
           '& p': { mt: 0, mb: 0.95, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' },
@@ -123,18 +125,30 @@ function RichMarkdownText({
             m: 0,
             my: 0.75,
             p: 1,
+            display: 'block',
+            width: '100%',
+            minWidth: 0,
+            maxWidth: '100%',
+            boxSizing: 'border-box',
             borderRadius: 1,
             overflowX: 'auto',
+            overflowY: 'hidden',
+            WebkitOverflowScrolling: 'touch',
             bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(15,23,42,0.92)' : 'rgba(2,6,23,0.82)',
             color: '#e5e7eb',
             fontSize: '0.92em',
             lineHeight: 1.65,
           },
           '& pre code': {
+            display: 'block',
+            width: 'max-content',
+            minWidth: '100%',
             p: 0,
             bgcolor: 'transparent',
             color: 'inherit',
             whiteSpace: 'pre',
+            overflowWrap: 'normal',
+            wordBreak: 'normal',
           },
           '& code': {
             px: 0.5,
@@ -143,6 +157,7 @@ function RichMarkdownText({
             bgcolor: 'action.hover',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
             fontSize: '0.94em',
+            overflowWrap: 'anywhere',
           },
           '& table': {
             width: '100%',
@@ -160,6 +175,14 @@ function RichMarkdownText({
           },
           '& th': { fontWeight: 800, bgcolor: 'action.hover' },
           '& a': { color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } },
+          '& img': {
+            display: 'block',
+            width: 'auto',
+            height: 'auto',
+            maxWidth: '100%',
+            maxHeight: 'min(56vh, 520px)',
+            objectFit: 'contain',
+          },
           '& input[type="checkbox"]': { transform: 'translateY(1px)' },
         }}
       >
@@ -182,6 +205,11 @@ function RichMarkdownText({
               );
             },
             p: ({ children }) => <Typography component="p" variant="body2">{children}</Typography>,
+            table: ({ children }) => (
+              <Box sx={{ width: '100%', minWidth: 0, maxWidth: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table>{children}</table>
+              </Box>
+            ),
             pre: ({ children }) => {
               const block = extractCodeBlock(children);
               if (block?.language === 'mermaid' && deferDiagrams) return <MermaidDiagramPlaceholder />;
