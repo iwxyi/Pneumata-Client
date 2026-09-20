@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import {
   buildCompactImageAttachmentRefs,
   buildCompactImageReferenceRegistry,
+  planAssistantAgentChange,
   validateAssistantAgentPatchSet,
   writeAssistantAgentPatchSet,
 } from './assistantAgentOrchestrator';
@@ -42,6 +43,33 @@ function artifact(overrides: Partial<AssistantArtifactItem> = {}): AssistantArti
 describe('assistantAgentOrchestrator validation', () => {
   beforeEach(() => {
     generateResponseMock.mockReset();
+  });
+
+  it('limits network requests to six and rejects unsupported URL schemes', async () => {
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      intent: 'chat',
+      scope: { targetMode: 'unknown', artifactIds: [] },
+      operations: [],
+      requiresConfirmation: false,
+      confidence: 1,
+      networkRequests: [
+        ...Array.from({ length: 8 }, (_, index) => ({ url: `https://example.com/${index}`, mode: 'readable' })),
+        { url: 'file:///etc/passwd', mode: 'source' },
+        { url: 'javascript:alert(1)', mode: 'readable' },
+      ],
+    }));
+
+    const plan = await planAssistantAgentChange({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a',
+      messages: [],
+      userMessage: { id: 'message-user', chatId: 'chat-a', type: 'user', senderId: 'user', senderName: '用户', content: '读取这些网页', emotion: 0, timestamp: 1, isDeleted: false },
+      existingArtifacts: [],
+      toolCapabilities: { networkAccess: true },
+    });
+
+    expect(plan.networkRequests).toHaveLength(6);
+    expect(plan.networkRequests?.every((request) => request.url.startsWith('https://'))).toBe(true);
   });
 
   it('keeps generated HTML out of the visible assistant message', async () => {

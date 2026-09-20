@@ -199,6 +199,12 @@ export interface AssistantAgentWorkspaceScanRequest {
   maxDepth?: number;
 }
 
+export interface AssistantAgentNetworkRequest {
+  url: string;
+  mode: 'readable' | 'source' | 'download';
+  fileName?: string;
+}
+
 export interface AssistantAgentLocalFileContext extends AssistantAgentLocalFileRef {
   name: string;
   mimeType?: string;
@@ -224,6 +230,7 @@ export interface AssistantAgentChangePlan {
   searchQuery?: string;
   localFilePaths?: AssistantAgentLocalFileRef[];
   workspaceScan?: AssistantAgentWorkspaceScanRequest;
+  networkRequests?: AssistantAgentNetworkRequest[];
   responseExperience?: AssistantResponseExperience;
   confidence: number;
   rationale?: string;

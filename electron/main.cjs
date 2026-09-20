@@ -2,11 +2,72 @@ const { app, BrowserWindow, protocol, shell, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const dns = require('dns').promises;
+const net = require('net');
 
 const APP_PROTOCOL = 'app';
 const APP_HOST = 'sense-murmur';
 const DEV_SERVER_ARG = '--dev-server=';
 const ALLOWED_COMMANDS = new Set(['python', 'python3', 'node', 'npm', 'git', 'officecli']);
+const MAX_NETWORK_RESOURCE_BYTES = 20 * 1024 * 1024;
+const MAX_NETWORK_REDIRECTS = 4;
+
+function isPrivateNetworkAddress(address) {
+  if (net.isIPv4(address)) {
+    const [a, b] = address.split('.').map(Number);
+    return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127);
+  }
+  const value = String(address).toLowerCase();
+  return value === '::' || value === '::1' || value.startsWith('fc') || value.startsWith('fd') || /^fe[89ab]/.test(value)
+    || value.startsWith('::ffff:127.') || value.startsWith('::ffff:10.') || value.startsWith('::ffff:192.168.')
+    || /^::ffff:172\.(1[6-9]|2\d|3[01])\./.test(value) || value.startsWith('::ffff:169.254.');
+}
+
+async function validateNetworkUrl(raw) {
+  const url = new URL(String(raw || ''));
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('network_url_invalid');
+  const hostname = url.hostname.replace(/^\[|\]$/g, '');
+  const addresses = net.isIP(hostname) ? [{ address: hostname }] : await dns.lookup(hostname, { all: true, verbatim: true });
+  if (!addresses.length || addresses.some((item) => isPrivateNetworkAddress(item.address))) throw new Error('network_target_blocked');
+  return url;
+}
+
+async function fetchNetworkResource(request) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.max(1000, Math.min(Number(request?.timeoutMs) || 20000, 60000)));
+  try {
+    const requestedUrl = await validateNetworkUrl(request?.url);
+    let currentUrl = requestedUrl;
+    let response = null;
+    for (let redirect = 0; redirect <= MAX_NETWORK_REDIRECTS; redirect += 1) {
+      response = await fetch(currentUrl, { signal: controller.signal, redirect: 'manual', headers: { 'user-agent': 'SenseMurmur-Desktop/1.0' } });
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get('location');
+      if (!location || redirect === MAX_NETWORK_REDIRECTS) throw new Error('network_redirect_limit');
+      currentUrl = await validateNetworkUrl(new URL(location, currentUrl).toString());
+    }
+    if (!response) throw new Error('network_empty_response');
+    if (!response.ok) throw new Error(`network_upstream_${response.status}`);
+    const declared = Number(response.headers.get('content-length') || 0);
+    if (declared > MAX_NETWORK_RESOURCE_BYTES) throw new Error('network_resource_too_large');
+    const chunks = [];
+    let size = 0;
+    if (response.body) {
+      for await (const chunk of response.body) {
+        size += chunk.byteLength;
+        if (size > MAX_NETWORK_RESOURCE_BYTES) throw new Error('network_resource_too_large');
+        chunks.push(Buffer.from(chunk));
+      }
+    }
+    const buffer = Buffer.concat(chunks, size);
+    const contentType = (response.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+    const binary = request?.mode === 'download' || !(contentType.startsWith('text/') || ['application/json', 'application/xml', 'application/xhtml+xml', 'image/svg+xml'].includes(contentType));
+    const fileName = currentUrl.pathname.split('/').filter(Boolean).at(-1) || 'download';
+    return { requestedUrl: requestedUrl.toString(), finalUrl: currentUrl.toString(), status: response.status, contentType, sizeBytes: buffer.length, fileName, encoding: binary ? 'base64' : 'utf8', content: binary ? buffer.toString('base64') : buffer.toString('utf8') };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function validateCommandRequest(request) {
   const command = typeof request?.command === 'string' ? request.command.trim() : '';
@@ -56,6 +117,7 @@ function registerIpcHandlers() {
     if (error) throw new Error(error);
     return { ok: true };
   });
+  ipcMain.handle('pneumata:fetch-network-resource', (_event, request) => fetchNetworkResource(request));
 }
 
 protocol.registerSchemesAsPrivileged([

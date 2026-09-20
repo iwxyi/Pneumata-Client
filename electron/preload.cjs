@@ -20,4 +20,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   systemAction(request) {
     return ipcRenderer.invoke('pneumata:system-action', request);
   },
+  fetchNetworkResource(request) {
+    return ipcRenderer.invoke('pneumata:fetch-network-resource', request);
+  },
 });

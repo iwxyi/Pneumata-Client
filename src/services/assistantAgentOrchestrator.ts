@@ -280,7 +280,7 @@ export function buildCompactImageReferenceRegistry(messages: Message[]) {
     .slice(0, MAX_IMAGE_REFERENCES);
 }
 
-function buildPlannerPrompt(options: { includeImages: boolean; includeLocalFiles: boolean; includeSearch: boolean; includeData: boolean }) {
+function buildPlannerPrompt(options: { includeImages: boolean; includeLocalFiles: boolean; includeSearch: boolean; includeNetwork: boolean; includeData: boolean }) {
   const sections = [
     '你是 Agent Intent Planner。只负责决策，不生成产物正文；只输出严格 JSON。',
     '结合用户输入、最近对话、产物注册表和交互焦点判断，不要要求用户使用“HTML/产物”等技术词。',
@@ -291,12 +291,13 @@ function buildPlannerPrompt(options: { includeImages: boolean; includeLocalFiles
     'selectedArtifactId 存在且用户说“这个/当前产物/改一下”等相对指代时优先作为 update 目标；没有唯一目标则 clarify。',
   ];
   if (options.includeSearch) sections.push('搜索：需要实时消息、网页资料或外部核验且 webSearch=true 时输出 search 并填写 searchQuery；未开启时说明能力未开启。');
+  if (options.includeNetwork) sections.push('网络资源：用户给出明确 URL 并要求读取网页、源码、图片或文件时输出 networkRequests，最多 6 项。网页默认 mode=readable（语义化正文），只有明确要求源码时用 source，明确要求下载到设备时用 download。不要虚构 URL，不要用它访问本应用、localhost 或内网。若只是搜索未知网址，使用 search。');
   if (options.includeLocalFiles) sections.push('本地文件：只使用 registry 中的文件；用户未明确目标时 clarify，未授权时不要假装读取；输出 localFilePaths 时必须使用 registry 中的 directoryId/path。需要扫描时可输出 workspaceScan（directoryIds、pathPrefix、nameContains、extension、minSizeBytes、maxSizeBytes、maxEntries、maxDepth），扫描结果不等于文件正文。');
   if (options.includeImages) sections.push('图片：结合图片注册表判断目标/参考图，不要虚构图片 ID；图片生成仍由后续 writer/media task 处理。');
   if (options.includeData) sections.push('数据产物：已有 table/json 产物的筛选、统计、插入、更新或删除使用结构化数据操作；优先使用注册表中的字段、描述和统计摘要，不加载完整文件。');
   sections.push(
     '输出：',
-    '{"intent":"chat|create|update|clarify|search","assistantMessage":"chat/clarify 可见回复","responseExperience":"direct_answer|source_code|structured_input|interactive_workspace|visual_explanation","searchQuery":"","localFilePaths":[],"workspaceScan":{"directoryIds":[],"pathPrefix":"","nameContains":"","extension":"","minSizeBytes":0,"maxSizeBytes":0,"maxEntries":160,"maxDepth":4},"scope":{"targetMode":"single|multi|workspace|selection|unknown","artifactIds":[]},"operations":[{"kind":"style_change|content_edit|structure_edit|create|export|review|search|other","instruction":"..."}],"requiresConfirmation":false,"clarificationQuestion":"","confidence":0,"rationale":"..."}',
+    '{"intent":"chat|create|update|clarify|search","assistantMessage":"chat/clarify 可见回复","responseExperience":"direct_answer|source_code|structured_input|interactive_workspace|visual_explanation","searchQuery":"","networkRequests":[{"url":"https://...","mode":"readable|source|download","fileName":"可选"}],"localFilePaths":[],"workspaceScan":{"directoryIds":[],"pathPrefix":"","nameContains":"","extension":"","minSizeBytes":0,"maxSizeBytes":0,"maxEntries":160,"maxDepth":4},"scope":{"targetMode":"single|multi|workspace|selection|unknown","artifactIds":[]},"operations":[{"kind":"style_change|content_edit|structure_edit|create|export|review|search|other","instruction":"..."}],"requiresConfirmation":false,"clarificationQuestion":"","confidence":0,"rationale":"..."}',
   );
   return sections.join('\n');
 }
@@ -350,6 +351,16 @@ function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[],
     maxEntries: Math.max(1, Math.min(500, Math.floor(numberInRange(rawScan.maxEntries, 160) || 160))),
     maxDepth: Math.max(1, Math.min(8, Math.floor(numberInRange(rawScan.maxDepth, 4) || 4))),
   } : undefined;
+  const networkRequests = Array.isArray(raw.networkRequests) ? raw.networkRequests.flatMap((item): NonNullable<AssistantAgentChangePlan['networkRequests']> => {
+    if (!isRecord(item)) return [];
+    const url = text(item.url, 2000);
+    const mode = item.mode === 'source' || item.mode === 'download' ? item.mode : 'readable';
+    try {
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return [];
+    } catch { return []; }
+    return [{ url, mode, fileName: text(item.fileName, 180) || undefined }];
+  }).slice(0, 6) : [];
   const normalizedIntent = intent === 'update' && artifactIds.length === 0 ? 'clarify' : intent;
   const responseExperience = ['direct_answer', 'source_code', 'structured_input', 'interactive_workspace', 'visual_explanation'].includes(String(raw.responseExperience))
     ? raw.responseExperience as NonNullable<AssistantAgentChangePlan['responseExperience']>
@@ -364,6 +375,7 @@ function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[],
     searchQuery: text(raw.searchQuery, 300),
     localFilePaths,
     workspaceScan,
+    networkRequests,
     responseExperience,
     confidence: numberInRange(raw.confidence, 0),
     rationale: text(raw.rationale, 500),
@@ -847,6 +859,7 @@ export async function planAssistantAgentChange(params: {
   interactionFocus?: Record<string, unknown>;
   toolCapabilities?: {
     webSearch?: boolean;
+    networkAccess?: boolean;
     localWorkspace?: boolean;
     localWorkspaceDirectories?: Array<{ id: string; name: string; isDefault: boolean }>;
   };
@@ -899,6 +912,7 @@ export async function planAssistantAgentChange(params: {
     artifactRegistry: artifactRegistry(params.existingArtifacts),
     toolCapabilities: {
       webSearch: Boolean(params.toolCapabilities?.webSearch),
+      networkAccess: Boolean(params.toolCapabilities?.networkAccess),
       localWorkspace: Boolean(params.toolCapabilities?.localWorkspace),
     },
     localWorkspaceRegistry: (params.toolCapabilities?.localWorkspaceDirectories || []).slice(0, 12),
@@ -911,6 +925,7 @@ export async function planAssistantAgentChange(params: {
       includeImages: Boolean(payload.imageReferenceRegistry.length || payload.userMessage.imageAttachments.length),
       includeLocalFiles: Boolean(params.toolCapabilities?.localWorkspace || payload.localWorkspaceFileRegistry.length),
       includeSearch: Boolean(params.toolCapabilities?.webSearch),
+      includeNetwork: Boolean(params.toolCapabilities?.networkAccess),
       includeData: params.existingArtifacts.some((artifact) => artifact.kind === 'table' || artifact.kind === 'json')
         || /\b(csv|json)\b|表格|数据集|数据文件|记录|字段|行|列/i.test(params.userMessage.content),
     }),

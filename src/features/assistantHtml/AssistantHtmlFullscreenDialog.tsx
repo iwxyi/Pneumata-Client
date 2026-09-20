@@ -23,7 +23,7 @@ function versionLabel(item: AssistantArtifactItem, version: AssistantArtifactVer
   if (!version) return '';
   const index = item.versions.findIndex((entry) => entry.id === version.id);
   if (index < 0) return '';
-  const storedTotal = Number.isFinite(item.revision) && (item.revision || 0) > 0 ? item.revision : 0;
+  const storedTotal = Number.isFinite(item.revision) && (item.revision || 0) > 0 ? Number(item.revision) : 0;
   const maxVersionRevision = Math.max(0, ...item.versions.map((entry) => Number(entry.revision) || 0));
   const total = Math.max(item.versions.length, storedTotal, maxVersionRevision);
   const revision = total > item.versions.length

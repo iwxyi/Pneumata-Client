@@ -137,7 +137,7 @@ export default function AssistantHtmlFrame({
         if (!readOnly && !isRepeatedError) {
           logDeveloperDiagnostic('html-artifact:iframe-error', { ...runtimeError }, 'error', 'chat-window');
         }
-        const effectiveError = rememberAssistantHtmlRuntimeError(runtimeError);
+        const effectiveError = rememberAssistantHtmlRuntimeError(runtimeError) || runtimeError;
         setError(effectiveError.message);
         setLastRuntimeError(effectiveError);
         if (effectiveError === runtimeError) onRuntimeError?.(runtimeError);

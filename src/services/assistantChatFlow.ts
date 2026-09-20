@@ -489,6 +489,7 @@ async function persistAssistantArtifactsFromReply(params: {
     existingArtifacts,
     toolCapabilities: {
       webSearch: isAssistantAgentSearchEnabled(params.chat),
+      networkAccess: resolvedCapabilities.webSearch || resolvedCapabilities.fileDownload,
       localWorkspace: Boolean(workspaceDirectories.length || uploadedFileContexts.length),
       localWorkspaceDirectories: workspaceDirectories.map((directory) => ({
         id: directory.id,
@@ -547,7 +548,40 @@ async function persistAssistantArtifactsFromReply(params: {
   const selectedLocalFiles = selectedLocalWorkspaceFilePaths.length
     ? selectedLocalWorkspaceFilePaths.map((path) => ({ directoryId: defaultLocalWorkspaceDirectory?.id || '', path }))
     : (plan.localFilePaths || []);
-  const localFiles = [...uploadedFileContexts, ...(await Promise.all(Object.entries(selectedLocalFiles.reduce<Record<string, string[]>>((acc, file) => {
+  const networkFiles: AssistantAgentLocalFileContext[] = [];
+  if (plan.networkRequests?.length && (resolvedCapabilities.webSearch || resolvedCapabilities.fileDownload)) {
+    const { downloadNetworkResource, fetchNetworkResource } = await import('./networkResourceService');
+    for (const [index, request] of plan.networkRequests.entries()) {
+      try {
+        const result = request.mode === 'download'
+          ? await downloadNetworkResource(request.url, request.fileName)
+          : await fetchNetworkResource(request.url, request.mode);
+        const content = request.mode === 'download'
+          ? `网络文件已完整接收，系统保存流程已启动。\nURL: ${result.finalUrl}\n文件名: ${request.fileName || result.fileName}\n类型: ${result.contentType}\n大小: ${result.sizeBytes} bytes\n传输方式: ${result.transport}`
+          : [
+              `URL: ${result.finalUrl}`,
+              `Content-Type: ${result.contentType}`,
+              result.truncated ? `正文已按上下文上限截断（原始字符数 ${result.originalLength}）` : '',
+              '',
+              result.text || '',
+            ].filter(Boolean).join('\n');
+        networkFiles.push({
+          directoryId: 'network',
+          path: result.finalUrl,
+          name: request.fileName || result.title || result.fileName || `network-${index + 1}`,
+          mimeType: result.contentType,
+          sizeBytes: result.sizeBytes,
+          content,
+          truncated: Boolean(result.truncated),
+          originalLength: result.originalLength || content.length,
+        });
+      } catch (error) {
+        const content = `网络资源请求失败。\nURL: ${request.url}\n模式: ${request.mode}\n错误: ${error instanceof Error ? error.message : String(error)}`;
+        networkFiles.push({ directoryId: 'network', path: request.url, name: `network-error-${index + 1}`, mimeType: 'text/plain', sizeBytes: content.length, content, truncated: false, originalLength: content.length });
+      }
+    }
+  }
+  const localFiles = [...uploadedFileContexts, ...networkFiles, ...(await Promise.all(Object.entries(selectedLocalFiles.reduce<Record<string, string[]>>((acc, file) => {
     if (!file.directoryId || !workspaceDirectories.some((directory) => directory.id === file.directoryId)) return acc;
     (acc[file.directoryId] ||= []).push(file.path);
     return acc;

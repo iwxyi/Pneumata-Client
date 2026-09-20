@@ -130,6 +130,17 @@ export interface AiSearchResponse {
   results: AiSearchResultItem[];
 }
 
+export interface NetworkResourceResponse {
+  requestedUrl: string;
+  finalUrl: string;
+  status: number;
+  contentType: string;
+  sizeBytes: number;
+  fileName: string;
+  encoding: 'utf8' | 'base64';
+  content: string;
+}
+
 export interface AlapiDoutuResponse {
   keyword: string;
   imageUrl: string;
@@ -740,6 +751,10 @@ class ApiClient {
       source: options?.source,
       resourceId: options?.resourceId,
     });
+  }
+
+  async fetchNetworkResource(url: string, mode: 'readable' | 'source' | 'download', timeoutMs = 20_000) {
+    return this.request<NetworkResourceResponse>('POST', '/network/fetch', { url, mode, timeoutMs });
   }
 
   async searchDoutu(keyword: string, options?: { chatId?: string; messageId?: string }) {
