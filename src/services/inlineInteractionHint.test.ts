@@ -114,7 +114,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
 
     expect(contract).toContain('"messages":[{"content":"先发文字"');
     expect(contract).toContain('messages[]: use null when there is only one send');
-    expect(contract).toContain('Prefer messages[] for independent sends');
+    expect(contract).toContain('If the answer is yes, prefer messages[] for independent sends');
     expect(contract).toContain('Audio must be the only media in its item');
     expect(contract).toContain('A bubble may contain one or more paragraphs');
   });

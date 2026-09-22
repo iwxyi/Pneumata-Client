@@ -408,7 +408,7 @@ export function buildInlineInteractionContract(params: {
 
   const turnPlanRules = params.turnPlan
     ? params.turnPlan.allowExtraMessages
-      ? `\nTurn plan: rhythm=${params.turnPlan.rhythm}; this turn may use 2-${Math.max(2, params.turnPlan.targetBubbleCount)} consecutive bubbles if that is how the speaker would naturally send it. Use messages[] for those independent sends, including the first bubble; set extraMessages=null. A bubble may contain one or more paragraphs when that reads more naturally than separate sends.`
+      ? `\nTurn plan: rhythm=${params.turnPlan.rhythm}; this turn may use up to ${Math.max(2, params.turnPlan.targetBubbleCount)} consecutive bubbles if that is how the speaker would naturally send it. This is permission, not a quota: after a complete first thought, ask whether the next beat would be typed after pressing send. If the answer is yes, prefer messages[] for independent sends and set extraMessages=null. A full stop alone is never a reason to split. A bubble may contain one or more paragraphs when that reads more naturally than separate sends.`
       : `\nTurn plan: rhythm=${params.turnPlan.rhythm}; one bubble is the default, but content may still contain paragraph breaks if the visible reply genuinely has separate thoughts.`
     : '';
   const aiDirectInteractionRules = params.chat.type === 'ai_direct'

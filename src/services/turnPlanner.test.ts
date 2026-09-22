@@ -363,4 +363,36 @@ describe('deriveTurnPlan', () => {
     expect(prompt).toContain('one compact social or deliberative move');
     expect(prompt).not.toContain('Target length band');
   });
+
+  it('uses the delivery policy to vary proactive later-send availability', () => {
+    const plan = deriveTurnPlan({
+      chat: chat({ type: 'direct' }), speaker: character(),
+      messages: [message({ content: '我今天路过那家店，忽然想起你上次说的话。', timestamp: 42 })],
+      intent, surface: { kind: 'chat' }, richDelivery: highDelivery, now: 42,
+    });
+
+    expect(plan.allowExtraMessages).toBe(true);
+    expect(plan.targetBubbleCount).toBe(2);
+    expect(plan.reasons.some((reason) => reason.startsWith('delivery:'))).toBe(true);
+    const prompt = buildTurnPlanPrompt(plan);
+    expect(prompt).toContain('never required');
+    expect(prompt).toContain('full stop is a possible send boundary');
+    expect(prompt).toContain('not a mechanical splitting rule');
+  });
+
+  it('gives high, medium, and low delivery policies different proactive thresholds', () => {
+    const input = {
+      chat: chat({ id: 'room-0', type: 'direct' }), speaker: character(),
+      messages: [message({ content: '我今天路过那家店，忽然想起你上次说的话。', timestamp: 42 })],
+      intent, surface: { kind: 'chat' as const }, now: 42,
+    };
+    const high = deriveTurnPlan({ ...input, richDelivery: highDelivery });
+    const medium = deriveTurnPlan({ ...input, richDelivery: { ...highDelivery, multiBubble: { proactivity: 'medium', maxBubbles: 2 } } });
+    const low = deriveTurnPlan({ ...input, richDelivery: { ...highDelivery, multiBubble: { proactivity: 'low', maxBubbles: 2 } } });
+
+    expect(high.allowExtraMessages).toBe(true);
+    expect(medium.allowExtraMessages).toBe(false);
+    expect(low.allowExtraMessages).toBe(false);
+    expect(high.reasons.some((reason) => reason.startsWith('delivery:high_'))).toBe(true);
+  });
 });

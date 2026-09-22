@@ -270,20 +270,32 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
     return { ...plan, rhythm: plan.rhythm === 'multi_bubble' ? 'full_reply' : plan.rhythm, targetBubbleCount: 1, allowExtraMessages: false, reasons: [...plan.reasons, 'delivery:multi_bubble_off'] };
   }
 
-  const cappedCount = Math.max(1, Math.min(plan.targetBubbleCount, delivery.maxBubbles));
-  if (plan.allowExtraMessages) {
-    return { ...plan, targetBubbleCount: cappedCount, allowExtraMessages: cappedCount > 1, reasons: [...plan.reasons, `delivery:multi_bubble_${delivery.proactivity}`] };
-  }
-
-  if (delivery.proactivity !== 'high' || input.surface.kind !== 'chat') return plan;
+  if (input.surface.kind !== 'chat') return plan;
   const latest = latestVisible(input.messages);
   const latestLength = charLength(latest?.content);
   const ownStats = recentOwnStats(input.messages, input.speaker.id);
   const bucket = stableBucket([input.chat.id, input.speaker.id, latest?.id || '', latest?.timestamp || input.now || 0, 'rich-delivery'].join('|'));
+  const threshold = delivery.proactivity === 'high' ? 28 : delivery.proactivity === 'medium' ? 62 : 84;
+  const preservesUserRequestedSplit = plan.reasons.some((reason) => reason === 'human_depth_can_split_bubbles' || reason === 'analysis_structured_multi_bubble');
+  const passesDeliveryPolicy = preservesUserRequestedSplit || bucket >= threshold;
+  const cappedCount = Math.max(1, Math.min(plan.targetBubbleCount, delivery.maxBubbles));
+  if (plan.allowExtraMessages) {
+    if (!passesDeliveryPolicy) {
+      return {
+        ...plan,
+        rhythm: plan.rhythm === 'multi_bubble' ? 'full_reply' : plan.rhythm,
+        targetBubbleCount: 1,
+        allowExtraMessages: false,
+        reasons: [...plan.reasons, `delivery:${delivery.proactivity}_held_single`],
+      };
+    }
+    return { ...plan, targetBubbleCount: cappedCount, allowExtraMessages: cappedCount > 1, reasons: [...plan.reasons, `delivery:multi_bubble_${delivery.proactivity}`] };
+  }
+
   const canProactivelySplit = latestLength >= 8
     && latestLength <= 90
     && ownStats.recentMultiBubbleCount === 0
-    && bucket >= 42
+    && bucket >= threshold
     && plan.rhythm !== 'defer_or_wait'
     && plan.rhythm !== 'micro_ack';
   if (!canProactivelySplit) return plan;
@@ -292,18 +304,18 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
     rhythm: 'multi_bubble',
     targetBubbleCount: Math.min(2, delivery.maxBubbles),
     allowExtraMessages: delivery.maxBubbles > 1,
-    reasons: [...plan.reasons, 'delivery:high_proactive_multi_bubble'],
+    reasons: [...plan.reasons, `delivery:${delivery.proactivity}_proactive_multi_bubble`],
   };
 }
 
 export function buildTurnPlanPrompt(plan: TurnPlan) {
   const bubbleLine = plan.allowExtraMessages
-    ? '- Consecutive bubbles are allowed if this reply would naturally arrive as separate chat messages. In analysis rooms, use them for one speaker splitting a structured point, not for more social aftertalk.'
-    : '- Prefer one visible bubble unless the current moment clearly wants a natural follow-up message.';
+    ? '- Consecutive bubbles are available, never required. After completing a thought, decide whether this character would actually press send and then add a second beat: an afterthought, correction, delayed feeling, small tease, practical add-on, or reluctant qualification. If not, keep one bubble.'
+    : '- Keep this turn in one visible bubble unless the current moment clearly wants a natural follow-up message.';
   const rhythmLine = plan.rhythm === 'micro_ack'
     ? '\n- This turn can be a tiny acknowledgement or quick nudge. Do not expand it into a paragraph unless the user directly asked for substance.'
     : plan.rhythm === 'short_reply'
-      ? '\n- This turn should normally be one compact social or deliberative move. Do not match a previous long paragraph just because it is there.'
+      ? '\n- Keep one compact social or deliberative move. A compact turn may still be one send followed by a brief, genuinely later second thought.'
       : plan.rhythm === 'multi_bubble'
         ? '\n- If using multiple bubbles, keep each bubble purposeful and uneven; do not use them to continue a lecture.'
         : '';
@@ -312,6 +324,7 @@ export function buildTurnPlanPrompt(plan: TurnPlan) {
 ${bubbleLine}
 - Do not target a fixed length band. Choose length from the live situation, the user's request, the character's comfort, and the amount of actual substance available.
 - Very short reactions, ordinary one-sentence replies, rambling multi-sentence thoughts, and fuller explanations are all valid when the moment calls for them.
+- A full stop is a possible send boundary, not a mechanical splitting rule. Use messages[] only when the completed first thought changes the timing or social feel of what comes next.
 - This is a weak planning prior, not a keyword rule, output template, or length cap. Follow the current request, scene, and play mode if they need a different shape.
 ${rhythmLine}
 - Plan reasons: ${plan.reasons.join(', ')}`;

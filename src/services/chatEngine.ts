@@ -1678,17 +1678,26 @@ ${roleActionLine}
 - If recent transcript contains stage directions or parenthesized scene beats, treat them as invalid old surface drift and do not continue that form.${analysisLine}`;
 }
 
-function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeProjection, surface: ResponseSurface) {
+function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeProjection, surface: ResponseSurface, richDelivery?: RichDeliveryPolicy) {
   if (surface.kind !== 'chat') return '';
   void messages;
+  const bubblePolicy = richDelivery?.multiBubble.proactivity === 'high'
+    ? '- This room actively welcomes a natural later send when the character has a second beat after a complete thought; it is still never a quota.'
+    : richDelivery?.multiBubble.proactivity === 'medium'
+      ? '- This room sometimes permits a natural later send when the second beat changes timing or social feel; do not seek one out.'
+      : richDelivery?.multiBubble.proactivity === 'low'
+        ? '- This room rarely uses later sends; prefer one message unless the separation clearly carries meaning.'
+        : '- This room does not initiate later sends; keep the turn together unless the user explicitly asks for a multi-part format.';
   const rhythm = innerLife.expressionPlan.messageCount > 1
-    ? `- The inner rhythm can be ${innerLife.expressionPlan.messageCount} bubbles. Use messages[] only if the thought really lands as separate sends; otherwise use one bubble.`
-    : '- The inner rhythm favors one bubble, but that bubble may be very short, medium, or occasionally longer if the social move needs it.';
+    ? `- The inner rhythm has room for ${innerLife.expressionPlan.messageCount} bubbles. Decide during writing whether the first complete thought would actually be sent before the next one occurs.`
+    : '- The inner rhythm is not a one-bubble requirement. Decide during writing whether the first complete thought would actually be sent before the next one occurs.';
   return `\n## Natural Chat Rhythm
 - Real chat is uneven; choose size from the moment, not a fixed template.
 ${rhythm}
+${bubblePolicy}
 - One bubble can contain multiple paragraphs when the speaker is making one continuous point.
 - Multiple bubbles are for consecutive sends with separate social purposes: correction, afterthought, softened add-on, practical follow-up, or a second beat that would feel typed after pressing send.
+- A sentence ending in a full stop can be a natural opportunity to send, then think again. It is never enough by itself: do not split merely because punctuation permits it.
 - A live-chat turn does not always need a new argument or task result. Low-information social signals are valid when they change stance, consent, resistance, timing, face, attention, or emotional temperature.
 - Do not use messages[] for punctuation splitting, action/dialogue separation, another actor's line, or making a lecture longer.`;
 }
@@ -3956,7 +3965,7 @@ export async function generateSpeakerMessage(params: {
     { id: 'role_action_visibility', layer: 'runtime', priority: 10, content: buildRoleActionVisibilityPrompt(showRoleActions) },
     { id: 'expression_feedback', layer: 'runtime', priority: 20, content: buildExpressionFeedbackPrompt(expressionFeedbackTrace) },
     { id: 'turn_directive', layer: 'task', priority: 48, content: buildTurnDirectivePrompt(unifiedTurnDirective) },
-    { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface) },
+    { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
     { id: 'conversation_move', layer: 'task', priority: 50, content: buildConversationMovePrompt(conversationMovePlan, params.chat) },
     { id: 'expression_surface_choice', layer: 'style', priority: 20, content: buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan }) },
     { id: 'turn_length_variety', layer: 'style', priority: 30, content: buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
