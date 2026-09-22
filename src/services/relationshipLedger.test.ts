@@ -45,6 +45,28 @@ describe('relationshipLedger', () => {
     expect(result[0].current.threat).toBe(0);
   });
 
+  it('uses a model-authored relationship assessment instead of the interaction-kind score mapping', () => {
+    const interaction: InteractionEventPayload = {
+      kind: 'support',
+      actorId: 'a',
+      targetId: 'b',
+      intensity: 4,
+      tone: 'warm',
+      evidenceText: '我愿意帮你，但这件事得先把界限说清楚。',
+      confidence: 0.94,
+      relationship: {
+        delta: { warmth: 1, competence: 2, trust: -2, threat: 3 },
+        labels: ['愿意协助但保持戒备'],
+        stance: '提供帮助，同时收紧信任边界',
+      },
+    };
+
+    const result = reduceRelationshipLedger([], interaction, buildEvent(interaction));
+    expect(result[0].current).toEqual({ warmth: 1, competence: 2, trust: -2, threat: 3 });
+    expect(result[0].derived?.semantic?.labels).toEqual(['愿意协助但保持戒备']);
+    expect(result[0].derived?.semantic?.summary).toBe('提供帮助，同时收紧信任边界');
+  });
+
   it('starts new runtime ledger entries from the shared neutral baseline', () => {
     const interaction: InteractionEventPayload = {
       kind: 'challenge',

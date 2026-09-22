@@ -115,12 +115,12 @@ function buildAxisReason(axis: RelationshipAxisReason['axis'], value: number, re
   return { axis, value, reason, evidence, createdAt };
 }
 
-function buildAxisReasons(interaction: InteractionEventPayload, delta: RelationshipDeltaPayload['delta'], createdAt?: number): RelationshipDeltaPayload['axisReasons'] {
+function buildAxisReasons(interaction: InteractionEventPayload, delta: RelationshipDeltaPayload['delta'], createdAt?: number, reason = interaction.relationship?.stance || interaction.kind): RelationshipDeltaPayload['axisReasons'] {
   const reasons: NonNullable<RelationshipDeltaPayload['axisReasons']> = {};
   (['warmth', 'competence', 'trust', 'threat'] as const).forEach((axis) => {
     const value = delta[axis] || 0;
     if (!value) return;
-    reasons[axis] = [buildAxisReason(axis, value, interaction.kind, interaction.evidenceText, createdAt)];
+    reasons[axis] = [buildAxisReason(axis, value, reason, interaction.evidenceText, createdAt)];
   });
   return reasons;
 }
@@ -177,7 +177,7 @@ function buildRelationshipSemanticProfile(current: RelationshipLedgerEntry['curr
   return { stage, labels: uniqueLabels, summary, intensity };
 }
 
-function computeDerived(entry: RelationshipLedgerEntry | undefined, current: RelationshipLedgerEntry['current'], axisReasons: NonNullable<RelationshipLedgerEntry['axisReasons']>) {
+function computeDerived(entry: RelationshipLedgerEntry | undefined, current: RelationshipLedgerEntry['current'], axisReasons: NonNullable<RelationshipLedgerEntry['axisReasons']>, semanticLabels?: string[], semanticStance?: string) {
   const previous = entry?.current;
   const totalMovement = Math.abs(current.warmth) + Math.abs(current.competence) + Math.abs(current.trust) + Math.abs(current.threat);
   const volatility = previous
@@ -187,7 +187,9 @@ function computeDerived(entry: RelationshipLedgerEntry | undefined, current: Rel
     stability: Math.max(0, Math.min(100, 100 - volatility * 4)),
     reciprocity: entry?.derived?.reciprocity ?? 0,
     salience: Math.max(0, Math.min(100, totalMovement + Object.values(axisReasons).flat().length * 4)),
-    semantic: buildRelationshipSemanticProfile(current, axisReasons),
+    semantic: semanticLabels?.length
+      ? { ...buildRelationshipSemanticProfile(current, axisReasons), labels: semanticLabels.slice(0, 6), summary: semanticStance || semanticLabels.join('、') }
+      : buildRelationshipSemanticProfile(current, axisReasons),
   };
 }
 
@@ -233,6 +235,21 @@ export function canApplyRelationshipInteraction(interaction: InteractionEventPay
 
 export function inferRelationshipDelta(interaction: InteractionEventPayload): RelationshipDeltaPayload | null {
   if (!interaction.targetId) return null;
+  if (interaction.relationship) {
+    const delta = interaction.relationship.delta;
+    return {
+      actorId: interaction.actorId,
+      targetId: interaction.targetId,
+      delta,
+      reason: interaction.relationship.stance || interaction.kind,
+      axisReasons: buildAxisReasons(interaction, delta, undefined, interaction.relationship.stance || interaction.kind),
+      semanticLabels: interaction.relationship.labels,
+      semanticStance: interaction.relationship.stance,
+      spikeType: Math.max(Math.abs(delta.warmth), Math.abs(delta.competence), Math.abs(delta.trust), Math.abs(delta.threat)) >= 5 ? 'turning_point' : 'normal',
+    };
+  }
+  // Compatibility for historical runtime events created before the model
+  // relationship contract. Fresh generation paths reject missing assessments.
   if (interaction.kind === 'support' || interaction.kind === 'defend') {
     const warmth = interaction.intensity + (interaction.tone === 'warm' ? 1 : 0);
     const trust = interaction.intensity + (interaction.confidence >= 0.92 ? 1 : 0);
@@ -343,7 +360,7 @@ export function reduceRelationshipLedgerWithDelta(entries: RelationshipLedgerEnt
     actorId: delta.actorId,
     targetId: delta.targetId,
     current: nextCurrent,
-    derived: computeDerived(normalizedExisting, nextCurrent, axisReasons),
+    derived: computeDerived(normalizedExisting, nextCurrent, axisReasons, delta.semanticLabels, delta.semanticStance),
     axisReasons,
     trend: inferTrend(normalizedExisting, delta.delta),
     recentEvents: [...(normalizedExisting?.recentEvents || []), toRelationshipLedgerRecentEvent(evidenceEvent)].slice(-MAX_RELATIONSHIP_RECENT_EVENTS),

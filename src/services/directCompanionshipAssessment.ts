@@ -1,6 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { CompanionshipAddressingEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipPromiseEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipStyle, IntimateConflictKind, PendingPromise, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
+import type { CompanionshipAddressingEventPayload, CompanionshipAttachmentProfileEventPayload, CompanionshipIntimateConflictEventPayload, CompanionshipPromiseEventPayload, CompanionshipRelationshipAssessmentEventPayload, CompanionshipSharedAnchorEventPayload, CompanionshipSharedPhraseEventPayload, CompanionshipSharedSecretEventPayload, CompanionshipStyle, IntimateConflictKind, PendingPromise, SharedMemoryAnchor, SharedPhrase, SharedSecret, UserAttachmentProfile, UserProfileMemoryEventItem, UserProfileMemoryKind } from '../types/companionship';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { APIConfig } from '../types/settings';
@@ -282,6 +282,15 @@ type PromiseDecision = {
   evidence: string;
   confidence: number;
   decisionSource: 'model';
+};
+
+type RelationshipAssessmentDecision = {
+  delta: CompanionshipRelationshipAssessmentEventPayload['delta'];
+  labels: string[];
+  stance: string;
+  reason: string;
+  evidence: string[];
+  confidence: number;
 };
 
 function cleanAddressValue(value: unknown) {
@@ -581,6 +590,65 @@ function normalizePromiseDecisions(raw: unknown, userContent: string, createdAt:
     .slice(0, 3);
 }
 
+function normalizeRelationshipAssessment(raw: unknown, userContent: string): RelationshipAssessmentDecision | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const value = raw as Record<string, unknown>;
+  if (value.shouldCreate !== true) return null;
+  const confidence = normalizeConfidence(value.confidence);
+  if (confidence < 0.72) return null;
+  const rawDelta = value.delta && typeof value.delta === 'object' ? value.delta as Record<string, unknown> : {};
+  const delta = {
+    warmth: Math.max(-8, Math.min(8, Number(rawDelta.warmth || 0))),
+    competence: Math.max(-8, Math.min(8, Number(rawDelta.competence || 0))),
+    trust: Math.max(-8, Math.min(8, Number(rawDelta.trust || 0))),
+    threat: Math.max(-8, Math.min(8, Number(rawDelta.threat || 0))),
+  };
+  if (!Object.values(delta).some((item) => item !== 0)) return null;
+  const evidence = Array.isArray(value.evidence)
+    ? value.evidence.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).map((item) => compactText(item, 120)).slice(0, 4)
+    : [];
+  return {
+    delta,
+    labels: Array.isArray(value.labels) ? value.labels.filter((item): item is string => typeof item === 'string' && Boolean(item.trim())).slice(0, 5) : [],
+    stance: compactText(typeof value.stance === 'string' ? value.stance : '模型未提供额外关系立场。', 120),
+    reason: compactText(typeof value.reason === 'string' ? value.reason : '模型判断这条消息改变了关系状态。', 160),
+    evidence: evidence.length ? evidence : [compactText(userContent, 120)],
+    confidence,
+  };
+}
+
+function createRelationshipAssessmentRuntimeEvent(params: { chat: GroupChat; character: AICharacter; message: Message; decision: RelationshipAssessmentDecision }): RuntimeEventV2 {
+  const payload: CompanionshipRelationshipAssessmentEventPayload = {
+    eventType: 'companionship_relationship_assessment',
+    characterId: params.character.id,
+    userId: USER_ACTOR_ID,
+    participantIds: [params.character.id, USER_ACTOR_ID],
+    delta: params.decision.delta,
+    labels: params.decision.labels,
+    stance: params.decision.stance,
+    evidence: params.decision.evidence,
+    reason: params.decision.reason,
+    confidence: params.decision.confidence,
+    sourceMessageIds: [params.message.id],
+    decisionSource: 'model',
+  };
+  return {
+    id: `evt-companionship-relationship-${params.message.id}`,
+    conversationId: params.chat.id,
+    kind: 'relationship_delta',
+    createdAt: params.message.timestamp || Date.now(),
+    actorIds: [params.character.id],
+    targetIds: [USER_ACTOR_ID],
+    evidenceMessageIds: [params.message.id],
+    summary: params.decision.reason,
+    channelId: 'pair-private',
+    eventClass: 'action',
+    visibility: 'pair_private',
+    visibleToIds: [USER_ACTOR_ID, params.character.id],
+    payload: payload as unknown as Record<string, unknown>,
+  };
+}
+
 function createSharedPhraseRuntimeEvent(params: {
   chat: GroupChat;
   character: AICharacter;
@@ -821,6 +889,8 @@ async function runModelAssessment(params: {
     '任务：只评估用户这一条新消息对十个运行时模块的结构化影响：关系阶段、关心事项、用户画像记忆、正式称呼、未完成约定、共同记忆锚点、小秘密、共同话语、亲密冲突/修复、互动节奏适配。',
     '必须保守：玩笑、比喻、角色扮演台词、影视/游戏/别人经历、含糊猜测、临时口嗨，不要创建长期事件。',
     'phase 只在用户明确把自己和当前角色的关系推进、降级、修复或确认时创建。',
+    '关系方向必须根据角色设定、最近对话、用户行为和角色回应共同判断，不要用单个词或单个动作代替关系判断。角色拒绝、角色自己设边界、用户尊重边界、用户在被拒后继续推进，分别是不同事件：不要把角色能清楚表达边界误判成对用户好感上升；也不要把任何成人亲密话题自动判成负面，只有结合上下文和回应才能判断。',
+    '若用户只是提出亲密或性话题，而上下文没有明确的双方意愿、角色回应或关系变化证据，phase、sharedAnchors、intimateConflict、attachmentProfile 都应 shouldCreate=false；不要猜测“开始在意”“邀请”“确认关系”等阶段。若角色明确拒绝且用户继续推进，应依据互动历史判断是否形成 cooling/crisis 或边界记忆；若用户停止、道歉并尊重边界，才可在有充分证据时记录 repair 或 trust 恢复。',
     'careTopics 只在用户明确提到自己的计划、重要日期、健康/情绪压力、未完成约定，或明确关闭/拒绝已有关心事项时创建。',
     'userProfile 只记录适合未来自然照顾用户的事实、偏好、边界、日期、计划或稳定压力来源。',
     'addressing 只在用户明确要求当前角色如何称呼用户、私下怎么叫、公开怎么叫、不要再叫某个称呼、解除禁用或撤回称呼偏好时创建；不要从普通自我介绍或第三人称描述里猜。',
@@ -830,8 +900,9 @@ async function runModelAssessment(params: {
     'sharedPhrases 只在用户明确创造、复用或拒绝一条“我们之间的话”时创建，例如专属称呼、暗号、约定原话、安慰语、心意话语、秘密暗号；不要把普通聊天句子当口头禅。',
     'intimateConflict 只在用户明确表达和当前角色之间的关系受伤、冷战、指责、退缩、修复尝试、和好或误判撤回时创建；不要把工作、剧情、游戏、别人经历或普通心情不好当成两人冲突。',
     'attachmentProfile 只在用户明确表达互动节奏偏好或稳定关系模式时创建，例如需要更多确认、需要空间、不希望追问、忽近忽远但希望对方稳住、或明确喜欢稳定互相回应。不要根据单句普通情绪猜测敏感标签。',
+    'relationship 只在这一轮确实改变了角色对用户的关系判断时创建。delta 由模型直接给出四轴变化（warmth=亲和、trust=信任、competence=能力判断、threat=威胁/防备），每轴范围 -8 到 8；没有足够证据就 shouldCreate=false。不要因为消息存在、回复礼貌、角色完成任务或角色自己守住边界就自动增加亲和/信任。labels、stance 必须描述这轮关系语义，而不是把固定阈值翻译成标签。',
     '不要写可见回复内容。只输出 JSON，不要 markdown。',
-    '输出结构：{"phase":{"shouldCreate":boolean,"phase":"confessing|confirmed|passionate|deep|cooling|crisis|reconciling|none","style":"romantic|ambiguous|friend|family|mentor|custom|null","confidence":number,"reason":"...","evidence":["..."]},"careTopics":[{"shouldCreate":boolean,"action":"opened|closed|blocked|none","existingTopicId":"可选","topicText":"...","urgency":"low|medium|high","dueInHours":number|null,"confidence":number,"reason":"...","evidence":"..."}],"userProfile":{"shouldCreate":boolean,"items":[{"kind":"display_name|address_preference|schedule_hint|pressure_source|preference|dislike|boundary|important_date|recent_plan|emotional_pattern","text":"第三人称可记忆事实","evidence":"原文证据","confidence":number,"sensitive":boolean}],"reason":"..."},"addressing":{"shouldCreate":boolean,"action":"set_current|set_private|set_public|forbid|unforbid|revoke|none","currentAddress":"可选","privateAddress":"可选","publicAddress":"可选","forbiddenAddresses":["可选"],"confidence":number,"reason":"...","evidence":"..."},"promises":[{"shouldCreate":boolean,"action":"opened|fulfilled|blocked|stale|revoked|none","promiseText":"约定内容","promiseKind":"shared_activity|user_followup|emotional_commitment|boundary_agreement|repair_agreement|ritual|other","dueInHours":number|null,"confidence":number,"reason":"...","evidence":"..."}],"sharedAnchors":[{"shouldCreate":boolean,"kind":"first_time|confession|conflict|repair|inside_joke|shared_secret|promise|milestone","title":"短标题","text":"共同经历内容","salience":number,"confidence":number,"reason":"...","evidence":"..."}],"sharedSecrets":[{"shouldCreate":boolean,"privateText":"只允许私域使用的秘密原文","publicMask":"公开场景可用的含糊遮罩","consequenceKind":"none|misunderstanding|accidental_leak|intentional_breach|protective_confession|voluntary_confession","emotionalWeight":number,"confidence":number,"reason":"...","evidence":"..."}],"sharedPhrases":[{"shouldCreate":boolean,"action":"upsert|reused|suppressed|none","text":"共同话语原文","kind":"pet_name|inside_joke|promise_line|comfort_line|confession_line|secret_code|other","visibility":"private|between_actors|public_hint","firstSaidBy":"user|character|mutual|null","emotionalWeight":number,"reuseCount":number,"confidence":number,"reason":"...","evidence":"..."}],"intimateConflict":{"shouldCreate":boolean,"action":"opened|updated|repair_attempted|resolved|reopened|dismissed|none","kind":"cold_war|silent_treatment|testing|accusation|withdrawal|vulnerability_burst|repair_attempt|reconciliation","severity":number,"repairReadiness":number,"summary":"...","confidence":number,"evidence":["..."]},"attachmentProfile":{"shouldCreate":boolean,"inferredStyle":"secure|anxious|avoidant|disorganized|none","confidence":number,"reason":"...","evidence":["..."],"adaptations":["..."]}}',
+    '输出结构：{"relationship":{"shouldCreate":boolean,"delta":{"warmth":number,"trust":number,"competence":number,"threat":number},"labels":["关系语义"],"stance":"这一轮的关系立场","confidence":number,"reason":"...","evidence":["..."]},"phase":{"shouldCreate":boolean,"phase":"confessing|confirmed|passionate|deep|cooling|crisis|reconciling|none","style":"romantic|ambiguous|friend|family|mentor|custom|null","confidence":number,"reason":"...","evidence":["..."]},"careTopics":[{"shouldCreate":boolean,"action":"opened|closed|blocked|none","existingTopicId":"可选","topicText":"...","urgency":"low|medium|high","dueInHours":number|null,"confidence":number,"reason":"...","evidence":"..."}],"userProfile":{"shouldCreate":boolean,"items":[{"kind":"display_name|address_preference|schedule_hint|pressure_source|preference|dislike|boundary|important_date|recent_plan|emotional_pattern","text":"第三人称可记忆事实","evidence":"原文证据","confidence":number,"sensitive":boolean}],"reason":"..."},"addressing":{"shouldCreate":boolean,"action":"set_current|set_private|set_public|forbid|unforbid|revoke|none","currentAddress":"可选","privateAddress":"可选","publicAddress":"可选","forbiddenAddresses":["可选"],"confidence":number,"reason":"...","evidence":"..."},"promises":[{"shouldCreate":boolean,"action":"opened|fulfilled|blocked|stale|revoked|none","promiseText":"约定内容","promiseKind":"shared_activity|user_followup|emotional_commitment|boundary_agreement|repair_agreement|ritual|other","dueInHours":number|null,"confidence":number,"reason":"...","evidence":"..."}],"sharedAnchors":[{"shouldCreate":boolean,"kind":"first_time|confession|conflict|repair|inside_joke|shared_secret|promise|milestone","title":"短标题","text":"共同经历内容","salience":number,"confidence":number,"reason":"...","evidence":"..."}],"sharedSecrets":[{"shouldCreate":boolean,"privateText":"只允许私域使用的秘密原文","publicMask":"公开场景可用的含糊遮罩","consequenceKind":"none|misunderstanding|accidental_leak|intentional_breach|protective_confession|voluntary_confession","emotionalWeight":number,"confidence":number,"reason":"...","evidence":"..."}],"sharedPhrases":[{"shouldCreate":boolean,"action":"upsert|reused|suppressed|none","text":"共同话语原文","kind":"pet_name|inside_joke|promise_line|comfort_line|confession_line|secret_code|other","visibility":"private|between_actors|public_hint","firstSaidBy":"user|character|mutual|null","emotionalWeight":number,"reuseCount":number,"confidence":number,"reason":"...","evidence":"..."}],"intimateConflict":{"shouldCreate":boolean,"action":"opened|updated|repair_attempted|resolved|reopened|dismissed|none","kind":"cold_war|silent_treatment|testing|accusation|withdrawal|vulnerability_burst|repair_attempt|reconciliation","severity":number,"repairReadiness":number,"summary":"...","confidence":number,"evidence":["..."]},"attachmentProfile":{"shouldCreate":boolean,"inferredStyle":"secure|anxious|avoidant|disorganized|none","confidence":number,"reason":"...","evidence":["..."],"adaptations":["..."]}}',
     'confidence 取 0-1；拿不准必须 shouldCreate=false 或 confidence 低于对应阈值。',
   ].join('\n');
   const payload = {
@@ -856,6 +927,7 @@ async function runModelAssessment(params: {
   });
   const parsed = JSON.parse(cleanJsonCandidate(raw)) as Record<string, unknown>;
   return {
+    relationship: normalizeRelationshipAssessment(parsed.relationship, params.message.content),
     phase: normalizePhase(parsed.phase, params.message.content),
     care: normalizeCare(parsed.careTopics, params.message.content, params.message.timestamp || Date.now()),
     profileItems: normalizeProfileItems(parsed.userProfile, params.message.content),
@@ -899,6 +971,7 @@ export async function resolveDirectCompanionshipAssessmentEvents(params: {
       recentMessages: params.recentMessages,
     });
     return [
+      assessment.relationship ? createRelationshipAssessmentRuntimeEvent({ ...params, decision: assessment.relationship }) : null,
       assessment.phase ? buildCompanionshipPhaseEventFromDecision({ ...params, decision: assessment.phase }) : null,
       ...assessment.care.flatMap((decision) => buildCompanionshipCareTopicEventsFromDecision({
         chat: params.chat,

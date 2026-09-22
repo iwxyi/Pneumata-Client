@@ -278,6 +278,26 @@ export interface CompanionshipPhaseEventPayload {
   decisionSource?: 'model' | 'local_fallback';
 }
 
+export interface CompanionshipRelationshipAssessmentEventPayload {
+  eventType: 'companionship_relationship_assessment';
+  characterId: string;
+  userId: string;
+  participantIds: string[];
+  delta: {
+    warmth: number;
+    competence: number;
+    trust: number;
+    threat: number;
+  };
+  labels: string[];
+  stance: string;
+  evidence: string[];
+  reason: string;
+  confidence: number;
+  sourceMessageIds: string[];
+  decisionSource: 'model';
+}
+
 export interface CompanionshipCareTopicEventPayload {
   eventType: 'companionship_care_topic';
   characterId: string;

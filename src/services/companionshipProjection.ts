@@ -92,19 +92,13 @@ function silenceHours(lastUserReplyAt: number | undefined, now: number) {
 
 function projectIntimacy(entry: RelationshipLedgerEntry | null, messages: Message[], characterId: string, now: number): IntimacyProjection {
   const current = entry?.current || { warmth: 0, competence: 0, trust: 0, threat: 0 };
-  const recentUserTurns = messages
-    .filter((item) => !item.isDeleted && (item.senderId === USER_ACTOR_ID || item.type === 'user' || item.type === 'god'))
-    .slice(-12).length;
-  const contacts = getLatestContact(messages, characterId);
-  const silence = silenceHours(contacts.lastUserReplyAt, now);
   const semanticIntensity = entry?.derived?.semantic?.intensity || 0;
-  const positive = Math.max(0, current.warmth) + Math.max(0, current.trust);
   const tension = Math.max(0, current.threat);
   return {
     attraction: clampScore(current.warmth * 0.72 + current.trust * 0.22 + semanticIntensity * 0.18 - tension * 0.38),
-    intimacy: clampScore(current.trust * 0.62 + current.warmth * 0.34 + recentUserTurns * 2.5 - tension * 0.42),
-    attachment: clampScore(positive * 0.42 + recentUserTurns * 2.2 + Math.min(18, silence * 0.7) - tension * 0.2),
-    longing: clampScore(Math.max(0, current.warmth) * 0.24 + Math.max(0, current.trust) * 0.22 + Math.min(36, silence * 1.4) + recentUserTurns - tension * 0.24),
+    intimacy: clampScore(current.trust * 0.62 + current.warmth * 0.34 - tension * 0.42),
+    attachment: clampScore((Math.max(0, current.warmth) + Math.max(0, current.trust)) * 0.42 - tension * 0.2),
+    longing: clampScore(Math.max(0, current.warmth) * 0.24 + Math.max(0, current.trust) * 0.22 - tension * 0.24),
     exclusivity: clampScore(Math.max(0, current.warmth) * 0.18 + tension * 0.42 + Math.max(0, current.trust) * 0.08),
     security: clampScore(48 + current.trust * 0.58 + current.warmth * 0.18 - tension * 0.78),
   };
@@ -123,17 +117,6 @@ function adjustIntimacyProjection(params: {
   }, 0);
   const hasRepairAnchor = params.sharedAnchors.some((anchor) => anchor.kind === 'repair');
   const hasConflictAnchor = params.sharedAnchors.some((anchor) => anchor.kind === 'conflict');
-  const boundaryText = params.profile.boundaries.join('\n');
-  const blocksRomance = /不.*(恋爱|暧昧|情侣|对象|占有|吃醋)|只.*朋友/.test(boundaryText);
-  const blocksProactive = /(不要|不想|不希望|不需要|不愿|少).{0,8}(主动|打扰|私聊|提醒|追问|关心)/.test(boundaryText);
-  const repairMentions = [
-    params.entry?.derived?.semantic?.summary || '',
-    ...(params.entry?.recentEvents || []).map((event) => event.summary),
-  ].filter(Boolean).filter((text) => /(修复|和好|道歉|说开|原谅|台阶|缓和)/.test(text)).length;
-  const conflictMentions = [
-    params.entry?.derived?.semantic?.summary || '',
-    ...(params.entry?.recentEvents || []).map((event) => event.summary),
-  ].filter(Boolean).filter((text) => /(冲突|冷战|失望|受伤|不舒服|争吵|裂痕|防备)/.test(text)).length;
   const promiseEffect = (params.promiseConsequences || []).reduce((total, consequence) => ({
     attraction: total.attraction + (consequence.effect.attraction || 0),
     intimacy: total.intimacy + (consequence.effect.intimacy || 0),
@@ -143,12 +126,12 @@ function adjustIntimacyProjection(params: {
     security: total.security + (consequence.effect.security || 0),
   }), { attraction: 0, intimacy: 0, attachment: 0, longing: 0, exclusivity: 0, security: 0 });
   return {
-    attraction: clampScore(params.base.attraction + anchorBoost * 5 + promiseEffect.attraction - (blocksRomance ? 24 : 0)),
-    intimacy: clampScore(params.base.intimacy + anchorBoost * 7 + repairMentions * 5 + promiseEffect.intimacy - (hasConflictAnchor ? 4 : 0)),
-    attachment: clampScore(params.base.attachment + anchorBoost * 8 + (hasRepairAnchor ? 6 : 0) + promiseEffect.attachment - (blocksProactive ? 8 : 0)),
-    longing: clampScore(params.base.longing + anchorBoost * 4 + promiseEffect.longing - (blocksProactive ? 18 : 0)),
-    exclusivity: clampScore(params.base.exclusivity + (hasConflictAnchor ? 5 : 0) + promiseEffect.exclusivity - (blocksRomance ? 22 : 0)),
-    security: clampScore(params.base.security + anchorBoost * 4 + repairMentions * 8 + (hasRepairAnchor ? 8 : 0) + promiseEffect.security - conflictMentions * 8 - (hasConflictAnchor ? 6 : 0)),
+    attraction: clampScore(params.base.attraction + anchorBoost * 5 + promiseEffect.attraction),
+    intimacy: clampScore(params.base.intimacy + anchorBoost * 7 + promiseEffect.intimacy),
+    attachment: clampScore(params.base.attachment + anchorBoost * 8 + promiseEffect.attachment),
+    longing: clampScore(params.base.longing + anchorBoost * 4 + promiseEffect.longing),
+    exclusivity: clampScore(params.base.exclusivity + promiseEffect.exclusivity),
+    security: clampScore(params.base.security + anchorBoost * 4 + promiseEffect.security),
   };
 }
 
@@ -463,14 +446,11 @@ function inferPhase(intimacy: IntimacyProjection, entry: RelationshipLedgerEntry
   if (anchorPhase) return anchorPhase;
   const stage = entry?.derived?.semantic?.stage || '';
   const labels = entry?.derived?.semantic?.labels || [];
-  if (intimacy.security <= 22 && (entry?.current.threat || 0) >= 36) return 'crisis';
-  if (intimacy.security <= 34 && (entry?.current.threat || 0) >= 24) return 'cooling';
   if (labels.includes('喜欢') || labels.includes('深度牵挂') || stage === '深度绑定') {
-    if (intimacy.attraction >= 58 && intimacy.intimacy >= 52 && intimacy.security >= 42) return 'ambiguous';
     return 'fond';
   }
-  if (intimacy.attraction >= 46 && intimacy.intimacy >= 38 && intimacy.security >= 36) return 'fond';
-  if (intimacy.attachment >= 28 || intimacy.intimacy >= 24) return 'curious';
+  // Relationship labels/stage are model-owned. Numeric axes alone must not
+  // manufacture semantic phases such as "curious" or "fond".
   return 'stranger';
 }
 
@@ -2241,11 +2221,12 @@ function buildPromiseIntimacyConsequences(chat: GroupChat, characterId: string, 
       if (payload.action === 'opened' || payload.action === 'revoked') return null;
       const ageDays = Math.max(0, (now - (event.createdAt || now)) / DAY_MS);
       if (ageDays > 90) return null;
-      const kind = payload.promiseKind || inferPromiseKind(`${payload.promiseText}\n${payload.evidence || payload.reason || ''}`);
-      const effects = buildPromiseRelationshipEffects(kind);
+      const explicitEffects = payload.relationshipEffects;
+      if (!explicitEffects) return null;
       const rawEffect = payload.action === 'fulfilled'
-        ? { ...effects.fulfilled, ...(payload.relationshipEffects?.fulfilled || {}) }
-        : { ...effects.missed, ...(payload.relationshipEffects?.missed || {}) };
+        ? explicitEffects.fulfilled
+        : explicitEffects.missed;
+      if (!rawEffect) return null;
       const decay = Math.max(0.25, 1 - ageDays / 120);
       const effect = Object.fromEntries(Object.entries(rawEffect).map(([key, value]) => [key, typeof value === 'number' ? value * decay : value])) as Partial<IntimacyProjection>;
       return {
@@ -2562,19 +2543,6 @@ function hasRecentDismissedIntimateConflictEvent(chat: GroupChat, characterId: s
   return false;
 }
 
-function conflictKindFromTexts(texts: string[], phase: CompanionshipPhase): IntimateConflictKind {
-  const joined = texts.join('\n');
-  if (phase === 'reconciling') return /(和好|说开|原谅|修复完成|重新开始)/.test(joined) ? 'reconciliation' : 'repair_attempt';
-  if (/(秘密.*(公开|传开|泄露|说漏|被发现)|说漏.*秘密|泄露.*秘密)/.test(joined)) return 'accusation';
-  if (/(秘密.*(坦白|主动说出|承认了|说开了)|坦白.*秘密)/.test(joined)) return 'repair_attempt';
-  if (/(冷战|先别聊|暂时不聊|不回复|不想说话)/.test(joined)) return 'cold_war';
-  if (/(别理|不回应|不回消息|消失|拉黑)/.test(joined)) return 'silent_treatment';
-  if (/(你总是|你从来|指责|质问|失望|别这样)/.test(joined)) return 'accusation';
-  if (/(算了|没事|不用说了|不想解释|退回去)/.test(joined)) return 'withdrawal';
-  if (/(我很受伤|真实感受|崩溃|委屈|撑不住)/.test(joined)) return 'vulnerability_burst';
-  return 'testing';
-}
-
 function conflictSummary(kind: IntimateConflictKind, severity: number, repairReadiness: number) {
   const intensity = severity >= 70 ? '很强' : severity >= 44 ? '明显' : '轻微';
   if (kind === 'repair_attempt') return `关系正在尝试修复，冲突余波${intensity}，需要先接住对方而不是急着恢复亲密。`;
@@ -2602,26 +2570,6 @@ function sharedSecretConsequenceDescription(secret: SharedSecret) {
   return '仍应保留边界，不把私密内容公开摊开';
 }
 
-function secretConsequenceSeverityFactor(secret: SharedSecret) {
-  if (secret.consequenceKind === 'misunderstanding') return 0.52;
-  if (secret.consequenceKind === 'accidental_leak') return 0.72;
-  if (secret.consequenceKind === 'intentional_breach') return 1.16;
-  return 1;
-}
-
-function secretConsequenceRepairBoost(secret: SharedSecret) {
-  if (secret.consequenceKind === 'protective_confession') return 18;
-  if (secret.consequenceKind === 'voluntary_confession') return 12;
-  return 0;
-}
-
-function secretConsequenceRepairPenalty(secret: SharedSecret) {
-  if (secret.consequenceKind === 'intentional_breach') return 18;
-  if (secret.consequenceKind === 'accidental_leak') return 6;
-  if (secret.consequenceKind === 'misunderstanding') return -8;
-  return 0;
-}
-
 function buildIntimateConflictState(params: {
   chat: GroupChat;
   characterId: string;
@@ -2636,79 +2584,10 @@ function buildIntimateConflictState(params: {
   const explicitConflict = resolveIntimateConflictEvent(params.chat, params.characterId, params.now);
   if (explicitConflict) return explicitConflict;
   if (hasRecentDismissedIntimateConflictEvent(params.chat, params.characterId, params.now)) return undefined;
-  const conflictAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'conflict');
-  const repairAnchors = params.sharedAnchors.filter((anchor) => anchor.kind === 'repair');
-  const leakedSecrets = params.sharedSecrets.filter((secret) => secret.participantIds.includes(USER_ACTOR_ID) && secret.leakState === 'leaked');
-  const confessedSecrets = params.sharedSecrets.filter((secret) => secret.participantIds.includes(USER_ACTOR_ID) && secret.leakState === 'confessed');
-  const ledgerTexts = [
-    params.entry?.derived?.semantic?.summary || '',
-    ...(params.entry?.recentEvents || []).slice(-3).map((event) => event.summary),
-  ].filter(Boolean);
-  const phaseTexts = params.phaseEvent?.evidence || [];
-  const anchorTexts = [...conflictAnchors, ...repairAnchors].map((anchor) => [anchor.title, anchor.text, anchor.evidence].filter(Boolean).join('：'));
-  const secretTexts = [
-    ...leakedSecrets.map((secret) => `秘密泄露后果：${secret.publicMask}；${sharedSecretConsequenceDescription(secret)}。`),
-    ...confessedSecrets.map((secret) => `秘密坦白后果：${secret.publicMask}；${sharedSecretConsequenceDescription(secret)}。`),
-  ];
-  const evidence = [...phaseTexts, ...anchorTexts, ...secretTexts, ...ledgerTexts].map((item) => compactText(item, 120)).filter(Boolean).slice(0, 5);
-  const hasSecretLeak = leakedSecrets.length > 0;
-  const hasSecretConfession = confessedSecrets.length > 0;
-  const hasActiveConflict = params.phase === 'crisis' || params.phase === 'cooling' || conflictAnchors.length > 0 || hasSecretLeak || (params.entry?.current.threat || 0) >= 28 || ledgerTexts.some((text) => /(冲突|冷战|失望|受伤|不舒服|争吵|裂痕|防备|修复|和好|道歉|说开)/.test(text));
-  const hasRepair = params.phase === 'reconciling' || repairAnchors.length > 0 || hasSecretConfession || ledgerTexts.some((text) => /(修复|和好|道歉|说开|原谅|台阶|缓和)/.test(text));
-  if (!hasActiveConflict && !hasRepair) return undefined;
-  const kind = hasRepair && params.phase !== 'crisis'
-    ? conflictKindFromTexts(['修复', ...evidence], params.phase === 'reconciling' ? 'reconciling' : params.phase)
-    : conflictKindFromTexts(evidence, params.phase);
-  const threat = params.entry?.current.threat || 0;
-  const anchorSeverity = conflictAnchors.reduce((max, anchor) => Math.max(max, anchor.salience * anchor.confidence * 100), 0);
-  const secretSeverity = leakedSecrets.reduce((max, secret) => Math.max(max, secret.emotionalWeight * secretConsequenceSeverityFactor(secret)), 0);
-  const confessionRepairBoost = confessedSecrets.reduce((total, secret) => total + secretConsequenceRepairBoost(secret), 0);
-  const leakRepairPenalty = leakedSecrets.reduce((total, secret) => total + secretConsequenceRepairPenalty(secret), 0);
-  const severity = clampScore(Math.max(
-    params.phase === 'crisis' ? 76 : params.phase === 'cooling' ? 48 : 0,
-    threat * 1.4,
-    anchorSeverity,
-    secretSeverity,
-    hasRepair ? 32 : 0,
-  ));
-  const repairReadiness = clampScore(
-    (params.phase === 'reconciling' ? 42 : 0)
-    + repairAnchors.length * 22
-    + confessedSecrets.length * 24
-    + confessionRepairBoost
-    + Math.max(0, params.intimacy.security - 24) * 0.65
-    + (kind === 'reconciliation' ? 18 : 0)
-    - leakRepairPenalty
-    - (kind === 'silent_treatment' || kind === 'cold_war' ? 12 : 0),
-  );
-  return {
-    kind,
-    severity,
-    repairReadiness,
-    summary: conflictSummary(kind, severity, repairReadiness),
-    evidence,
-    participantIds: [params.characterId, USER_ACTOR_ID],
-    sourceEventIds: [
-      params.phaseEvent?.sourceEventId,
-      ...conflictAnchors.map((anchor) => anchor.sourceId || anchor.id),
-      ...repairAnchors.map((anchor) => anchor.sourceId || anchor.id),
-      ...[...leakedSecrets, ...confessedSecrets].flatMap((secret) => [secret.sourceAnchorId, ...secret.sourceEventIds]),
-      ...(params.entry?.recentEvents || []).slice(-2).map((event) => event.id),
-    ].filter(Boolean) as string[],
-    sourceMessageIds: normalizeSourceMessageIds(
-      params.phaseEvent?.sourceMessageIds,
-      ...conflictAnchors.map((anchor) => anchor.sourceMessageIds),
-      ...repairAnchors.map((anchor) => anchor.sourceMessageIds),
-      ...[...leakedSecrets, ...confessedSecrets].map((secret) => secret.sourceMessageIds),
-    ),
-    updatedAt: Math.max(
-      params.phaseEvent?.enteredAt || 0,
-      ...[...conflictAnchors, ...repairAnchors].map((anchor) => anchor.updatedAt || 0),
-      ...[...leakedSecrets, ...confessedSecrets].map((secret) => secret.updatedAt || 0),
-      params.entry?.lastUpdatedAt || 0,
-      params.now,
-    ),
-  };
+  // Conflict kind, severity, and repair readiness are semantic judgments. Do
+  // not synthesize them from anchor text, secrets, phase thresholds, or
+  // keyword matches when no model conflict event exists.
+  return undefined;
 }
 
 function phaseLabel(phase: CompanionshipPhase) {
@@ -3120,12 +2999,7 @@ export function buildUserCompanionshipProjection(params: {
   const baseIntimacy = applyLongTermIntimacyTrend(anchoredIntimacy, longTermTrend);
   const phaseEvent = resolveCompanionshipPhaseEvent(chat, character.id);
   const baseInferredPhase = inferPhase(baseIntimacy, ledger, sharedAnchors);
-  const trendPhaseCounts = countCompanionshipTrendEvents(chat, character.id, now);
-  const trendPhase = inferTrendPhase({ intimacy: baseIntimacy, trend: longTermTrend, counts: trendPhaseCounts, entry: ledger });
-  const inferredPhase = isTrendPhaseEligible(baseInferredPhase, trendPhase)
-    ? trendPhase || baseInferredPhase
-    : baseInferredPhase;
-  const phase = phaseEvent?.phase || inferredPhase;
+  const phase = phaseEvent?.phase || baseInferredPhase;
   const contacts = getLatestContact(messages, character.id);
   const pendingCareTopics = buildPendingCareTopics(chat, character.id, userProfile, messages, now, suppressedPromiseKeys);
   const pendingPromises = buildPendingPromises({
@@ -3155,7 +3029,6 @@ export function buildUserCompanionshipProjection(params: {
   const evidence = [
     ...buildPhaseEvidence(ledger, pendingCareTopics, phaseEvent),
     ...(!phaseEvent ? buildAnchorPhaseEvidence(sharedAnchors, phase) : []),
-    ...(!phaseEvent && trendPhase === phase ? buildTrendPhaseEvidence(trendPhase, longTermTrend, trendPhaseCounts) : []),
     Object.values(longTermTrend).some((value) => value) ? `long_term_intimacy_trend=${Object.entries(longTermTrend).filter(([, value]) => value).map(([key, value]) => `${key}:${value}`).join(',')}` : '',
   ].filter(Boolean).slice(0, 6);
   const attachmentProfile = buildUserAttachmentProfile({ chat, characterId: character.id, messages, profile: userProfile, intimacy: baseIntimacy, now });

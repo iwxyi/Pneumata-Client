@@ -33,6 +33,31 @@ function ledgerEntry(): RelationshipLedgerEntry {
 }
 
 describe('companionshipLedgerBackflow', () => {
+  it('applies model-authored relationship dimensions without deriving them from keywords', () => {
+    const assessment = event({
+      id: 'evt-model-relationship',
+      payload: {
+        eventType: 'companionship_relationship_assessment',
+        characterId: 'char-a',
+        userId: 'user',
+        participantIds: ['char-a', 'user'],
+        delta: { warmth: -2, competence: 1, trust: -4, threat: 3 },
+        labels: ['边界被试探'],
+        stance: '克制并保持距离',
+        evidence: ['角色明确拒绝后，用户仍继续推进'],
+        reason: '模型判断信任下降，防备上升。',
+        confidence: 0.94,
+        sourceMessageIds: ['user-1'],
+        decisionSource: 'model',
+      },
+    });
+    const next = reduceRelationshipLedgerWithCompanionshipEvent([ledgerEntry()], assessment)[0];
+    expect(next.current.warmth).toBeLessThan(ledgerEntry().current.warmth);
+    expect(next.current.trust).toBeLessThan(ledgerEntry().current.trust);
+    expect(next.current.threat).toBeGreaterThan(ledgerEntry().current.threat);
+    expect(next.recentEvents[0]?.summary).toBe('陪伴事件');
+  });
+
   it('writes different relationship ledger effects for secret misunderstanding and intentional breach', () => {
     const misunderstanding = event({
       id: 'evt-secret-misunderstanding',

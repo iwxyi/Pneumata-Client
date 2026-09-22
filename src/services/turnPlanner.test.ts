@@ -141,6 +141,21 @@ describe('deriveTurnPlan', () => {
     expect(plan.allowExtraMessages).toBe(false);
   });
 
+  it('leaves short high-delivery turns open for the model to honor a multi-message request', () => {
+    const plan = deriveTurnPlan({
+      chat: chat({ id: 'short-request-chat' }),
+      speaker: character(),
+      messages: [message({ content: '你能不能一口气给我回3条消息？', timestamp: 11 })],
+      intent,
+      surface: { kind: 'chat' },
+      richDelivery: highDelivery,
+      now: 11,
+    });
+
+    expect(plan.allowExtraMessages).toBe(true);
+    expect(plan.targetBubbleCount).toBeGreaterThan(1);
+  });
+
   it('allows planned multi-bubble turns from structural spacing signals', () => {
     const plan = deriveTurnPlan({
       chat: chat({ id: 'chat-6' }),

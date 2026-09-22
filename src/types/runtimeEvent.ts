@@ -37,6 +37,17 @@ export type InteractionKind =
   | 'redirect'
   | 'side_comment';
 
+export interface ModelRelationshipAssessment {
+  delta: {
+    warmth: number;
+    competence: number;
+    trust: number;
+    threat: number;
+  };
+  labels?: string[];
+  stance?: string;
+}
+
 export interface InteractionEventPayload {
   kind: InteractionKind;
   actorId: string;
@@ -45,6 +56,7 @@ export interface InteractionEventPayload {
   tone: 'warm' | 'annoyed' | 'defensive' | 'excited' | 'sarcastic' | 'cold';
   evidenceText: string;
   confidence: number;
+  relationship?: ModelRelationshipAssessment;
 }
 
 export interface InteractionHintEnvelope {
@@ -55,6 +67,7 @@ export interface InteractionHintEnvelope {
   intensity?: number;
   confidence?: number;
   reason?: string;
+  relationship?: ModelRelationshipAssessment;
 }
 
 export interface AddressedTargetHintEnvelope {
@@ -88,6 +101,22 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
   const rawConfidence = Number(hint.confidence || 0);
   const intensity = Math.max(1, Math.min(5, rawIntensity > 5 ? Math.round(rawIntensity / 20) : rawIntensity));
   const confidence = Math.max(0, Math.min(1, rawConfidence > 1 ? rawConfidence / 100 : rawConfidence));
+  const relationship = hint.relationship && typeof hint.relationship === 'object'
+    ? {
+      delta: {
+        warmth: Math.max(-8, Math.min(8, Number(hint.relationship.delta?.warmth || 0))),
+        competence: Math.max(-8, Math.min(8, Number(hint.relationship.delta?.competence || 0))),
+        trust: Math.max(-8, Math.min(8, Number(hint.relationship.delta?.trust || 0))),
+        threat: Math.max(-8, Math.min(8, Number(hint.relationship.delta?.threat || 0))),
+      },
+      labels: Array.isArray(hint.relationship.labels) ? hint.relationship.labels.filter((item): item is string => typeof item === 'string').slice(0, 5) : [],
+      stance: typeof hint.relationship.stance === 'string' ? hint.relationship.stance.slice(0, 160) : undefined,
+    }
+    : undefined;
+  const normalizedRelationship = relationship && Object.values(relationship.delta).some((value) => value !== 0) ? relationship : undefined;
+  // Fresh model output without a relationship assessment is not allowed to
+  // manufacture a relationship delta from its conversational action label.
+  if (!normalizedRelationship) return null;
   return {
     actorId,
     targetId: resolvedTargetId,
@@ -96,6 +125,7 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
     intensity,
     confidence,
     evidenceText: content.slice(0, 120),
+    relationship: normalizedRelationship,
   };
 }
 
@@ -135,6 +165,8 @@ export interface RelationshipDeltaPayload {
     threat?: number;
   };
   reason: string;
+  semanticLabels?: string[];
+  semanticStance?: string;
   axisReasons?: Partial<Record<'warmth' | 'competence' | 'trust' | 'threat', RelationshipAxisReason[]>>;
   spikeType?: 'normal' | 'turning_point' | 'rupture' | 'bonding';
 }

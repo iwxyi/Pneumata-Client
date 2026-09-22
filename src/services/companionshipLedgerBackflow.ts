@@ -49,6 +49,24 @@ function buildDeltaEvent(event: RuntimeEventV2, payload: Record<string, unknown>
 export function buildCompanionshipRelationshipDelta(event: RuntimeEventV2): RelationshipDeltaPayload | null {
   const rawPayload = companionshipPayload(event);
   if (!rawPayload) return null;
+  if (rawPayload.eventType === 'companionship_relationship_assessment') {
+    const characterId = typeof rawPayload.characterId === 'string' ? rawPayload.characterId : '';
+    const userId = typeof rawPayload.userId === 'string' ? rawPayload.userId : USER_ACTOR_ID;
+    const rawDelta = rawPayload.delta && typeof rawPayload.delta === 'object' ? rawPayload.delta as Record<string, unknown> : {};
+    if (!characterId || userId !== USER_ACTOR_ID) return null;
+    const delta = buildDeltaEvent(event, { ...rawPayload, characterId }, {
+      warmth: Number(rawDelta.warmth || 0),
+      competence: Number(rawDelta.competence || 0),
+      trust: Number(rawDelta.trust || 0),
+      threat: Number(rawDelta.threat || 0),
+    }, 'companionship_model_relationship_assessment');
+    if (!delta) return null;
+    return {
+      ...delta,
+      semanticLabels: Array.isArray(rawPayload.labels) ? rawPayload.labels.filter((item): item is string => typeof item === 'string').slice(0, 6) : undefined,
+      semanticStance: typeof rawPayload.stance === 'string' ? rawPayload.stance : undefined,
+    };
+  }
   if (rawPayload.eventType === 'companionship_promise') {
     const payload = rawPayload as unknown as CompanionshipPromiseEventPayload;
     if (!payload.userId && payload.characterId !== event.targetIds?.[0] && payload.characterId !== event.actorIds?.[0]) return null;

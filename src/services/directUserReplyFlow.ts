@@ -19,6 +19,7 @@ import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipS
 import { reportRecoverableError } from './diagnostics';
 import { GenerationCancelledError } from './generationCancellation';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
+import { reduceRelationshipLedgerWithCompanionshipEvent } from './companionshipLedgerBackflow';
 
 function ensureDirectReplyStillCurrent(params: { signal?: AbortSignal; shouldContinue?: () => boolean }) {
   if (params.signal?.aborted) throw new GenerationCancelledError();
@@ -114,7 +115,11 @@ export async function runDirectUserReplyFlow(params: {
         ...(currentChat.runtimeEventsV2 || []).filter((event) => !event.evidenceMessageIds?.includes(params.userMessage.id)),
         ...companionshipEvents,
       ].slice(-160);
-      await params.updateChat(params.chat.id, { runtimeEventsV2 });
+      const relationshipLedger = companionshipEvents.reduce(
+        (entries, event) => reduceRelationshipLedgerWithCompanionshipEvent(entries, event),
+        currentChat.relationshipLedger || [],
+      );
+      await params.updateChat(params.chat.id, { runtimeEventsV2, relationshipLedger });
     })();
   };
 

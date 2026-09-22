@@ -296,11 +296,11 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
     return { ...plan, targetBubbleCount: permittedCount, allowExtraMessages: permittedCount > 1, reasons: [...plan.reasons, `delivery:multi_bubble_${delivery.proactivity}`] };
   }
 
-  const canProactivelySplit = latestLength >= 8
+  const canProactivelySplit = (delivery.proactivity === 'high' ? latestLength > 0 : latestLength >= 8)
     && latestLength <= 90
     && ownStats.recentMultiBubbleCount === 0
     && bucket >= threshold
-    && plan.rhythm !== 'defer_or_wait'
+    && (delivery.proactivity === 'high' || plan.rhythm !== 'defer_or_wait')
     && plan.rhythm !== 'micro_ack';
   if (!canProactivelySplit) return plan;
   return {
