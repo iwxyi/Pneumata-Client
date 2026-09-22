@@ -545,9 +545,9 @@ export function buildDirectChatDraft(characterId: string, characterName: string)
   };
 }
 
-export function buildAssistantChatDraft(): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
+export function buildAssistantChatDraft(options: { agentAvailable?: boolean; aiSearchAvailable?: boolean } = {}): Omit<GroupChat, 'id' | 'createdAt' | 'updatedAt' | 'lastMessageAt'> {
   const sessionKind = createDefaultSessionKind('assistant', 'open_chat');
-  const agentDefaultEnabled = readAssistantAgentDefaultEnabled();
+  const agentDefaultEnabled = Boolean(options.agentAvailable && readAssistantAgentDefaultEnabled(true));
   return {
     type: 'assistant',
     mode: 'open_chat',
@@ -556,9 +556,25 @@ export function buildAssistantChatDraft(): Omit<GroupChat, 'id' | 'createdAt' | 
     modeState: {
       ...DEFAULT_OPEN_CHAT_MODE_STATE,
       ...(agentDefaultEnabled ? {
+        agentCapabilities: {
+          enabled: true,
+          chatArtifactRead: true,
+          chatArtifactWrite: true,
+          fileUpload: true,
+          fileDownload: true,
+          workspaceRead: true,
+          workspaceWrite: false,
+          officeTransform: false,
+          commandExecution: false,
+          systemActions: false,
+          webSearch: Boolean(options.aiSearchAvailable),
+          updatedAt: Date.now(),
+        },
         assistantCapabilities: {
           agent: true,
           artifacts: true,
+          webSearch: Boolean(options.aiSearchAvailable),
+          webSearchUserDisabled: false,
           updatedAt: Date.now(),
         },
       } : {}),

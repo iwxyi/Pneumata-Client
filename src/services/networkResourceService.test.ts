@@ -78,4 +78,10 @@ describe('fetchNetworkResource transport selection', () => {
     await expect(fetchNetworkResource('http://127.0.0.1/private')).rejects.toThrow('不允许访问本地或内网地址');
     expect(apiFetchMock).not.toHaveBeenCalled();
   });
+
+  it('rejects FTP credentials and local FTP targets before server fallback', async () => {
+    await expect(fetchNetworkResource('ftp://user:secret@example.com/file.txt')).rejects.toThrow('不包含认证信息');
+    await expect(fetchNetworkResource('ftp://127.0.0.1/file.txt')).rejects.toThrow('不允许访问本地或内网地址');
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
 });

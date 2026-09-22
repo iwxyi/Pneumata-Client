@@ -69,7 +69,7 @@ import { isAssistantArtifactCloudSyncEnabled, setAssistantArtifactCloudSyncEnabl
 import { hasRoomCapability } from '../services/capabilityRuntime';
 import { useAssistantArtifactStore } from '../stores/useAssistantArtifactStore';
 import type { AssistantHtmlInteractionPayload, AssistantHtmlRuntimeError } from '../features/assistantHtml/AssistantHtmlFrame';
-import { writeAssistantAgentDefaultEnabled } from '../services/assistantAgentPreference';
+import { readAssistantAgentDefaultEnabled, writeAssistantAgentDefaultEnabled } from '../services/assistantAgentPreference';
 import { isChatBlockedByMissingRequiredCharacters } from '../services/chatAvailability';
 import { getPendingAppCommand, subscribePendingAppCommand, type PendingAppCommand } from '../features/appCommand/pendingCommandStore';
 import {
@@ -235,6 +235,17 @@ function ChatPageSettingsDialog({
     void updateChat(chat.id, {
       modeState: {
         ...chat.modeState,
+        agentCapabilities: {
+          ...(chat.modeState.agentCapabilities || {}),
+          enabled,
+          chatArtifactRead: enabled,
+          chatArtifactWrite: enabled,
+          fileUpload: enabled,
+          fileDownload: enabled,
+          workspaceRead: enabled,
+          webSearch: enabled && aiSearchAvailable,
+          updatedAt: Date.now(),
+        },
         assistantCapabilities: {
           ...capabilities,
           agent: enabled,
@@ -1082,9 +1093,7 @@ export default function ChatDetailPage() {
   }, [chat, currentChatAllMessages, id, messages]);
   useEffect(() => {
     if (!chat || chat.type !== 'assistant' || !id || !currentChatMessages.length) return;
-    if (chat.modeState.assistantTitle?.source) return;
-    const normalizedName = (chat.name || '').trim();
-    if (normalizedName && normalizedName !== '新助手会话') return;
+    if (chat.modeState.assistantTitle?.source === 'user') return;
     const latestTimestamp = currentChatMessages.at(-1)?.timestamp || 0;
     const retryKey = `${id}:${currentChatMessages.length}:${latestTimestamp}`;
     if (assistantTitleRetryKeyRef.current === retryKey) return;
@@ -1264,10 +1273,23 @@ export default function ChatDetailPage() {
   useEffect(() => {
     if (!chat || !isAssistantChat || agentEntitled) return;
     const capabilities = chat.modeState.assistantCapabilities || {};
-    if (!capabilities.agent && !capabilities.artifacts) return;
+    const genericCapabilities = chat.modeState.agentCapabilities || {};
+    if (!capabilities.agent && !capabilities.artifacts && !genericCapabilities.enabled) return;
     void updateChat(chat.id, {
       modeState: {
         ...chat.modeState,
+        agentCapabilities: {
+          ...genericCapabilities,
+          enabled: false,
+          chatArtifactRead: false,
+          chatArtifactWrite: false,
+          fileUpload: false,
+          fileDownload: false,
+          workspaceRead: false,
+          workspaceWrite: false,
+          webSearch: false,
+          updatedAt: Date.now(),
+        },
         assistantCapabilities: {
           ...capabilities,
           agent: false,
@@ -1278,6 +1300,37 @@ export default function ChatDetailPage() {
     });
     setSnackbar({ open: true, message: 'Agent 能力仅会员可用，已关闭当前助手的 Agent 模式。', severity: 'error' });
   }, [agentEntitled, chat, isAssistantChat, updateChat]);
+  useEffect(() => {
+    if (!chat || !isAssistantChat || !agentEntitled || !readAssistantAgentDefaultEnabled(true)) return;
+    const generic = chat.modeState.agentCapabilities;
+    const legacy = chat.modeState.assistantCapabilities;
+    if (generic?.enabled && legacy?.agent) return;
+    const searchEnabled = currentUser?.aiSearchEntitled === true;
+    void updateChat(chat.id, {
+      modeState: {
+        ...chat.modeState,
+        agentCapabilities: {
+          ...(generic || {}),
+          enabled: true,
+          chatArtifactRead: true,
+          chatArtifactWrite: true,
+          fileUpload: true,
+          fileDownload: true,
+          workspaceRead: true,
+          webSearch: searchEnabled,
+          updatedAt: Date.now(),
+        },
+        assistantCapabilities: {
+          ...(legacy || {}),
+          agent: true,
+          artifacts: true,
+          webSearch: searchEnabled,
+          webSearchUserDisabled: false,
+          updatedAt: Date.now(),
+        },
+      },
+    });
+  }, [agentEntitled, chat, currentUser?.aiSearchEntitled, isAssistantChat, updateChat]);
   useEffect(() => {
     if (!chat || !isAssistantChat || authMode !== 'cloud' || currentUser?.aiSearchEntitled !== true) return;
     const capabilities = chat.modeState.assistantCapabilities || {};
@@ -2850,24 +2903,6 @@ export default function ChatDetailPage() {
     if (consumedHomeCommandRef.current === consumeKey) return;
     consumedHomeCommandRef.current = consumeKey;
     navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null });
-    if (chat.type === 'assistant' && state?.homeCommandStartAgent && agentEntitled) {
-      writeAssistantAgentDefaultEnabled(true);
-      void updateChat(id, {
-        modeState: {
-          ...chat.modeState,
-          agentCapabilities: {
-            ...(chat.modeState.agentCapabilities || {}), enabled: true, chatArtifactRead: true, chatArtifactWrite: true, fileUpload: true, fileDownload: true, workspaceRead: true, updatedAt: Date.now(),
-          },
-          assistantCapabilities: {
-            ...chat.modeState.assistantCapabilities,
-            agent: true,
-            artifacts: true,
-            webSearch: true,
-            updatedAt: Date.now(),
-          },
-        },
-      });
-    }
     void handleMemberSpeakSend(initialMessage);
   }, [agentEntitled, chat, handleMemberSpeakSend, id, location.hash, location.pathname, location.search, location.state, navigate, updateChat]);
 
@@ -4292,7 +4327,7 @@ export default function ChatDetailPage() {
                         modeState: {
                           ...chat.modeState,
                           agentCapabilities: {
-                            ...(chat.modeState.agentCapabilities || {}), enabled, chatArtifactRead: enabled, chatArtifactWrite: enabled, fileUpload: enabled, fileDownload: enabled, workspaceRead: enabled, updatedAt: Date.now(),
+                            ...(chat.modeState.agentCapabilities || {}), enabled, chatArtifactRead: enabled, chatArtifactWrite: enabled, fileUpload: enabled, fileDownload: enabled, workspaceRead: enabled, webSearch: enabled && aiSearchAvailable, updatedAt: Date.now(),
                           },
                           assistantCapabilities: {
                             ...(chat.modeState.assistantCapabilities || {}),

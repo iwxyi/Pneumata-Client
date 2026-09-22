@@ -26,9 +26,9 @@ function desktopBridge() {
   return (window as Window & { electronAPI?: DesktopNetworkBridge }).electronAPI || null;
 }
 
-function assertPublicUrl(value: string) {
+function assertPublicUrl(value: string, protocols = ['http:', 'https:']) {
   const url = new URL(value);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('仅支持不包含认证信息的 HTTP(S) 地址');
+  if (!protocols.includes(url.protocol) || url.username || url.password) throw new Error('仅支持不包含认证信息的公开网络地址');
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || /^(127\.|10\.|192\.168\.|169\.254\.)/.test(host) || /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host === '::' || host === '::1' || host.startsWith('fc') || host.startsWith('fd') || /^fe[89ab]/.test(host)) {
     throw new Error('不允许访问本地或内网地址');
@@ -156,9 +156,12 @@ function finalize(response: NetworkResourceResponse, mode: NetworkResourceMode, 
   return { ...response, mode, transport, title: readable.title, text: readable.content.slice(0, MAX_READABLE_CHARS), truncated: originalLength > MAX_READABLE_CHARS, originalLength };
 }
 
-export async function fetchNetworkResource(urlValue: string, mode: NetworkResourceMode = 'readable', options: { timeoutMs?: number; allowServerFallback?: boolean } = {}) {
-  const url = assertPublicUrl(urlValue);
+export async function fetchNetworkResource(urlValue: string, mode: NetworkResourceMode = 'readable', options: { timeoutMs?: number; allowServerFallback?: boolean; transferToken?: string } = {}) {
+  const parsed = new URL(urlValue);
+  const isFtp = parsed.protocol === 'ftp:' || parsed.protocol === 'ftps:';
+  const url = assertPublicUrl(urlValue, isFtp ? ['ftp:', 'ftps:'] : ['http:', 'https:']);
   const timeoutMs = Math.max(1_000, Math.min(options.timeoutMs || 20_000, 60_000));
+  if (isFtp) return finalize(await api.fetchNetworkResource(url, mode, timeoutMs, options.transferToken), mode, 'server-fallback');
   const bridge = desktopBridge();
   if (bridge?.fetchNetworkResource) return finalize(await bridge.fetchNetworkResource({ url, mode, timeoutMs }), mode, 'electron');
   if (Capacitor.isNativePlatform()) return finalize(await fetchInCapacitor(url, mode, timeoutMs), mode, 'capacitor');
@@ -180,4 +183,15 @@ export async function downloadNetworkResource(url: string, suggestedName?: strin
   anchor.click();
   window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
   return result;
+}
+
+export function exportNetworkResource(bytes: Uint8Array, fileName: string, contentType: string) {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  const objectUrl = URL.createObjectURL(new Blob([copy.buffer], { type: contentType }));
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = fileName;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
 }

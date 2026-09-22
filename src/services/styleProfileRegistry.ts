@@ -3,11 +3,23 @@ import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 
 export type ChatStyleProfile = 'assistant_room' | 'casual_room' | 'discovery_room' | 'analytical_room' | 'companion_room' | 'dramatic_room' | 'task_room';
 
+export type RichDeliveryProactivity = 'off' | 'low' | 'medium' | 'high';
+
+export interface RichDeliveryPolicy {
+  multiBubble: { proactivity: RichDeliveryProactivity; maxBubbles: number };
+  image: { proactivity: RichDeliveryProactivity; explicitRequest: boolean };
+  audio: { proactivity: RichDeliveryProactivity; explicitRequest: boolean };
+  sticker: { proactivity: RichDeliveryProactivity; explicitRequest: boolean };
+}
+
 export interface StyleProfileDefinition {
   key: ChatStyleProfile;
   label: string;
   promptContext: SessionGenerationPromptContext;
+  richDelivery: RichDeliveryPolicy;
 }
+
+const requestedOnlyDelivery = { proactivity: 'off', explicitRequest: true } as const;
 
 const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
   ['assistant_room', {
@@ -19,6 +31,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'professional',
       allowMarkdown: true,
     },
+    richDelivery: { multiBubble: { proactivity: 'off', maxBubbles: 1 }, image: requestedOnlyDelivery, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
   }],
   ['casual_room', {
     key: 'casual_room',
@@ -29,6 +42,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
+    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 3 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: { proactivity: 'high', explicitRequest: true } },
   }],
   ['discovery_room', {
     key: 'discovery_room',
@@ -39,6 +53,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
+    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 3 }, image: { proactivity: 'high', explicitRequest: true }, audio: { proactivity: 'low', explicitRequest: true }, sticker: { proactivity: 'low', explicitRequest: true } },
   }],
   ['analytical_room', {
     key: 'analytical_room',
@@ -49,6 +64,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'professional',
       allowMarkdown: true,
     },
+    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 2 }, image: { proactivity: 'medium', explicitRequest: true }, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
   }],
   ['companion_room', {
     key: 'companion_room',
@@ -59,6 +75,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
+    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 3 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'high', explicitRequest: true }, sticker: { proactivity: 'medium', explicitRequest: true } },
   }],
   ['dramatic_room', {
     key: 'dramatic_room',
@@ -69,6 +86,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'creative',
       allowMarkdown: true,
     },
+    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 2 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: requestedOnlyDelivery },
   }],
   ['task_room', {
     key: 'task_room',
@@ -79,6 +97,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'professional',
       allowMarkdown: true,
     },
+    richDelivery: { multiBubble: { proactivity: 'low', maxBubbles: 2 }, image: requestedOnlyDelivery, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
   }],
 ]);
 
@@ -123,6 +142,10 @@ const chatStyleProfiles = new Map<ChatStyle, ChatStyleProfile>([
 
 export function getStyleProfile(key: ChatStyleProfile | null | undefined) {
   return key ? styleProfiles.get(key) || null : null;
+}
+
+export function resolveRichDeliveryPolicy(key: string | null | undefined) {
+  return getStyleProfile(key as ChatStyleProfile)?.richDelivery || getStyleProfile('casual_room')!.richDelivery;
 }
 
 export function resolveDefaultStyleProfile(input: { scenarioId?: string; family?: string }) {

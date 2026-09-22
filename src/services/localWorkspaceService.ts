@@ -334,10 +334,58 @@ async function readFileBytes(handle: FileSystemFileHandle) {
 }
 
 export interface LocalWorkspaceMutation {
-  kind: 'write' | 'delete' | 'move';
+  kind: 'write' | 'delete' | 'move' | 'copy';
   path: string;
   destinationPath?: string;
   content?: string;
+  conflictPolicy?: WorkspaceConflictPolicy;
+  recursive?: boolean;
+}
+
+export type WorkspaceConflictPolicy = 'rename' | 'skip' | 'overwrite';
+
+function addNumericSuffix(fileName: string, index: number) {
+  const dot = fileName.lastIndexOf('.');
+  if (dot <= 0) return `${fileName} (${index})`;
+  return `${fileName.slice(0, dot)} (${index})${fileName.slice(dot)}`;
+}
+
+async function resolveWritableFileTarget(directory: DirectoryHandle, requestedName: string, policy: WorkspaceConflictPolicy) {
+  try {
+    const existing = await directory.getFileHandle(requestedName, { create: false });
+    if (policy === 'overwrite') return { handle: existing, name: requestedName, outcome: 'overwritten' as const };
+    if (policy === 'skip') return null;
+  } catch (error) {
+    if ((error as DOMException)?.name === 'NotFoundError') {
+      return { handle: await directory.getFileHandle(requestedName, { create: true }), name: requestedName, outcome: 'created' as const };
+    }
+    if ((error as DOMException)?.name !== 'TypeMismatchError') throw error;
+  }
+  for (let index = 1; index <= 9999; index += 1) {
+    const candidate = addNumericSuffix(requestedName, index);
+    try {
+      await directory.getFileHandle(candidate, { create: false });
+    } catch (error) {
+      if (!['NotFoundError', 'TypeMismatchError'].includes((error as DOMException)?.name || '')) throw error;
+      return { handle: await directory.getFileHandle(candidate, { create: true }), name: candidate, outcome: 'renamed' as const };
+    }
+  }
+  throw new Error(`无法为同名文件生成可用名称：${requestedName}`);
+}
+
+export async function writeBinaryFileToLocalWorkspace(params: { directory: LocalWorkspaceDirectoryMeta; path: string; content: Blob; requestPermission?: boolean; conflictPolicy?: WorkspaceConflictPolicy }) {
+  const rootHandle = await getDirectoryHandle(params.directory.id);
+  if (!rootHandle) throw new Error('本地文件夹授权已失效，请重新授权');
+  if (await ensureDirectoryPermission(rootHandle, params.requestPermission !== false) !== 'granted') throw new Error('未获得本地文件夹读写权限');
+  const target = await getParentDirectoryHandle(rootHandle, params.path, true);
+  if (!target) throw new Error('目标工作区路径无效');
+  const resolved = await resolveWritableFileTarget(target.directory, target.name, params.conflictPolicy || 'rename');
+  if (!resolved) return { path: params.path, outcome: 'skipped' as const };
+  const writable = await resolved.handle.createWritable();
+  await writable.write(params.content);
+  await writable.close();
+  const parentPath = params.path.replace(/[^/]+$/, '');
+  return { path: `${parentPath}${resolved.name}`, outcome: resolved.outcome };
 }
 
 export interface LocalWorkspaceMutationPlan {
@@ -378,38 +426,51 @@ export async function applyLocalWorkspaceMutations(params: {
   const mutations = params.mutations.slice(0, 100);
   if (params.dryRun) return { applied: 0, planned: mutations.length };
   let applied = 0;
+  let renamed = 0;
+  let skipped = 0;
+  let overwritten = 0;
   for (const mutation of mutations) {
     const target = await getParentDirectoryHandle(rootHandle, mutation.path, mutation.kind === 'write');
     if (!target) continue;
     if (mutation.kind === 'write') {
-      const handle = await target.directory.getFileHandle(target.name, { create: true });
-      const writable = await handle.createWritable();
+      const resolved = await resolveWritableFileTarget(target.directory, target.name, mutation.conflictPolicy || 'rename');
+      if (!resolved) { skipped += 1; continue; }
+      const writable = await resolved.handle.createWritable();
       await writable.write(mutation.content || '');
       await writable.close();
       applied += 1;
+      if (resolved.outcome === 'renamed') renamed += 1;
+      if (resolved.outcome === 'overwritten') overwritten += 1;
       continue;
     }
     if (mutation.kind === 'delete') {
-      await target.directory.removeEntry(target.name).catch((error) => {
+      await target.directory.removeEntry(target.name, { recursive: mutation.recursive === true }).catch((error) => {
         if ((error as DOMException)?.name !== 'NotFoundError') throw error;
       });
       applied += 1;
       continue;
     }
     if (!mutation.destinationPath) continue;
+    if (mutation.destinationPath === mutation.path && (mutation.kind === 'move' || mutation.conflictPolicy === 'overwrite')) {
+      skipped += 1;
+      continue;
+    }
     const source = await getParentDirectoryHandle(rootHandle, mutation.path);
     const destination = await getParentDirectoryHandle(rootHandle, mutation.destinationPath, true);
     if (!source || !destination) continue;
     const sourceHandle = await source.directory.getFileHandle(source.name, { create: false });
     const bytes = await readFileBytes(sourceHandle);
-    const targetHandle = await destination.directory.getFileHandle(destination.name, { create: true });
-    const writable = await targetHandle.createWritable();
+    const resolved = await resolveWritableFileTarget(destination.directory, destination.name, mutation.conflictPolicy || 'rename');
+    if (!resolved) { skipped += 1; continue; }
+    const writable = await resolved.handle.createWritable();
     await writable.write(bytes);
     await writable.close();
-    await source.directory.removeEntry(source.name);
+    if (mutation.kind === 'move') await source.directory.removeEntry(source.name);
     applied += 1;
+    if (resolved.outcome === 'renamed') renamed += 1;
+    if (resolved.outcome === 'overwritten') overwritten += 1;
   }
-  return { applied, planned: mutations.length };
+  return { applied, planned: mutations.length, renamed, skipped, overwritten };
 }
 
 /** Copy/move files between authorized workspaces. Move deletes the source only after a successful copy. */
@@ -658,7 +719,7 @@ export async function removeAssistantArtifactFromLocalWorkspace(params: {
   const chatRoot = await ensureChildDirectory(rootHandle, CHAT_ROOT);
   const iterator = getDirectoryEntries(chatRoot);
   if (!iterator) return;
-  for await (const [name, handle] of iterator) {
+  for await (const [, handle] of iterator) {
     if (handle.kind !== 'directory') continue;
     const chatDir = handle as DirectoryHandle;
     const chatMetadata = await readJsonFile(chatDir, ARTIFACT_METADATA_FILE);

@@ -8,7 +8,7 @@ import { generateResponse } from './aiClient';
 import { GenerationCancelledError } from './generationCancellation';
 import { attachMessageToActiveBranch, buildBranchStateWithHead } from './messageBranching';
 import { useChatStore } from '../stores/useChatStore';
-import { api, ApiError, type AiSearchResultItem } from './api';
+import { api, ApiError, type AiSearchResponse, type AiSearchResultItem } from './api';
 import { resolveRoomCapabilities } from './capabilityRuntime';
 import { resolveChatAgentCapabilities } from './chatAgentCapabilities';
 import { createLocalWorkspaceMutationPlan } from './localWorkspaceService';
@@ -296,13 +296,13 @@ async function generateAssistantSearchAnswer(params: {
   userMessage: Message;
   messages: Message[];
   searchQuery: string;
+  searchResponse?: AiSearchResponse;
   signal?: AbortSignal;
 }) {
   let searchPromptBlock = '';
   try {
-    const response = await api.searchWeb(params.searchQuery, {
-      source: 'assistant_agent',
-      resourceId: params.chatId,
+    const response = params.searchResponse || await api.searchWeb(params.searchQuery, {
+      source: 'assistant_agent', resourceId: params.chatId,
     });
     searchPromptBlock = buildAssistantSearchResultPromptBlock({
       query: response.query,
@@ -333,7 +333,7 @@ async function generateAssistantSearchAnswer(params: {
       buildAssistantSystemPrompt(),
       buildAssistantImageInputPromptBlock(promptImageState),
       searchPromptBlock,
-      'Answer the latest user request using the search result above. Keep the answer objective and cite URLs when useful.',
+      'Answer the latest user request using the search result above. Keep the answer objective and cite URLs when useful. This Agent can download network files and save them to session storage, authorized workspaces, or the device. Never claim that it lacks download or local-save capability. If no verified direct file URL is available, state that specific limitation and ask only for the missing format/source choice.',
     ].filter(Boolean).join('\n\n'),
     promptImageState.messages,
     undefined,
@@ -349,6 +349,65 @@ async function generateAssistantSearchAnswer(params: {
     },
   );
   return parseAssistantVisionReply(raw, params.userMessage, promptImageState.projectedImageAttachments);
+}
+
+function isNetworkDownloadDiscoveryRequest(input: string) {
+  return /(?:帮我|请|给我|替我)?\s*(?:下载|获取).+(?:到|至|进|保存|文件夹|目录)|\b(?:download|fetch)\b.+\b(?:to|into|folder|downloads?)\b/i.test(input);
+}
+
+function searchDownloadDestination(input: string): 'device' | undefined {
+  return /下载文件夹|下载目录|\bdownloads?\b|(?:下载|保存|导出)(?:到|至|进)?(?:我的|本机|本地|电脑|手机|设备|系统)|(?:电脑|手机|设备|本机)(?:上|中|里)?/i.test(input)
+    ? 'device'
+    : undefined;
+}
+
+async function selectDownloadFromSearch(params: {
+  api: APIConfig;
+  chatId: string;
+  userRequest: string;
+  results: AiSearchResultItem[];
+  signal?: AbortSignal;
+}) {
+  const allowedUrls = new Set(params.results.map((result) => result.url));
+  const raw = await generateResponse(
+    params.api,
+    [
+      '你是网络下载候选选择器，只输出严格 JSON。',
+      '从搜索结果中选择一个与用户要求一致、可信且可直接下载的文件 URL。URL 必须与搜索结果中的 URL 完全一致，禁止猜测或拼接新 URL。',
+      '应用商店页、产品介绍页、搜索页、登录页和普通网页不是直接文件，不可选择。来源、版本、格式或版权状态不明确时不要擅自下载。',
+      '可安全选择时输出 {"url":"...","fileName":"可选"}；否则输出 {"url":"","clarificationQuestion":"需要用户补充的最小信息"}。',
+    ].join('\n'),
+    [{
+      role: 'user',
+      content: JSON.stringify({
+        userRequest: params.userRequest,
+        searchResults: params.results.slice(0, 12).map((result) => ({
+          title: result.title,
+          url: result.url,
+          siteName: result.siteName,
+          summary: result.summary || result.snippet,
+        })),
+      }),
+    }],
+    undefined,
+    {
+      responseFormat: 'json',
+      maxTokens: 500,
+      signal: params.signal,
+      aiUsage: { type: 'assistant_chat', label: '助手Agent下载来源选择', scope: 'chat', resourceId: params.chatId },
+    },
+  );
+  try {
+    const parsed = JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/gi, '').trim()) as { url?: unknown; fileName?: unknown; clarificationQuestion?: unknown };
+    const url = typeof parsed.url === 'string' && allowedUrls.has(parsed.url) ? parsed.url : '';
+    return {
+      url,
+      fileName: typeof parsed.fileName === 'string' ? parsed.fileName.trim().slice(0, 180) : undefined,
+      clarificationQuestion: typeof parsed.clarificationQuestion === 'string' ? parsed.clarificationQuestion.trim().slice(0, 300) : '',
+    };
+  } catch {
+    return { url: '', fileName: undefined, clarificationQuestion: '' };
+  }
 }
 
 async function generateAssistantGeneralAnswer(params: {
@@ -480,6 +539,12 @@ async function persistAssistantArtifactsFromReply(params: {
     : [];
   let localWorkspaceFileRegistry = directoryListings.flatMap((entry) => entry.files);
   const uploadedFileContexts = buildUploadedFileContexts(params.userMessage);
+  const sessionResourceRegistry = resolvedCapabilities.fileDownload
+    ? await import('./sessionNetworkResourceStore').then(({ listSessionNetworkResourceRegistry }) => listSessionNetworkResourceRegistry(params.chatId, params.userMessage.content)).catch((error) => {
+      console.error('[assistant-agent:session-resource-registry]', error);
+      return [];
+    })
+    : [];
   const plannerFileRegistry = [...localWorkspaceFileRegistry, ...uploadedFileContexts.map((file) => ({ directoryId: file.directoryId, path: file.path, name: file.name, kind: 'file' as const, depth: 1, sizeBytes: file.sizeBytes, mimeType: file.mimeType }))];
   let plan = await planAssistantAgentChange({
     api: params.api,
@@ -498,6 +563,7 @@ async function persistAssistantArtifactsFromReply(params: {
       })),
     },
     localWorkspaceFileRegistry: plannerFileRegistry,
+    sessionResourceRegistry,
     interactionFocus: {
       ...(params.selectedArtifactId ? { selectedArtifactId: params.selectedArtifactId } : {}),
       ...(selectedLocalWorkspaceFilePaths.length ? {
@@ -550,43 +616,29 @@ async function persistAssistantArtifactsFromReply(params: {
     : (plan.localFilePaths || []);
   const networkFiles: AssistantAgentLocalFileContext[] = [];
   if (plan.networkRequests?.length && (resolvedCapabilities.webSearch || resolvedCapabilities.fileDownload)) {
-    const { downloadNetworkResource, fetchNetworkResource } = await import('./networkResourceService');
-    for (const [index, request] of plan.networkRequests.entries()) {
+    const { executeNetworkTransferTask } = await import('./networkTransferService');
+    for (const [index, request] of plan.networkRequests.slice(0, 4).entries()) {
       try {
-        const result = request.mode === 'download'
-          ? await downloadNetworkResource(request.url, request.fileName)
-          : await fetchNetworkResource(request.url, request.mode);
-        const content = request.mode === 'download'
-          ? `网络文件已完整接收，系统保存流程已启动。\nURL: ${result.finalUrl}\n文件名: ${request.fileName || result.fileName}\n类型: ${result.contentType}\n大小: ${result.sizeBytes} bytes\n传输方式: ${result.transport}`
-          : [
-              `URL: ${result.finalUrl}`,
-              `Content-Type: ${result.contentType}`,
-              result.truncated ? `正文已按上下文上限截断（原始字符数 ${result.originalLength}）` : '',
-              '',
-              result.text || '',
-            ].filter(Boolean).join('\n');
-        networkFiles.push({
-          directoryId: 'network',
-          path: result.finalUrl,
-          name: request.fileName || result.title || result.fileName || `network-${index + 1}`,
-          mimeType: result.contentType,
-          sizeBytes: result.sizeBytes,
-          content,
-          truncated: Boolean(result.truncated),
-          originalLength: result.originalLength || content.length,
-        });
+        networkFiles.push(...await executeNetworkTransferTask(params.chatId, request));
       } catch (error) {
-        const content = `网络资源请求失败。\nURL: ${request.url}\n模式: ${request.mode}\n错误: ${error instanceof Error ? error.message : String(error)}`;
+        const content = `网络资源任务失败。\nURL: ${request.url}\n模式: ${request.mode}\n错误: ${error instanceof Error ? error.message : String(error)}`;
         networkFiles.push({ directoryId: 'network', path: request.url, name: `network-error-${index + 1}`, mimeType: 'text/plain', sizeBytes: content.length, content, truncated: false, originalLength: content.length });
       }
     }
   }
-  const localFiles = [...uploadedFileContexts, ...networkFiles, ...(await Promise.all(Object.entries(selectedLocalFiles.reduce<Record<string, string[]>>((acc, file) => {
+  const sessionNetworkFiles = resolvedCapabilities.fileDownload && plan.sessionResourceIds?.length
+    ? await import('./sessionNetworkResourceStore').then(({ getSessionNetworkResourceContexts }) => getSessionNetworkResourceContexts(params.chatId, plan.sessionResourceIds || [], params.userMessage.content, 200_000)).catch((error) => {
+      console.error('[assistant-agent:session-resource-context]', error);
+      return [];
+    })
+    : [];
+  const workspaceFileContexts = (await Promise.all(Object.entries(selectedLocalFiles.reduce<Record<string, string[]>>((acc, file) => {
     if (!file.directoryId || !workspaceDirectories.some((directory) => directory.id === file.directoryId)) return acc;
     (acc[file.directoryId] ||= []).push(file.path);
     return acc;
-  }, {})).map(async ([directoryId, paths]) => localWorkspaceState.readDirectoryTextFiles(directoryId, paths).catch(() => [])))).flat()];
-  if (selectedLocalFiles.length && !localFiles.length) {
+  }, {})).map(async ([directoryId, paths]) => localWorkspaceState.readDirectoryTextFiles(directoryId, paths).catch(() => [])))).flat();
+  const localFiles = [...uploadedFileContexts, ...networkFiles, ...sessionNetworkFiles, ...workspaceFileContexts];
+  if (selectedLocalFiles.length && !workspaceFileContexts.length) {
     const assistantMessage = await persistAssistantFinalMessage({
       chat: params.chat,
       chatId: params.chatId,
@@ -604,6 +656,76 @@ async function persistAssistantArtifactsFromReply(params: {
   }
   if (plan.intent === 'search') {
     const query = plan.searchQuery?.trim() || params.userMessage.content.trim();
+    const recentUserRequestContext = withLatestUserMessage(params.messages, params.userMessage)
+      .filter((message) => message.type === 'user' || message.type === 'god')
+      .slice(-4)
+      .map((message) => message.content.trim())
+      .join('\n');
+    if (resolvedCapabilities.fileDownload && isNetworkDownloadDiscoveryRequest(recentUserRequestContext)) {
+      try {
+        const searchResponse = await api.searchWeb(query, {
+          source: 'assistant_agent',
+          resourceId: params.chatId,
+        });
+        const selected = await selectDownloadFromSearch({
+          api: params.api,
+          chatId: params.chatId,
+          userRequest: recentUserRequestContext,
+          results: searchResponse.results,
+          signal: params.signal,
+        });
+        if (selected.url) {
+          const { executeNetworkTransferTask } = await import('./networkTransferService');
+          const transferContexts = await executeNetworkTransferTask(params.chatId, {
+            url: selected.url,
+            mode: 'binary',
+            action: searchDownloadDestination(recentUserRequestContext) ? 'export' : 'store',
+            destination: searchDownloadDestination(recentUserRequestContext),
+            fileName: selected.fileName,
+            conflictPolicy: 'rename',
+          });
+          const transferSummary = transferContexts.find((item) => item.directoryId === 'network-task')?.content
+            || '网络文件已下载完成。';
+          const assistantMessage = await persistAssistantFinalMessage({
+            chat: params.chat,
+            chatId: params.chatId,
+            currentMessages: params.messages,
+            content: transferSummary,
+            timestamp: params.timestamp,
+            upsertMessage: params.upsertMessage,
+            replySender: params.replySender,
+          });
+          await params.updateChat(params.chatId, { lastMessageAt: assistantMessage.timestamp, latestMessage: assistantMessage });
+          return { message: assistantMessage, patchesCommitted: 0 };
+        }
+        const content = selected.clarificationQuestion
+          || '我已搜索可用来源，但没有找到能确认格式、来源和授权状态的直接文件下载地址。请指定需要的文件格式或可信来源，我会继续下载。';
+        const assistantMessage = await persistAssistantFinalMessage({
+          chat: params.chat,
+          chatId: params.chatId,
+          currentMessages: params.messages,
+          content,
+          timestamp: params.timestamp,
+          upsertMessage: params.upsertMessage,
+          replySender: params.replySender,
+        });
+        await params.updateChat(params.chatId, { lastMessageAt: assistantMessage.timestamp, latestMessage: assistantMessage });
+        return { message: assistantMessage, patchesCommitted: 0 };
+      } catch (error) {
+        const content = `搜索或下载失败：${error instanceof Error ? error.message : String(error)}`;
+        const assistantMessage = await persistAssistantFinalMessage({
+          chat: params.chat,
+          chatId: params.chatId,
+          currentMessages: params.messages,
+          content,
+          timestamp: params.timestamp,
+          upsertMessage: params.upsertMessage,
+          replySender: params.replySender,
+        });
+        await params.updateChat(params.chatId, { lastMessageAt: assistantMessage.timestamp, latestMessage: assistantMessage });
+        return { message: assistantMessage, patchesCommitted: 0 };
+      }
+    }
     const answer = await generateAssistantSearchAnswer({
       api: params.api,
       inputCapabilities: params.inputCapabilities,
@@ -692,6 +814,11 @@ async function persistAssistantArtifactsFromReply(params: {
       plan,
       existingArtifacts,
       localFiles,
+      workspaceDirectories: workspaceDirectories.map((directory) => ({
+        id: directory.id,
+        name: directory.name,
+        isDefault: directory.id === defaultLocalWorkspaceDirectory?.id,
+      })),
       signal: params.signal,
     });
     if (runtimeRepair && repairTarget && !patchSet.patches.some((patch) => patch.action === 'update' && patch.kind === 'html' && patch.artifactId === repairTarget.id)) {
@@ -734,6 +861,8 @@ async function persistAssistantArtifactsFromReply(params: {
         path: operation.path,
         destinationPath: operation.destinationPath,
         content: operation.content,
+        conflictPolicy: operation.conflictPolicy,
+        recursive: operation.recursive,
       })))
       : null;
     if (workspaceOperations.length && (!resolvedCapabilities.workspaceWrite || workspaceDirectoryIds.size !== 1)) {
@@ -1107,9 +1236,9 @@ function hasUserMessage(messages: Message[]) {
 
 function formatTitleContext(messages: Message[]) {
   return messages
+    .filter((message) => message.type === 'user' || message.type === 'god')
     .map((message) => {
-      const role = message.type === 'ai' ? '助手' : '用户';
-      return `${role}：${message.content.trim()}`;
+      return `用户：${message.content.trim()}`;
     })
     .join('\n\n');
 }
@@ -1130,6 +1259,25 @@ function sanitizeGeneratedTitle(value: string) {
     .slice(0, MAX_GENERATED_TITLE_LENGTH);
 }
 
+function isAssistantReplyStyleTitle(value: string) {
+  return /^(?:我(?:已经|已|会|可以|来|将)|我们(?:已经|已|会|可以|来|将)|已(?:经)?|成功|好的|当然|可以|没问题|为你|帮你)/.test(value)
+    || /(?:已经|已)(?:成功)?(?:帮|为).*(?:完成|下载|保存|生成|创建|修改)/.test(value);
+}
+
+function deriveTitleFromUserRequest(messages: Message[]) {
+  const latestUserContent = [...messages]
+    .reverse()
+    .find((message) => message.type === 'user' || message.type === 'god')
+    ?.content.trim() || '';
+  return sanitizeGeneratedTitle(latestUserContent)
+    .replace(/^(?:请|麻烦|劳驾)?(?:你)?(?:帮我|替我|给我|帮忙)\s*/u, '')
+    .replace(/^(?:能不能|可不可以|可以|能否)\s*/u, '')
+    .replace(/^(下载|获取|保存)一个(?=\S)/u, '$1')
+    .replace(/[。！？!?，,；;：:]+$/u, '')
+    .trim()
+    .slice(0, MAX_GENERATED_TITLE_LENGTH);
+}
+
 export async function maybeGenerateAssistantChatTitle(params: {
   api: APIConfig;
   chat: GroupChat;
@@ -1138,8 +1286,11 @@ export async function maybeGenerateAssistantChatTitle(params: {
   updateChat: (id: string, patch: Partial<GroupChat>) => Promise<void>;
 }) {
   if (params.chat.type !== 'assistant') return;
-  if (getTitleSource(params.chat)) return;
-  if (!isDefaultAssistantChatName(params.chat.name)) return;
+  const currentTitleSource = getTitleSource(params.chat);
+  const currentTitle = sanitizeGeneratedTitle(params.chat.name || '');
+  if (currentTitleSource === 'user') return;
+  if (currentTitleSource === 'ai' && !isAssistantReplyStyleTitle(currentTitle)) return;
+  if (!currentTitleSource && !isDefaultAssistantChatName(params.chat.name)) return;
   if (!hasUserMessage(params.currentMessages)) return;
   if (pendingAssistantTitleChatIds.has(params.chatId)) return;
   const titleContext = getAssistantTitleContext(params.currentMessages);
@@ -1151,7 +1302,10 @@ export async function maybeGenerateAssistantChatTitle(params: {
       params.api,
       [
         '你是会话标题生成器。',
-        '根据下面的助手会话记录生成一个简短、客观的中文会话标题。',
+        '根据下面的用户请求生成一个简短、客观的中文会话标题。',
+        '标题是用于会话列表导航的主题标签，不是对用户的回复，也不是任务执行结果。',
+        '使用主题短语或动宾短语，优先 4～16 个字。不要使用“我”“我们”“已完成”“成功帮你”等回复式或完成状态文案。',
+        '示例：用户请求“帮我下载一个新华字典到下载文件夹”，标题应为“下载新华字典”，不能写“我已经成功帮你下载了新华字典”。',
         '只输出标题本身，不要解释，不要使用 Markdown，不要加引号。',
         `标题最多 ${MAX_GENERATED_TITLE_LENGTH} 个字符。`,
       ].join('\n'),
@@ -1168,11 +1322,18 @@ export async function maybeGenerateAssistantChatTitle(params: {
         },
       },
     );
-    const title = sanitizeGeneratedTitle(generated);
+    const generatedTitle = sanitizeGeneratedTitle(generated);
+    const title = generatedTitle && !isAssistantReplyStyleTitle(generatedTitle)
+      ? generatedTitle
+      : deriveTitleFromUserRequest(titleContext);
     if (!title) return;
     const latestChat = useChatStore.getState().chats.find((item) => item.id === params.chatId);
     if (!latestChat || latestChat.type !== 'assistant') return;
-    if (getTitleSource(latestChat) || !isDefaultAssistantChatName(latestChat.name)) return;
+    const latestTitleSource = getTitleSource(latestChat);
+    const latestTitle = sanitizeGeneratedTitle(latestChat.name || '');
+    if (latestTitleSource === 'user') return;
+    if (latestTitleSource === 'ai' && !isAssistantReplyStyleTitle(latestTitle)) return;
+    if (!latestTitleSource && !isDefaultAssistantChatName(latestChat.name)) return;
     await params.updateChat(params.chatId, {
       name: title,
       modeState: {

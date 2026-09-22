@@ -4,6 +4,7 @@ import type { MediaGenerationDecision, Message, MessagePresenceUpdate } from '..
 import type { AddressedTargetHintEnvelope, ConflictFocusPayload, InteractionHintCollection, RecentSocialEventSummary, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeSocialEventHints } from '../types/runtimeEvent';
 import type { TurnPlan } from './turnPlanner';
+import type { RichDeliveryPolicy } from './styleProfileRegistry';
 import { hasVisibleStoryEvents, normalizeStoryEvents } from './narrativeRuntime';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
 import { getPromptSpeakerLabel, getPromptTurnTypeLabel, isHumanDirectedMessage } from './chatMessageSemantics';
@@ -353,6 +354,7 @@ export function buildInlineInteractionContract(params: {
     audio: boolean;
     sticker?: boolean;
   };
+  richDelivery?: RichDeliveryPolicy;
   mediaRequested?: boolean;
   webSearchEnabled?: boolean;
   webSearchResultInjected?: boolean;
@@ -360,6 +362,7 @@ export function buildInlineInteractionContract(params: {
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const isAnalysisRoom = resolveSessionFamilyKey(params.chat) === 'analysis';
   const mediaCapabilities = params.mediaCapabilities || { image: false, audio: false };
+  const richDelivery = params.richDelivery;
   const shouldIncludeMediaDecision = Boolean(!isStoryReader && (mediaCapabilities.image || mediaCapabilities.audio || mediaCapabilities.sticker));
   const transcriptScope = buildRecentTranscriptScope(params.recentMessages);
   const imageReferenceRegistry = shouldIncludeMediaDecision && mediaCapabilities.image
@@ -393,8 +396,11 @@ export function buildInlineInteractionContract(params: {
 3. intentionalRepeat=true is not limited to exact same text. It can cover deliberate repeated tone, keyword, rhythm, format, or call-and-response structure.
 4. Do not use intentionalRepeat=true for accidental template drift. If you are merely falling back into the same opener, explanation scaffold, punctuation habit, or generic answer shape, set false and rewrite with a different discourse move.`;
 
+  const deliveryPolicyRules = richDelivery
+    ? `\nDelivery policy for this room: consecutive bubbles=${richDelivery.multiBubble.proactivity} (maximum ${richDelivery.multiBubble.maxBubbles}); proactive image=${richDelivery.image.proactivity}; proactive audio=${richDelivery.audio.proactivity}; proactive sticker=${richDelivery.sticker.proactivity}. “off” means do not initiate that delivery form yourself, but honor an explicit user request when the capability is available. “low”, “medium”, and “high” are increasing invitations to use it when the exact moment benefits; they are never quotas. Keep media relevant, avoid repeating recent media, and do not spend a delivery form merely to decorate a reply.`
+    : '';
   const mediaRules = (shouldIncludeMediaDecision
-    ? `\n\nRules for mediaDecision:\n1. Media is optional. Keep every available media field false/null unless the user asks for it or it materially improves this exact reply; never pretend media was sent when no task is queued.\n${mediaCapabilities.image ? `2. Use images for requested or genuinely useful visual content. Infer the user's actual image goal from the latest message plus recent conversation. images is an array of 1-9 distinct image tasks; use one entry per image, never repeat the same prompt. Each image prompt must be final model-ready text and altText must be concise and specific.\n3. imageReferenceRegistry below lists recent chat images. Use IDs only when the request clearly identifies a reference; never output URLs, base64, or markdown image links.\nImage reference registry:\n${JSON.stringify(imageReferenceRegistry)}\n` : ''}${mediaCapabilities.audio ? '4. Use audio only when the user asks for a voice reply or speaking is clearly the natural requested form. The voice identity is fixed, but delivery may reflect the character\'s current emotion and relationship context. audio.text is the exact spoken content and must not add facts beyond the visible reply. When audio is selected, keep visible text concise and semantically aligned with the spoken content; do not send a long essay followed by a short unrelated audio clip.\n' : ''}5. Text, audio, and images may be combined in one turn. Prefer messages[] when this turn contains multiple independent consecutive sends. Each item has content and its own optional mediaDecision. A voice item must be a standalone bubble; text and images may be combined or sent separately. Multiple text/image/audio items may be emitted in natural sequence.\n6. Keep legacy content + extraMessages compatible. When messages[] is present it is authoritative and extraMessages should be null.`
+    ? `\n\nRules for mediaDecision:\n1. Media is optional. Follow this room's delivery policy before deciding; never pretend media was sent when no task is queued.${deliveryPolicyRules}\n${mediaCapabilities.image ? `2. Use images for requested or genuinely useful visual content. Infer the user's actual image goal from the latest message plus recent conversation. images is an array of 1-9 distinct image tasks; use one entry per image, never repeat the same prompt. Each image prompt must be final model-ready text and altText must be concise and specific.\n3. imageReferenceRegistry below lists recent chat images. Use IDs only when the request clearly identifies a reference; never output URLs, base64, or markdown image links.\nImage reference registry:\n${JSON.stringify(imageReferenceRegistry)}\n` : ''}${mediaCapabilities.audio ? '4. Use audio when the user asks for a voice reply or when the delivery policy permits it and speaking is a natural expression of the character\'s current emotion and relationship context. audio.text is the exact spoken content and must not add facts beyond the visible reply. When audio is selected, keep visible text concise and semantically aligned with the spoken content; do not send a long essay followed by a short unrelated audio clip.\n' : ''}5. Text, audio, and images may be combined in one turn. Prefer messages[] when this turn contains multiple independent consecutive sends. Each item has content and its own optional mediaDecision. A voice item must be a standalone bubble; text and images may be combined or sent separately. Multiple text/image/audio items may be emitted in natural sequence.\n6. Keep legacy content + extraMessages compatible. When messages[] is present it is authoritative and extraMessages should be null.`
     : '') + intentionalRepeatRules;
   const expressiveAudioOverride = mediaCapabilities.audio
     ? '\n\nAudio policy clarification: decide from the user\'s actual intent and the character\'s situation, not from a local keyword rule. If the latest user request explicitly asks to hear the reply, speak, sing, or send a voice message, audio is required when TTS is available. Character identity, habitual voice-message preference, affection, urgency, teasing, singing, crying, anger, or an emotionally important scene may also justify proactive audio. Consecutive audio turns are allowed when natural for the scene; do not suppress them merely because the previous turn also used audio. Keep each spoken text aligned with its visible message.\n'

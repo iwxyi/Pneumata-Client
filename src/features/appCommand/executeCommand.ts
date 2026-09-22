@@ -6,6 +6,7 @@ import { resolveRoomTemplateCapabilityDefaults } from '../../services/conversati
 import { getRoomTemplate, ROOM_TEMPLATES, type RoomTemplateDefinition, type RoomTemplateKey } from '../../services/roomTemplates';
 import { useCharacterStore } from '../../stores/useCharacterStore';
 import { useChatStore } from '../../stores/useChatStore';
+import { useAuthStore } from '../../stores/useAuthStore';
 import { useMessageStore } from '../../stores/useMessageStore';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import type { GroupChat } from '../../types/chat';
@@ -1503,8 +1504,10 @@ async function updateChatTopic(plan: LocalActionPlan, context: AppCommandContext
 }
 
 async function createAssistantChat(plan: LocalActionPlan, context: AppCommandContext): Promise<AppCommandExecutionResult> {
+  const auth = useAuthStore.getState();
+  const agentAvailable = auth.authMode === 'cloud' && auth.user?.agentEntitled === true;
   const chat = await useChatStore.getState().addChat({
-    ...buildAssistantChatDraft(),
+    ...buildAssistantChatDraft({ agentAvailable, aiSearchAvailable: agentAvailable && auth.user?.aiSearchEntitled === true }),
     name: clean(plan.chatName || plan.title) || '新助手会话',
     topic: clean(plan.summary) || '通用助手聊天',
   });

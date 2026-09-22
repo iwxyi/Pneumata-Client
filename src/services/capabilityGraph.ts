@@ -2,7 +2,7 @@ import type { GroupChat } from '../types/chat';
 import type { SessionGenerationPromptContext, SessionMoveClass, SessionTargetScope } from '../types/sessionEngine';
 import { getChannelSemantics } from './channelSemanticsRegistry';
 import { resolveSessionDefinition } from '../types/sessionEngine';
-import { resolveDefaultStyleProfile } from './styleProfileRegistry';
+import { resolveDefaultStyleProfile, resolveRichDeliveryPolicy, type RichDeliveryPolicy } from './styleProfileRegistry';
 import { getGenerationSettingsRuntimeConfig } from './generationSettingsRuntime';
 
 export interface EffectiveCapabilities {
@@ -19,6 +19,7 @@ export interface EffectiveCapabilities {
   preferredMoveClass: SessionMoveClass;
   preferredTargetScope: SessionTargetScope;
   allowStickers: boolean;
+  richDelivery: RichDeliveryPolicy;
 }
 
 function derivePreferredMoveClass(styleProfile: string, family: string): SessionMoveClass {
@@ -53,10 +54,10 @@ export function resolveEffectiveCapabilities(chat: GroupChat, promptContext?: Se
   const allowMarkdown = promptContext?.allowMarkdown ?? generationSettings.allowMarkdownInChat;
   const preferredMoveClass = derivePreferredMoveClass(styleProfile, session.kind.family);
   const preferredTargetScope = derivePreferredTargetScope(chat, session.kind.family, channel.targetPriority);
+  const richDelivery = resolveRichDeliveryPolicy(styleProfile);
   const allowStickers = chat.type !== 'assistant'
     && chat.sessionKind?.scenarioId !== 'story-reader'
-    && !['analysis', 'deduction', 'mystery', 'study', 'interview', 'agent', 'simulation'].includes(String(chat.sessionKind?.family || session.kind.family))
-    && ['casual_room', 'companion_room'].includes(styleProfile);
+    && richDelivery.sticker.explicitRequest;
   return {
     scenarioId: chat.sessionKind?.scenarioId || session.kind.scenarioId,
     family: chat.sessionKind?.family || session.kind.family,
@@ -71,6 +72,7 @@ export function resolveEffectiveCapabilities(chat: GroupChat, promptContext?: Se
     preferredMoveClass,
     preferredTargetScope,
     allowStickers,
+    richDelivery,
   };
 }
 

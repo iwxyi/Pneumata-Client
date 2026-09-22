@@ -3,6 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { SpeakIntent } from './intentEngine';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
+import type { RichDeliveryPolicy } from './styleProfileRegistry';
 
 export type TurnRhythm = 'micro_ack' | 'short_reply' | 'full_reply' | 'multi_bubble' | 'defer_or_wait';
 export type TurnLengthBand = 'micro' | 'short' | 'medium' | 'long' | 'extended';
@@ -26,6 +27,7 @@ export interface TurnPlanInput {
   messages: Message[];
   intent: SpeakIntent;
   surface: TurnPlanSurface;
+  richDelivery?: RichDeliveryPolicy;
   now?: number;
 }
 
@@ -146,7 +148,7 @@ function chooseAnalysisContinuationPlan(input: TurnPlanInput, latestLength: numb
   };
 }
 
-export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
+function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
   const visibleLatest = latestVisible(input.messages);
   const latestLength = charLength(visibleLatest?.content);
   const latestIsHuman = visibleLatest?.type === 'user' || visibleLatest?.type === 'god';
@@ -256,6 +258,41 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
     allowExtraMessages: false,
     waitSensitive: false,
     reasons: [...reasons, ownStats.clustered ? 'recent_length_cluster' : 'default_chat'],
+  };
+}
+
+export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
+  const plan = deriveBaseTurnPlan(input);
+  const delivery = input.richDelivery?.multiBubble;
+  if (!delivery) return plan;
+
+  if (delivery.proactivity === 'off') {
+    return { ...plan, rhythm: plan.rhythm === 'multi_bubble' ? 'full_reply' : plan.rhythm, targetBubbleCount: 1, allowExtraMessages: false, reasons: [...plan.reasons, 'delivery:multi_bubble_off'] };
+  }
+
+  const cappedCount = Math.max(1, Math.min(plan.targetBubbleCount, delivery.maxBubbles));
+  if (plan.allowExtraMessages) {
+    return { ...plan, targetBubbleCount: cappedCount, allowExtraMessages: cappedCount > 1, reasons: [...plan.reasons, `delivery:multi_bubble_${delivery.proactivity}`] };
+  }
+
+  if (delivery.proactivity !== 'high' || input.surface.kind !== 'chat') return plan;
+  const latest = latestVisible(input.messages);
+  const latestLength = charLength(latest?.content);
+  const ownStats = recentOwnStats(input.messages, input.speaker.id);
+  const bucket = stableBucket([input.chat.id, input.speaker.id, latest?.id || '', latest?.timestamp || input.now || 0, 'rich-delivery'].join('|'));
+  const canProactivelySplit = latestLength >= 8
+    && latestLength <= 90
+    && ownStats.recentMultiBubbleCount === 0
+    && bucket >= 42
+    && plan.rhythm !== 'defer_or_wait'
+    && plan.rhythm !== 'micro_ack';
+  if (!canProactivelySplit) return plan;
+  return {
+    ...plan,
+    rhythm: 'multi_bubble',
+    targetBubbleCount: Math.min(2, delivery.maxBubbles),
+    allowExtraMessages: delivery.maxBubbles > 1,
+    reasons: [...plan.reasons, 'delivery:high_proactive_multi_bubble'],
   };
 }
 

@@ -280,7 +280,7 @@ export function buildCompactImageReferenceRegistry(messages: Message[]) {
     .slice(0, MAX_IMAGE_REFERENCES);
 }
 
-function buildPlannerPrompt(options: { includeImages: boolean; includeLocalFiles: boolean; includeSearch: boolean; includeNetwork: boolean; includeData: boolean }) {
+function buildPlannerPrompt(options: { includeImages: boolean; includeLocalFiles: boolean; includeSessionResources: boolean; includeSearch: boolean; includeNetwork: boolean; includeData: boolean }) {
   const sections = [
     '你是 Agent Intent Planner。只负责决策，不生成产物正文；只输出严格 JSON。',
     '结合用户输入、最近对话、产物注册表和交互焦点判断，不要要求用户使用“HTML/产物”等技术词。',
@@ -290,19 +290,27 @@ function buildPlannerPrompt(options: { includeImages: boolean; includeLocalFiles
     'source_code 只在用户明确要源码时使用，并输出 intent=chat；每轮必须选择 responseExperience。',
     'selectedArtifactId 存在且用户说“这个/当前产物/改一下”等相对指代时优先作为 update 目标；没有唯一目标则 clarify。',
   ];
-  if (options.includeSearch) sections.push('搜索：需要实时消息、网页资料或外部核验且 webSearch=true 时输出 search 并填写 searchQuery；未开启时说明能力未开启。');
-  if (options.includeNetwork) sections.push('网络资源：用户给出明确 URL 并要求读取网页、源码、图片或文件时输出 networkRequests，最多 6 项。网页默认 mode=readable（语义化正文），只有明确要求源码时用 source，明确要求下载到设备时用 download。不要虚构 URL，不要用它访问本应用、localhost 或内网。若只是搜索未知网址，使用 search。');
+  if (options.includeSearch) sections.push('搜索：需要实时消息、网页资料或外部核验且 webSearch=true 时输出 search 并填写 searchQuery；未开启时说明能力未开启。用户要求下载一个可通过名称识别但没有提供 URL 的网络资源时，应先 search 自动寻找可信下载来源，不要先要求用户提供网址。');
+  if (options.includeNetwork) sections.push('网络资源：每轮最多 4 个网络任务，一个目录递归下载算一个任务。支持 http/https/ftp/ftps；网页阅读 mode=readable、明确读取源码 mode=source、文件 mode=binary。action=read 仅作为上下文；用户只说“下载/保存/稍后使用”但没指定位置时用 action=store 且不填 destination，由客户端静默选择会话内部存储或已配置的默认工作区；只有用户明确说保存到电脑、手机、设备或系统下载目录时才用 action=export、destination=device。用户明确指定工作区时用 destination=workspace，并从 localWorkspaceRegistry 选择唯一匹配的 workspaceId；无法唯一匹配且没有默认工作区时必须 intent=clarify 先询问，不能猜测。目录批量任务设置 recursive=true；目录会自动合并目录树。conflictPolicy 默认 rename，为同名文件增加 (1)、(2) 后缀；只有用户明确要求覆盖时才用 overwrite，明确要求跳过同名文件时用 skip。“合并文件夹”不等于合并同名文件内容；用户要求合并 JSON/CSV/文本内容时必须先读取目标文件并生成工作区变更计划。用户要求解压时设置 extractArchives=true。不要虚构 URL，不要把密码写入 URL，不要访问本应用、localhost 或内网。');
+  if (options.includeSessionResources) sections.push('会话网络资源：sessionResourceRegistry 是此前保存到本会话内部存储的文件清单。只有用户本轮明确引用、处理或询问其中的文件时，才把对应 ID 放入 sessionResourceIds；普通对话不要选择。最多选择 32 个，正文会在后续阶段按动态预算加载。');
   if (options.includeLocalFiles) sections.push('本地文件：只使用 registry 中的文件；用户未明确目标时 clarify，未授权时不要假装读取；输出 localFilePaths 时必须使用 registry 中的 directoryId/path。需要扫描时可输出 workspaceScan（directoryIds、pathPrefix、nameContains、extension、minSizeBytes、maxSizeBytes、maxEntries、maxDepth），扫描结果不等于文件正文。');
   if (options.includeImages) sections.push('图片：结合图片注册表判断目标/参考图，不要虚构图片 ID；图片生成仍由后续 writer/media task 处理。');
   if (options.includeData) sections.push('数据产物：已有 table/json 产物的筛选、统计、插入、更新或删除使用结构化数据操作；优先使用注册表中的字段、描述和统计摘要，不加载完整文件。');
   sections.push(
     '输出：',
-    '{"intent":"chat|create|update|clarify|search","assistantMessage":"chat/clarify 可见回复","responseExperience":"direct_answer|source_code|structured_input|interactive_workspace|visual_explanation","searchQuery":"","networkRequests":[{"url":"https://...","mode":"readable|source|download","fileName":"可选"}],"localFilePaths":[],"workspaceScan":{"directoryIds":[],"pathPrefix":"","nameContains":"","extension":"","minSizeBytes":0,"maxSizeBytes":0,"maxEntries":160,"maxDepth":4},"scope":{"targetMode":"single|multi|workspace|selection|unknown","artifactIds":[]},"operations":[{"kind":"style_change|content_edit|structure_edit|create|export|review|search|other","instruction":"..."}],"requiresConfirmation":false,"clarificationQuestion":"","confidence":0,"rationale":"..."}',
+    '{"intent":"chat|create|update|clarify|search","assistantMessage":"chat/clarify 可见回复","responseExperience":"direct_answer|source_code|structured_input|interactive_workspace|visual_explanation","searchQuery":"","networkRequests":[{"url":"https://... 或 ftp://...","mode":"readable|source|binary","action":"read|store|export","recursive":false,"extractArchives":false,"destination":"session|workspace|device","workspaceId":"可选","destinationPath":"可选","fileName":"可选","conflictPolicy":"rename|skip|overwrite"}],"localFilePaths":[],"sessionResourceIds":[],"workspaceScan":{"directoryIds":[],"pathPrefix":"","nameContains":"","extension":"","minSizeBytes":0,"maxSizeBytes":0,"maxEntries":160,"maxDepth":4},"scope":{"targetMode":"single|multi|workspace|selection|unknown","artifactIds":[]},"operations":[{"kind":"style_change|content_edit|structure_edit|create|export|review|search|other","instruction":"..."}],"requiresConfirmation":false,"clarificationQuestion":"","confidence":0,"rationale":"..."}',
   );
   return sections.join('\n');
 }
 
-function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[], localWorkspaceFileRegistry: Array<{ directoryId: string; path: string; kind: string }> = []): AssistantAgentChangePlan {
+function normalizePlan(
+  raw: unknown,
+  existingArtifacts: AssistantArtifactItem[],
+  localWorkspaceFileRegistry: Array<{ directoryId: string; path: string; kind: string }> = [],
+  validSessionResourceIds = new Set<string>(),
+  validWorkspaceIds = new Set<string>(),
+  defaultWorkspaceId?: string,
+): AssistantAgentChangePlan {
   const existingIds = new Set(existingArtifacts.filter((item) => item.deletedAt == null).map((item) => item.id));
   const validLocalFileKeys = new Set(localWorkspaceFileRegistry.filter((item) => item.kind === 'file').map((item) => `${item.directoryId}:${item.path}`));
   if (!isRecord(raw)) {
@@ -340,6 +348,9 @@ function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[],
         return [{ directoryId, path }];
       }).slice(0, 12)
     : [];
+  const sessionResourceIds = Array.isArray(raw.sessionResourceIds)
+    ? raw.sessionResourceIds.filter((id): id is string => typeof id === 'string' && validSessionResourceIds.has(id)).slice(0, 32)
+    : [];
   const rawScan = isRecord(raw.workspaceScan) ? raw.workspaceScan : null;
   const workspaceScan = rawScan ? {
     directoryIds: Array.isArray(rawScan.directoryIds) ? rawScan.directoryIds.filter((id): id is string => typeof id === 'string' && id.length <= 160).slice(0, 12) : undefined,
@@ -354,13 +365,21 @@ function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[],
   const networkRequests = Array.isArray(raw.networkRequests) ? raw.networkRequests.flatMap((item): NonNullable<AssistantAgentChangePlan['networkRequests']> => {
     if (!isRecord(item)) return [];
     const url = text(item.url, 2000);
-    const mode = item.mode === 'source' || item.mode === 'download' ? item.mode : 'readable';
+    const mode = item.mode === 'source' || item.mode === 'binary' || item.mode === 'download' ? (item.mode === 'download' ? 'binary' : item.mode) : 'readable';
     try {
       const parsed = new URL(url);
-      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) return [];
+      if (!['http:', 'https:', 'ftp:', 'ftps:'].includes(parsed.protocol) || parsed.username || parsed.password) return [];
     } catch { return []; }
-    return [{ url, mode, fileName: text(item.fileName, 180) || undefined }];
-  }).slice(0, 6) : [];
+    const action = item.action === 'store' || item.action === 'export' ? item.action : 'read';
+    const requestedDestination = item.destination === 'workspace' || item.destination === 'device' ? item.destination : item.destination === 'session' ? 'session' : undefined;
+    const destination = action === 'export' ? 'device' : requestedDestination === 'device' ? undefined : requestedDestination;
+    const requestedWorkspaceId = text(item.workspaceId, 160);
+    const workspaceId = destination === 'workspace'
+      ? requestedWorkspaceId ? (validWorkspaceIds.has(requestedWorkspaceId) ? requestedWorkspaceId : undefined) : defaultWorkspaceId
+      : undefined;
+    const conflictPolicy: 'rename' | 'skip' | 'overwrite' = item.conflictPolicy === 'skip' || item.conflictPolicy === 'overwrite' ? item.conflictPolicy : 'rename';
+    return [{ url, mode, action, recursive: Boolean(item.recursive), extractArchives: Boolean(item.extractArchives), destination, workspaceId, destinationPath: text(item.destinationPath, 480) || undefined, fileName: text(item.fileName, 180) || undefined, conflictPolicy }];
+  }).slice(0, 4) : [];
   const normalizedIntent = intent === 'update' && artifactIds.length === 0 ? 'clarify' : intent;
   const responseExperience = ['direct_answer', 'source_code', 'structured_input', 'interactive_workspace', 'visual_explanation'].includes(String(raw.responseExperience))
     ? raw.responseExperience as NonNullable<AssistantAgentChangePlan['responseExperience']>
@@ -374,6 +393,7 @@ function normalizePlan(raw: unknown, existingArtifacts: AssistantArtifactItem[],
     clarificationQuestion: text(raw.clarificationQuestion, 300),
     searchQuery: text(raw.searchQuery, 300),
     localFilePaths,
+    sessionResourceIds,
     workspaceScan,
     networkRequests,
     responseExperience,
@@ -404,7 +424,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
   );
   if (options.includeLocalFiles) sections.push(
     '本地文件：localFiles 是唯一授权内容；不得假装读取未提供的文件。',
-    '工作区写操作：仅当用户明确要求修改/删除/移动时输出 workspaceOperations；每项必须含 directoryId、相对 path 和 kind。高风险操作会先生成待确认计划，不要假设已经写入磁盘。',
+    '工作区写操作：仅当用户明确要求修改、删除、复制或移动时输出 workspaceOperations；每项必须含 directoryId、相对 path 和 kind=write|delete|copy|move。删除目录时用户明确要求“连同内容/递归删除”才设置 recursive=true。write/copy/move 的 conflictPolicy 默认 rename；只有用户明确要求时使用 overwrite 或 skip。高风险操作会先生成待确认计划，不要假设已经写入磁盘。',
   );
   if (options.includeData) sections.push(
     'CSV/JSON：已有数据产物优先使用 dataOperations 做本地增量 query/insert/update/delete/add_column，不要把完整大文件放入上下文；query 最多返回 100 行。创建新的 CSV/JSON 仍使用 patches，更新已有数据产物时只返回 dataOperations，不要伪造完整文件内容。增加 CSV 列使用 add_column（column/defaultValue）；JSON 没有固定列，要求增加字段时使用 update values 并配合 filter。筛选条件支持 field 的点路径（如 profile.name）、比较 eq/contains/startsWith/endsWith/gt/gte/lt/lte，以及 exists/notExists/isNull/isNotNull；顶层 filter 数组是 AND，可用 all/any/not 组合 AND/OR/NOT。',
@@ -447,7 +467,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
     '',
     '输出格式：',
     'dataOperations.filter 顶层数组表示 AND；复杂条件可使用 {"all":[...]}, {"any":[...]}, {"not":{...}}。',
-    '{"assistantMessage":"面向用户的自然回复文案","patches":[{"action":"create|update","artifactId":"...","kind":"document|code|diagram|html|table|json|text","title":"...","summary":"...","language":"...","content":"完整内容","files":[],"baseVersionId":"...","changeSummary":"...","dataDescriptor":{"description":"...","primaryKey":"...","fields":[{"name":"...","type":"string|number|boolean|date|datetime|array|object","description":"..."}]},"htmlRuntime":{}}],"dataOperations":[{"kind":"query|insert|update|delete|add_column","artifactId":"...","baseVersionId":"...","filePath":"...","column":"newColumn","defaultValue":"","filter":[{"field":"...","operator":"eq|contains|startsWith|endsWith|gt|gte|lt|lte|exists|notExists|isNull|isNotNull","value":"..."}],"values":{},"limit":100,"offset":0,"sort":{"field":"...","direction":"asc|desc"}}],"mediaTasks":[]}',
+    '{"assistantMessage":"面向用户的自然回复文案","patches":[{"action":"create|update","artifactId":"...","kind":"document|code|diagram|html|table|json|text","title":"...","summary":"...","language":"...","content":"完整内容","files":[],"baseVersionId":"...","changeSummary":"...","dataDescriptor":{"description":"...","primaryKey":"...","fields":[{"name":"...","type":"string|number|boolean|date|datetime|array|object","description":"..."}]},"htmlRuntime":{}}],"dataOperations":[{"kind":"query|insert|update|delete|add_column","artifactId":"...","baseVersionId":"...","filePath":"...","column":"newColumn","defaultValue":"","filter":[{"field":"...","operator":"eq|contains|startsWith|endsWith|gt|gte|lt|lte|exists|notExists|isNull|isNotNull","value":"..."}],"values":{},"limit":100,"offset":0,"sort":{"field":"...","direction":"asc|desc"}}],"workspaceOperations":[{"directoryId":"...","kind":"write|delete|copy|move","path":"relative/file.txt","destinationPath":"relative/new-file.txt","content":"write 时的完整文本","conflictPolicy":"rename|skip|overwrite"}],"mediaTasks":[]}',
   );
   return sections.join('\n');
 }
@@ -718,7 +738,7 @@ function stripHtmlArtifactSourceFromAssistantMessage(message: string, patches: A
   return `${primary.action === 'update' ? '已更新' : '已创建'}「${primary.title}」。`;
 }
 
-function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string, ImageAttachmentRef>(), userMessage?: Message, plan?: AssistantAgentChangePlan): AssistantAgentPatchSet {
+function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string, ImageAttachmentRef>(), userMessage?: Message, plan?: AssistantAgentChangePlan, workspaceDirectoryIds: string[] = []): AssistantAgentPatchSet {
   if (!isRecord(raw)) return { assistantMessage: '没有可提交的产物变更。', patches: [], mediaTasks: [] };
   const patches = Array.isArray(raw.patches) ? raw.patches.slice(0, MAX_PATCHES).flatMap((item): AssistantAgentPatch[] => {
     if (!isRecord(item)) return [];
@@ -770,16 +790,17 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
     if (!artifactId || !kind) return [];
     return [{ artifactId, kind, versionId: text(item.versionId, 240) || undefined, keepCount: Number.isFinite(Number(item.keepCount)) ? Math.max(1, Math.min(50, Math.floor(Number(item.keepCount)))) : undefined }];
   }) : [];
-  const allowedDirectories = new Set((plan?.localFilePaths || []).map((file) => file.directoryId));
+  const allowedDirectories = new Set(workspaceDirectoryIds);
   const workspaceOperations = Array.isArray(raw.workspaceOperations) ? raw.workspaceOperations.slice(0, 100).flatMap((item) => {
     if (!isRecord(item)) return [];
     const directoryId = text(item.directoryId, 160);
     const path = text(item.path, 480).replace(/^\/+/, '');
-    const kind = ['write', 'delete', 'move'].includes(String(item.kind)) ? item.kind as 'write' | 'delete' | 'move' : null;
-    if (!directoryId || !path || !kind || (allowedDirectories.size > 0 && !allowedDirectories.has(directoryId)) || path.split('/').some((part) => part === '..' || part === '.')) return [];
+    const kind = ['write', 'delete', 'move', 'copy'].includes(String(item.kind)) ? item.kind as 'write' | 'delete' | 'move' | 'copy' : null;
+    if (!directoryId || !path || !kind || !allowedDirectories.has(directoryId) || path.split('/').some((part) => part === '..' || part === '.')) return [];
     const destinationPath = text(item.destinationPath, 480).replace(/^\/+/, '') || undefined;
-    if (kind === 'move' && (!destinationPath || destinationPath.split('/').some((part) => part === '..' || part === '.'))) return [];
-    return [{ directoryId, kind, path, destinationPath, content: kind === 'write' ? text(item.content, MAX_CONTENT_CHARS) : undefined }];
+    if ((kind === 'move' || kind === 'copy') && (!destinationPath || destinationPath.split('/').some((part) => part === '..' || part === '.'))) return [];
+    const conflictPolicy: 'rename' | 'skip' | 'overwrite' = item.conflictPolicy === 'skip' || item.conflictPolicy === 'overwrite' ? item.conflictPolicy : 'rename';
+    return [{ directoryId, kind, path, destinationPath, content: kind === 'write' ? text(item.content, MAX_CONTENT_CHARS) : undefined, conflictPolicy, recursive: kind === 'delete' && Boolean(item.recursive) }];
   }) : [];
   let mediaTasks = withImplicitLatestImageTarget(normalizeMediaTasks(raw.mediaTasks, imageReferenceRegistry), userMessage, imageReferenceRegistry);
   if (!patches.length && !mediaTasks.length && userMessage) {
@@ -873,6 +894,15 @@ export async function planAssistantAgentChange(params: {
     mimeType?: string;
     updatedAt?: number;
   }>;
+  sessionResourceRegistry?: Array<{
+    id: string;
+    name: string;
+    path: string;
+    sourceUrl: string;
+    mimeType: string;
+    sizeBytes: number;
+    createdAt: number;
+  }>;
   signal?: AbortSignal;
   /** Force an artifact response for a caller (for example a learning room HTML request). */
   forceArtifact?: boolean;
@@ -917,6 +947,7 @@ export async function planAssistantAgentChange(params: {
     },
     localWorkspaceRegistry: (params.toolCapabilities?.localWorkspaceDirectories || []).slice(0, 12),
     localWorkspaceFileRegistry: (params.localWorkspaceFileRegistry || []).slice(0, MAX_LOCAL_WORKSPACE_FILES_IN_REGISTRY),
+    sessionResourceRegistry: (params.sessionResourceRegistry || []).slice(0, 160),
     interactionFocus: params.interactionFocus || {},
   };
   const raw = await generateResponse(
@@ -924,6 +955,7 @@ export async function planAssistantAgentChange(params: {
     buildPlannerPrompt({
       includeImages: Boolean(payload.imageReferenceRegistry.length || payload.userMessage.imageAttachments.length),
       includeLocalFiles: Boolean(params.toolCapabilities?.localWorkspace || payload.localWorkspaceFileRegistry.length),
+      includeSessionResources: Boolean(payload.sessionResourceRegistry.length),
       includeSearch: Boolean(params.toolCapabilities?.webSearch),
       includeNetwork: Boolean(params.toolCapabilities?.networkAccess),
       includeData: params.existingArtifacts.some((artifact) => artifact.kind === 'table' || artifact.kind === 'json')
@@ -943,7 +975,51 @@ export async function planAssistantAgentChange(params: {
       },
     },
   );
-  const plan = normalizePlan(safeJsonParse(raw), params.existingArtifacts, params.localWorkspaceFileRegistry);
+  const workspaceDirectories = params.toolCapabilities?.localWorkspaceDirectories || [];
+  const implicitWorkspaceId = workspaceDirectories.find((directory) => directory.isDefault)?.id
+    || (workspaceDirectories.length === 1 ? workspaceDirectories[0]?.id : undefined);
+  const plan = normalizePlan(
+    safeJsonParse(raw),
+    params.existingArtifacts,
+    params.localWorkspaceFileRegistry,
+    new Set((params.sessionResourceRegistry || []).map((resource) => resource.id)),
+    new Set(workspaceDirectories.map((directory) => directory.id)),
+    implicitWorkspaceId,
+  );
+  const namedDownloadNeedsDiscovery = /(?:帮我|请|给我|替我)?\s*(?:下载|获取).+(?:到|至|进|保存|文件夹|目录)|\b(?:download|fetch)\b.+\b(?:to|into|folder|downloads?)\b/i.test(params.userMessage.content);
+  if (
+    namedDownloadNeedsDiscovery
+    && params.toolCapabilities?.webSearch
+    && !plan.networkRequests?.length
+    && (plan.intent === 'chat' || plan.intent === 'clarify')
+  ) {
+    return {
+      ...plan,
+      intent: 'search',
+      assistantMessage: '',
+      searchQuery: plan.searchQuery?.trim() || params.userMessage.content.trim(),
+      operations: plan.operations.length ? plan.operations : [{ kind: 'export', instruction: params.userMessage.content.trim() }],
+      requiresConfirmation: false,
+      clarificationQuestion: '',
+      confidence: Math.max(plan.confidence || 0, 0.9),
+      rationale: `${plan.rationale || ''} named_download_requires_source_discovery`.trim(),
+    } satisfies AssistantAgentChangePlan;
+  }
+  if (plan.networkRequests?.some((request) => request.destination === 'workspace' && !request.workspaceId)) {
+    const clarificationQuestion = workspaceDirectories.length
+      ? '你希望把文件保存到哪个已授权工作区？'
+      : '当前还没有已授权工作区。你希望先授权一个工作区，还是保存到本会话内部？';
+    return {
+      ...plan,
+      intent: 'clarify' as const,
+      assistantMessage: clarificationQuestion,
+      clarificationQuestion,
+      networkRequests: [],
+      requiresConfirmation: true,
+      confidence: 1,
+      rationale: 'network_workspace_destination_unresolved',
+    } satisfies AssistantAgentChangePlan;
+  }
   if (params.forceArtifact && (plan.intent === 'chat' || plan.intent === 'clarify')) {
     return {
       ...plan,
@@ -965,6 +1041,7 @@ export async function writeAssistantAgentPatchSet(params: {
   plan: AssistantAgentChangePlan;
   existingArtifacts: AssistantArtifactItem[];
   localFiles?: AssistantAgentLocalFileContext[];
+  workspaceDirectories?: Array<{ id: string; name: string; isDefault: boolean }>;
   signal?: AbortSignal;
 }) {
   const registryMessages = withLatestUserMessage(params.messages, params.userMessage);
@@ -1019,6 +1096,7 @@ export async function writeAssistantAgentPatchSet(params: {
     artifactRegistry: artifactRegistry(params.existingArtifacts),
     targetArtifacts,
     localFiles: compactLocalFilesForPrompt(params.localFiles),
+    workspaceRegistry: params.workspaceDirectories || [],
   };
   const writerPromptOptions = {
       includeImages: Boolean(
@@ -1056,7 +1134,7 @@ export async function writeAssistantAgentPatchSet(params: {
   );
   const parsed = safeJsonParse(raw);
   return validateAssistantAgentPatchSet({
-    patchSet: normalizePatchSet(parsed, imageReferenceRegistry, params.userMessage, params.plan),
+    patchSet: normalizePatchSet(parsed, imageReferenceRegistry, params.userMessage, params.plan, (params.workspaceDirectories || []).map((directory) => directory.id)),
     plan: params.plan,
     existingArtifacts: params.existingArtifacts,
     blockedUpdateArtifactIds,

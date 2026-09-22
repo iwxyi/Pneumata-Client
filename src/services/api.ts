@@ -141,6 +141,13 @@ export interface NetworkResourceResponse {
   content: string;
 }
 
+export interface NetworkDirectoryResponse {
+  rootUrl: string;
+  files: Array<{ url: string; path: string; sizeBytes: number }>;
+  truncated: boolean;
+  transferToken: string;
+}
+
 export interface AlapiDoutuResponse {
   keyword: string;
   imageUrl: string;
@@ -753,8 +760,12 @@ class ApiClient {
     });
   }
 
-  async fetchNetworkResource(url: string, mode: 'readable' | 'source' | 'download', timeoutMs = 20_000) {
-    return this.request<NetworkResourceResponse>('POST', '/network/fetch', { url, mode, timeoutMs });
+  async fetchNetworkResource(url: string, mode: 'readable' | 'source' | 'download', timeoutMs = 20_000, transferToken?: string) {
+    return this.request<NetworkResourceResponse>('POST', '/network/fetch', { url, mode, timeoutMs, transferToken });
+  }
+
+  async listNetworkDirectory(url: string) {
+    return this.request<NetworkDirectoryResponse>('POST', '/network/list', { url });
   }
 
   async searchDoutu(keyword: string, options?: { chatId?: string; messageId?: string }) {

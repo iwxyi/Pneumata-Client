@@ -201,8 +201,15 @@ export interface AssistantAgentWorkspaceScanRequest {
 
 export interface AssistantAgentNetworkRequest {
   url: string;
-  mode: 'readable' | 'source' | 'download';
+  mode: 'readable' | 'source' | 'binary';
+  action?: 'read' | 'store' | 'export';
+  recursive?: boolean;
+  extractArchives?: boolean;
+  destination?: 'session' | 'workspace' | 'device';
+  workspaceId?: string;
+  destinationPath?: string;
   fileName?: string;
+  conflictPolicy?: 'rename' | 'skip' | 'overwrite';
 }
 
 export interface AssistantAgentLocalFileContext extends AssistantAgentLocalFileRef {
@@ -229,6 +236,7 @@ export interface AssistantAgentChangePlan {
   clarificationQuestion?: string;
   searchQuery?: string;
   localFilePaths?: AssistantAgentLocalFileRef[];
+  sessionResourceIds?: string[];
   workspaceScan?: AssistantAgentWorkspaceScanRequest;
   networkRequests?: AssistantAgentNetworkRequest[];
   responseExperience?: AssistantResponseExperience;
@@ -281,9 +289,11 @@ export interface AssistantAgentPatchSet {
   versionOperations?: AssistantArtifactVersionOperation[];
   workspaceOperations?: Array<{
     directoryId: string;
-    kind: 'write' | 'delete' | 'move';
+    kind: 'write' | 'delete' | 'move' | 'copy';
     path: string;
     destinationPath?: string;
     content?: string;
+    conflictPolicy?: 'rename' | 'skip' | 'overwrite';
+    recursive?: boolean;
   }>;
 }

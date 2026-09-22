@@ -119,6 +119,27 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('A bubble may contain one or more paragraphs');
   });
 
+  it('exposes room delivery policy without turning it into a media quota', () => {
+    const contract = buildInlineInteractionContract({
+      chat: { id: 'chat-1', type: 'direct', memberIds: ['speaker'], runtimeEventsV2: [] } as unknown as GroupChat,
+      speaker: { id: 'speaker', name: '说话人' } as AICharacter,
+      characters: [{ id: 'speaker', name: '说话人' } as AICharacter],
+      recentMessages: [],
+      mediaCapabilities: { image: true, audio: true, sticker: true },
+      richDelivery: {
+        multiBubble: { proactivity: 'medium', maxBubbles: 2 },
+        image: { proactivity: 'medium', explicitRequest: true },
+        audio: { proactivity: 'off', explicitRequest: true },
+        sticker: { proactivity: 'off', explicitRequest: true },
+      },
+    });
+
+    expect(contract).toContain('Delivery policy for this room');
+    expect(contract).toContain('proactive image=medium');
+    expect(contract).toContain('proactive audio=off');
+    expect(contract).toContain('they are never quotas');
+  });
+
   it('parses the messages protocol and keeps per-message media decisions', () => {
     const parsed = parseInlineInteractionEnvelope(JSON.stringify({
       content: '第一句',

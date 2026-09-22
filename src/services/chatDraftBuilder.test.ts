@@ -82,12 +82,35 @@ describe('chatDraftBuilder composeGroupMemberIds', () => {
     mockLocalStorage();
     writeAssistantAgentDefaultEnabled(true);
 
-    const draft = buildAssistantChatDraft();
+    const draft = buildAssistantChatDraft({ agentAvailable: true });
 
     expect(draft.modeState.assistantCapabilities).toEqual(expect.objectContaining({
       agent: true,
       artifacts: true,
     }));
+  });
+
+  it('enables Agent by default for entitled users without a saved preference', () => {
+    mockLocalStorage();
+
+    const draft = buildAssistantChatDraft({ agentAvailable: true, aiSearchAvailable: true });
+
+    expect(draft.modeState.agentCapabilities).toEqual(expect.objectContaining({
+      enabled: true,
+      fileDownload: true,
+      webSearch: true,
+    }));
+    expect(draft.modeState.assistantCapabilities).toEqual(expect.objectContaining({ agent: true }));
+  });
+
+  it('keeps Agent disabled when an entitled user explicitly disabled it', () => {
+    mockLocalStorage();
+    writeAssistantAgentDefaultEnabled(false);
+
+    const draft = buildAssistantChatDraft({ agentAvailable: true, aiSearchAvailable: true });
+
+    expect(draft.modeState.agentCapabilities).toBeUndefined();
+    expect(draft.modeState.assistantCapabilities).toBeUndefined();
   });
 
   it('persists learning teacher configuration and keeps the group topology', () => {

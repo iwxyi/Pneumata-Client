@@ -406,7 +406,12 @@ export default function ChatListPage() {
     if (creatingAssistant) return;
     setCreatingAssistant(true);
     try {
-      const chat = await addChat(buildAssistantChatDraft());
+      const auth = useAuthStore.getState();
+      const agentAvailable = auth.authMode === 'cloud' && auth.user?.agentEntitled === true;
+      const chat = await addChat(buildAssistantChatDraft({
+        agentAvailable,
+        aiSearchAvailable: agentAvailable && auth.user?.aiSearchEntitled === true,
+      }));
       navigate(`/chats/${chat.id}?fromTab=${ASSISTANT_TAB}`);
     } finally {
       setCreatingAssistant(false);

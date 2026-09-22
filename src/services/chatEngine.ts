@@ -13,7 +13,7 @@ import { buildSystemPromptWithContext, buildPromptAssemblyWithContext, buildChat
 import { buildEngineAwarePrompt } from './promptContextAssembler';
 import { resolveSessionDefinition } from '../types/sessionEngine';
 import { loadSessionEngine } from './sessionEngineLoader';
-import { getStyleProfile, resolveChatStyleProfile, resolveDefaultStyleProfile } from './styleProfileRegistry';
+import { getStyleProfile, resolveChatStyleProfile, resolveDefaultStyleProfile, resolveRichDeliveryPolicy, type RichDeliveryPolicy } from './styleProfileRegistry';
 import { getChannelSemantics } from './channelSemanticsRegistry';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
 import { getCurrentRetentionLimits } from './retentionLimits';
@@ -2347,10 +2347,17 @@ function createAttachmentId(kind: string, now: number, seedParts: Array<string |
   return `${kind}-${now}-${seed}`;
 }
 
-function normalizeMediaDecision(decision: MediaGenerationDecision | null | undefined, capabilities: { image: boolean; audio: boolean; sticker?: boolean }, content: string) {
+function normalizeMediaDecision(
+  decision: MediaGenerationDecision | null | undefined,
+  capabilities: { image: boolean; audio: boolean; sticker?: boolean },
+  content: string,
+  richDelivery?: RichDeliveryPolicy,
+  explicitRequests: { image?: boolean; audio?: boolean; sticker?: boolean } = {},
+) {
   const normalized: MediaGenerationDecision = {};
+  const canInitiate = (kind: 'image' | 'audio' | 'sticker') => richDelivery?.[kind].proactivity !== 'off' || Boolean(explicitRequests[kind]);
   const requestedImages = Array.isArray(decision?.images) ? decision.images : decision?.image ? [decision.image] : [];
-  const images = capabilities.image ? requestedImages
+  const images = capabilities.image && canInitiate('image') ? requestedImages
     .filter((image) => image?.shouldGenerate)
     .slice(0, 9)
     .map((image) => ({
@@ -2369,7 +2376,7 @@ function normalizeMediaDecision(decision: MediaGenerationDecision | null | undef
     normalized.images = images;
     normalized.image = images[0];
   }
-  if (capabilities.audio && decision?.audio?.shouldGenerate) {
+  if (capabilities.audio && canInitiate('audio') && decision?.audio?.shouldGenerate) {
     normalized.audio = {
       shouldGenerate: true,
       reason: decision.audio.reason || '',
@@ -2386,7 +2393,7 @@ function normalizeMediaDecision(decision: MediaGenerationDecision | null | undef
       style: decision.audio.style || undefined,
     };
   }
-  if (capabilities.sticker && decision?.sticker?.shouldSend) {
+  if (capabilities.sticker && canInitiate('sticker') && decision?.sticker?.shouldSend) {
     normalized.sticker = { shouldSend: true, keyword: decision.sticker.keyword || content, altText: decision.sticker.altText || '表情包' };
   }
   return normalized.images?.length || normalized.audio || normalized.sticker ? normalized : null;
@@ -2445,6 +2452,8 @@ function selectedDecisionReferenceImages(decision: MediaGenerationDecision['imag
 function buildMessageMetadata(params: {
   decision: MediaGenerationDecision | null | undefined;
   capabilities: { image: boolean; audio: boolean; sticker?: boolean };
+  richDelivery?: RichDeliveryPolicy;
+  explicitMediaRequests?: { image?: boolean; audio?: boolean; sticker?: boolean };
   content: string;
   activeMessages?: Message[];
   runtimeDecision?: MessageMetadata['runtimeDecision'];
@@ -2458,7 +2467,7 @@ function buildMessageMetadata(params: {
   surface?: ResponseSurface;
   now?: number;
 }): MessageMetadata | undefined {
-  const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content);
+  const decision = normalizeMediaDecision(params.decision, params.capabilities, params.content, params.richDelivery, params.explicitMediaRequests);
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
   const storyEvents = params.storyEventsNormalized ? (params.storyEvents || []) : [];
   const storyQuality = params.storyQuality || null;
@@ -3862,6 +3871,7 @@ export async function generateSpeakerMessage(params: {
     : '';
   const mediaProfiles = resolveMediaProfiles(params.apiConfig, params.profiles);
   const mediaCapabilities = buildMediaCapabilities(params.chat, params.speaker, mediaProfiles);
+  const richDelivery = resolveRichDeliveryPolicy(enginePromptContext?.styleProfile || resolveDefaultStyleProfile({ scenarioId: params.chat.sessionKind?.scenarioId, family: params.chat.sessionKind?.family }));
   const responseSurface = resolveResponseSurface(params.chat, enginePromptContext, activeMessages, params.speaker);
   const showRoleActions = resolveShowRoleActions(params.chat);
   const turnPlan = deriveTurnPlan({
@@ -3870,6 +3880,7 @@ export async function generateSpeakerMessage(params: {
     messages: activeMessages,
     intent,
     surface: responseSurface,
+    richDelivery,
   });
   const personaActivation = resolvePersonaActivation({ chat: params.chat, speaker: params.speaker, messages: activeMessages });
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
@@ -3957,7 +3968,7 @@ export async function generateSpeakerMessage(params: {
     { id: 'focused_situational_job_contract', layer: 'output', priority: 5, content: buildFocusedSituationalJobContract(activeMessages, params.speaker, responseSurface) },
     { id: 'natural_chat_surface_contract', layer: 'output', priority: 7, content: buildNaturalChatSurfaceContract(activeMessages, responseSurface, showRoleActions) },
     { id: 'generation_constraints', layer: 'output', priority: 10, content: buildGenerationConstraints(params.chat, activeMessages, params.speaker.id, responseSurface) },
-    { id: 'inline_interaction_contract', layer: 'output', priority: 20, content: buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities, mediaRequested: Boolean(userGuidance?.mediaRequest), webSearchEnabled }) },
+    { id: 'inline_interaction_contract', layer: 'output', priority: 20, content: buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities, richDelivery, mediaRequested: Boolean(userGuidance?.mediaRequest), webSearchEnabled }) },
     { id: 'engine_suffix', layer: 'suffix', priority: 100, content: promptSuffix },
   ];
   const baseSystemPrompt = isStoryReader
@@ -4043,6 +4054,11 @@ export async function generateSpeakerMessage(params: {
   const msgEmotion = analyzeEmotion(generatedStoryResponse);
   updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
   const modelMediaDecision = generated.parsedEnvelope?.mediaDecision;
+  const explicitMediaRequests = {
+    image: Boolean(userGuidance?.mediaRequest),
+    audio: Boolean(userGuidance?.voiceRequest),
+    sticker: /(表情包|斗图|meme|sticker)/i.test(userGuidance?.rawText || ''),
+  };
   const mergedMediaDecision = mergeGuidanceMediaDecision({
     decision: modelMediaDecision,
     mediaCapabilities,
@@ -4141,6 +4157,8 @@ export async function generateSpeakerMessage(params: {
   const baseMetadata = buildMessageMetadata({
     decision: generated.messageParts?.length ? null : mergedMediaDecision,
     capabilities: mediaCapabilities,
+    richDelivery,
+    explicitMediaRequests,
     content: generatedStoryResponse,
     activeMessages,
     surface: responseSurface,
@@ -4158,6 +4176,8 @@ export async function generateSpeakerMessage(params: {
     metadata: buildMessageMetadata({
       decision: part.mediaDecision || null,
       capabilities: mediaCapabilities,
+      richDelivery,
+      explicitMediaRequests,
       content: part.content,
       activeMessages,
       surface: responseSurface,

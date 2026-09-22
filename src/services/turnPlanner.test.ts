@@ -4,6 +4,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { SpeakIntent } from './intentEngine';
 import { buildTurnPlanPrompt, deriveTurnPlan } from './turnPlanner';
+import type { RichDeliveryPolicy } from './styleProfileRegistry';
 
 function character(patch: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -78,6 +79,13 @@ const intent: SpeakIntent = {
   messageShape: 'single_sentence',
 };
 
+const highDelivery: RichDeliveryPolicy = {
+  multiBubble: { proactivity: 'high', maxBubbles: 3 },
+  image: { proactivity: 'medium', explicitRequest: true },
+  audio: { proactivity: 'medium', explicitRequest: true },
+  sticker: { proactivity: 'high', explicitRequest: true },
+};
+
 function fragmentIntent(): SpeakIntent {
   return {
     ...intent,
@@ -87,6 +95,37 @@ function fragmentIntent(): SpeakIntent {
 }
 
 describe('deriveTurnPlan', () => {
+  it('uses a high room delivery policy to make natural chat splitting more available', () => {
+    const plan = deriveTurnPlan({
+      chat: chat({ id: 'delivery-chat' }),
+      speaker: character({ id: 'delivery-char' }),
+      messages: [message({ id: 'delivery-message', content: '我想先听你说说这件事为什么会变成这样，再补一句你觉得我下一步最该做什么，别只给我一个笼统安慰。请把原因和行动建议分开说，也告诉我最容易忽略的风险是什么。', timestamp: 31 })],
+      intent,
+      surface: { kind: 'chat' },
+      richDelivery: highDelivery,
+      now: 31,
+    });
+
+    expect(plan.targetBubbleCount).toBeLessThanOrEqual(3);
+    expect(plan.reasons).toContain('delivery:multi_bubble_high');
+  });
+
+  it('prevents proactive splitting when the room policy turns it off', () => {
+    const plan = deriveTurnPlan({
+      chat: chat({ id: 'delivery-off-chat' }),
+      speaker: character({ id: 'delivery-off-char' }),
+      messages: [message({ id: 'delivery-off-message', content: '请把这个复杂问题按两个角度分别说清楚。', timestamp: 33 })],
+      intent: { ...intent, stance: 'summarize' },
+      surface: { kind: 'chat' },
+      richDelivery: { ...highDelivery, multiBubble: { proactivity: 'off', maxBubbles: 1 } },
+      now: 33,
+    });
+
+    expect(plan.allowExtraMessages).toBe(false);
+    expect(plan.targetBubbleCount).toBe(1);
+    expect(plan.reasons).toContain('delivery:multi_bubble_off');
+  });
+
   it('marks short open user turns as wait-sensitive without keyword checks', () => {
     const plan = deriveTurnPlan({
       chat: chat(),

@@ -45,7 +45,7 @@ describe('assistantAgentOrchestrator validation', () => {
     generateResponseMock.mockReset();
   });
 
-  it('limits network requests to six and rejects unsupported URL schemes', async () => {
+  it('limits network requests to four and rejects unsupported URL schemes', async () => {
     generateResponseMock.mockResolvedValue(JSON.stringify({
       intent: 'chat',
       scope: { targetMode: 'unknown', artifactIds: [] },
@@ -68,8 +68,90 @@ describe('assistantAgentOrchestrator validation', () => {
       toolCapabilities: { networkAccess: true },
     });
 
-    expect(plan.networkRequests).toHaveLength(6);
+    expect(plan.networkRequests).toHaveLength(4);
     expect(plan.networkRequests?.every((request) => request.url.startsWith('https://'))).toBe(true);
+  });
+
+  it('accepts anonymous FTP and only selects registered session resources', async () => {
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      intent: 'chat',
+      scope: { targetMode: 'unknown', artifactIds: [] },
+      operations: [],
+      requiresConfirmation: false,
+      confidence: 1,
+      networkRequests: [
+        { url: 'ftp://example.com/pub/file.txt', mode: 'binary', action: 'store' },
+        { url: 'ftp://user:secret@example.com/private.txt', mode: 'binary', action: 'store' },
+      ],
+      sessionResourceIds: ['resource-ok', 'resource-unknown'],
+    }));
+
+    const plan = await planAssistantAgentChange({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a',
+      messages: [],
+      userMessage: { id: 'message-user', chatId: 'chat-a', type: 'user', senderId: 'user', senderName: '用户', content: '读取刚才保存的文件', emotion: 0, timestamp: 1, isDeleted: false },
+      existingArtifacts: [],
+      toolCapabilities: { networkAccess: true },
+      sessionResourceRegistry: [{ id: 'resource-ok', name: 'file.txt', path: 'file.txt', sourceUrl: 'ftp://example.com/pub/file.txt', mimeType: 'text/plain', sizeBytes: 10, createdAt: 1 }],
+    });
+
+    expect(plan.networkRequests).toEqual([expect.objectContaining({ url: 'ftp://example.com/pub/file.txt', mode: 'binary', action: 'store' })]);
+    expect(plan.sessionResourceIds).toEqual(['resource-ok']);
+  });
+
+  it('asks before writing to an unresolved workspace target', async () => {
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      intent: 'chat',
+      scope: { targetMode: 'unknown', artifactIds: [] },
+      operations: [],
+      requiresConfirmation: false,
+      confidence: 1,
+      networkRequests: [{ url: 'https://example.com/file.zip', mode: 'binary', action: 'store', destination: 'workspace', workspaceId: 'unknown' }],
+    }));
+
+    const plan = await planAssistantAgentChange({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a', messages: [],
+      userMessage: { id: 'message-user', chatId: 'chat-a', type: 'user', senderId: 'user', senderName: '用户', content: '保存到工作区', emotion: 0, timestamp: 1, isDeleted: false },
+      existingArtifacts: [],
+      toolCapabilities: {
+        networkAccess: true,
+        localWorkspace: true,
+        localWorkspaceDirectories: [
+          { id: 'workspace-a', name: '资料', isDefault: false },
+          { id: 'workspace-b', name: '项目', isDefault: false },
+        ],
+      },
+    });
+
+    expect(plan.intent).toBe('clarify');
+    expect(plan.networkRequests).toEqual([]);
+    expect(plan.clarificationQuestion).toContain('哪个已授权工作区');
+  });
+
+  it('turns a named download without a URL into source discovery instead of a capability denial', async () => {
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      intent: 'chat',
+      assistantMessage: '我没有下载能力。',
+      scope: { targetMode: 'unknown', artifactIds: [] },
+      operations: [],
+      requiresConfirmation: false,
+      confidence: 0.7,
+    }));
+
+    const plan = await planAssistantAgentChange({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a', messages: [],
+      userMessage: { id: 'message-user', chatId: 'chat-a', type: 'user', senderId: 'user', senderName: '用户', content: '帮我下载一个新华字典到下载文件夹', emotion: 0, timestamp: 1, isDeleted: false },
+      existingArtifacts: [],
+      toolCapabilities: { webSearch: true, networkAccess: true },
+    });
+
+    expect(plan.intent).toBe('search');
+    expect(plan.searchQuery).toBe('帮我下载一个新华字典到下载文件夹');
+    expect(plan.assistantMessage).toBe('');
+    expect(plan.operations).toEqual([expect.objectContaining({ kind: 'export' })]);
   });
 
   it('keeps generated HTML out of the visible assistant message', async () => {

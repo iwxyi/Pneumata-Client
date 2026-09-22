@@ -247,7 +247,7 @@ export interface MessageMetadata {
   workspaceMutationPlan?: {
     id: string;
     directoryId: string;
-    mutations: Array<{ kind: 'write' | 'delete' | 'move'; path: string; destinationPath?: string; content?: string }>;
+    mutations: Array<{ kind: 'write' | 'delete' | 'move' | 'copy'; path: string; destinationPath?: string; content?: string; conflictPolicy?: 'rename' | 'skip' | 'overwrite'; recursive?: boolean }>;
     createdAt: number;
     expiresAt: number;
     status: 'pending' | 'confirmed' | 'expired' | 'rejected';

@@ -5,11 +5,15 @@ import type { GroupChat } from '../types/chat';
 import { useChatStore } from '../stores/useChatStore';
 import { buildAssistantChatDraft } from './chatDraftBuilder';
 import { generateResponse } from './aiClient';
+import { api } from './api';
 import { buildAgentArtifactReplyContent, markAssistantMediaAttachmentsFailed, maybeGenerateAssistantChatTitle, runAssistantChatReplyFlow } from './assistantChatFlow';
 
 const agentOrchestratorMock = vi.hoisted(() => ({
   planAssistantAgentChange: vi.fn(),
   writeAssistantAgentPatchSet: vi.fn(),
+}));
+const networkTransferMock = vi.hoisted(() => ({
+  executeNetworkTransferTask: vi.fn(),
 }));
 
 vi.mock('./aiClient', () => ({
@@ -17,6 +21,11 @@ vi.mock('./aiClient', () => ({
 }));
 
 vi.mock('./assistantAgentOrchestrator', () => agentOrchestratorMock);
+vi.mock('./networkTransferService', () => networkTransferMock);
+vi.mock('./sessionNetworkResourceStore', () => ({
+  listSessionNetworkResourceRegistry: vi.fn(async () => []),
+  getSessionNetworkResourceContexts: vi.fn(async () => []),
+}));
 
 vi.mock('../stores/useAssistantArtifactStore', () => ({
   ensureAssistantArtifactStoreHydrated: vi.fn(async () => undefined),
@@ -56,7 +65,60 @@ beforeEach(() => {
   generateResponseMock.mockReset();
   agentOrchestratorMock.planAssistantAgentChange.mockReset();
   agentOrchestratorMock.writeAssistantAgentPatchSet.mockReset();
+  networkTransferMock.executeNetworkTransferTask.mockReset();
   useChatStore.setState({ chats: [] });
+});
+
+describe('assistantChatFlow network download discovery', () => {
+  it('continues a search into a verified direct download instead of claiming it lacks download access', async () => {
+    const chat = assistantChat();
+    chat.modeState.agentCapabilities = {
+      enabled: true,
+      chatArtifactRead: true,
+      chatArtifactWrite: true,
+      fileUpload: true,
+      fileDownload: true,
+      workspaceRead: true,
+      workspaceWrite: false,
+      officeTransform: false,
+      commandExecution: false,
+      systemActions: false,
+      webSearch: true,
+      updatedAt: 1000,
+    };
+    const userMessage: Message = {
+      id: 'message-user-download', chatId: chat.id, type: 'user', senderId: 'user', senderName: '我',
+      content: '帮我下载测试手册到下载文件夹', emotion: 0, timestamp: 1001, isDeleted: false,
+    };
+    agentOrchestratorMock.planAssistantAgentChange.mockResolvedValue({
+      intent: 'search', searchQuery: '测试手册 PDF 官方下载', scope: { targetMode: 'unknown', artifactIds: [] },
+      operations: [{ kind: 'export', instruction: userMessage.content }], requiresConfirmation: false, confidence: 1,
+    });
+    const searchWebMock = vi.spyOn(api, 'searchWeb').mockResolvedValue({
+      query: '测试手册 PDF 官方下载', providerCode: 'test', pointCost: 1,
+      results: [{ title: '测试手册 PDF', url: 'https://example.com/manual.pdf', snippet: '官方下载文件' }],
+    });
+    generateResponseMock.mockResolvedValue(JSON.stringify({ url: 'https://example.com/manual.pdf', fileName: 'manual.pdf' }));
+    networkTransferMock.executeNetworkTransferTask.mockResolvedValue([{
+      directoryId: 'network-task', path: 'https://example.com/manual.pdf', name: 'manual.pdf', mimeType: 'text/plain',
+      sizeBytes: 1024, content: '网络传输任务完成。\n保存目标：设备', truncated: false, originalLength: 22,
+    }]);
+    const upsertMessage = vi.fn();
+
+    await runAssistantChatReplyFlow({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-5.4-mini' },
+      aiProfiles: [], chat, chatId: chat.id, currentMessages: [userMessage], upsertMessage,
+      updateChat: vi.fn(async () => undefined),
+    });
+
+    expect(networkTransferMock.executeNetworkTransferTask).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      url: 'https://example.com/manual.pdf', action: 'export', destination: 'device',
+    }));
+    expect(upsertMessage).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'ai', content: expect.stringContaining('保存目标：设备'),
+    }));
+    searchWebMock.mockRestore();
+  });
 });
 
 describe('assistantChatFlow media artifacts', () => {
@@ -646,7 +708,7 @@ describe('assistantChatFlow media artifacts', () => {
 });
 
 describe('assistantChatFlow title generation', () => {
-  it('renames default assistant chats from AI using user and assistant context', async () => {
+  it('renames default assistant chats from AI using user requests without assistant reply text', async () => {
     const chat = assistantChat();
     const updateChat = vi.fn(async () => undefined);
     const messages: Message[] = [
@@ -685,7 +747,9 @@ describe('assistantChatFlow title generation', () => {
     });
 
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
-    expect(String((generateResponseMock.mock.calls[0]?.[2] as Array<{ content: string }>)[0]?.content || '')).toContain('助手：这里是搜索到的世界杯最新动态摘要。');
+    const titlePrompt = String((generateResponseMock.mock.calls[0]?.[2] as Array<{ content: string }>)[0]?.content || '');
+    expect(titlePrompt).toContain('用户：查一下最新世界杯消息');
+    expect(titlePrompt).not.toContain('助手：这里是搜索到的世界杯最新动态摘要。');
     expect(updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
       name: '世界杯动态查询',
       modeState: expect.objectContaining({
@@ -694,6 +758,72 @@ describe('assistantChatFlow title generation', () => {
           basisMessageCount: 2,
         }),
       }),
+    }));
+  });
+
+  it('falls back to the user request when the model returns an assistant-style completion sentence', async () => {
+    const chat = assistantChat();
+    const updateChat = vi.fn(async () => undefined);
+    const messages: Message[] = [{
+      id: 'message-user-download',
+      chatId: chat.id,
+      type: 'user',
+      senderId: 'user',
+      senderName: '我',
+      content: '帮我下载一个新华字典到下载文件夹',
+      emotion: 0,
+      timestamp: 1001,
+      isDeleted: false,
+    }];
+    useChatStore.setState({ chats: [chat] });
+    generateResponseMock.mockResolvedValue('我已经成功地帮你下载了《新华字典》到你的下载文件夹。');
+
+    await maybeGenerateAssistantChatTitle({
+      api: { provider: 'official', apiKey: '', baseUrl: '/api/ai', model: 'official-1' },
+      chat,
+      chatId: chat.id,
+      currentMessages: messages,
+      updateChat,
+    });
+
+    expect(updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      name: '下载新华字典到下载文件夹',
+    }));
+  });
+
+  it('repairs an existing AI-generated title that looks like an assistant reply', async () => {
+    const chat: GroupChat = {
+      ...assistantChat(),
+      name: '我已经成功地帮你下载了《新华字典》到你的下载文件夹。',
+      modeState: {
+        ...buildAssistantChatDraft().modeState,
+        assistantTitle: { source: 'ai', updatedAt: 1000 },
+      },
+    };
+    const updateChat = vi.fn(async () => undefined);
+    useChatStore.setState({ chats: [chat] });
+    generateResponseMock.mockResolvedValue('下载新华字典');
+
+    await maybeGenerateAssistantChatTitle({
+      api: { provider: 'official', apiKey: '', baseUrl: '/api/ai', model: 'official-1' },
+      chat,
+      chatId: chat.id,
+      currentMessages: [{
+        id: 'message-user-download-repair',
+        chatId: chat.id,
+        type: 'user',
+        senderId: 'user',
+        senderName: '我',
+        content: '帮我下载一个新华字典到下载文件夹',
+        emotion: 0,
+        timestamp: 1001,
+        isDeleted: false,
+      }],
+      updateChat,
+    });
+
+    expect(updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({
+      name: '下载新华字典',
     }));
   });
 
