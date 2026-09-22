@@ -1566,11 +1566,14 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexWrap: 'wrap' }}>
             <Box>
               <Typography variant="body2" sx={{ fontWeight: 600 }}>{i18n.language.startsWith('zh') ? '语音形象' : 'Voice identity'}</Typography>
-              <Typography variant="caption" color="text.secondary">{i18n.language.startsWith('zh') ? '为这个角色设置专属音色与说话语气，聊天气泡可按需播放。' : 'Set this character’s voice and delivery for on-demand playback.'}</Typography>
             </Box>
+            <Button size="small" onClick={() => setVoiceIdentityExpanded((prev) => !prev)} endIcon={voiceIdentityExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}>
+              {voiceIdentityExpanded ? (i18n.language.startsWith('zh') ? '收起' : 'Collapse') : (i18n.language.startsWith('zh') ? '展开' : 'Expand')}
+            </Button>
           </Box>
           <Collapse in={voiceIdentityExpanded}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(4, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: 0.75 }}>
+          <Box sx={{ display: 'grid', gap: 1.25, pt: 0.5 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' }, gap: 0.75 }}>
             <TextField select size="small" label={i18n.language.startsWith('zh') ? '性别' : 'Gender'} value={voiceConfig.voiceProfile?.gender || 'unknown'} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, voiceProfile: { ...(prev.voiceProfile || {}), gender: e.target.value as 'female' | 'male' | 'neutral' | 'unknown' } }))} sx={{ minWidth: 0 }}>
               <MenuItem value="unknown">{i18n.language.startsWith('zh') ? '未指定' : 'Unspecified'}</MenuItem>
               <MenuItem value="female">{i18n.language.startsWith('zh') ? '女声' : 'Female'}</MenuItem>
@@ -1588,7 +1591,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             <TextField size="small" label={i18n.language.startsWith('zh') ? '语言' : 'Language'} value={voiceConfig.voiceProfile?.language || ''} placeholder="zh-CN" onChange={(e) => setVoiceConfig((prev) => ({ ...prev, voiceProfile: { ...(prev.voiceProfile || {}), language: e.target.value } }))} sx={{ minWidth: 0 }} />
           </Box>
           <TextField size="small" label={i18n.language.startsWith('zh') ? '音色特征' : 'Voice traits'} placeholder={i18n.language.startsWith('zh') ? '温柔、清冷、磁性，用逗号分隔' : 'warm, clear, husky, comma separated'} value={(voiceConfig.voiceProfile?.traits || []).join(i18n.language.startsWith('zh') ? '、' : ', ')} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, voiceProfile: { ...(prev.voiceProfile || {}), traits: e.target.value.split(/[,，、]/).map((item) => item.trim()).filter(Boolean).slice(0, 6) } }))} />
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', md: 'repeat(2, minmax(0, 1fr))' }, gap: 0.75 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'minmax(0, 1fr) auto' }, gap: 0.75, alignItems: 'start' }}>
             <Autocomplete
               freeSolo
               options={speechVoices}
@@ -1601,24 +1604,26 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
               disabled={!selectedTtsProfile}
               renderInput={(params) => <TextField {...params} size="small" label={i18n.language.startsWith('zh') ? '发音人（可搜索或手动输入）' : 'Voice (search or enter ID)'} helperText={!selectedTtsProfile ? (i18n.language.startsWith('zh') ? '请先在 AI模型 中选择语音（TTS）模型' : 'Select a TTS model in AI Models first') : speechVoicesLoading ? (i18n.language.startsWith('zh') ? '正在读取当前平台音色…' : 'Loading voices…') : undefined} />}
             />
-            <Button variant="outlined" sx={{ width: 'fit-content', minWidth: 0, whiteSpace: 'nowrap', alignSelf: 'start' }} startIcon={assigningVoice ? <CircularProgress size={16} /> : <AutoAwesomeIcon />} onClick={() => void handleAutoAssignVoice()} disabled={!selectedTtsProfile || assigningVoice}>
+            <Button variant="outlined" sx={{ minWidth: 0, whiteSpace: 'nowrap', justifySelf: 'start' }} startIcon={assigningVoice ? <CircularProgress size={16} /> : <AutoAwesomeIcon />} onClick={() => void handleAutoAssignVoice()} disabled={!selectedTtsProfile || assigningVoice}>
               {i18n.language.startsWith('zh') ? '自动匹配音色' : 'Match voice'}
             </Button>
-            <TextField size="small" label={i18n.language.startsWith('zh') ? '风格' : 'Style'} placeholder={i18n.language.startsWith('zh') ? '如 cheerful / sad' : 'e.g. cheerful / sad'} value={voiceConfig.style || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, style: e.target.value }))} />
-            <TextField size="small" label={i18n.language.startsWith('zh') ? '语速' : 'Rate'} placeholder="+0%" value={voiceConfig.rate || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, rate: e.target.value }))} />
-            <TextField size="small" label={i18n.language.startsWith('zh') ? '音调' : 'Pitch'} placeholder="0" helperText={i18n.language.startsWith('zh') ? '声音高低，0 为默认（常用 -2～+2）' : 'Voice height; 0 is default (usually -2 to +2)'} value={voiceConfig.pitch || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, pitch: e.target.value }))} />
+          </Box>
+          <TextField size="small" label={i18n.language.startsWith('zh') ? '风格' : 'Style'} placeholder={i18n.language.startsWith('zh') ? '如 cheerful / sad' : 'e.g. cheerful / sad'} value={voiceConfig.style || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, style: e.target.value }))} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'minmax(0, 1fr)', md: 'minmax(220px, 0.65fr) minmax(0, 1.35fr)' }, gap: 0.75, alignItems: 'start' }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 0.75 }}>
+              <TextField size="small" label={i18n.language.startsWith('zh') ? '语速' : 'Rate'} placeholder="+0%" value={voiceConfig.rate || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, rate: e.target.value }))} />
+              <TextField size="small" label={i18n.language.startsWith('zh') ? '音调' : 'Pitch'} placeholder="0" helperText={i18n.language.startsWith('zh') ? '默认 0，常用 -2～+2' : 'Default 0, usually -2 to +2'} value={voiceConfig.pitch || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, pitch: e.target.value }))} />
+            </Box>
             <TextField size="small" label={i18n.language.startsWith('zh') ? '语音指令' : 'Voice instructions'} placeholder={i18n.language.startsWith('zh') ? '如：自然、亲切，避免播音腔' : 'e.g. natural and warm, avoid announcer voice'} helperText={i18n.language.startsWith('zh') ? '传给支持语音指令的 TTS，不支持的平台会忽略' : 'Used by TTS providers that support instructions'} value={voiceConfig.instructions || ''} onChange={(e) => setVoiceConfig((prev) => ({ ...prev, instructions: e.target.value }))} />
           </Box>
           {voiceAssignmentError ? <Typography variant="caption" color="warning.main">{voiceAssignmentError}</Typography> : null}
-          </Collapse>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
             <Button size="small" variant="outlined" startIcon={generatingVoiceProfile ? <CircularProgress size={14} /> : <AutoAwesomeIcon fontSize="small" />} onClick={() => void handleGenerateVoiceProfile()} disabled={generatingVoiceProfile}>
-              {generatingVoiceProfile ? (i18n.language.startsWith('zh') ? '生成中' : 'Generating') : (i18n.language.startsWith('zh') ? '生成' : 'Generate')}
-            </Button>
-            <Button size="small" onClick={() => setVoiceIdentityExpanded((prev) => !prev)} endIcon={voiceIdentityExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}>
-              {voiceIdentityExpanded ? (i18n.language.startsWith('zh') ? '收起' : 'Collapse') : (i18n.language.startsWith('zh') ? '展开' : 'Expand')}
+              {generatingVoiceProfile ? (i18n.language.startsWith('zh') ? '生成中' : 'Generating') : (i18n.language.startsWith('zh') ? '生成描述' : 'Generate description')}
             </Button>
           </Box>
+          </Box>
+          </Collapse>
         </CardContent>
       </Card>
 
