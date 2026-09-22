@@ -253,12 +253,16 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   login: async (phone: string, code: string) => {
-    set({ isLoading: true, isWorkspaceReady: false });
+    // Keep the login route mounted while the request is in flight. Setting the
+    // workspace as unavailable here makes DataLoader replace the route tree,
+    // which discards LoginPage's error state before it can render.
+    set({ isLoading: true });
     const shouldBootstrapLocalData = get().authMode === 'local' && isCloudSyncEnabled();
     const bootstrapModule = shouldBootstrapLocalData ? await import('../services/localToCloudBootstrap') : null;
     const localSnapshot = bootstrapModule ? await bootstrapModule.captureLocalCloudBootstrapSnapshot() : null;
     try {
       const result = await api.login(phone, code);
+      set({ isWorkspaceReady: false });
       setAuthToken(result.token);
       setAuthRefreshToken(result.refreshToken);
       setAuthUser(result.user);
@@ -304,9 +308,12 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   },
 
   loginWithPassword: async (phone, password) => {
-    set({ isLoading: true, isWorkspaceReady: false });
+    // See code-login above: request failures must leave LoginPage mounted so
+    // its inline error alert remains visible.
+    set({ isLoading: true });
     try {
       const result = await api.passwordLogin(phone, password);
+      set({ isWorkspaceReady: false });
       setAuthToken(result.token); setAuthRefreshToken(result.refreshToken); setAuthUser(result.user); enableCloudSyncForLogin(result.user); setAuthMode('cloud');
       set({ token: result.token, user: result.user, isLoggedIn: true, isLoading: true, isWorkspaceReady: false, authMode: 'cloud' });
       await resetLocalWorkspaceStoresForAccountBoundary();
