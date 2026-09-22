@@ -213,8 +213,20 @@ export function projectActiveBranchMessages(
   messages: Message[],
   options?: { fallbackMessages?: Message[] },
 ) {
+  void options;
   const visible = messages.filter((message) => !message.isDeleted);
   if (!isMessageBranchingEnabled(chat)) return visible.slice().sort(compareMessageOrder);
+  // Some older/seeded chats may carry an enabled branch flag without any
+  // branch metadata on their messages. Treat those as ordinary timelines;
+  // otherwise the default head (the latest message) would make every other
+  // historical message disappear from the conversation.
+  const branchingMessageCount = visible.filter((message) => isRecord(message.metadata?.branching)).length;
+  // A single branch-marked message is not enough evidence to hide an ordinary
+  // timeline. This occurs when a sync window contains one newer message but
+  // older messages/metadata have not arrived yet.
+  if (branchingMessageCount <= 1 && visible.length > branchingMessageCount) {
+    return visible.slice().sort(compareMessageOrder);
+  }
   const nodes = resolveMessageBranchNodes(visible);
   if (!nodes.length) return [];
   const byId = nodeLookup(nodes);
@@ -247,9 +259,9 @@ export function projectActiveBranchMessages(
   }
   if (parentUnavailable) {
     // The active head is valid, but its ancestry is outside the current
-    // retained window. Never fall back to every visible message here: that
-    // exposes sibling branches as one linear conversation on a fresh device.
-    // Keep only the known active lineage until pagination restores parents.
+    // retained window. A missing parent is a sync/data-integrity condition,
+    // not a reason to hide messages. Show every received message in timeline
+    // order; a later sync can restore the graph and re-enable branch projection.
     const fallbackLogKey = `fallback:${headId}:${nodes.length}`;
     if (!missingParentLogKeys.has(fallbackLogKey)) {
       missingParentLogKeys.add(fallbackLogKey);
@@ -260,8 +272,7 @@ export function projectActiveBranchMessages(
         visibleMessages: visible.length,
       }, 'info', 'message-window');
     }
-    if (options?.fallbackMessages?.length) return options.fallbackMessages.slice().sort(compareMessageOrder);
-    return path.slice().reverse().map((node) => node.message).sort(compareMessageOrder);
+    return visible.slice().sort(compareMessageOrder);
   }
   path.reverse();
   return path.map((node) => node.message);

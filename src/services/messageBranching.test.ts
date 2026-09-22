@@ -78,7 +78,7 @@ describe('messageBranching v2', () => {
   it('does not expose sibling timeline when an ancestor is outside the window', () => {
     const messages = [message('tail', 'ai', 'missing-parent', 3), message('other', 'user', null, 4)];
     const state = buildBranchStateWithHead({ enabled: true }, 'tail');
-    expect(projectActiveBranchMessages(chat({ messageBranchState: state }), messages).map((item) => item.id)).toEqual(['tail']);
+    expect(projectActiveBranchMessages(chat({ messageBranchState: state }), messages).map((item) => item.id)).toEqual(['tail', 'other']);
   });
 
   it('disables branching for explicit stateful scenarios', () => {
@@ -96,6 +96,29 @@ describe('messageBranching v2', () => {
     const state = buildBranchStateWithHead(plainChat.messageBranchState, 'a2');
     expect(isMessageBranchingEnabled(plainChat)).toBe(true);
     expect(projectActiveBranchMessages({ ...plainChat, messageBranchState: state }, messages).map((item) => item.id)).toEqual(['u1', 'a2']);
+  });
+
+  it('keeps a legacy timeline when the branch flag has no message metadata', () => {
+    const plainChat = chat({
+      sessionKind: { topology: 'group', family: 'conversation', surfaceProfile: 'text' },
+      messageBranchState: { enabled: true, activeLeafNodeId: 'latest' },
+    });
+    const messages = [
+      { ...message('first', 'user', null, 1), metadata: undefined },
+      { ...message('middle', 'ai', null, 2), metadata: undefined },
+      { ...message('latest', 'ai', null, 3), metadata: undefined },
+    ];
+    expect(projectActiveBranchMessages(plainChat, messages).map((item) => item.id)).toEqual(['first', 'middle', 'latest']);
+  });
+
+  it('keeps the full timeline when only the latest message has branch metadata', () => {
+    const plainChat = chat({ messageBranchState: { enabled: true, activeLeafNodeId: 'latest' } });
+    const messages = [
+      { ...message('first', 'user', null, 1), metadata: undefined },
+      { ...message('middle', 'ai', null, 2), metadata: undefined },
+      message('latest', 'ai', null, 3),
+    ];
+    expect(projectActiveBranchMessages(plainChat, messages).map((item) => item.id)).toEqual(['first', 'middle', 'latest']);
   });
 
   it('assigns a node id before persisting a new draft message', () => {

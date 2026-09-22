@@ -2,6 +2,7 @@ import type { AIModelProfile } from '../types/settings';
 import { generateImageWithAdapter } from './aiGenerationAdapter';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { api } from './api';
+import { logRecoverableError } from './diagnostics';
 import { prepareAvatarUploadDataUrl } from '../utils/avatarUpload';
 
 export type AvatarGenerationStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
@@ -259,6 +260,20 @@ class AvatarGenerationQueueService {
       task.status = aborted ? 'cancelled' : 'failed';
       task.error = aborted ? null : (error instanceof Error ? error.message : String(error));
       task.imageDataUrl = null;
+      if (!aborted) {
+        logRecoverableError({
+          location: 'avatar-generation-queue.process',
+          error,
+          extra: {
+            taskId: task.id,
+            targetKey: task.targetKey,
+            characterId: task.characterId,
+            provider: task.profile.provider,
+            model: task.profile.model,
+            intent: 'character-reference',
+          },
+        });
+      }
       this.emit(task);
     } finally {
       task.controller = null;

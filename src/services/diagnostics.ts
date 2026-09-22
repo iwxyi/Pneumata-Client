@@ -66,6 +66,20 @@ export function reportRecoverableError(params: {
   notifyDiagnosticToast({ message: params.userMessage, severity: 'error', location: params.location });
 }
 
+/** Logs a handled failure that already has a dedicated user-facing surface. */
+export function logRecoverableError(params: {
+  location: string;
+  error: unknown;
+  extra?: Record<string, unknown>;
+}) {
+  if (typeof console !== 'undefined' && typeof console.error === 'function') {
+    console.error(`[recoverable] ${params.location}`, {
+      error: params.error,
+      ...(params.extra || {}),
+    });
+  }
+}
+
 export function reportRecoverableWarning(params: {
   location: string;
   error?: unknown;

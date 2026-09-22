@@ -530,15 +530,59 @@ async function parseJsonResponse<T>(response: Response, fallbackPrefix: string):
   return response.json() as Promise<T>;
 }
 
-async function createPublicAiRequestError(response: Response, fallbackPrefix: string) {
+export interface AiRequestDiagnostic {
+  status: number;
+  statusText: string;
+  code?: string;
+  detail?: string;
+  error?: string;
+}
+
+export interface PublicAiRequestError extends Error {
+  diagnostic?: AiRequestDiagnostic;
+}
+
+function redactAiDiagnosticText(value: string) {
+  return value
+    .replace(/(authorization\s*[:=]\s*bearer\s+)[^\s,"}]+/gi, '$1[REDACTED]')
+    .replace(/(["']?(?:api[_-]?key|token|password|secret)["']?\s*[:=]\s*["'])[^"']+/gi, '$1[REDACTED]')
+    .replace(/data:image\/[\w.+-]+;base64,[a-z0-9+/=]+/gi, '[IMAGE_DATA_REDACTED]')
+    .slice(0, 2_000);
+}
+
+function parseAiErrorDiagnostic(rawBody: string, response: Response): AiRequestDiagnostic {
+  const diagnostic: AiRequestDiagnostic = {
+    status: response.status,
+    statusText: response.statusText,
+  };
+  const body = redactAiDiagnosticText(rawBody);
+  if (!body) return diagnostic;
+  try {
+    const parsed = JSON.parse(body) as Record<string, unknown>;
+    if (typeof parsed.code === 'string') diagnostic.code = parsed.code;
+    if (typeof parsed.error === 'string') diagnostic.error = parsed.error;
+    if (typeof parsed.detail === 'string') diagnostic.detail = parsed.detail;
+  } catch {
+    diagnostic.detail = body;
+  }
+  return diagnostic;
+}
+
+async function createPublicAiRequestError(response: Response, fallbackPrefix: string): Promise<PublicAiRequestError> {
   // Official-provider failures may include routing, pricing, or upstream
-  // details. They are useful in server logs but must never become chat text.
-  await response.text().catch(() => '');
-  if (response.status === 401) return new Error('AI 服务认证已失效，请重新登录后重试。');
-  if (response.status === 403) return new Error('当前账号无权使用该 AI 服务或模型。');
-  if (response.status === 429) return new Error('AI 服务请求过于频繁，请稍后重试。');
-  if (response.status >= 400 && response.status < 500) return new Error('所选模型当前不可用，请切换模型后重试。');
-  return new Error(`${fallbackPrefix}：AI 服务暂时不可用，请稍后重试。`);
+  // details. They are useful for local diagnostics but must never become chat text.
+  const rawBody = await response.text().catch(() => '');
+  const diagnostic = parseAiErrorDiagnostic(rawBody, response);
+  let message: string;
+  if (response.status === 401) message = 'AI 服务认证已失效，请重新登录后重试。';
+  else if (response.status === 403) message = '当前账号无权使用该 AI 服务或模型。';
+  else if (response.status === 429) message = 'AI 服务请求过于频繁，请稍后重试。';
+  else if (response.status >= 400 && response.status < 500) message = '所选模型当前不可用，请切换模型后重试。';
+  else message = `${fallbackPrefix}：AI 服务暂时不可用，请稍后重试。`;
+
+  const error = new Error(message) as PublicAiRequestError;
+  error.diagnostic = diagnostic;
+  return error;
 }
 
 async function urlToBlob(value: string, fallbackMimeType = 'image/png') {
