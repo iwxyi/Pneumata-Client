@@ -10,6 +10,7 @@ import { getInnerLifeSpeakerBias, projectInnerLife } from './innerLifeEngine';
 import { projectWorldAttentionStates } from './worldRuntimeProjection';
 import { canUseMute } from './conversationCapabilities';
 import { getEffectiveCharacterPresence, isCharacterAvailableForScheduling } from './characterPresence';
+import { deriveCharacterTurnDrive, getCharacterTurnDriveSpeakerBias } from './characterTurnDrive';
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -405,6 +406,8 @@ export function calculateWeights(
         : 0;
       const innerLife = projectInnerLife({ chat, character: char, messages: recentMessages, now });
       const innerLifeBias = getInnerLifeSpeakerBias(innerLife);
+      const characterTurnDrive = deriveCharacterTurnDrive({ speaker: char, messages: recentMessages, innerLife });
+      const characterDriveBias = getCharacterTurnDriveSpeakerBias(characterTurnDrive);
       const attentionStateBias = attentionStateBiasByActor.get(char.id) || 0;
       const debugBase = {
         characterId: char.id,
@@ -441,6 +444,7 @@ export function calculateWeights(
       weight += directorBias.bias;
       weight += guidanceFloorGuardianBias;
       weight += innerLifeBias.bias;
+      weight += characterDriveBias;
       if (!(directorIntent?.source === 'user_message' && directorIntent.targetActorIds.length)) {
         weight += attentionStateBias;
       }
@@ -527,6 +531,7 @@ export function calculateWeights(
         || relationshipPressure
         || directCueBoost
         || unspokenMemberBias
+        || characterDriveBias > 0
       );
       const idleStaySilent = innerLife.impulse === 'stay_silent' && innerLife.pressure < 0.32 && !hasExternalPressure;
 
@@ -568,6 +573,7 @@ export function calculateWeights(
             ...directorBias.reasons,
             guidanceFloorGuardianBias ? 'guidance_floor_guardian' : '',
             innerLifeBias.bias ? innerLifeBias.reason : '',
+            characterDriveBias ? `character_drive:${characterTurnDrive.speakingNecessity}` : '',
             attentionStateBias ? 'attention_state' : '',
             relationshipPressure ? 'relationship' : '',
             userPresenceRotationPenalty ? 'user_presence_rotation' : '',

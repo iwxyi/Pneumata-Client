@@ -393,7 +393,11 @@ export function buildConversationMovePrompt(plan: ConversationMovePlan | null | 
   const scrutinyLine = analysis && ['ask_evidence', 'counterexample', 'test_assumption', 'separate_claims'].includes(plan.moveType)
     ? '\n- Do not add another supporting analogy. Give the requested scrutiny: evidence condition, counterexample, assumption test, or claim split.\n- This turn is expected to create deliberationArtifacts from your visible reply; do not use a no-new-point response for this move.'
     : '';
+  const priorityLine = analysis
+    ? 'This is the primary semantic job for the analysis-room turn.'
+    : 'This is a secondary realization option. Follow it only where it serves the character drive, personal stake, and relationship action; do not turn it into generic facilitation.';
   return `\n## Conversation Move Guidance
+- ${priorityLine}
 - Current semantic job: ${moveLabels[plan.moveType] || plan.moveType}.
 - Interpersonal posture: ${plan.socialPosture.warmth} warmth, ${plan.socialPosture.directness} directness.${targetLine}${analysisLine}
 - Use this as a local choice of what this turn should do. Do not mention the guidance itself.${echoLoopLine}${breakInLine}${scrutinyLine}`;

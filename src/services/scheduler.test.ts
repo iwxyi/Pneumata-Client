@@ -159,6 +159,35 @@ describe('scheduler speaker scoring', () => {
     expect(b?.scoreBreakdown?.reasons.some((reason) => reason.startsWith('inner:seek_attention'))).toBe(true);
   });
 
+  it('uses an explicit relationship stake to rank a character above a generic bystander', () => {
+    const candidates = calculateWeights(
+      [
+        buildCharacter('a', '甲'),
+        buildCharacter('b', '乙', { relationships: [{ characterId: 'a', warmth: 28, competence: 12, trust: 20, threat: 2 }], coreProfile: { coreDesire: '不让熟人替别人吞下代价' } }),
+        buildCharacter('c', '丙'),
+      ],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '这个亏我先吃了，别耽误大家。' })],
+      {}, 1, 0, null, { ...buildChat(), memberIds: ['a', 'b', 'c'] },
+    );
+    const b = candidates.find((candidate) => candidate.characterId === 'b');
+    const c = candidates.find((candidate) => candidate.characterId === 'c');
+    expect(b?.weight).toBeGreaterThan(c?.weight || 0);
+    expect(b?.scoreBreakdown?.reasons).toContain('character_drive:strong');
+  });
+
+  it('marks an otherwise unengaged, low-drive bystander as silence-preferring', () => {
+    const candidates = calculateWeights(
+      [
+        buildCharacter('a', '甲'),
+        buildCharacter('b', '乙', { behavior: { proactivity: 8, aggressiveness: 10, humorIntensity: 10, empathyLevel: 20, summarizing: 10, offTopic: 5 }, personality: { openness: 30, extroversion: 5, agreeableness: 50, neuroticism: 50, humor: 20, creativity: 20, assertiveness: 20, empathy: 30 } }),
+      ],
+      [buildMessage({ senderId: 'a', senderName: '甲', content: '今晚先散了吧。' })],
+      {}, 1, 0, null, buildChat(),
+    );
+    const b = candidates.find((candidate) => candidate.characterId === 'b');
+    expect(b?.scoreBreakdown?.reasons).toContain('character_drive:let_silence_stand');
+  });
+
   it('does not treat generic second-person wording as an explicit direct cue', () => {
     const candidates = calculateWeights(
       [buildCharacter('a', '甲'), buildCharacter('b', '乙')],

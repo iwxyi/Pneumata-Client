@@ -8,10 +8,12 @@ import type { InnerLifeProjection } from './innerLifeEngine';
 import type { ConversationMovePlan } from './conversationMovePlanner';
 import type { TurnPlan } from './turnPlanner';
 import type { UserGuidanceIntent } from './userGuidanceIntent';
+import { deriveCharacterTurnDrive, type CharacterTurnDrive } from './characterTurnDrive';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
 
 export interface TurnDirective {
   roomStyle: 'casual' | 'analytical' | 'discovery' | 'dramatic';
+  characterDrive: CharacterTurnDrive;
   socialJob: string;
   targetName?: string;
   emotionalUndercurrent: string;
@@ -250,6 +252,11 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
   }
   return {
     roomStyle: normalizeRoomStyle(input.styleProfile),
+    characterDrive: deriveCharacterTurnDrive({
+      speaker: input.speaker,
+      messages: input.messages,
+      innerLife: input.innerLife,
+    }),
     socialJob: describeSocialJob(input.conversationMovePlan, input.intent),
     targetName,
     emotionalUndercurrent: describeEmotion(input.innerLife),
@@ -269,8 +276,12 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
     ? `\n- Situational constraints: ${directive.situationalConstraints.join('; ')}.`
     : '';
   return `\n## Turn Directive
-- This is the single behavior decision for this ordinary group-chat turn. Use detailed character, relationship, and memory blocks as facts, but let this block decide the visible move.
+- This is the single behavior decision for this ordinary group-chat turn. Character drive is the primary behavior decision; the social job is only a secondary realization option. Never replace the drive with generic room management.
 - Room style: ${directive.roomStyle}.${targetLine}
+- Personal stake: ${directive.characterDrive.stake}.
+- Relationship action: ${directive.characterDrive.relationalAction}.
+- Attention lens: ${directive.characterDrive.attentionLens}.
+- Speaking necessity: ${directive.characterDrive.speakingNecessity}; a turn marked let_silence_stand may be brief, partial, or omitted when the runtime allows it.
 - Social job: ${directive.socialJob}.
 - Relationship effect: ${directive.relationshipEffect}.
 - Inner undercurrent: ${directive.emotionalUndercurrent}.${situationalLine}

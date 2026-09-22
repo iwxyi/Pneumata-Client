@@ -163,7 +163,7 @@ describe('turnDirective', () => {
     expect(directive?.relationshipEffect).toContain('joke');
     expect(directive?.situationalConstraints).toEqual([]);
     const prompt = buildTurnDirectivePrompt(directive);
-    expect(prompt).toContain('single behavior decision');
+    expect(prompt).toContain('Character drive is the primary behavior decision');
     expect(prompt).toContain('Attention target for interpretation only: 陈越');
     expect(prompt).toContain('not an instruction to visibly address them by name');
     expect(prompt).not.toContain('Active target: 陈越');
@@ -196,6 +196,23 @@ describe('turnDirective', () => {
 
     expect(directive?.userConstraint).toContain('user steered the topic');
     expect(buildTurnDirectivePrompt(directive)).toContain('User constraint');
+  });
+
+  it('projects core profile and relationship stakes ahead of the generic social job', () => {
+    const directive = buildTurnDirective({
+      chat: chat(),
+      speaker: character('rui', '瑞瑞', { coreProfile: {
+        coreDesire: '不让朋友在众人面前被当成可牺牲的那一个',
+        interactionHabits: ['先看谁在替别人吞下代价'],
+      }, relationships: [{ characterId: 'chen', warmth: 30, trust: 24, competence: 10, threat: 4 }] }),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')], messages: [message()], styleProfile: 'casual_room', intent, innerLife, conversationMovePlan: movePlan, turnPlan,
+    });
+    const prompt = buildTurnDirectivePrompt(directive);
+
+    expect(prompt).toContain('不让朋友在众人面前被当成可牺牲的那一个');
+    expect(prompt).toContain('先看谁在替别人吞下代价');
+    expect(prompt).toContain('Relationship action: protect');
+    expect(prompt).toContain('Character drive is the primary behavior decision');
   });
 
   it('keeps user decision pressure ahead of AI-to-AI logistics', () => {
