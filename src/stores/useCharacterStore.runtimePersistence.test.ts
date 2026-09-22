@@ -122,4 +122,32 @@ describe('character runtime persistence', () => {
     expect(persisted.characters[0].runtimeTimeline).toHaveLength(limits.runtimeTimeline);
     expect(persisted.characters[0].characterDetailLoaded).toBe(true);
   });
+
+  it('projects visual asset changes locally without creating a character sync patch', async () => {
+    const { useCharacterStore } = await import('./useCharacterStore');
+    const original = character({
+      visualIdentity: {
+        description: '旧视觉描述',
+        referenceImages: [
+          { id: 'asset-1', assetId: 'asset-1', url: 'https://example.test/one.png', createdAt: 1, isPrimary: true },
+          { id: 'asset-2', assetId: 'asset-2', url: 'https://example.test/two.png', createdAt: 2 },
+        ],
+        primaryReferenceImageId: 'asset-1',
+      },
+    });
+    useCharacterStore.setState({ characters: [original], pendingOperations: [] });
+    useCharacterStore.getState().applyLocalCharacterVisualAssets('character-1', [
+      { id: 'asset-2', assetId: 'asset-2', url: 'https://example.test/two.png', createdAt: 2 },
+    ], 'asset-2');
+    const projected = useCharacterStore.getState().getCharacter('character-1')!;
+
+    expect(projected.visualIdentity).toMatchObject({
+      description: '旧视觉描述',
+      primaryReferenceImageId: 'asset-2',
+      referenceImages: [{ id: 'asset-2', isPrimary: true }],
+    });
+    expect(projected.visualReferenceImages).toEqual([{ id: 'asset-2', assetId: 'asset-2', url: 'https://example.test/two.png', createdAt: 2, isPrimary: true }]);
+    expect(projected.updatedAt).toBe(original.updatedAt);
+    expect(useCharacterStore.getState().pendingOperations).toEqual([]);
+  });
 });

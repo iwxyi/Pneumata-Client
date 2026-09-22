@@ -1269,6 +1269,19 @@ export const useMessageStore = create<MessageStore>()(
               aroundTimestamp: options?.aroundTimestamp,
             })) as unknown as Message[];
           const normalizedFetched = fetched.map(normalizeFetchedCloudMessage);
+          // A non-paginated response smaller than the requested window is a
+          // complete cloud tail. Retaining every cached row in that case
+          // resurrects messages that were cleared or replaced on another
+          // device, because those rows no longer have server IDs to merge
+          // against. Keep a pending local create intact until it is uploaded.
+          const hasPendingCreateForChat = get().pendingOperations.some((operation) => (
+            operation.chatId === chatId && operation.kind === 'create'
+          ));
+          const shouldReplaceCompleteCloudWindow = !isAppend
+            && !isAroundWindow
+            && !fetchedFromChanges
+            && normalizedFetched.length < limit
+            && !hasPendingCreateForChat;
           logMessageWindowDebug('load-fetched', {
             chatId,
             options: options || {},
@@ -1278,14 +1291,17 @@ export const useMessageStore = create<MessageStore>()(
             probeStatus: changeProbe?.status || null,
             fetchedFromChanges: Boolean(fetchedFromChanges),
             fetchedMessages: normalizedFetched.length,
+            replacingCompleteCloudWindow: shouldReplaceCompleteCloudWindow,
             cachedWindowMessagesBeforeSet: get().messageWindowsByChatId[chatId]?.messages?.length || 0,
             activeMessagesBeforeSet: get().messages.filter((message) => message.chatId === chatId).length,
           });
           set((state) => {
             const currentWindow = state.messageWindowsByChatId[chatId];
-            const current = currentWindow?.messages || [];
+            const current = shouldReplaceCompleteCloudWindow ? [] : currentWindow?.messages || [];
             const activeMessagesForChat = state.messages.filter((message) => message.chatId === chatId);
-            const activeCurrent = activeMessagesForChat.length ? activeMessagesForChat : activeMessageWindow(current, limit);
+            const activeCurrent = shouldReplaceCompleteCloudWindow
+              ? []
+              : activeMessagesForChat.length ? activeMessagesForChat : activeMessageWindow(current, limit);
             const merged = mergeMessages(current, normalizedFetched);
             const trimmed = trimMessagesWithBranchContext(merged);
             const mergedActiveMessages = mergeMessages(activeCurrent, normalizedFetched);

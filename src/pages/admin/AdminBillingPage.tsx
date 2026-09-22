@@ -573,7 +573,8 @@ function parseLimitValue(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Number(trimmed);
-  return Number.isFinite(parsed) ? Math.max(0, Math.floor(parsed)) : null;
+  if (!Number.isFinite(parsed)) return null;
+  return parsed < 0 ? -1 : Math.floor(parsed);
 }
 
 function bytesToMbText(value: unknown, fallback = '') {
@@ -583,7 +584,8 @@ function bytesToMbText(value: unknown, fallback = '') {
 
 function mbToBytes(value: string) {
   const mb = Number(value);
-  return Number.isFinite(mb) && mb > 0 ? Math.round(mb * 1024 * 1024) : 0;
+  if (!Number.isFinite(mb)) return 0;
+  return mb < 0 ? -1 : Math.round(mb * 1024 * 1024);
 }
 
 function filterAllowedProviderAccess(values: string[], allowedProviderIds?: Set<string>) {

@@ -532,6 +532,46 @@ describe('useMessageStore', () => {
     expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages).toHaveLength(80);
   });
 
+  it('replaces a stale local window when the complete cloud conversation fits in one response', async () => {
+    localStorage.setItem(storageKey('auth-mode'), 'cloud');
+    const { useMessageStore } = await import('./useMessageStore');
+    const chatId = 'chat-reseeded';
+    const staleMessages = Array.from({ length: 10 }, (_, index) => buildMessage(index + 1, chatId));
+    const cloudMessages = Array.from({ length: 4 }, (_, index) => ({
+      ...buildMessage(index + 101, chatId),
+      content: `云端重建消息 ${index + 1}`,
+    }));
+    getSyncChangesMock.mockResolvedValueOnce({
+      status: 'modified',
+      scope: `messages.window:${chatId}`,
+      cursor: 'messages.window:reseeded',
+      revision: 'messages.window:reseeded',
+      changes: [],
+    });
+    getMessagesMock.mockResolvedValueOnce(cloudMessages);
+
+    useMessageStore.setState({
+      messages: staleMessages,
+      messageWindowsByChatId: {
+        [chatId]: {
+          messages: staleMessages,
+          lastSyncedAt: Date.now() - 60_000,
+          updatedAt: staleMessages.at(-1)?.timestamp ?? 0,
+        },
+      },
+      pendingOperations: [],
+      activeChatId: chatId,
+      isLoading: false,
+      isLoadingOlder: false,
+      hasMore: true,
+    });
+
+    await useMessageStore.getState().loadMessages(chatId, { limit: 40 });
+
+    expect(useMessageStore.getState().messages.map((message) => message.content)).toEqual(cloudMessages.map((message) => message.content));
+    expect(useMessageStore.getState().messageWindowsByChatId[chatId]?.messages.map((message) => message.content)).toEqual(cloudMessages.map((message) => message.content));
+  });
+
   it('uses the cloud message window snapshot on first device load so branch history is not lost', async () => {
     localStorage.setItem(storageKey('auth-mode'), 'cloud');
     const { useMessageStore } = await import('./useMessageStore');

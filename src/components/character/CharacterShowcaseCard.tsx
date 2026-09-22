@@ -36,7 +36,9 @@ interface CharacterShowcaseCardProps {
 }
 
 function getPrimaryVisualImage(character: AICharacter) {
-  const images = Array.isArray(character.visualIdentity?.referenceImages) ? character.visualIdentity.referenceImages : [];
+  const images = Array.isArray(character.visualIdentity?.referenceImages) && character.visualIdentity.referenceImages.length
+    ? character.visualIdentity.referenceImages
+    : Array.isArray(character.visualReferenceImages) ? character.visualReferenceImages : [];
   return images.find((image) => image.id === character.visualIdentity?.primaryReferenceImageId || image.isPrimary) || images[0] || null;
 }
 

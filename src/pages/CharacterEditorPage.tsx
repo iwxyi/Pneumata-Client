@@ -5,6 +5,7 @@ import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
+import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import { useCharacterStore } from '../stores/useCharacterStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
@@ -26,6 +27,8 @@ export default function CharacterEditorPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { id } = useParams<{ id?: string }>();
+  const pane = usePaneLayout();
+  const isSplitDetailPane = pane.role === 'detail';
   const returnTo = new URLSearchParams(location.search).get('returnTo');
   const isCreate = location.pathname === '/characters/create';
   const marketImportDraft = isCreate ? getMarketImportDraftState(location.state) : null;
@@ -35,12 +38,13 @@ export default function CharacterEditorPage() {
     avatarGeneration: state.avatarGeneration,
   })));
   const { setHeaderActions, setHeaderTitle, setHeaderBackAction, setHideMobileBottomNav } = useLayoutHeaderActions();
-  const { characters, loadCharacter, addCharacter, updateCharacter, updateCharacters, deleteCharacter, initializePresets, remoteDeletedCharacterIds, markCharactersWarm, prefetchCharacters } = useCharacterStore(useShallow((state) => ({
+  const { characters, loadCharacter, addCharacter, updateCharacter, updateCharacters, applyLocalCharacterVisualAssets, deleteCharacter, initializePresets, remoteDeletedCharacterIds, markCharactersWarm, prefetchCharacters } = useCharacterStore(useShallow((state) => ({
     characters: state.characters,
     loadCharacter: state.loadCharacter,
     addCharacter: state.addCharacter,
     updateCharacter: state.updateCharacter,
     updateCharacters: state.updateCharacters,
+    applyLocalCharacterVisualAssets: state.applyLocalCharacterVisualAssets,
     deleteCharacter: state.deleteCharacter,
     initializePresets: state.initializePresets,
     remoteDeletedCharacterIds: state.remoteDeletedCharacterIds,
@@ -222,6 +226,9 @@ export default function CharacterEditorPage() {
           actorId: editId,
         } : undefined}
         onDiaryTabOpen={handleDiaryTabOpen}
+        onVisualAssetsChange={editId
+          ? (assets, primaryReferenceImageId) => applyLocalCharacterVisualAssets(editId, assets, primaryReferenceImageId)
+          : undefined}
         onSave={async (data) => {
           setSaveError(null);
           try {
@@ -259,7 +266,9 @@ export default function CharacterEditorPage() {
                 }
               }
             }
-            goBack();
+            // In the desktop master-detail layout, a successful edit should
+            // leave the selected role open for continued work.
+            if (!editId || !isSplitDetailPane) goBack();
           } catch (error) {
             if (error instanceof Error && error.message === 'DUPLICATE_CHARACTER_NAME') {
               setSaveError(duplicateNameErrorText);

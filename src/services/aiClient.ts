@@ -534,7 +534,7 @@ export interface AiRequestDiagnostic {
   status: number;
   statusText: string;
   code?: string;
-  detail?: string;
+  detail?: unknown;
   error?: string;
 }
 
@@ -561,7 +561,7 @@ function parseAiErrorDiagnostic(rawBody: string, response: Response): AiRequestD
     const parsed = JSON.parse(body) as Record<string, unknown>;
     if (typeof parsed.code === 'string') diagnostic.code = parsed.code;
     if (typeof parsed.error === 'string') diagnostic.error = parsed.error;
-    if (typeof parsed.detail === 'string') diagnostic.detail = parsed.detail;
+    if ('detail' in parsed) diagnostic.detail = parsed.detail;
   } catch {
     diagnostic.detail = body;
   }
@@ -573,9 +573,24 @@ async function createPublicAiRequestError(response: Response, fallbackPrefix: st
   // details. They are useful for local diagnostics but must never become chat text.
   const rawBody = await response.text().catch(() => '');
   const diagnostic = parseAiErrorDiagnostic(rawBody, response);
+  const knownBusinessErrorMessages: Record<string, string> = {
+    VIP_LIMIT_EXCEEDED: '已达到当前会员权益上限。',
+    AI_POINTS_INSUFFICIENT: 'AI 点数不足，暂时无法继续生成。',
+    AI_ACCESS_DISABLED: '当前账号的 AI 服务已被停用。',
+    VIP_PROVIDER_ACCESS_REQUIRED: '当前账号无权使用该 AI 服务或模型。',
+    AI_PROVIDER_INACTIVE: '所选 AI 服务当前已停用。',
+    AI_PROVIDER_KEY_MISSING: '所选 AI 服务尚未完成服务端配置。',
+    AI_PROVIDER_NOT_AVAILABLE: '所选 AI 服务当前不可用，请切换模型后重试。',
+    AI_PROVIDER_PROXY_UNSUPPORTED: '所选 AI 服务不支持当前请求类型。',
+    AI_MODEL_NOT_AVAILABLE: '所选模型当前不可用，请切换模型后重试。',
+    NANOBANANA_SESSION_MISSING: '图片服务尚未完成服务端配置。',
+    NANOBANANA_USER_ID_MISSING: '图片服务的账户配置不完整。',
+  };
   let message: string;
   if (response.status === 401) message = 'AI 服务认证已失效，请重新登录后重试。';
-  else if (response.status === 403) message = '当前账号无权使用该 AI 服务或模型。';
+  else if (diagnostic.code && knownBusinessErrorMessages[diagnostic.code]) message = diagnostic.error || knownBusinessErrorMessages[diagnostic.code];
+  else if (response.status === 402) message = diagnostic.error || 'AI 点数不足，暂时无法继续生成。';
+  else if (response.status === 403) message = diagnostic.error || '当前账号无权使用该 AI 服务或模型。';
   else if (response.status === 429) message = 'AI 服务请求过于频繁，请稍后重试。';
   else if (response.status >= 400 && response.status < 500) message = '所选模型当前不可用，请切换模型后重试。';
   else message = `${fallbackPrefix}：AI 服务暂时不可用，请稍后重试。`;

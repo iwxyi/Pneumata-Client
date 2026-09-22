@@ -485,7 +485,7 @@ export default function CharacterLibraryPage() {
   const maxCharacters = entitlementReady
     ? membership?.vipEntitlement?.entitlement.maxCharacters ?? freeEntitlement?.maxCharacters ?? null
     : null;
-  const characterLimitReached = maxCharacters != null && custom.length >= maxCharacters;
+  const characterLimitReached = maxCharacters != null && maxCharacters >= 0 && custom.length >= maxCharacters;
   const customGroups = useMemo(() => getCharacterGroupList(custom), [custom]);
   const customGroupOptions = useMemo(() => customGroups.map((group) => ({
     value: group,
@@ -853,7 +853,7 @@ export default function CharacterLibraryPage() {
         const text = await file.text();
         const data = JSON.parse(text);
         const chars = Array.isArray(data) ? data : [data];
-        if (maxCharacters != null && custom.length + chars.length > maxCharacters) {
+        if (maxCharacters != null && maxCharacters >= 0 && custom.length + chars.length > maxCharacters) {
           setVipLimitDialog({
             title: '导入会超过角色上限',
             description: `本次准备导入 ${chars.length} 个角色，导入后会超过当前会员的角色数量上限。请减少导入数量，或升级 VIP 后继续导入。`,

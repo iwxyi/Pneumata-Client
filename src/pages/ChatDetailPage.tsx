@@ -890,6 +890,12 @@ export default function ChatDetailPage() {
   const isStoryReaderAtTailRef = useRef(true);
   const consumedHomeCommandRef = useRef<string | null>(null);
   const lastReadingPositionPersistRef = useRef<{ chatId: string; key: string; at: number } | null>(null);
+  const pendingReadingPositionPersistRef = useRef<{
+    chatId: string;
+    key: string;
+    position: MessageListScrollPosition;
+  } | null>(null);
+  const readingPositionPersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openedChatWindowRef = useRef<{ chatId: string; requestKey: string; openedAt: number; restored: boolean; cloudMode: boolean } | null>(null);
   const storyEntryReadingPositionRef = useRef<{ chatId: string; key: string; position: MessageListScrollPosition } | null>(null);
   const activeChatIdRef = useRef<string | null>(id ?? null);
@@ -3795,17 +3801,12 @@ export default function ChatDetailPage() {
     setIsExplicitContinuationScrollFollowSuspended(false);
   }, []);
 
-  const handleStoryReadingPositionChange = useCallback((position: MessageListScrollPosition) => {
-    if (!id || !isStoryRoom) return;
+  const persistStoryReadingPosition = useCallback((chatId: string, position: MessageListScrollPosition, key: string) => {
     const roundedOffsetTop = Math.round(position.offsetTop);
-    const key = `${position.messageId}:${roundedOffsetTop}:${position.pinned ? '1' : '0'}`;
-    const now = Date.now();
-    const previous = lastReadingPositionPersistRef.current;
-    if (previous?.chatId === id && previous.key === key && now - previous.at < STORY_READING_POSITION_SAVE_MS) return;
-    lastReadingPositionPersistRef.current = { chatId: id, key, at: now };
-    const previousStored = chatReadingPositions[id];
+    const previousStored = chatReadingPositions[chatId];
+    lastReadingPositionPersistRef.current = { chatId, key, at: Date.now() };
     logDeveloperDiagnostic('故事阅读保存：写入UIStore', {
-      chatId: id,
+      chatId,
       next: {
         messageId: position.messageId,
         offsetTop: roundedOffsetTop,
@@ -3821,19 +3822,61 @@ export default function ChatDetailPage() {
       } : null,
     }, 'info', 'chat-scroll');
     logDeveloperDiagnostic('chat-scroll:save-position', {
-      chatId: id,
+      chatId,
       messageId: position.messageId,
       offsetTop: roundedOffsetTop,
       pinned: position.pinned,
       sourceTimestamp: position.sourceTimestamp,
     }, 'debug');
-    setChatReadingPosition(id, {
+    setChatReadingPosition(chatId, {
       messageId: position.messageId,
       offsetTop: roundedOffsetTop,
       pinned: position.pinned,
       sourceTimestamp: position.sourceTimestamp,
     });
-  }, [chatReadingPositions, id, isStoryRoom, setChatReadingPosition]);
+  }, [chatReadingPositions, setChatReadingPosition]);
+
+  const handleStoryReadingPositionChange = useCallback((position: MessageListScrollPosition) => {
+    if (!id || !isStoryRoom) return;
+    const roundedOffsetTop = Math.round(position.offsetTop);
+    const key = `${position.messageId}:${roundedOffsetTop}:${position.pinned ? '1' : '0'}`;
+    const now = Date.now();
+    const previous = lastReadingPositionPersistRef.current;
+    if (previous?.chatId === id && previous.key === key) return;
+
+    const persistPendingPosition = () => {
+      readingPositionPersistTimerRef.current = null;
+      const pending = pendingReadingPositionPersistRef.current;
+      pendingReadingPositionPersistRef.current = null;
+      if (!pending || pending.chatId !== id) return;
+      persistStoryReadingPosition(pending.chatId, pending.position, pending.key);
+    };
+    const elapsed = previous?.chatId === id ? now - previous.at : STORY_READING_POSITION_SAVE_MS;
+    if (elapsed >= STORY_READING_POSITION_SAVE_MS) {
+      if (readingPositionPersistTimerRef.current) {
+        clearTimeout(readingPositionPersistTimerRef.current);
+        readingPositionPersistTimerRef.current = null;
+      }
+      pendingReadingPositionPersistRef.current = null;
+      persistStoryReadingPosition(id, position, key);
+      return;
+    }
+
+    pendingReadingPositionPersistRef.current = { chatId: id, key, position };
+    if (readingPositionPersistTimerRef.current) return;
+    readingPositionPersistTimerRef.current = setTimeout(persistPendingPosition, STORY_READING_POSITION_SAVE_MS - elapsed);
+  }, [id, isStoryRoom, persistStoryReadingPosition]);
+
+  useEffect(() => () => {
+    if (readingPositionPersistTimerRef.current) clearTimeout(readingPositionPersistTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!readingPositionPersistTimerRef.current) return;
+    clearTimeout(readingPositionPersistTimerRef.current);
+    readingPositionPersistTimerRef.current = null;
+    pendingReadingPositionPersistRef.current = null;
+  }, [id]);
 
   useEffect(() => {
     const effectiveStoryReaderAtTail = resolveEffectiveStoryReaderAtTail({

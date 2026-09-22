@@ -908,10 +908,10 @@ export default function BatchGenerateCharactersPage() {
   const entitlementUnavailable = platformAi && !useFreeEntitlement && membershipLoaded && membershipLoadFailed;
   const dailyGenerationLimit = platformAi ? entitlement?.dailyAiGenerationLimit ?? null : null;
   const dailyGenerationUsed = Number(membership?.dailyAiGenerationUsage?.used || 0);
-  const dailyGenerationRemaining = dailyGenerationLimit == null ? null : Math.max(0, dailyGenerationLimit - dailyGenerationUsed);
+  const dailyGenerationRemaining = dailyGenerationLimit == null || dailyGenerationLimit < 0 ? null : Math.max(0, dailyGenerationLimit - dailyGenerationUsed);
   const batchCharacterLimit = platformAi ? entitlement?.batchCharacterGenerationLimit ?? null : null;
   const dailyGenerationExhausted = dailyGenerationRemaining != null && dailyGenerationRemaining <= 0;
-  const batchSelectionExceeded = batchCharacterLimit != null && selectedCandidateIds.length > batchCharacterLimit;
+  const batchSelectionExceeded = batchCharacterLimit != null && batchCharacterLimit >= 0 && selectedCandidateIds.length > batchCharacterLimit;
   const canGenerateNames = Boolean(topic.trim() || description.trim()) && !loadingNames && !dailyGenerationExhausted;
   const canGenerateCharacters = selectedCandidateIds.length > 0 && !generating && !batchSelectionExceeded;
   const entitlementLimitLabel = entitlementUnavailable
@@ -920,19 +920,19 @@ export default function BatchGenerateCharactersPage() {
       : 'Unable to confirm account quota. The server will validate it when generating')
     : platformAi
       ? [
-      dailyGenerationLimit == null
-        ? (i18n.language.startsWith('zh') ? '今日生成：不限' : 'Daily generation: unlimited')
+      dailyGenerationLimit == null || dailyGenerationLimit < 0
+        ? (i18n.language.startsWith('zh') ? '今日生成：-' : 'Daily generation: -')
         : (i18n.language.startsWith('zh') ? `今日生成：${dailyGenerationUsed}/${dailyGenerationLimit}` : `Daily generation: ${dailyGenerationUsed}/${dailyGenerationLimit}`),
-      batchCharacterLimit == null
-        ? (i18n.language.startsWith('zh') ? '单次批量：不限' : 'Batch size: unlimited')
+      batchCharacterLimit == null || batchCharacterLimit < 0
+        ? (i18n.language.startsWith('zh') ? '单次批量：-' : 'Batch size: -')
         : (i18n.language.startsWith('zh') ? `单次批量：最多 ${batchCharacterLimit}` : `Batch size: max ${batchCharacterLimit}`),
       ].join(' · ')
       : (i18n.language.startsWith('zh')
-        ? '自定义 AI：不占用平台生成次数 · 单次批量：不限'
-        : 'Custom AI: does not use platform generation quota · Batch size: unlimited');
+        ? '自定义 AI：不占用平台生成次数 · 单次批量：-'
+        : 'Custom AI: does not use platform generation quota · Batch size: -');
 
   const toggleCandidate = (candidateId: string) => {
-    if (!selectedCandidateIds.includes(candidateId) && batchCharacterLimit != null && selectedCandidateIds.length >= batchCharacterLimit) {
+    if (!selectedCandidateIds.includes(candidateId) && batchCharacterLimit != null && batchCharacterLimit >= 0 && selectedCandidateIds.length >= batchCharacterLimit) {
       setVipLimitDialog({
         title: '单次批量生成已达上限',
         description: `当前会员单次最多新增 ${batchCharacterLimit} 个角色。默认选中的名单会保留，继续增加选择需要升级 VIP。`,

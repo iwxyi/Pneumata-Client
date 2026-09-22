@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { generateResponse } from './aiClient';
+import { generateImage, generateResponse } from './aiClient';
 
 const fetchMock = globalThis.fetch;
 
@@ -26,6 +26,19 @@ describe('aiClient multimodal requests', () => {
       { type: 'text', text: '看这张图' },
       { type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } },
     ]);
+  });
+
+  it('shows the member generation limit instead of a generic permission error', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      error: '今日 AI 生成次数已达当前会员上限',
+      code: 'VIP_LIMIT_EXCEEDED',
+      detail: { limit: 3, current: 3 },
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } })) as typeof fetch;
+
+    await expect(generateImage(
+      { provider: 'official-nanobanana', apiKey: '', baseUrl: '/api/ai', model: 'gemini-3-pro-image-preview' },
+      { prompt: '一盏台灯' },
+    )).rejects.toThrow('今日 AI 生成次数已达当前会员上限');
   });
 
   it('builds Anthropic image content with base64 source', async () => {

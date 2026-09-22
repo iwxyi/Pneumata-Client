@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Avatar, Box, Button, Card, CardContent, Alert, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Switch, FormControlLabel, Chip, CircularProgress } from '@mui/material';
+import { Avatar, Box, Button, Card, CardContent, Alert, TextField, Typography, Dialog, DialogTitle, DialogContent, DialogActions, Switch, FormControlLabel, Chip, CircularProgress, Table, TableBody, TableCell, TableHead, TableRow } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLayoutHeaderActions } from '../components/layout/AppLayoutContext';
@@ -22,12 +22,23 @@ import { api, type BillingMembershipResponse } from '../services/api';
 import { getSmsCaptchaToken } from '../services/captcha';
 import { formatAiBalanceAmount } from '../utils/aiPoints';
 import AiUsageDialog from '../components/account/AiUsageDialog';
+import { avatarGenerationQueue } from '../services/avatarGenerationQueue';
+import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
+import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
+import UploadIcon from '@mui/icons-material/Upload';
 
 const MAX_AVATAR_FILE_SIZE = 2 * 1024 * 1024;
 const MAX_AVATAR_DIMENSION = 512;
 const AVATAR_OUTPUT_SIZE = 256;
 const AVATAR_OUTPUT_QUALITY = 0.82;
 const LEGACY_DEFAULT_USER_AVATAR = '🍵';
+
+function buildAccountAvatarPrompt(requirements: string, language: 'zh' | 'en') {
+  const direction = requirements.trim();
+  return language === 'zh'
+    ? `生成一张个人账号头像。用户要求：${direction || '干净、友好、有辨识度的现代插画头像'}。正方形构图，单一清晰主体居中，主体占画面至少 45%，缩小到 40px 仍清楚可辨；背景简洁、明度对比清楚。不要文字、水印、logo、多人、远景、复杂背景或大面积阴影。`
+    : `Generate a personal account avatar. User direction: ${direction || 'a clean, friendly, distinctive modern illustrated avatar'}. Square composition with one clear centered subject filling at least 45% of the frame and recognizable at 40px; simple background with clear value contrast. No text, watermark, logo, multiple people, distant shot, busy background, or large dark shadows.`;
+}
 
 function normalizeAccountAvatar(value?: string | null) {
   const trimmed = value?.trim() || '';
@@ -49,6 +60,14 @@ function formatAiPoints(balance: Record<string, unknown> | null, loading: boolea
 function formatMembershipDate(value?: number | string | null) {
   const parsed = Number(value);
   return parsed > 0 ? new Date(parsed).toLocaleDateString() : '-';
+}
+
+function formatStorageSize(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / (1024 ** index);
+  return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
 }
 
 function loadImage(file: File) {
@@ -113,6 +132,7 @@ export default function AccountPage() {
   const characterLastSyncedAt = useCharacterStore((state) => state.lastSyncedAt);
   const characterPendingOperationCount = useCharacterStore((state) => state.pendingOperations.length);
   const loadSettings = useSettingsStore((state) => state.loadSettings);
+  const aiProfiles = useSettingsStore((state) => state.aiProfiles);
   const settingsLastSyncedAt = useSettingsStore((state) => state.lastSyncedAt);
   const retryMessageFailedOperations = useMessageStore((state) => state.retryFailedOperations);
   const latestMessageSync = useMessageStore((state) => Object.values(state.messageWindowsByChatId || {}).reduce<number>((latest, item) => (
@@ -125,6 +145,8 @@ export default function AccountPage() {
   const [saving, setSaving] = useState(false);
   const [processingAvatar, setProcessingAvatar] = useState(false);
   const [avatarDialogOpen, setAvatarDialogOpen] = useState(false);
+  const [generateAvatarDialogOpen, setGenerateAvatarDialogOpen] = useState(false);
+  const [avatarRequirements, setAvatarRequirements] = useState('');
   const [nicknameDialogOpen, setNicknameDialogOpen] = useState(false);
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [newPhone, setNewPhone] = useState('');
@@ -358,6 +380,23 @@ export default function AccountPage() {
     }
   };
 
+  const handleGenerateAvatar = () => {
+    const imageProfile = getPreferredAIProfile(aiProfiles, 'image');
+    if (!isAIProfileUsable(imageProfile)) {
+      setSnackbar({ open: true, message: zh ? '请先在 AI 模型中配置可用的图片模型' : 'Configure an available image model in AI Models first', severity: 'error' });
+      return;
+    }
+    avatarGenerationQueue.enqueue(imageProfile, buildAccountAvatarPrompt(avatarRequirements, zh ? 'zh' : 'en'), {
+      targetKey: `account-avatar:${user?.id || 'local'}`,
+      accountAvatar: true,
+      description: zh ? '账号头像' : 'Account avatar',
+      negativePrompt: zh ? '文字、水印、logo、多人、远景、复杂背景、大面积阴影' : 'text, watermark, logo, multiple people, distant shot, busy background, large dark shadows',
+    });
+    setGenerateAvatarDialogOpen(false);
+    setAvatarRequirements('');
+    setSnackbar({ open: true, message: zh ? '已加入头像生成队列' : 'Avatar generation queued', severity: 'success' });
+  };
+
   const handleSaveNickname = async () => {
     setSavingNickname(true);
     try {
@@ -509,6 +548,24 @@ export default function AccountPage() {
       ? (zh ? '会员已到期' : 'Expired')
       : (zh ? '未开通会员' : 'No membership');
   const membershipStatusColor: 'success' | 'warning' | 'default' = activeMembership ? 'success' : visibleSubscription ? 'warning' : 'default';
+  const membershipEntitlement = membership?.vipEntitlement?.entitlement;
+  const membershipUsage = membership?.usage;
+  const quotaValue = (used: number, limit: number | null | undefined) => (
+    limit === -1 ? `${used} / -` : `${used} / ${limit ?? '-'}`
+  );
+  const membershipUsageRows = membershipEntitlement && membershipUsage ? [
+    { label: zh ? '角色数量' : 'Characters', value: quotaValue(membershipUsage.characters, membershipEntitlement.maxCharacters) },
+    { label: zh ? '聊天数量' : 'Chats', value: quotaValue(membershipUsage.chats, membershipEntitlement.maxChats) },
+    { label: zh ? '今日 AI 生成' : 'AI generations today', value: quotaValue(membership?.dailyAiGenerationUsage?.used || 0, membershipEntitlement.dailyAiGenerationLimit) },
+    { label: zh ? '单次批量生成' : 'Batch generation per run', value: membershipEntitlement.batchCharacterGenerationLimit == null
+      ? '-'
+      : membershipEntitlement.batchCharacterGenerationLimit === -1
+        ? '-'
+      : `${membershipEntitlement.batchCharacterGenerationLimit}` },
+    { label: zh ? '云空间' : 'Cloud storage', value: membershipEntitlement.cloudStorageBytes !== -1
+      ? `${formatStorageSize(membershipUsage.cloudStorageBytes)} / ${formatStorageSize(membershipEntitlement.cloudStorageBytes)}`
+      : `${formatStorageSize(membershipUsage.cloudStorageBytes)} / -` },
+  ] : [];
   const handleCloudSyncToggle = async (enabled: boolean) => {
     if (authMode === 'local') {
       navigate('/login');
@@ -704,9 +761,28 @@ export default function AccountPage() {
                   </Typography>
                 </Box>
               </Box>
-              <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.7 }}>
-                {zh ? '购买 VIP 或 AI 点数套餐，支付完成后权益和点数会自动到账。' : 'Buy VIP or AI point packs. Benefits and points are fulfilled automatically after payment.'}
-              </Typography>
+              {membershipUsageRows.length ? (
+                <Table size="small" aria-label={zh ? '会员权益用量' : 'Membership usage'} sx={{ mt: 0.15, tableLayout: 'fixed' }}>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell sx={{ width: '48%', px: 0, py: 0.35, color: 'text.secondary', fontSize: 12, borderBottomColor: 'divider' }}>
+                        {zh ? '项目' : 'Item'}
+                      </TableCell>
+                      <TableCell align="right" sx={{ px: 0, py: 0.35, color: 'text.secondary', fontSize: 12, borderBottomColor: 'divider' }}>
+                        {zh ? '数量' : 'Amount'}
+                      </TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {membershipUsageRows.map((item) => (
+                      <TableRow key={item.label}>
+                        <TableCell sx={{ px: 0, py: 0.45, fontSize: 12, borderBottomColor: 'divider' }}>{item.label}</TableCell>
+                        <TableCell align="right" sx={{ px: 0, py: 0.45, fontSize: 12, fontWeight: 800, whiteSpace: 'nowrap', borderBottomColor: 'divider' }}>{item.value}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : null}
             </Box>
 
             <Button
@@ -896,12 +972,42 @@ export default function AccountPage() {
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setAvatarDialogOpen(false)}>{t('common.cancel')}</Button>
           <Button
+            variant="outlined"
+            startIcon={<AutoAwesomeIcon />}
+            onClick={() => setGenerateAvatarDialogOpen(true)}
+            disabled={processingAvatar || saving}
+          >
+            {zh ? '生成' : 'Generate'}
+          </Button>
+          <Button
             variant="contained"
+            startIcon={<UploadIcon />}
             onClick={handleSelectAvatarFile}
             disabled={processingAvatar || saving}
           >
-            {processingAvatar ? t('common.loading') : (i18n.language.startsWith('zh') ? '上传新头像' : 'Upload new avatar')}
+            {processingAvatar ? t('common.loading') : (zh ? '上传' : 'Upload')}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={generateAvatarDialogOpen} onClose={() => setGenerateAvatarDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{zh ? '生成头像' : 'Generate avatar'}</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            multiline
+            minRows={4}
+            fullWidth
+            label={zh ? '头像要求' : 'Avatar direction'}
+            placeholder={zh ? '例如：低饱和水彩插画，戴圆框眼镜，安静但有一点幽默感' : 'For example: muted watercolor illustration, round glasses, quiet with a hint of humor'}
+            value={avatarRequirements}
+            onChange={(event) => setAvatarRequirements(event.target.value)}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setGenerateAvatarDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" startIcon={<AutoAwesomeIcon />} onClick={handleGenerateAvatar}>{zh ? '生成' : 'Generate'}</Button>
         </DialogActions>
       </Dialog>
 

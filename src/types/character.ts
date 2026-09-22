@@ -226,6 +226,9 @@ export interface AICharacter {
   presence?: CharacterPresenceState;
   coreProfile?: CharacterCoreProfile;
   visualIdentity?: CharacterVisualIdentity | null;
+  // Lightweight API projections can return visual assets separately from the
+  // descriptive identity. Card views need both response shapes.
+  visualReferenceImages?: CharacterVisualReferenceImage[];
   speechProfile?: CharacterSpeechProfile;
   voiceConfig?: CharacterVoiceConfig;
   behavior: CharacterBehaviorParams;

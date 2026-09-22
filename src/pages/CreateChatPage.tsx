@@ -1275,7 +1275,7 @@ export default function CreateChatPage() {
       : membership?.vipEntitlement?.entitlement.maxChats ?? null
     : null;
   const activeChatCount = chats.filter((chat) => !chat.deletedAt).length;
-  const chatLimitReached = !editingChat && maxChats != null && activeChatCount >= maxChats;
+  const chatLimitReached = !editingChat && maxChats != null && maxChats >= 0 && activeChatCount >= maxChats;
   const chatEntitlementUnavailable = !editingChat && !useFreeEntitlement && membershipLoaded && membershipLoadFailed;
   const showChatLimitDialog = (title = '聊天数量已达上限') => {
     setVipLimitDialog({
@@ -1422,7 +1422,7 @@ export default function CreateChatPage() {
       showError(i18n.language.startsWith('zh') ? '正在处理中，请稍候' : 'Already processing, please wait');
       return;
     }
-    if (maxChats != null && activeChatCount >= maxChats) {
+    if (maxChats != null && maxChats >= 0 && activeChatCount >= maxChats) {
       showChatLimitDialog('另存为会超过聊天上限');
       return;
     }

@@ -1,6 +1,7 @@
 import type { AIModelProfile } from '../types/settings';
 import { generateImageWithAdapter } from './aiGenerationAdapter';
 import { useCharacterStore } from '../stores/useCharacterStore';
+import { useAuthStore } from '../stores/useAuthStore';
 import { api } from './api';
 import { logRecoverableError } from './diagnostics';
 import { prepareAvatarUploadDataUrl } from '../utils/avatarUpload';
@@ -15,6 +16,7 @@ export interface AvatarGenerationTaskState {
   error: string | null;
   imageDataUrl: string | null;
   characterId?: string | null;
+  accountAvatar?: boolean;
   description?: string;
   negativePrompt?: string;
   seed?: string | number | null;
@@ -57,7 +59,7 @@ class AvatarGenerationQueueService {
   private dismissedErrorIds = new Set<string>();
   private runningTaskId: string | null = null;
 
-  enqueue(profile: AIModelProfile, prompt: string, options: { targetKey: string; characterId?: string | null; negativePrompt?: string; seed?: string | number | null; description?: string }) {
+  enqueue(profile: AIModelProfile, prompt: string, options: { targetKey: string; characterId?: string | null; accountAvatar?: boolean; negativePrompt?: string; seed?: string | number | null; description?: string }) {
     const previous = this.getLatestTaskForTarget(options.targetKey);
     if (previous && (previous.status === 'queued' || previous.status === 'running')) {
       this.cancel(previous.id);
@@ -69,6 +71,7 @@ class AvatarGenerationQueueService {
       createdAt: Date.now(),
       targetKey: options.targetKey,
       characterId: options.characterId || null,
+      accountAvatar: options.accountAvatar === true,
       prompt,
       profile,
       negativePrompt: options.negativePrompt,
@@ -250,8 +253,15 @@ class AvatarGenerationQueueService {
           await api.updateCharacter(task.characterId, {
             avatar: avatarForUpload,
           });
-          await useCharacterStore.getState().loadCharacters();
+          // `loadCharacters` may retain a fresh summary scope and skip the
+          // just-written avatar. Force the authoritative summary merge so
+          // historical message bubbles immediately resolve the new avatar.
+          await useCharacterStore.getState().refreshCharacterSummaryFromCloud();
         }
+      }
+      if (task.accountAvatar) {
+        const avatarForUpload = await prepareAvatarUploadDataUrl(firstImage.dataUrl);
+        await useAuthStore.getState().updateProfile({ avatar: avatarForUpload });
       }
 
       this.emit(task);

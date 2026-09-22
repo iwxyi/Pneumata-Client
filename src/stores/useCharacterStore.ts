@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { AICharacter } from '../types/character';
+import type { AICharacter, CharacterVisualReferenceImage } from '../types/character';
 import { normalizeCharacter, normalizeCharacterGroup } from '../types/character';
 import { api, type SyncChangeScope } from '../services/api';
 import { buildApiErrorUserMessage } from '../services/apiErrorMessage';
@@ -52,6 +52,44 @@ function applyLocalCharacterUpdate(character: AICharacter, updates: Partial<AICh
     ...character,
     ...updates,
     updatedAt: Date.now(),
+  });
+}
+
+/**
+ * Visual assets are persisted through their own API, so projecting them here
+ * must not enqueue a character patch that could race with that API.
+ */
+export function projectLocalCharacterVisualAssets(
+  character: AICharacter,
+  assets: CharacterVisualReferenceImage[],
+  primaryReferenceImageId: string | null,
+) {
+  const seen = new Set<string>();
+  const uniqueAssets = assets.filter((asset) => {
+    const key = asset.id || asset.assetId || asset.url;
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const primaryId = uniqueAssets.some((asset) => asset.id === primaryReferenceImageId)
+    ? primaryReferenceImageId
+    : uniqueAssets.find((asset) => asset.isPrimary)?.id || uniqueAssets[0]?.id || null;
+  const referenceImages = uniqueAssets.map((asset) => ({
+    ...asset,
+    assetId: asset.assetId || asset.id,
+    isPrimary: asset.id === primaryId,
+  }));
+  // The asset endpoint owns the remote version. Keeping updatedAt intact also
+  // prevents the editor from treating this local projection as an external
+  // character edit and resetting unrelated, unsaved form fields.
+  return normalizeCharacter({
+    ...character,
+    visualIdentity: {
+      ...(character.visualIdentity || {}),
+      referenceImages,
+      primaryReferenceImageId: primaryId,
+    },
+    visualReferenceImages: referenceImages,
   });
 }
 
@@ -559,6 +597,7 @@ function buildPersistedCharacterState(state: PersistedCharacterState): Persisted
       avatar: persistCharacterAvatarForCloud(character.avatar),
       group: character.group,
       visualIdentity: character.visualIdentity,
+      visualReferenceImages: character.visualReferenceImages,
       bubbleStyle: character.bubbleStyle || null,
       bubbleStyleId: character.bubbleStyleId || null,
       modelProfileId: character.modelProfileId || null,
@@ -629,6 +668,7 @@ interface CharacterStore extends PersistedCharacterState {
   addCharacter: (char: Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>) => Promise<AICharacter>;
   addCharacters: (chars: Array<Omit<AICharacter, 'id' | 'createdAt' | 'updatedAt' | 'isPreset'>>) => Promise<AICharacter[]>;
   updateCharacter: (id: string, updates: Partial<AICharacter>) => Promise<void>;
+  applyLocalCharacterVisualAssets: (id: string, assets: CharacterVisualReferenceImage[], primaryReferenceImageId: string | null) => void;
   updateCharacters: (patches: Array<{ id: string; updates: Partial<AICharacter> }>) => Promise<void>;
   deleteCharacter: (id: string) => Promise<void>;
   deleteCharacters: (ids: string[]) => Promise<void>;
@@ -1416,6 +1456,18 @@ export const useCharacterStore = create<CharacterStore>()(
             return;
           }
           await get().syncPatch(id, updates, 'patch');
+        },
+
+        applyLocalCharacterVisualAssets: (id, assets, primaryReferenceImageId) => {
+          set((state) => {
+            const characters = sortCharacters(state.characters.map((character) => (
+              character.id === id
+                ? projectLocalCharacterVisualAssets(character, assets, primaryReferenceImageId)
+                : character
+            )));
+            syncCharacterArtifacts(characters);
+            return { characters };
+          });
         },
 
         updateCharacters: async (patches) => {

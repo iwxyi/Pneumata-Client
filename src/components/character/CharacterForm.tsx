@@ -200,6 +200,7 @@ interface CharacterFormProps {
     actorId: string;
   };
   onDiaryTabOpen?: () => void;
+  onVisualAssetsChange?: (assets: CharacterVisualReferenceImage[], primaryReferenceImageId: string | null) => void;
   onSave: (data: {
     name: string;
     avatar: string;
@@ -310,7 +311,7 @@ function InlineTagEditor({ value, onChange, placeholder, addLabel }: InlineTagEd
   );
 }
 
-export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, calendarContext, onDiaryTabOpen, onSave }: CharacterFormProps) {
+export default function CharacterForm({ initial, existingNames = [], saveError = null, onDraftNameChange, onDelete, deleteLabel, calendarContext, onDiaryTabOpen, onVisualAssetsChange, onSave }: CharacterFormProps) {
   const { t, i18n } = useTranslation();
   const settings = useSettingsStore(useShallow((state) => ({
     aiProfiles: state.aiProfiles,
@@ -398,9 +399,9 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
   const [visualImageTaskStatus, setVisualImageTaskStatus] = useState<AvatarGenerationStatus | null>(null);
   const [visualImageTaskError, setVisualImageTaskError] = useState<string | null>(null);
   const [visualImagePlanWarning, setVisualImagePlanWarning] = useState<string | null>(null);
-  const [visualAssets, setVisualAssets] = useState<CharacterVisualReferenceImage[]>(() => dedupeVisualAssets(initial?.visualIdentity?.referenceImages || []));
+  const [visualAssets, setVisualAssets] = useState<CharacterVisualReferenceImage[]>(() => dedupeVisualAssets(initial?.visualIdentity?.referenceImages || initial?.visualReferenceImages || []));
   const visualAssetInputRef = useRef<HTMLInputElement | null>(null);
-  const visualAssetsRef = useRef<CharacterVisualReferenceImage[]>(dedupeVisualAssets(initial?.visualIdentity?.referenceImages || []));
+  const visualAssetsRef = useRef<CharacterVisualReferenceImage[]>(dedupeVisualAssets(initial?.visualIdentity?.referenceImages || initial?.visualReferenceImages || []));
   const loadedInitialSignatureRef = useRef<string | null>(initial ? `${initial.id || 'draft'}:${initial.updatedAt || 0}:${initial.characterDetailLoaded ? 'detail' : 'summary'}` : null);
   const processedVisualImageTaskIdsRef = useRef(new Set<string>());
   const avatarTaskTargetKey = initial?.id ? `character:${initial.id}` : 'character-form:draft';
@@ -532,11 +533,11 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       styleHint: initial.visualIdentity?.styleHint || '',
       negativePrompt: initial.visualIdentity?.negativePrompt || '',
       seed: initial.visualIdentity?.seed ?? null,
-      referenceImages: initial.visualIdentity?.referenceImages || [],
+      referenceImages: initial.visualIdentity?.referenceImages || initial.visualReferenceImages || [],
       primaryReferenceImageId: initial.visualIdentity?.primaryReferenceImageId ?? null,
       defaults: initial.visualIdentity?.defaults || { useReferenceImages: false },
     });
-    setVisualAssets(dedupeVisualAssets(initial.visualIdentity?.referenceImages || []));
+    setVisualAssets(dedupeVisualAssets(initial.visualIdentity?.referenceImages || initial.visualReferenceImages || []));
     setCoreProfile({
       ...DEFAULT_CORE_PROFILE,
       ...(initial.coreProfile || {}),
@@ -622,11 +623,11 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
               isPrimary: saved.isPrimary,
               createdAt: saved.createdAt,
             };
-            setVisualAssets((prev) => dedupeVisualAssets(savedAsset.isPrimary ? [...prev.map((item) => ({ ...item, isPrimary: false })), savedAsset] : [...prev, savedAsset]));
-            setVisualIdentity((prev) => ({
-              ...prev,
-              primaryReferenceImageId: savedAsset.isPrimary ? savedAsset.id : prev.primaryReferenceImageId,
-            }));
+            const currentAssets = visualAssetsRef.current;
+            const nextAssets = savedAsset.isPrimary
+              ? [...currentAssets.map((item) => ({ ...item, isPrimary: false })), savedAsset]
+              : [...currentAssets, savedAsset];
+            commitVisualAssets(nextAssets, savedAsset.isPrimary ? savedAsset.id : undefined);
             return;
           } catch (error) {
             setVisualImageTaskStatus('failed');
@@ -634,11 +635,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
             return;
           }
         }
-        setVisualAssets((prev) => dedupeVisualAssets([...prev, localAsset]));
-        setVisualIdentity((prev) => ({
-          ...prev,
-          primaryReferenceImageId: localAsset.isPrimary ? localAsset.id : prev.primaryReferenceImageId,
-        }));
+        commitVisualAssets([...visualAssetsRef.current, localAsset], localAsset.isPrimary ? localAsset.id : undefined);
       }
     });
   }, [initial?.id, i18n.language, visualImageTargetKey]);
@@ -850,16 +847,21 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     }
   };
 
-  const syncVisualIdentityReferenceImages = (assets: CharacterVisualReferenceImage[], overrides?: Partial<CharacterVisualIdentity>) => {
+  const commitVisualAssets = (assets: CharacterVisualReferenceImage[], requestedPrimaryId?: string) => {
     const dedupedAssets = dedupeVisualAssets(assets);
+    const primaryReferenceImageId = dedupedAssets.some((asset) => asset.id === requestedPrimaryId)
+      ? requestedPrimaryId!
+      : dedupedAssets.find((asset) => asset.isPrimary)?.id || dedupedAssets[0]?.id || null;
+    const normalizedAssets = dedupedAssets.map((asset) => ({ ...asset, isPrimary: asset.id === primaryReferenceImageId }));
+    visualAssetsRef.current = normalizedAssets;
+    setVisualAssets(normalizedAssets);
     setVisualIdentity((prev) => ({
       ...prev,
-      ...overrides,
-      referenceImages: dedupedAssets,
-      primaryReferenceImageId: overrides && Object.prototype.hasOwnProperty.call(overrides, 'primaryReferenceImageId')
-        ? overrides.primaryReferenceImageId ?? null
-        : prev.primaryReferenceImageId ?? dedupedAssets.find((asset) => asset.isPrimary)?.id ?? dedupedAssets[0]?.id ?? null,
+      referenceImages: normalizedAssets,
+      primaryReferenceImageId,
     }));
+    if (initial?.id) onVisualAssetsChange?.(normalizedAssets, primaryReferenceImageId);
+    return normalizedAssets;
   };
 
   const handleVisualAssetUpload = async (file?: File | null) => {
@@ -892,8 +894,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           };
           const next = asset.isPrimary ? visualAssets.map((item) => ({ ...item, isPrimary: false })) : visualAssets;
           const merged = dedupeVisualAssets([...next, asset]);
-          setVisualAssets(merged);
-          syncVisualIdentityReferenceImages(merged, { primaryReferenceImageId: asset.isPrimary ? asset.id : undefined });
+          commitVisualAssets(merged, asset.isPrimary ? asset.id : undefined);
           return;
         }
         const asset: CharacterVisualReferenceImage = {
@@ -907,8 +908,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
           createdAt: Date.now(),
         };
         const merged = dedupeVisualAssets([...visualAssets, asset]);
-        setVisualAssets(merged);
-        syncVisualIdentityReferenceImages(merged, { primaryReferenceImageId: asset.isPrimary ? asset.id : undefined });
+        commitVisualAssets(merged, asset.isPrimary ? asset.id : undefined);
       } catch (error) {
         setVisualImageTaskError(error instanceof Error ? error.message : String(error));
       } finally {
@@ -926,19 +926,21 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
       await api.updateCharacterVisualAsset(initial.id, assetId, { isPrimary: true });
     }
     const next = dedupeVisualAssets(visualAssets.map((asset) => ({ ...asset, isPrimary: asset.id === assetId })));
-    setVisualAssets(next);
-    syncVisualIdentityReferenceImages(next, { primaryReferenceImageId: assetId });
+    commitVisualAssets(next, assetId);
   };
 
   const handleDeleteVisualAsset = async (assetId: string) => {
     if (initial?.id && !assetId.startsWith('local-')) {
       await api.deleteCharacterVisualAsset(initial.id, assetId);
+      const next = visualAssets.filter((asset) => asset.id !== assetId);
+      const nextPrimary = next.find((asset) => asset.isPrimary)?.id || next[0]?.id || null;
+      commitVisualAssets(next, nextPrimary || undefined);
+      return;
     }
     const next = dedupeVisualAssets(visualAssets.filter((asset) => asset.id !== assetId));
     const nextPrimary = next.find((asset) => asset.isPrimary)?.id || next[0]?.id || null;
     const normalized = next.map((asset, index) => ({ ...asset, isPrimary: nextPrimary ? asset.id === nextPrimary : index === 0 }));
-    setVisualAssets(normalized);
-    syncVisualIdentityReferenceImages(normalized, { primaryReferenceImageId: nextPrimary });
+    commitVisualAssets(normalized, nextPrimary || undefined);
   };
 
   const handleGenerateVisualImage = async () => {
@@ -1027,7 +1029,7 @@ export default function CharacterForm({ initial, existingNames = [], saveError =
     }));
     const normalizedVisualIdentity = {
       ...visualIdentity,
-      referenceImages: [],
+      referenceImages: normalizedVisualAssets,
       primaryReferenceImageId: visualIdentity.primaryReferenceImageId || normalizedVisualAssets.find((asset) => asset.isPrimary)?.id || null,
     };
     setIsSaving(true);

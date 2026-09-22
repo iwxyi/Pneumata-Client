@@ -100,6 +100,8 @@ export interface VipEntitlementInfo {
   dailyPointGrant: number;
   monthlyPointGrant: number;
   cloudSyncEnabled: boolean;
+  cloudStorageBytes: number;
+  maxFileSizeBytes: number;
   assistantArtifactCloudSync: boolean;
   aiProxyEnabled: boolean;
   agentEnabled: boolean;
@@ -420,6 +422,11 @@ export interface BillingMembershipResponse {
   dailyAiGenerationUsage?: {
     usageDate: string;
     used: number;
+  };
+  usage?: {
+    characters: number;
+    chats: number;
+    cloudStorageBytes: number;
   };
   pointClaimStatus?: {
     tierCode: string;
