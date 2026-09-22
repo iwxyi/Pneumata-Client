@@ -310,12 +310,12 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
 
 export function buildTurnPlanPrompt(plan: TurnPlan) {
   const bubbleLine = plan.allowExtraMessages
-    ? '- Consecutive bubbles are available, never required. After completing a thought, decide whether this character would actually press send and then add a second beat: an afterthought, correction, delayed feeling, small tease, practical add-on, or reluctant qualification. If not, keep one bubble.'
+    ? '- Consecutive bubbles are available, never required. Treat them as a small run of 1-3 real sends, not a main sentence plus an appendix: a quick acknowledgement, invitation to continue, hesitation, change of mind, small tease, delayed feeling, question, correction, or practical add-on can each be its own beat. Let the beats be uneven in length. If there is no real send-time change, keep one bubble.'
     : '- Keep this turn in one visible bubble unless the current moment clearly wants a natural follow-up message.';
   const rhythmLine = plan.rhythm === 'micro_ack'
     ? '\n- This turn can be a tiny acknowledgement or quick nudge. Do not expand it into a paragraph unless the user directly asked for substance.'
     : plan.rhythm === 'short_reply'
-      ? '\n- Keep one compact social or deliberative move. A compact turn may still be one send followed by a brief, genuinely later second thought.'
+      ? '\n- Keep one compact social or deliberative move. In a multi-send room, that move may unfold as several unequal chat beats rather than one polished sentence.'
       : plan.rhythm === 'multi_bubble'
         ? '\n- If using multiple bubbles, keep each bubble purposeful and uneven; do not use them to continue a lecture.'
         : '';

@@ -378,6 +378,8 @@ describe('deriveTurnPlan', () => {
     expect(prompt).toContain('never required');
     expect(prompt).toContain('full stop is a possible send boundary');
     expect(prompt).toContain('not a mechanical splitting rule');
+    expect(prompt).toContain('small run of 1-3 real sends');
+    expect(prompt).toContain('uneven in length');
   });
 
   it('gives high, medium, and low delivery policies different proactive thresholds', () => {

@@ -1682,7 +1682,7 @@ function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeP
   if (surface.kind !== 'chat') return '';
   void messages;
   const bubblePolicy = richDelivery?.multiBubble.proactivity === 'high'
-    ? '- This room actively welcomes a natural later send when the character has a second beat after a complete thought; it is still never a quota.'
+    ? '- This room actively welcomes a small run of natural sends when the character would actually type them that way: short acknowledgement, another short nudge, then a question or a more developed thought are all possible. They need not be equal in length or each introduce a new argument; it is still never a quota.'
     : richDelivery?.multiBubble.proactivity === 'medium'
       ? '- This room sometimes permits a natural later send when the second beat changes timing or social feel; do not seek one out.'
       : richDelivery?.multiBubble.proactivity === 'low'
@@ -1697,6 +1697,7 @@ ${rhythm}
 ${bubblePolicy}
 - One bubble can contain multiple paragraphs when the speaker is making one continuous point.
 - Multiple bubbles are for consecutive sends with separate social purposes: correction, afterthought, softened add-on, practical follow-up, or a second beat that would feel typed after pressing send.
+- A bubble can also be a small conversational beat rather than a self-contained argument: acknowledgement, invitation, hesitation, realization, retraction, reaction, or question. Do not inflate each one into a polished mini-answer.
 - A sentence ending in a full stop can be a natural opportunity to send, then think again. It is never enough by itself: do not split merely because punctuation permits it.
 - A live-chat turn does not always need a new argument or task result. Low-information social signals are valid when they change stance, consent, resistance, timing, face, attention, or emotional temperature.
 - Do not use messages[] for punctuation splitting, action/dialogue separation, another actor's line, or making a lecture longer.`;
