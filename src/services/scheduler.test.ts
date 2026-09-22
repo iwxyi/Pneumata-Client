@@ -232,7 +232,7 @@ describe('scheduler speaker scoring', () => {
     expect(b?.scoreBreakdown?.addressed).toBeGreaterThan(0);
   });
 
-  it('adds a bounded pressure for unspoken members in multi-character group chat', () => {
+  it('does not force an unspoken member into an ordinary multi-character exchange', () => {
     const now = Date.now();
     const candidates = calculateWeights(
       [
@@ -252,8 +252,8 @@ describe('scheduler speaker scoring', () => {
     );
 
     const c = candidates.find((candidate) => candidate.characterId === 'c');
-    expect(c?.scoreBreakdown?.silencePressure).toBeGreaterThan(0.2);
-    expect(c?.scoreBreakdown?.reasons).toContain('unspoken_member');
+    expect(c?.scoreBreakdown?.silencePressure).toBeLessThanOrEqual(0.06);
+    expect(c?.scoreBreakdown?.reasons).not.toContain('unspoken_member');
   });
 
   it('lets an unspoken member break a two-actor pending-reply loop', () => {

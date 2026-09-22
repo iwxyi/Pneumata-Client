@@ -208,7 +208,7 @@ describe('conversationMovePlanner', () => {
     expect(plan.targetMessageId).toBe('m1');
   });
 
-  it('breaks casual agreement echo loops with a boundary or counterexample move', () => {
+  it('lets casual agreement echo loops settle instead of manufacturing another point', () => {
     const plan = planConversationMove({
       chat: chat('conversation'),
       speaker: character(),
@@ -220,7 +220,7 @@ describe('conversationMovePlanner', () => {
       ],
     });
 
-    expect(['add_boundary_condition', 'counterexample']).toContain(plan.moveType);
+    expect(['react_lightly', 'shift_topic_softly']).toContain(plan.moveType);
     expect(plan.reason).toBe('chat_echo_loop');
   });
 
@@ -257,18 +257,18 @@ describe('conversationMovePlanner', () => {
     expect(['name_tradeoff', 'counterexample', 'add_boundary_condition']).toContain(plan.moveType);
   });
 
-  it('renders a casual echo-loop prompt that requires agreement to add new substance', () => {
+  it('renders a casual echo-loop prompt that stops manufacturing new substance', () => {
     const prompt = buildConversationMovePrompt({
       speakerId: 'a',
-      moveType: 'add_boundary_condition',
+      moveType: 'react_lightly',
       socialPosture: { warmth: 'neutral', directness: 'plain' },
       reason: 'chat_echo_loop',
       confidence: 0.78,
     }, chat('conversation'));
 
-    expect(prompt).toContain('agreement echo loop');
-    expect(prompt).toContain('A plain agreement opener is only useful');
-    expect(prompt).toContain('condition, cost, counterexample');
+    expect(prompt).toContain('already worried the same point enough');
+    expect(prompt).toContain('Do not manufacture a new condition');
+    expect(prompt).toContain('brief personal reaction');
   });
 
   it('renders a break-in prompt that requires a missing angle instead of loose commentary', () => {

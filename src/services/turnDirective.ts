@@ -239,7 +239,7 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
   const targetName = speakerName(input.members, input.conversationMovePlan.targetActorId || input.intent.target);
   const forbiddenDrift = [
     'do not use recent transcript wording as a template',
-    'do not make agreement the whole move; agreement must change stance, condition, temperature, or next action',
+    'do not turn agreement into a paraphrase, a meeting recap, or a newly invented condition just to prove the turn contributes; agreement may simply reveal attitude, relationship, relief, reluctance, or a decision to let the point rest',
     'do not turn ordinary chat into a speech, scene narration, or checklist',
     'do not sand every relationship or boundary moment into a clean correct statement',
     'do not turn every disagreement into a formal question or a performance of depth',

@@ -2974,7 +2974,7 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('do not make agreement the whole move');
+    expect(prompt).toContain('do not turn agreement into a paraphrase');
     expect(prompt).not.toContain('opening-frame history');
     expect(prompt).not.toContain('## Turn Length Variety');
     expect(prompt).not.toContain('你这个问题问到了实务中的痛点');

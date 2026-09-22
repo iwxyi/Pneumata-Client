@@ -329,7 +329,7 @@ export function planConversationMove(params: {
       targetMessageId: target?.id,
       targetActorId: target?.senderId,
       targetClaimText: target?.content.slice(0, 120),
-      moveType: repeatedCount >= 3 ? 'counterexample' : 'add_boundary_condition',
+      moveType: repeatedCount >= 3 ? 'shift_topic_softly' : 'react_lightly',
       socialPosture: chooseSocialPosture(params.speaker, target?.senderId),
       reason: 'chat_echo_loop',
       confidence: 0.78,
@@ -385,7 +385,7 @@ export function buildConversationMovePrompt(plan: ConversationMovePlan | null | 
     ? '\n- In analysis rooms, warmth is interpersonal tone only. It does not mean viewpoint agreement.'
     : '\n- In casual rooms, keep the move natural and conversational rather than meeting-like. You may ignore part of the previous line, react to the gist, admit a term is outside your lane, or switch to a nearby everyday angle.';
   const echoLoopLine = plan.reason === 'chat_echo_loop'
-    ? '\n- The room is in an agreement echo loop. A plain agreement opener is only useful if it carries a new condition, cost, counterexample, consequence, or point of friction that changes the direction of the room.'
+    ? '\n- The room has already worried the same point enough. Do not manufacture a new condition, risk, counterexample, task, or handoff merely to keep it moving. Let the point land with a brief personal reaction, a change in social temperature, a pause, or a genuinely nearby topic.'
     : '';
   const breakInLine = plan.reason === 'unspoken_member_break_in' || plan.reason === 'break_in_selected_despite_silence'
     ? '\n- You were selected to break a narrow room loop or fill a missing perspective. Do not merely comment that others are right. Enter with one concrete missing angle: a counterexample, boundary condition, practical consequence, fresh fact, or short action implication that gives the next speaker something new to answer.'

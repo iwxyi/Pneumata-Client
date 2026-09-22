@@ -34,15 +34,6 @@ export interface SelectiveMisread {
   instruction: string;
 }
 
-function pick<T>(items: T[], seed: number) {
-  if (!items.length) return undefined;
-  return items[Math.abs(seed) % items.length];
-}
-
-function getSeedFromCharacter(character: AICharacter) {
-  return Array.from(character.id).reduce((sum, char) => sum + char.charCodeAt(0), 0);
-}
-
 function pickTopicLatch(content: string) {
   const match = content.match(/[\u4e00-\u9fa5A-Za-z0-9]{2,10}/g);
   return match?.[0] || '当前这个点';
@@ -72,7 +63,7 @@ function buildStanceSummary(memory: StanceMemory) {
 
 function buildArchetypeExecutionHint(archetype: MessageArchetype) {
   if (archetype.key === 'pushback') return '可以直接顶一句、挑一个漏洞、或者在真有压迫感时反问；如果当前任务需要论证，也可以完整展开。';
-  if (archetype.key === 'backing') return '可以护住对方的处境、发言权或被误解的部分，但不要把“维护人”自动写成“同意观点”；这一句需要带出新的条件、代价、边界、证据或关系动作。';
+  if (archetype.key === 'backing') return '可以护住对方的处境、发言权或被误解的部分，但不要把“维护人”自动写成套话复述。你可以只让对方知道自己被站在这一边，也可以保留不同意见；不必硬加条件、代价或下一步。';
   if (archetype.key === 'probe') return '可以短追问，但提问不只用于缺信息：也可以拿来逼表态、转移问题、带节奏、开玩笑、或者把话题拧去你想要的方向；不要用追问逃避需要回答的任务。';
   if (archetype.key === 'side_comment') return '可以像群里插一句，但这只是入口方式；当前场景或用户任务需要时，可以写成完整段落或更长说明。';
   if (archetype.key === 'redirect') return '把话扯回你在意的主线，但依然保持口语。';
@@ -181,11 +172,11 @@ function isAgreementEchoLoop(messages: Message[]) {
 function buildAgreementEchoLoopHint(messages: Message[], archetype: MessageArchetype) {
   if (!isAgreementEchoLoop(messages)) return '';
   const backingLine = archetype.key === 'backing'
-    ? '\n- Even if the local archetype says backing, backing now must mean adding a new condition, cost, exception, consequence, or pressure. Do not simply say you stand with the previous speaker.'
+    ? '\n- Even if the local archetype says backing, do not recycle the room\'s wording. A brief personal show of support, a changed temperature, or a pause can be enough; do not invent a condition or task just to add content.'
     : '';
   return `${backingLine}
-- The room has fallen into an agreement echo. The next useful move is not another “I agree / I stand with him” opener.
-- Start from a different discourse move: a counterexample, boundary condition, cost, hidden risk, personal doubt, or a sharp question that makes the room choose.`;
+- The room has fallen into an agreement echo. Stop restating the shared conclusion.
+- Let it land, show a character-specific reaction, change the social temperature, go briefly quiet, or move only to a genuinely nearby topic. Do not manufacture a counterexample, boundary condition, cost, or sharp question merely to keep the exchange going.`;
 }
 
 function extractEmojiTokens(content: string) {

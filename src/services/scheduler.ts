@@ -389,6 +389,7 @@ export function calculateWeights(
         && recentCount === 0
         && recentAiMessages.length >= Math.min(2, speakableCharacters.length - 1)
         && !forcedUserGuidanceActorIds.length
+        && (pendingTwoActorLoop || twoActorDominance)
         ? (pendingReplyContext?.primaryTargetId ? ((pendingTwoActorLoop || twoActorDominance) ? 0.38 : 0.08) : 0.22)
         : 0;
       const conflictBias = getConflictSpeakerBias(char, conflictContext, lastSpeakerId);

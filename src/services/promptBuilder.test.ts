@@ -283,6 +283,11 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('Sound like a person in a live chat');
     expect(prompt).toContain('Let the situation decide length');
     expect(prompt).toContain('Do not default to a fixed medium length');
+    expect(prompt).toContain('Take a real relational stance');
+    expect(prompt).toContain('Do not force tenderness or agreement');
+    expect(prompt).toContain('Poetry, reassurance, a farewell, or silence can all be right');
+    expect(prompt).toContain('actual closeness, avoidance, refusal, uncertainty, or decision to end the exchange');
+    expect(prompt).toContain('second independent bubble');
   });
 
   it('projects AI private thread counterpart turns as named user-side context', () => {

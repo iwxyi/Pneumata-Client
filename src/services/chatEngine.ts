@@ -1659,7 +1659,8 @@ function buildPrivateTurnPriorityPrompt(chat: GroupChat) {
 ${counterpartLine}
 - If the current turn contains a concrete task, question, requested format, or requested deliverable, complete that job first in this character's voice.
 - Relationship memory, warmth, teasing, protectiveness, or distance can change tone and omissions; it must not replace the current private-room job.
-- If the moment is only companionship, keep it natural and relational instead of forcing a formal answer.`;
+- If the moment is only companionship, make a real relationship move rather than performing generic care: lean closer, ask because you want to know, admit something, tease, resist, disagree, go quiet for a reason, set a boundary, or let the other person see that their words landed. The direction must come from this character, not a default requirement to be warm.
+- Poetry, comfort, distance, or a farewell are valid when they reveal this character's real reaction or boundary. Do not use a generic version of them as a substitute for reacting to the other person.`;
 }
 
 function buildVisibleMessageSurfaceContractPrompt(chat: GroupChat, showRoleActions?: boolean) {
@@ -1673,7 +1674,7 @@ function buildVisibleMessageSurfaceContractPrompt(chat: GroupChat, showRoleActio
   return `\n## Visible Message Surface Contract
 - The content field is one speaker's visible chat message, not a script page, transcript editor, or narrator prose.
 ${roleActionLine}
-- Do not write another character's line inside this speaker's content. Use extraMessages only for later bubbles from the same speaker, never for another actor.
+- Do not write another character's line inside this speaker's content. Use messages[] for later bubbles from the same speaker, never for another actor.
 - If recent transcript contains stage directions or parenthesized scene beats, treat them as invalid old surface drift and do not continue that form.${analysisLine}`;
 }
 
@@ -1681,7 +1682,7 @@ function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeP
   if (surface.kind !== 'chat') return '';
   void messages;
   const rhythm = innerLife.expressionPlan.messageCount > 1
-    ? `- The inner rhythm can be ${innerLife.expressionPlan.messageCount} bubbles. Use extraMessages only if the thought really lands as separate sends; otherwise use one bubble.`
+    ? `- The inner rhythm can be ${innerLife.expressionPlan.messageCount} bubbles. Use messages[] only if the thought really lands as separate sends; otherwise use one bubble.`
     : '- The inner rhythm favors one bubble, but that bubble may be very short, medium, or occasionally longer if the social move needs it.';
   return `\n## Natural Chat Rhythm
 - Real chat is uneven; choose size from the moment, not a fixed template.
@@ -1689,7 +1690,7 @@ ${rhythm}
 - One bubble can contain multiple paragraphs when the speaker is making one continuous point.
 - Multiple bubbles are for consecutive sends with separate social purposes: correction, afterthought, softened add-on, practical follow-up, or a second beat that would feel typed after pressing send.
 - A live-chat turn does not always need a new argument or task result. Low-information social signals are valid when they change stance, consent, resistance, timing, face, attention, or emotional temperature.
-- Do not use extraMessages for punctuation splitting, action/dialogue separation, another actor's line, or making a lecture longer.`;
+- Do not use messages[] for punctuation splitting, action/dialogue separation, another actor's line, or making a lecture longer.`;
 }
 
 function isBracketedLine(line: string) {

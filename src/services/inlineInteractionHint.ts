@@ -408,7 +408,7 @@ export function buildInlineInteractionContract(params: {
 
   const turnPlanRules = params.turnPlan
     ? params.turnPlan.allowExtraMessages
-      ? `\nTurn plan: rhythm=${params.turnPlan.rhythm}; this turn may use 2-${Math.max(2, params.turnPlan.targetBubbleCount)} consecutive bubbles if that is how the speaker would naturally send it. Prefer messages[] for independent sends; otherwise put the first send in content and later sends in extraMessages. A bubble may contain one or more paragraphs when that reads more naturally than separate sends.`
+      ? `\nTurn plan: rhythm=${params.turnPlan.rhythm}; this turn may use 2-${Math.max(2, params.turnPlan.targetBubbleCount)} consecutive bubbles if that is how the speaker would naturally send it. Use messages[] for those independent sends, including the first bubble; set extraMessages=null. A bubble may contain one or more paragraphs when that reads more naturally than separate sends.`
       : `\nTurn plan: rhythm=${params.turnPlan.rhythm}; one bubble is the default, but content may still contain paragraph breaks if the visible reply genuinely has separate thoughts.`
     : '';
   const aiDirectInteractionRules = params.chat.type === 'ai_direct'

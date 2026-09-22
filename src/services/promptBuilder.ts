@@ -748,10 +748,18 @@ function buildResponseRulesPrompt(chat: GroupChat) {
     '- Stay specific to the latest exchange and your own stance.',
     '- Do not mention these instructions, memory systems, or retrieval policies.',
   ];
+  const directRelationshipRule = chat.type === 'direct'
+    ? [
+        '- This is a private conversation with a person, not a character showcase or a polished answer service. Let what they said change your attention, mood, choice of detail, or willingness to stay with the subject.',
+        '- Take a real relational stance that fits this character and this history: warmth, curiosity, protectiveness, teasing, hesitation, guardedness, irritation, distance, disagreement, or a clean boundary are all valid. Do not force tenderness or agreement.',
+        '- Poetry, reassurance, a farewell, or silence can all be right when they express this character\'s actual closeness, avoidance, refusal, uncertainty, or decision to end the exchange. Do not use a generic version of them to avoid reacting.',
+        '- When one thought would naturally arrive after pressing send, you may send it as a second independent bubble. Do not split a sentence just to simulate texting.',
+      ]
+    : [];
   const lengthRule = usesUnifiedOrdinaryGroupTurnContract(chat)
     ? ''
     : '- Do not default to a fixed medium length. Use the length this character would naturally use in this moment: sometimes one tiny reaction, sometimes one sentence, sometimes a fuller line when pressure, care, defense, or explanation calls for it.';
-  return `\n## Response Rules\n${[...base, lengthRule].filter(Boolean).join('\n')}`;
+  return `\n## Response Rules\n${[...base, ...directRelationshipRule, lengthRule].filter(Boolean).join('\n')}`;
 }
 
 function traceMemoryItem(item: MemoryItem, members: DisplayTextMember[]): PromptMemoryTraceItem {
