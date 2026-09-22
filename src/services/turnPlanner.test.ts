@@ -80,7 +80,7 @@ const intent: SpeakIntent = {
 };
 
 const highDelivery: RichDeliveryPolicy = {
-  multiBubble: { proactivity: 'high', maxBubbles: 3 },
+  multiBubble: { proactivity: 'high', maxBubbles: 5 },
   image: { proactivity: 'medium', explicitRequest: true },
   audio: { proactivity: 'medium', explicitRequest: true },
   sticker: { proactivity: 'high', explicitRequest: true },
@@ -106,7 +106,7 @@ describe('deriveTurnPlan', () => {
       now: 31,
     });
 
-    expect(plan.targetBubbleCount).toBeLessThanOrEqual(3);
+    expect(plan.targetBubbleCount).toBeLessThanOrEqual(5);
     expect(plan.reasons).toContain('delivery:multi_bubble_high');
   });
 
@@ -372,13 +372,13 @@ describe('deriveTurnPlan', () => {
     });
 
     expect(plan.allowExtraMessages).toBe(true);
-    expect(plan.targetBubbleCount).toBe(2);
+    expect(plan.targetBubbleCount).toBe(5);
     expect(plan.reasons.some((reason) => reason.startsWith('delivery:'))).toBe(true);
     const prompt = buildTurnPlanPrompt(plan);
     expect(prompt).toContain('never required');
     expect(prompt).toContain('full stop is a possible send boundary');
     expect(prompt).toContain('not a mechanical splitting rule');
-    expect(prompt).toContain('small run of 1-3 real sends');
+    expect(prompt).toContain('one to several real sends');
     expect(prompt).toContain('uneven in length');
   });
 

@@ -42,7 +42,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 3 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: { proactivity: 'high', explicitRequest: true } },
+    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: { proactivity: 'high', explicitRequest: true } },
   }],
   ['discovery_room', {
     key: 'discovery_room',
@@ -75,7 +75,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 3 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'high', explicitRequest: true }, sticker: { proactivity: 'medium', explicitRequest: true } },
+    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'high', explicitRequest: true }, sticker: { proactivity: 'medium', explicitRequest: true } },
   }],
   ['dramatic_room', {
     key: 'dramatic_room',

@@ -143,6 +143,18 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('they are never quotas');
   });
 
+  it('uses the style policy ceiling rather than a fixed target bubble count', () => {
+    const contract = buildInlineInteractionContract({
+      chat: { id: 'chat-1', type: 'direct', memberIds: ['speaker'], runtimeEventsV2: [] } as unknown as GroupChat,
+      speaker: { id: 'speaker', name: '说话人' } as AICharacter,
+      characters: [{ id: 'speaker', name: '说话人' } as AICharacter], recentMessages: [],
+      richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'off', explicitRequest: true }, audio: { proactivity: 'off', explicitRequest: true }, sticker: { proactivity: 'off', explicitRequest: true } },
+      turnPlan: { rhythm: 'multi_bubble', targetBubbleCount: 2, lengthBand: 'short', allowExtraMessages: true, waitSensitive: false, reasons: ['test'] },
+    });
+    expect(contract).toContain('one to 5 consecutive bubbles');
+    expect(contract).not.toContain('up to 2 consecutive bubbles');
+  });
+
   it('parses the messages protocol and keeps per-message media decisions', () => {
     const parsed = parseInlineInteractionEnvelope(JSON.stringify({
       content: '第一句',

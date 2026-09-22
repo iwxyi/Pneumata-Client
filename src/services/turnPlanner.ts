@@ -281,7 +281,8 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
   const threshold = delivery.proactivity === 'high' ? 5 : delivery.proactivity === 'medium' ? 62 : 84;
   const preservesUserRequestedSplit = plan.reasons.some((reason) => reason === 'human_depth_can_split_bubbles' || reason === 'analysis_structured_multi_bubble');
   const passesDeliveryPolicy = preservesUserRequestedSplit || bucket >= threshold;
-  const cappedCount = Math.max(1, Math.min(plan.targetBubbleCount, delivery.maxBubbles));
+  const cappedCount = Math.max(1, Math.min(plan.targetBubbleCount, delivery.maxBubbles, 5));
+  const permittedCount = delivery.proactivity === 'high' ? Math.min(5, delivery.maxBubbles) : cappedCount;
   if (plan.allowExtraMessages) {
     if (!passesDeliveryPolicy) {
       return {
@@ -292,7 +293,7 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
         reasons: [...plan.reasons, `delivery:${delivery.proactivity}_held_single`],
       };
     }
-    return { ...plan, targetBubbleCount: cappedCount, allowExtraMessages: cappedCount > 1, reasons: [...plan.reasons, `delivery:multi_bubble_${delivery.proactivity}`] };
+    return { ...plan, targetBubbleCount: permittedCount, allowExtraMessages: permittedCount > 1, reasons: [...plan.reasons, `delivery:multi_bubble_${delivery.proactivity}`] };
   }
 
   const canProactivelySplit = latestLength >= 8
@@ -305,7 +306,7 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
   return {
     ...plan,
     rhythm: 'multi_bubble',
-    targetBubbleCount: Math.min(2, delivery.maxBubbles),
+    targetBubbleCount: Math.min(5, delivery.maxBubbles),
     allowExtraMessages: delivery.maxBubbles > 1,
     reasons: [...plan.reasons, `delivery:${delivery.proactivity}_proactive_multi_bubble`],
   };
@@ -313,7 +314,7 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
 
 export function buildTurnPlanPrompt(plan: TurnPlan) {
   const bubbleLine = plan.allowExtraMessages
-    ? '- Consecutive bubbles are available, never required. Treat them as a small run of 1-3 real sends, not a main sentence plus an appendix: a quick acknowledgement, invitation to continue, hesitation, change of mind, small tease, delayed feeling, question, correction, or practical add-on can each be its own beat. Let the beats be uneven in length. If there is no real send-time change, keep one bubble.'
+    ? '- Consecutive bubbles are available, never required. Treat them as one to several real sends, not a main sentence plus an appendix: a quick acknowledgement, invitation to continue, hesitation, change of mind, small tease, delayed feeling, question, correction, or practical add-on can each be its own beat. Let the beats be uneven in length. If there is no real send-time change, keep one bubble.'
     : '- Keep this turn in one visible bubble unless the current moment clearly wants a natural follow-up message.';
   const rhythmLine = plan.rhythm === 'micro_ack'
     ? '\n- This turn can be a tiny acknowledgement or quick nudge. Do not expand it into a paragraph unless the user directly asked for substance.'
