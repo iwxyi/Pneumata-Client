@@ -453,6 +453,13 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
   const isPerspectiveSelf = Boolean(selfMemberId && message.type === 'ai' && message.senderId === selfMemberId);
   const isUser = message.type === 'user' || message.type === 'god' || isPerspectiveSelf;
   const effectiveCharacter = message.type === 'ai' ? character : undefined;
+  // `senderName` is a message snapshot. Account and character profiles are
+  // authoritative while available, so a rename updates historical bubbles.
+  const displaySenderName = message.type === 'user' && !isManualSpeaker
+    ? currentUser?.nickname?.trim() || message.senderName
+    : message.type === 'ai'
+      ? effectiveCharacter?.name?.trim() || message.senderName
+      : message.senderName;
   const resolvedStyle = effectiveCharacter
     ? resolveCharacterBubbleStyle({ bubbleStyle: effectiveCharacter.bubbleStyle, bubbleStyleId: effectiveCharacter.bubbleStyleId, customStyles: customBubbleStyles })
     : null;
@@ -536,7 +543,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
           </Box>
         </Box>
         <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
-          <DialogTitle>{message.senderName}</DialogTitle>
+          <DialogTitle>{displaySenderName}</DialogTitle>
           <DialogContent><NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} /></DialogContent>
         </Dialog>
       </>
@@ -566,7 +573,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
           >
             {!hidePrivateChatIdentity ? (
               <Typography variant="caption" sx={{ fontWeight: 500, textAlign: isUser ? 'right' : 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {message.senderName}
+                {displaySenderName}
               </Typography>
             ) : null}
             {branchVersionInfo && branchVersionInfo.total > 1 && onSwitchRevision && !message.isStreaming && !pending ? (
@@ -699,7 +706,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
       ) : null}
 
       <Dialog open={viewerOpen} onClose={() => setViewerOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>{message.senderName}</DialogTitle>
+        <DialogTitle>{displaySenderName}</DialogTitle>
         <DialogContent><MessageContent message={visibleMessage} onRetryMedia={onRetryMedia} onOpenImage={onOpenImage} onOpenPrompt={openPromptMenu} onOpenDiagram={onOpenDiagram} compactMediaLayout={compactMediaBubble} /></DialogContent>
       </Dialog>
 
