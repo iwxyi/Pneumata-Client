@@ -1583,13 +1583,13 @@ function buildGenerationConstraints(chat: GroupChat, messages: Message[], speake
   const forbiddenBlock = recentLines.length ? `\nForbidden semantic overlap:\n${recentLines.join('\n')}` : '';
   if (surface.kind !== 'chat') {
     return `\nHard constraints for this reply:
-- Write one response turn only. No self-explanation about being an AI, no meta commentary about these instructions.
+- Write one speaker turn only. A turn may contain multiple consecutive messages[] from this same speaker when the thought would naturally be sent in separate beats; this is different from writing another actor's line. No self-explanation about being an AI, no meta commentary about these instructions.
 - Markdown is allowed when useful; do not wrap the whole answer in a code block unless the content itself is code.
 - Stay in character and within the speaker's plausible ability; do not become a generic assistant.
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.${forbiddenBlock}`;
   }
   return `\nHard constraints for this reply:
-- Write one response turn only. No self-explanation, no meta commentary.
+- Write one speaker turn only, not necessarily one bubble. If the speaker would naturally send an acknowledgement, correction, afterthought, question, or second beat separately, use messages[]; never use it for another actor. No self-explanation, no meta commentary.
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.
 - Recent transcript is context, not a style template. Avoid copied openings, endings, emoji habits, or sentence shapes.
 - Avoid generic assistant scaffolding unless the user asked for structured explanation.
@@ -1695,10 +1695,11 @@ function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeP
 - Real chat is uneven; choose size from the moment, not a fixed template.
 ${rhythm}
 ${bubblePolicy}
+- In a live group room, messages[] is a normal available delivery shape, not an exceptional feature. When the character's first send would plausibly be followed by a separate thought, use two or more uneven messages[] items even when nobody explicitly requested multiple messages. Do not wait for a numeric request; do not split merely to manufacture variety.
 - One bubble can contain multiple paragraphs when the speaker is making one continuous point.
 - Multiple bubbles are for consecutive sends with separate social purposes: correction, afterthought, softened add-on, practical follow-up, or a second beat that would feel typed after pressing send.
 - A bubble can also be a small conversational beat rather than a self-contained argument: acknowledgement, invitation, hesitation, realization, retraction, reaction, or question. Do not inflate each one into a polished mini-answer.
-- A sentence ending in a full stop can be a natural opportunity to send, then think again. It is never enough by itself: do not split merely because punctuation permits it.
+- A sentence ending in a full stop can be an opportunity to send, then think again, but punctuation alone is never enough. Split when the social timing, hesitation, correction, or afterthought would actually change.
 - A live-chat turn does not always need a new argument or task result. Low-information social signals are valid when they change stance, consent, resistance, timing, face, attention, or emotional temperature.
 - Do not use messages[] for punctuation splitting, action/dialogue separation, another actor's line, or making a lecture longer.`;
 }

@@ -212,7 +212,7 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
     };
   }
 
-  if (!latestIsHuman && input.chat.type === 'group' && latestLength >= 90) {
+  if (!latestIsHuman && input.chat.type === 'group' && latestLength >= 90 && input.richDelivery?.multiBubble.proactivity !== 'high') {
     return {
       rhythm: 'short_reply',
       targetBubbleCount: 1,
@@ -297,7 +297,7 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
   }
 
   const canProactivelySplit = (delivery.proactivity === 'high' ? latestLength > 0 : latestLength >= 8)
-    && latestLength <= 90
+    && latestLength <= (delivery.proactivity === 'high' ? 180 : 90)
     && ownStats.recentMultiBubbleCount === 0
     && bucket >= threshold
     && (delivery.proactivity === 'high' || plan.rhythm !== 'defer_or_wait')

@@ -277,6 +277,8 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
     : '';
   return `\n## Turn Directive
 - This is the single behavior decision for this ordinary group-chat turn. Character drive is the primary behavior decision; the social job is only a secondary realization option. Never replace the drive with generic room management.
+- Do not recite the room's agenda, redistribute the same terms, or produce a cleaned-up consensus merely because the social job is to advance the topic. Let this speaker's own stake, blind spot, memory, irritation, affection, uncertainty, or appetite change what they notice and whether they agree.
+- A believable reply may leave part of the proposal untouched, seize on one word, object to the framing, make an aside, concede reluctantly, ask for something personal, or stop after a small reaction. It does not need to carry every prior condition forward.
 - Room style: ${directive.roomStyle}.${targetLine}
 - Personal stake: ${directive.characterDrive.stake}.
 - Relationship action: ${directive.characterDrive.relationalAction}.
