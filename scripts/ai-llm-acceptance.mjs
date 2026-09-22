@@ -3203,6 +3203,8 @@ function summarizeRuntimeTurn(message) {
     senderId: message.senderId,
     senderName: message.senderName,
     content: message.content,
+    generatedBubbleCount: message.generatedBubbleCount || 1,
+    persistedBubbleCount: message.persistedBubbleCount || 1,
     interactionHints: message.interactionHints || message.interactionHint ? (message.interactionHints || [message.interactionHint]).filter(Boolean) : [],
     socialEventHints: message.socialEventHints || [],
     relationshipSignals: runtimeDecision.runtimeBundle?.relationshipDeltas
@@ -3586,6 +3588,7 @@ function buildChatflowReportTables(runs, judgeCalibration = null) {
         run.scenario,
         turn.turn,
         turn.senderName,
+        `${turn.generatedBubbleCount}/${turn.persistedBubbleCount}`,
         turnReview?.score ?? '',
         turnReview?.review?.pass === false ? '否' : '是',
         turn.content,
@@ -3645,7 +3648,7 @@ function buildChatflowReportTables(runs, judgeCalibration = null) {
     ),
     userInputs: buildMarkdownTable(['场景', '插入时机', '用户消息'], inputRows.length ? inputRows : [['-', '-', '-']]),
     turns: buildMarkdownTable(
-      ['场景', '轮次', '发言者', '单轮分', '通过', '回复内容', '故事选项', '审议产物 C/E/I/V', '单轮问题', '单轮优化'],
+      ['场景', '轮次', '发言者', '生成/落库气泡', '单轮分', '通过', '回复内容', '故事选项', '审议产物 C/E/I/V', '单轮问题', '单轮优化'],
       turnRows,
     ),
     reviews: buildMarkdownTable(
@@ -3705,6 +3708,9 @@ async function runRuntimeChatflowScenario(model, scenario) {
     let workingChat = chat;
     let workingCharacters = characters;
     const commitInputMessages = [...messages];
+    const generatedBubbleCount = Array.isArray(completed.messageParts) && completed.messageParts.length
+      ? completed.messageParts.length
+      : 1 + (Array.isArray(completed.extraMessages) ? completed.extraMessages.filter((item) => typeof item === 'string' && item.trim()).length : 0);
     const persistedBuffer = [];
     const upsertMessage = (message) => {
       const index = persistedBuffer.findIndex((item) => item.id === message.id);
@@ -3758,13 +3764,18 @@ async function runRuntimeChatflowScenario(model, scenario) {
       if (index >= 0) messages[index] = item;
       else messages.push(item);
     }
+    const logicalTurnMessages = persistedBuffer.length ? persistedBuffer : [persisted];
+    const primaryPersisted = logicalTurnMessages[0] || persisted;
     const summarized = summarizeRuntimeTurn({
-      ...persisted,
+      ...primaryPersisted,
+      content: logicalTurnMessages.map((item) => item.content).filter(Boolean).join('\n'),
       turn,
+      generatedBubbleCount,
+      persistedBubbleCount: logicalTurnMessages.length,
       scenarioStateAfter: collectScenarioStateSnapshot(chat),
-      storyEvents: persisted.metadata?.storyEvents || [],
-      storyChoices: persisted.metadata?.storyChoices || [],
-      deliberationArtifacts: persisted.metadata?.deliberationArtifacts || null,
+      storyEvents: primaryPersisted.metadata?.storyEvents || [],
+      storyChoices: primaryPersisted.metadata?.storyChoices || [],
+      deliberationArtifacts: primaryPersisted.metadata?.deliberationArtifacts || null,
     });
     summarized.scenarioStateAfter = collectScenarioStateSnapshot(chat);
     summarized.storyEvents = persisted.metadata?.storyEvents || [];

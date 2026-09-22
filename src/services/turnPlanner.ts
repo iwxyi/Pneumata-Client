@@ -275,7 +275,10 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
   const latestLength = charLength(latest?.content);
   const ownStats = recentOwnStats(input.messages, input.speaker.id);
   const bucket = stableBucket([input.chat.id, input.speaker.id, latest?.id || '', latest?.timestamp || input.now || 0, 'rich-delivery'].join('|'));
-  const threshold = delivery.proactivity === 'high' ? 28 : delivery.proactivity === 'medium' ? 62 : 84;
+  // High is an affordance of casual/companion rooms: nearly every eligible
+  // turn may choose a run of messages, while the model retains the final
+  // semantic decision to keep it as one message or send several.
+  const threshold = delivery.proactivity === 'high' ? 5 : delivery.proactivity === 'medium' ? 62 : 84;
   const preservesUserRequestedSplit = plan.reasons.some((reason) => reason === 'human_depth_can_split_bubbles' || reason === 'analysis_structured_multi_bubble');
   const passesDeliveryPolicy = preservesUserRequestedSplit || bucket >= threshold;
   const cappedCount = Math.max(1, Math.min(plan.targetBubbleCount, delivery.maxBubbles));

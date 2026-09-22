@@ -116,6 +116,8 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('messages[]: use null when there is only one send');
     expect(contract).toContain('If the answer is yes, prefer messages[] for independent sends');
     expect(contract).toContain('model a short run of real sends with unequal sizes');
+    expect(contract).toContain('simulate typing this turn as live chat');
+    expect(contract).toContain('set content equal to messages[0].content');
     expect(contract).toContain('Audio must be the only media in its item');
     expect(contract).toContain('A bubble may contain one or more paragraphs');
   });
