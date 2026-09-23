@@ -14,6 +14,9 @@ vi.mock('./aiClient', () => ({
       { fromName: '旧角色', toName: '新角色', kind: 'authority', statement: '旧角色是新角色的直属上司', confidence: 0.91, reason: '职责设定明确' },
       { fromName: '旧角色', toName: '旁观者', kind: 'authority', statement: '不应写入无关结构', confidence: 0.9, reason: '无关' },
     ],
+    sharedStructure: [
+      { memberNames: ['新角色', '旧角色'], kind: 'kinship', statement: '二人是结义兄弟', confidence: 0.91, reason: '背景设定明确' },
+    ],
   })),
 }));
 
@@ -124,5 +127,6 @@ describe('defaultRelationshipInitializer', () => {
     expect(result.structureEdges).toEqual([expect.objectContaining({
       fromId: 'old', toId: 'new', kind: 'authority', statement: '旧角色是新角色的直属上司', updatedAt: 10,
     })]);
+    expect(result.sharedStructureFacts).toEqual([expect.objectContaining({ memberIds: ['new', 'old'], kind: 'kinship', statement: '二人是结义兄弟', updatedAt: 10 })]);
   });
 });

@@ -905,9 +905,21 @@ export interface RoomRelationshipStructureEdge {
   updatedAt: number;
 }
 
+/** A relationship fact jointly held by two or more members, not an attitude in one direction. */
+export interface RoomRelationshipSharedFact {
+  id: string;
+  memberIds: string[];
+  kind: RelationshipStructureKind;
+  statement: string;
+  confidence: number;
+  evidence: string;
+  updatedAt: number;
+}
+
 export interface RoomRelationshipStructure {
   version: 1;
   edges: RoomRelationshipStructureEdge[];
+  sharedFacts?: RoomRelationshipSharedFact[];
   updatedAt: number;
 }
 

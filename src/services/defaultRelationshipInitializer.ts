@@ -2,7 +2,7 @@ import { generateResponse } from './aiClient';
 import type { AIModelProfile } from '../types/settings';
 import { isAIProfileUsable } from '../types/settings';
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
-import type { RelationshipStructureKind, RoomRelationshipStructureEdge } from '../types/chat';
+import type { RelationshipStructureKind, RoomRelationshipSharedFact, RoomRelationshipStructureEdge } from '../types/chat';
 
 interface RawRelationshipInference {
   fromName?: unknown;
@@ -21,11 +21,20 @@ interface RawRelationshipInference {
 interface RawRelationshipInferenceResponse {
   relationships?: RawRelationshipInference[];
   structure?: RawRelationshipStructure[];
+  sharedStructure?: RawSharedRelationshipStructure[];
 }
 
 interface RawRelationshipStructure {
   fromName?: unknown;
   toName?: unknown;
+  kind?: unknown;
+  statement?: unknown;
+  confidence?: unknown;
+  reason?: unknown;
+}
+
+interface RawSharedRelationshipStructure {
+  memberNames?: unknown;
   kind?: unknown;
   statement?: unknown;
   confidence?: unknown;
@@ -66,6 +75,7 @@ export interface DefaultRelationshipPatchPlan {
 export interface DefaultRelationshipInitializationResult {
   patches: DefaultRelationshipPatch[];
   structureEdges: RoomRelationshipStructureEdge[];
+  sharedStructureFacts: RoomRelationshipSharedFact[];
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback = 0) {
@@ -145,7 +155,7 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
       '如果刚创建角色与已有角色在简介里明显有关，也可以输出新角色->已有角色或已有角色->新角色的初始印象；不要覆盖已有强关系。',
       '不要为所有组合机械生成关系。只输出有明显依据、能改善角色互动连续性的关系。',
       '六轴范围：warmth -70..70，competence -70..70，trust -70..70，threat 0..70，attachment 0..70，deference -70..70。confidence 0..1。',
-      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"自然语言关系说明","confidence":0.8,"reason":"依据"}],"structure":[{"fromName":"角色A","toName":"角色B","kind":"authority","statement":"角色A是角色B的直属上司","confidence":0.9,"reason":"依据"}]}。structure.kind 只能是 authority、duty、kinship、affiliation、rivalry、obligation；方向表示前者相对后者的结构位置。',
+      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"自然语言关系说明","confidence":0.8,"reason":"依据"}],"structure":[{"fromName":"角色A","toName":"角色B","kind":"authority","statement":"角色A是角色B的直属上司","confidence":0.9,"reason":"依据"}],"sharedStructure":[{"memberNames":["角色A","角色B"],"kind":"kinship","statement":"二人为结义兄弟","confidence":0.9,"reason":"依据"}]}。structure 是方向性结构位置；sharedStructure 是双方或多方共同拥有的关系事实，不能写成某一方对另一方的态度。kind 只能是 authority、duty、kinship、affiliation、rivalry、obligation。',
       '所有 fromName/toName 必须来自角色列表。不要输出 markdown，不要解释。',
       `角色列表：\n${characterBlock}`,
     ].join('\n\n');
@@ -162,7 +172,7 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
     'If newly created characters are clearly connected to existing characters, you may output new->existing or existing->new initial impressions. Do not overwrite strong existing relationships.',
     'Do not generate every pair mechanically. Only output relationships with clear grounding and useful interaction value.',
     'Axis ranges: warmth -70..70, competence -70..70, trust -70..70, threat 0..70, attachment 0..70, deference -70..70. confidence 0..1.',
-    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"natural-language relationship note","confidence":0.8,"reason":"basis"}],"structure":[{"fromName":"A","toName":"B","kind":"authority","statement":"A is B’s direct superior","confidence":0.9,"reason":"basis"}]}. structure.kind must be authority, duty, kinship, affiliation, rivalry, or obligation; direction means the first role relative to the second.',
+    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"natural-language relationship note","confidence":0.8,"reason":"basis"}],"structure":[{"fromName":"A","toName":"B","kind":"authority","statement":"A is B’s direct superior","confidence":0.9,"reason":"basis"}],"sharedStructure":[{"memberNames":["A","B"],"kind":"kinship","statement":"They are sworn siblings","confidence":0.9,"reason":"basis"}]}. structure is directional; sharedStructure is a shared fact for two or more members, never an attitude in one direction. Kinds must be authority, duty, kinship, affiliation, rivalry, or obligation.',
     'Every fromName/toName must come from the character list. No markdown. No explanation.',
     `Characters:\n${characterBlock}`,
   ].join('\n\n');
@@ -197,6 +207,23 @@ function buildStructureEdges(raw: RawRelationshipStructure[] | undefined, nameMa
       evidence: normalizeName(item.reason).slice(0, 180),
       updatedAt: now,
     }];
+  });
+}
+
+function buildSharedStructureFacts(raw: RawSharedRelationshipStructure[] | undefined, nameMap: Map<string, AICharacter>, createdIds: Set<string>, scope: DefaultRelationshipScope, now: number) {
+  const seen = new Set<string>();
+  return (raw || []).flatMap((item, index): RoomRelationshipSharedFact[] => {
+    const confidence = normalizeConfidence(item.confidence);
+    const kind = normalizeName(item.kind) as RelationshipStructureKind;
+    const statement = normalizeName(item.statement);
+    const names = Array.isArray(item.memberNames) ? item.memberNames.map(normalizeName).filter(Boolean) : [];
+    const memberIds = Array.from(new Set(names.map((name) => nameMap.get(name.toLowerCase())?.id).filter((id): id is string => Boolean(id)))).sort();
+    if (confidence < 0.55 || memberIds.length < 2 || !STRUCTURE_KINDS.has(kind) || !statement) return [];
+    if ((scope === 'created_only' || scope === 'selected_members') && memberIds.some((id) => !createdIds.has(id))) return [];
+    const key = `${memberIds.join('|')}:${kind}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{ id: `shared-structure-${now}-${index}-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`, memberIds, kind, statement: statement.slice(0, 180), confidence, evidence: normalizeName(item.reason).slice(0, 180), updatedAt: now }];
   });
 }
 
@@ -253,7 +280,7 @@ export async function buildDefaultRelationshipSuggestions(params: {
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
-  onStructure?: (edges: RoomRelationshipStructureEdge[]) => void;
+  onStructure?: (structure: { edges: RoomRelationshipStructureEdge[]; sharedFacts: RoomRelationshipSharedFact[] }) => void;
 }): Promise<DefaultRelationshipSuggestion[]> {
   const now = resolveNow(params.now);
   const scope = params.scope || 'created_and_existing';
@@ -276,7 +303,8 @@ export async function buildDefaultRelationshipSuggestions(params: {
 
   const inference = parseRelationshipInference(response);
   const structureEdges = buildStructureEdges(inference.structure, nameMap, createdIds, scope, now);
-  params.onStructure?.(structureEdges);
+  const sharedStructureFacts = buildSharedStructureFacts(inference.sharedStructure, nameMap, createdIds, scope, now);
+  params.onStructure?.({ edges: structureEdges, sharedFacts: sharedStructureFacts });
 
   (inference.relationships || []).forEach((raw) => {
     const confidence = normalizeConfidence(raw.confidence);
@@ -319,9 +347,10 @@ export async function buildDefaultRelationshipInitialization(params: {
   signal?: AbortSignal;
 }): Promise<DefaultRelationshipInitializationResult> {
   let structureEdges: RoomRelationshipStructureEdge[] = [];
+  let sharedStructureFacts: RoomRelationshipSharedFact[] = [];
   const suggestions = await buildDefaultRelationshipSuggestions({
     ...params,
-    onStructure: (edges) => { structureEdges = edges; },
+    onStructure: (structure) => { structureEdges = structure.edges; sharedStructureFacts = structure.sharedFacts; },
   });
   return {
     patches: buildDefaultRelationshipPatchesFromSuggestions({
@@ -331,6 +360,7 @@ export async function buildDefaultRelationshipInitialization(params: {
       now: params.now,
     }),
     structureEdges,
+    sharedStructureFacts,
   };
 }
 
@@ -406,7 +436,7 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
-  updateRelationshipStructure?: (edges: RoomRelationshipStructureEdge[]) => Promise<void>;
+  updateRelationshipStructure?: (structure: { edges: RoomRelationshipStructureEdge[]; sharedFacts: RoomRelationshipSharedFact[] }) => Promise<void>;
 }) {
   if (!params.config) return [];
   const result = await buildDefaultRelationshipInitialization({
@@ -419,6 +449,8 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
     signal: params.signal,
   });
   if (result.patches.length) await params.updateCharacters(result.patches);
-  if (result.structureEdges.length && params.updateRelationshipStructure) await params.updateRelationshipStructure(result.structureEdges);
+  if ((result.structureEdges.length || result.sharedStructureFacts.length) && params.updateRelationshipStructure) {
+    await params.updateRelationshipStructure({ edges: result.structureEdges, sharedFacts: result.sharedStructureFacts });
+  }
   return result.patches;
 }

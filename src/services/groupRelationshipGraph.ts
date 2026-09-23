@@ -1,5 +1,5 @@
 import type { AICharacter } from '../types/character';
-import type { GroupChat, RoomRelationshipStructureEdge } from '../types/chat';
+import type { GroupChat, RoomRelationshipSharedFact, RoomRelationshipStructureEdge } from '../types/chat';
 import type { RelationshipAxes } from '../types/runtimeEvent';
 import { isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
 
@@ -19,6 +19,7 @@ export interface GroupRelationshipGraphEdge {
   note?: string;
   source: 'room' | 'default' | 'structural';
   structuralFacts?: RoomRelationshipStructureEdge[];
+  sharedFacts?: RoomRelationshipSharedFact[];
 }
 
 export interface GroupRelationshipGraph {
@@ -141,6 +142,30 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
       source: 'structural',
       structuralFacts: [fact],
     });
+  });
+
+  (chat.relationshipStructure?.sharedFacts || []).forEach((fact) => {
+    const memberIds = fact.memberIds.filter((id) => nodeIds.has(id));
+    if (memberIds.length < 2) return;
+    memberIds.forEach((fromId, index) => memberIds.slice(index + 1).forEach((toId) => {
+      const key = `${fromId}->${toId}`;
+      const reverseKey = `${toId}->${fromId}`;
+      const existing = edgeByKey.get(key) || edgeByKey.get(reverseKey);
+      if (existing) {
+        existing.sharedFacts = [...(existing.sharedFacts || []), fact];
+        return;
+      }
+      edgeByKey.set(key, {
+        key,
+        fromId,
+        toId,
+        axes: emptyAxes(),
+        baseline: emptyAxes(),
+        adjustment: emptyAxes(),
+        source: 'structural',
+        sharedFacts: [fact],
+      });
+    }));
   });
 
   const edges = Array.from(edgeByKey.values());

@@ -1352,7 +1352,7 @@ export default function ChatDetailPage() {
           allCharacters: membersForInitialization,
           language: isZh ? 'zh' : 'en',
           updateCharacters: useCharacterStore.getState().updateCharacters,
-          updateRelationshipStructure: async (edges) => {
+          updateRelationshipStructure: async ({ edges, sharedFacts }) => {
             const latest = useChatStore.getState().chats.find((item) => item.id === id);
             if (cancelled || controller.signal.aborted || activeChatIdRef.current !== id || !latest) return;
             const currentRequirement = getConversationInitializationRequirement(latest, useCharacterStore.getState().characters);
@@ -1360,11 +1360,15 @@ export default function ChatDetailPage() {
             const existing = latest.relationshipStructure?.edges || [];
             const existingKeys = new Set(existing.map((edge) => `${edge.fromId}->${edge.toId}:${edge.kind}`));
             const additions = edges.filter((edge) => !existingKeys.has(`${edge.fromId}->${edge.toId}:${edge.kind}`));
-            if (!additions.length) return;
+            const existingSharedFacts = latest.relationshipStructure?.sharedFacts || [];
+            const existingSharedKeys = new Set(existingSharedFacts.map((fact) => `${[...fact.memberIds].sort().join('|')}:${fact.kind}`));
+            const sharedAdditions = sharedFacts.filter((fact) => !existingSharedKeys.has(`${[...fact.memberIds].sort().join('|')}:${fact.kind}`));
+            if (!additions.length && !sharedAdditions.length) return;
             await updateChat(id, {
               relationshipStructure: {
                 version: 1,
                 edges: [...existing, ...additions],
+                sharedFacts: [...existingSharedFacts, ...sharedAdditions],
                 updatedAt: Date.now(),
               },
             });

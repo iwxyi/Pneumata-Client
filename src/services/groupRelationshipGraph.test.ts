@@ -55,4 +55,19 @@ describe('group relationship graph projection', () => {
     });
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
+
+  it('projects shared structure facts without turning them into a directional attitude', () => {
+    const room = normalizeConversation({
+      ...chat(),
+      relationshipStructure: {
+        version: 1,
+        updatedAt: 3,
+        edges: [],
+        sharedFacts: [{ id: 'siblings-a-b', memberIds: ['a', 'b'], kind: 'kinship', statement: '甲乙是结义兄弟', confidence: 0.92, evidence: '设定明确', updatedAt: 3 }],
+      },
+    });
+    const projection = projectGroupRelationshipGraphs(room, [member('a'), member('b'), member('c'), member('d')]);
+    expect(projection.graphs[0]?.edges[0]).toMatchObject({ sharedFacts: [{ kind: 'kinship', statement: '甲乙是结义兄弟' }], axes: { warmth: 0, trust: 0 } });
+    expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
+  });
 });
