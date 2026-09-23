@@ -676,6 +676,7 @@ export default function MessageList({
   const [initialViewportReady, setInitialViewportReady] = useState(() => !autoStickToBottom && !hasInitialRestorePosition);
   const [prependStabilizing, setPrependStabilizing] = useState(false);
   const [diagramViewerItem, setDiagramViewerItem] = useState<LightboxImageItem | null>(null);
+  const [textSelectionActive, setTextSelectionActive] = useState(false);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
@@ -701,6 +702,25 @@ export default function MessageList({
     && followScrollAnimationRef.current == null
   );
   const virtualMessageItems = messageVirtualizer.getVirtualItems();
+  const renderedMessageItems = textSelectionActive
+    ? renderItems.map((item, index) => ({ index, key: item.key, start: null }))
+    : virtualMessageItems;
+
+  useEffect(() => {
+    const updateTextSelectionState = () => {
+      const selection = document.getSelection();
+      const anchor = selection?.anchorNode;
+      const hasMessageSelection = Boolean(
+        selection
+        && !selection.isCollapsed
+        && anchor
+        && containerRef.current?.contains(anchor),
+      );
+      setTextSelectionActive((current) => current === hasMessageSelection ? current : hasMessageSelection);
+    };
+    document.addEventListener('selectionchange', updateTextSelectionState);
+    return () => document.removeEventListener('selectionchange', updateTextSelectionState);
+  }, []);
 
   const viewerIndex = viewerKey ? chatImageTimeline.findIndex((item) => item.key === viewerKey) : -1;
   const viewerImages = diagramViewerItem ? [diagramViewerItem] : chatImageTimeline;
@@ -2078,25 +2098,25 @@ export default function MessageList({
             style={{
               position: 'relative',
               width: '100%',
-              height: `${messageVirtualizer.getTotalSize()}px`,
+              height: textSelectionActive ? undefined : `${messageVirtualizer.getTotalSize()}px`,
             }}
           >
-            {virtualMessageItems.map((virtualItem) => {
-              const item = renderItems[virtualItem.index];
+            {renderedMessageItems.map((renderedItem) => {
+              const item = renderItems[renderedItem.index];
               if (!item) return null;
               return (
                 <div
-                  key={virtualItem.key}
-                  data-index={virtualItem.index}
-                  ref={messageVirtualizer.measureElement}
+                  key={item.key}
+                  data-index={renderedItem.index}
+                  ref={textSelectionActive ? undefined : messageVirtualizer.measureElement}
                   style={{
-                    position: 'absolute',
-                    top: `${virtualItem.start}px`,
+                    position: textSelectionActive ? 'relative' : 'absolute',
+                    top: textSelectionActive ? undefined : `${renderedItem.start || 0}px`,
                     left: 0,
                     width: '100%',
                     minWidth: 0,
                     maxWidth: '100%',
-                    contain: 'layout paint style',
+                    contain: textSelectionActive ? undefined : 'layout paint style',
                   }}
                 >
                   {renderMessageItem(item)}
