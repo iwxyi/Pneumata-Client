@@ -77,6 +77,39 @@ describe('commitGeneratedMessageTurn', () => {
     });
   });
 
+  it('uses the branch head returned by one segment when committing the next segment', async () => {
+    runSessionCommitPipelineMock.mockImplementation(async (args: { message: Message; chat: { messageBranchState?: { activeLeafNodeId?: string } } }) => {
+      const index = runSessionCommitPipelineMock.mock.calls.length;
+      const persistedMessage = buildPersistedMessage(args.message.content, index);
+      return {
+        persistedMessage,
+        transition: { chatPatch: {}, characterPatches: [], runtimeEvents: [] },
+        nextChat: {
+          id: 'chat-1',
+          messageBranchState: { enabled: true, activeLeafNodeId: persistedMessage.id },
+        },
+        nextCharacters: [],
+      };
+    });
+
+    await commitGeneratedMessageTurn({
+      ...baseParams(),
+      chat: { id: 'chat-1', messageBranchState: { enabled: true, activeLeafNodeId: 'before-turn' } },
+      message: {
+        chatId: 'chat-1',
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: '第一条',
+        extraMessages: ['第二条', '第三条'],
+        emotion: 0,
+      },
+    } as never);
+
+    expect(runSessionCommitPipelineMock.mock.calls[1]?.[0].chat.messageBranchState.activeLeafNodeId).toBe('local-1');
+    expect(runSessionCommitPipelineMock.mock.calls[2]?.[0].chat.messageBranchState.activeLeafNodeId).toBe('local-2');
+  });
+
   it('passes each segment metadata independently to the normal commit pipeline', async () => {
     runSessionCommitPipelineMock.mockImplementation(async (args: { message: Message }) => ({
       persistedMessage: buildPersistedMessage(args.message.content, runSessionCommitPipelineMock.mock.calls.length),

@@ -13,6 +13,7 @@ import { parseRuntimeEvent } from './runtimeEventFactory';
 import { reportRecoverableError } from './diagnostics';
 import { applyCalendarAutoPatchForChat, buildCalendarAutoPatchRuntimeEventPayloads, shouldRunCalendarAutoPatchForTransition } from './worldCalendarAutoPatchRuntime';
 import { applyPresenceUpdateToTransition } from './characterPresence';
+import { buildBranchStateWithHead, isMessageBranchingEnabled } from './messageBranching';
 
 export const __resetDeferredLlmDistillationStateForTests = __resetDeferredMemoryAnalysisStateForTests;
 export const __flushDeferredLlmDistillationForTests = __flushDeferredMemoryAnalysisForTests;
@@ -257,10 +258,23 @@ export async function runSessionCommitPipeline(params: {
     persistedMessage,
     transition,
   });
+  // A generated turn may contain several separately committed bubbles. Each
+  // following segment must inherit the head created by the previous one;
+  // otherwise all segments become sibling nodes and active-branch projection
+  // correctly (but unexpectedly) hides every sibling except the last.
+  const nextChat = isMessageBranchingEnabled(params.chat)
+    ? {
+        ...completed.nextChat,
+        messageBranchState: buildBranchStateWithHead(
+          completed.nextChat.messageBranchState || params.chat.messageBranchState,
+          persistedMessage.metadata?.branching?.nodeId || persistedMessage.clientKey || persistedMessage.id,
+        ),
+      }
+    : completed.nextChat;
   return {
     persistedMessage,
     transition: completed.transition,
-    nextChat: completed.nextChat,
+    nextChat,
     nextCharacters: completed.nextCharacters,
   };
 }
