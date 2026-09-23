@@ -94,7 +94,7 @@ export interface VipEntitlementInfo {
   maxCharacters: number | null;
   maxChats: number | null;
   dailyAiGenerationLimit: number | null;
-  batchCharacterGenerationLimit: number | null;
+  batchGenerationLimit: number | null;
   officialProviderAccess: string[];
   aiBillingDiscount: number;
   dailyPointGrant: number;
@@ -859,6 +859,10 @@ class ApiClient {
     return this.request<BillingMembershipResponse>('GET', '/billing/membership');
   }
 
+  async authorizeImageGenerationBatch(count: number) {
+    return this.request<{ authorized: true; limit: number | null; requested: number; tierCode: string }>('POST', '/ai/images/batches/authorize', { count });
+  }
+
   async claimBillingVipPoints(kind: 'daily' | 'monthly') {
     return this.request<BillingPointClaimResponse>('POST', `/billing/membership/point-claims/${kind}`);
   }
@@ -956,12 +960,13 @@ class ApiClient {
     }>>('GET', '/characters');
   }
 
-  async getCharacterLibraryPage(params: { page?: number; limit?: number; sort?: 'name' | 'createdAt'; direction?: 'asc' | 'desc'; group?: string } = {}) {
+  async getCharacterLibraryPage(params: { page?: number; limit?: number; sort?: 'name' | 'createdAt'; direction?: 'asc' | 'desc'; groupFirst?: boolean; group?: string } = {}) {
     const query = new URLSearchParams();
     if (params.page) query.set('page', String(params.page));
     if (params.limit) query.set('limit', String(params.limit));
     if (params.sort) query.set('sort', params.sort);
     if (params.direction) query.set('direction', params.direction);
+    if (params.groupFirst) query.set('groupFirst', '1');
     if (params.group && params.group !== 'all') query.set('group', params.group);
     const suffix = query.toString();
     return this.request<{ items: Array<Record<string, unknown>>; page: number; limit: number; total: number; hasMore: boolean }>('GET', `/characters/library${suffix ? `?${suffix}` : ''}`);

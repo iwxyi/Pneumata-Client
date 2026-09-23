@@ -557,11 +557,11 @@ export default function AccountPage() {
     { label: zh ? '角色数量' : 'Characters', value: quotaValue(membershipUsage.characters, membershipEntitlement.maxCharacters) },
     { label: zh ? '聊天数量' : 'Chats', value: quotaValue(membershipUsage.chats, membershipEntitlement.maxChats) },
     { label: zh ? '今日 AI 生成' : 'AI generations today', value: quotaValue(membership?.dailyAiGenerationUsage?.used || 0, membershipEntitlement.dailyAiGenerationLimit) },
-    { label: zh ? '单次批量生成' : 'Batch generation per run', value: membershipEntitlement.batchCharacterGenerationLimit == null
+    { label: zh ? '单次批量生成' : 'Batch generation per run', value: membershipEntitlement.batchGenerationLimit == null
       ? '-'
-      : membershipEntitlement.batchCharacterGenerationLimit === -1
+      : membershipEntitlement.batchGenerationLimit === -1
         ? '-'
-      : `${membershipEntitlement.batchCharacterGenerationLimit}` },
+      : `${membershipEntitlement.batchGenerationLimit}` },
     { label: zh ? '云空间' : 'Cloud storage', value: membershipEntitlement.cloudStorageBytes !== -1
       ? `${formatStorageSize(membershipUsage.cloudStorageBytes)} / ${formatStorageSize(membershipEntitlement.cloudStorageBytes)}`
       : `${formatStorageSize(membershipUsage.cloudStorageBytes)} / -` },

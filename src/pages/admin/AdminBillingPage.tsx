@@ -86,7 +86,7 @@ type VipEntitlementForm = {
   maxCharacters: string;
   maxChats: string;
   dailyAiGenerationLimit: string;
-  batchCharacterGenerationLimit: string;
+  batchGenerationLimit: string;
   officialProviderAccessText: string;
   aiBillingDiscount: string;
   dailyPointGrant: string;
@@ -218,7 +218,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     maxCharacters: '10',
     maxChats: '30',
     dailyAiGenerationLimit: '3',
-    batchCharacterGenerationLimit: '3',
+    batchGenerationLimit: '3',
     officialProviderAccessText: 'official-1',
     aiBillingDiscount: '1',
     dailyPointGrant: '30',
@@ -241,7 +241,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     maxCharacters: '50',
     maxChats: '200',
     dailyAiGenerationLimit: '20',
-    batchCharacterGenerationLimit: '10',
+    batchGenerationLimit: '10',
     officialProviderAccessText: 'official-1\nofficial-2',
     aiBillingDiscount: '0.95',
     dailyPointGrant: '30',
@@ -264,7 +264,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     maxCharacters: '500',
     maxChats: '2000',
     dailyAiGenerationLimit: '100',
-    batchCharacterGenerationLimit: '30',
+    batchGenerationLimit: '30',
     officialProviderAccessText: 'official-1\nofficial-2\nofficial-team',
     aiBillingDiscount: '0.9',
     dailyPointGrant: '30',
@@ -287,7 +287,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     maxCharacters: '500',
     maxChats: '2000',
     dailyAiGenerationLimit: '100',
-    batchCharacterGenerationLimit: '30',
+    batchGenerationLimit: '30',
     officialProviderAccessText: 'official-1\nofficial-2\nofficial-team\nofficial-4',
     aiBillingDiscount: '0.9',
     dailyPointGrant: '30',
@@ -548,7 +548,7 @@ function toEntitlementForm(value: unknown, fallback: VipEntitlementForm): VipEnt
     maxCharacters: hasOwnRecordValue(record, 'maxCharacters') ? limitText(record.maxCharacters, fallback.maxCharacters) : fallback.maxCharacters,
     maxChats: hasOwnRecordValue(record, 'maxChats') ? limitText(record.maxChats, fallback.maxChats) : fallback.maxChats,
     dailyAiGenerationLimit: hasOwnRecordValue(record, 'dailyAiGenerationLimit') ? limitText(record.dailyAiGenerationLimit, fallback.dailyAiGenerationLimit) : fallback.dailyAiGenerationLimit,
-    batchCharacterGenerationLimit: hasOwnRecordValue(record, 'batchCharacterGenerationLimit') ? limitText(record.batchCharacterGenerationLimit, fallback.batchCharacterGenerationLimit) : fallback.batchCharacterGenerationLimit,
+    batchGenerationLimit: hasOwnRecordValue(record, 'batchGenerationLimit') ? limitText(record.batchGenerationLimit, fallback.batchGenerationLimit) : fallback.batchGenerationLimit,
     officialProviderAccessText: providerAccess,
     aiBillingDiscount: numberText(record.aiBillingDiscount, fallback.aiBillingDiscount),
     dailyPointGrant: hasOwnRecordValue(record, 'dailyPointGrant') ? numberText(record.dailyPointGrant, fallback.dailyPointGrant) : fallback.dailyPointGrant,
@@ -600,7 +600,7 @@ function buildEntitlementPayload(form: VipEntitlementForm, allowedProviderIds?: 
     maxCharacters: parseLimitValue(form.maxCharacters),
     maxChats: parseLimitValue(form.maxChats),
     dailyAiGenerationLimit: parseLimitValue(form.dailyAiGenerationLimit),
-    batchCharacterGenerationLimit: parseLimitValue(form.batchCharacterGenerationLimit),
+    batchGenerationLimit: parseLimitValue(form.batchGenerationLimit),
     officialProviderAccess: filterAllowedProviderAccess(parseProviderAccessText(form.officialProviderAccessText), allowedProviderIds),
     aiBillingDiscount: Math.max(0, Math.min(1, toNumber(form.aiBillingDiscount, 1))),
     dailyPointGrant: Math.max(0, toNumber(form.dailyPointGrant, 0)),
@@ -883,7 +883,7 @@ function EntitlementEditor({
         <TextField label="角色上限" value={entitlement.maxCharacters} onChange={(event) => onEntitlementChange('maxCharacters', event.target.value)} fullWidth />
         <TextField label="聊天上限" value={entitlement.maxChats} onChange={(event) => onEntitlementChange('maxChats', event.target.value)} fullWidth />
         <TextField label="每日生成次数" value={entitlement.dailyAiGenerationLimit} onChange={(event) => onEntitlementChange('dailyAiGenerationLimit', event.target.value)} fullWidth />
-        <TextField label="批量角色单次上限" value={entitlement.batchCharacterGenerationLimit} onChange={(event) => onEntitlementChange('batchCharacterGenerationLimit', event.target.value)} fullWidth />
+        <TextField label="单次批量生成上限" value={entitlement.batchGenerationLimit} onChange={(event) => onEntitlementChange('batchGenerationLimit', event.target.value)} fullWidth />
         <TextField label="每日领取点数" value={entitlement.dailyPointGrant} onChange={(event) => onEntitlementChange('dailyPointGrant', event.target.value)} fullWidth />
         <TextField label="每月领取点数" value={entitlement.monthlyPointGrant} onChange={(event) => onEntitlementChange('monthlyPointGrant', event.target.value)} fullWidth />
         <TextField label="点数扣费折扣" value={entitlement.aiBillingDiscount} onChange={(event) => onEntitlementChange('aiBillingDiscount', event.target.value)} fullWidth />

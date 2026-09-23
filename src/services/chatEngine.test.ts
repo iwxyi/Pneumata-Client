@@ -2065,7 +2065,7 @@ describe('chatEngine streaming preview', () => {
     expect(first?.attachments?.[0]?.id).toBe(second?.attachments?.[0]?.id);
   });
 
-  it('keeps up to nine distinct images with an optional audio attachment in one turn', () => {
+  it('keeps all distinct images with an optional audio attachment for entitlement validation', () => {
     const images = Array.from({ length: 10 }, (_, index) => ({
       shouldGenerate: true,
       prompt: `food photo ${index + 1}`,
@@ -2081,7 +2081,7 @@ describe('chatEngine streaming preview', () => {
       now: 1777000000000,
     });
 
-    expect(metadata?.attachments?.filter((attachment) => attachment.kind === 'image')).toHaveLength(9);
+    expect(metadata?.attachments?.filter((attachment) => attachment.kind === 'image')).toHaveLength(10);
     expect(metadata?.attachments?.find((attachment) => attachment.kind === 'audio')).toMatchObject({
       status: 'queued',
       promptText: '今天的红烧肉外焦里嫩，酱汁也收得刚好。',

@@ -61,7 +61,7 @@ type AccountEntitlementDraft = {
   maxCharacters: string;
   maxChats: string;
   dailyAiGenerationLimit: string;
-  batchCharacterGenerationLimit: string;
+  batchGenerationLimit: string;
   officialProviderAccess: string[];
   aiBillingDiscount: string;
   dailyPointGrant: string;
@@ -84,7 +84,7 @@ const EMPTY_ACCOUNT_ENTITLEMENT_DRAFT: AccountEntitlementDraft = {
   maxCharacters: '',
   maxChats: '',
   dailyAiGenerationLimit: '',
-  batchCharacterGenerationLimit: '',
+  batchGenerationLimit: '',
   officialProviderAccess: [],
   aiBillingDiscount: '',
   dailyPointGrant: '',
@@ -213,7 +213,7 @@ function accountEntitlementToDraft(value: unknown): AccountEntitlementDraft {
     maxCharacters: draftText(entitlement.maxCharacters),
     maxChats: draftText(entitlement.maxChats),
     dailyAiGenerationLimit: draftText(entitlement.dailyAiGenerationLimit),
-    batchCharacterGenerationLimit: draftText(entitlement.batchCharacterGenerationLimit),
+    batchGenerationLimit: draftText(entitlement.batchGenerationLimit),
     officialProviderAccess: Array.isArray(entitlement.officialProviderAccess)
       ? normalizeOfficialProviderAccess(entitlement.officialProviderAccess)
       : [],
@@ -249,7 +249,7 @@ function buildAccountEntitlementPayload(draft: AccountEntitlementDraft, allowedP
     'maxCharacters',
     'maxChats',
     'dailyAiGenerationLimit',
-    'batchCharacterGenerationLimit',
+    'batchGenerationLimit',
     'aiBillingDiscount',
     'dailyPointGrant',
     'monthlyPointGrant',
@@ -1036,7 +1036,7 @@ export default function AdminUsersPage() {
                       <TextField size="small" label="角色数量上限" value={accountEntitlementDraft.maxCharacters} onChange={(event) => updateAccountEntitlementDraft({ maxCharacters: event.target.value })} placeholder="留空不覆盖" />
                       <TextField size="small" label="聊天数量上限" value={accountEntitlementDraft.maxChats} onChange={(event) => updateAccountEntitlementDraft({ maxChats: event.target.value })} placeholder="留空不覆盖" />
                       <TextField size="small" label="每日生成上限" value={accountEntitlementDraft.dailyAiGenerationLimit} onChange={(event) => updateAccountEntitlementDraft({ dailyAiGenerationLimit: event.target.value })} placeholder="留空不覆盖" />
-                      <TextField size="small" label="批量生成上限" value={accountEntitlementDraft.batchCharacterGenerationLimit} onChange={(event) => updateAccountEntitlementDraft({ batchCharacterGenerationLimit: event.target.value })} placeholder="留空不覆盖" />
+                      <TextField size="small" label="批量生成上限" value={accountEntitlementDraft.batchGenerationLimit} onChange={(event) => updateAccountEntitlementDraft({ batchGenerationLimit: event.target.value })} placeholder="留空不覆盖" />
                       <TextField size="small" label="AI 折扣率" value={accountEntitlementDraft.aiBillingDiscount} onChange={(event) => updateAccountEntitlementDraft({ aiBillingDiscount: event.target.value })} placeholder="例如 0.9" />
                       <TextField size="small" label="每日领取点数" value={accountEntitlementDraft.dailyPointGrant} onChange={(event) => updateAccountEntitlementDraft({ dailyPointGrant: event.target.value })} placeholder="留空不覆盖" />
                       <TextField size="small" label="每月领取点数" value={accountEntitlementDraft.monthlyPointGrant} onChange={(event) => updateAccountEntitlementDraft({ monthlyPointGrant: event.target.value })} placeholder="留空不覆盖" />

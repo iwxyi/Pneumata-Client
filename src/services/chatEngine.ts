@@ -2385,7 +2385,6 @@ function normalizeMediaDecision(
   const requestedImages = Array.isArray(decision?.images) ? decision.images : decision?.image ? [decision.image] : [];
   const images = capabilities.image && canInitiate('image') ? requestedImages
     .filter((image) => image?.shouldGenerate)
-    .slice(0, 9)
     .map((image) => ({
       shouldGenerate: true,
       reason: image.reason || '',

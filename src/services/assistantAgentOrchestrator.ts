@@ -25,7 +25,6 @@ const MAX_RECENT_MESSAGES = 12;
 const MAX_IMAGE_REFERENCES = 48;
 const MAX_ARTIFACTS_IN_REGISTRY = 120;
 const MAX_PATCHES = 20;
-const MAX_MEDIA_TASKS = 9;
 const SUPPORTED_IMAGE_ASPECT_RATIOS = new Set(['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4', '9:16', '16:9', '21:9']);
 const SUPPORTED_IMAGE_SIZES = new Set(['1K', '2K', '4K']);
 const MAX_CONTENT_CHARS = 120_000;
@@ -422,7 +421,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
     '6.2 assistantMessage 不要重复输出 patches[].content 或 files[].content 的完整正文/源码。产物正文只放在 patch content/files 中；assistantMessage 只写简短说明、必要的前言或图片槽位。',
   ];
   if (options.includeImages) sections.push(
-    '图片：如需生成图片必须输出 mediaTasks，不要把图片写成代码或 Markdown 正文；图片引用 ID 必须来自 registry，区分 target/reference/style，最多 9 个任务；仅在需要图片时生成 prompt。',
+    '图片：如需生成图片必须输出 mediaTasks，不要把图片写成代码或 Markdown 正文；图片引用 ID 必须来自 registry，区分 target/reference/style；仅在需要图片时生成 prompt。单次数量由当前会员权益校验，超限时系统会拒绝整批任务。',
   );
   if (options.includeLocalFiles) sections.push(
     '本地文件：localFiles 是唯一授权内容；不得假装读取未提供的文件。',
@@ -443,7 +442,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
     '7.2 mediaTasks.prompt 是给图片模型的完整提示词；aspectRatio、imageSize、referenceImageIds 等图片要求只能放在 mediaTasks 中，不要混入聊天正文。',
     '7.3 每个图片任务必须有稳定 slotId，例如 image-1、cover、step-2；assistantMessage 中用 Markdown 图片占位符引用：![给用户看的图片说明](attachment:slotId)。slotId 必须和 mediaTasks[].slotId 完全一致。',
     '7.4 mediaTasks.userCaption 是该图片在正文中的用户可见说明，应和 Markdown 图片占位符的 alt 文本一致或高度接近；不得写图片模型提示词。',
-    '7.5 一次最多输出 9 个 mediaTasks。复合指令应拆成多张独立图片任务，例如封面、步骤图、风格 A/B/C，而不是把多张图塞进一个 prompt。',
+    '7.5 复合指令应拆成多张独立图片任务，例如封面、步骤图、风格 A/B/C，而不是把多张图塞进一个 prompt。',
     '7.6 mediaTasks.prompt 必须是完整、专业、可直接给图片模型执行的最终提示词，不是对图片模型说“请你再写提示词”。',
     '7.7 生成 mediaTasks.prompt 前，必须先在内部梳理：用户本轮真正要生成/修改什么、最近对话中已经确定的主题/角色/风格/禁忌/数量/用途、用户偏好的审美词、哪些历史图片或产物被明确指代、哪些上下文只是聊天噪音不能继承。只把结论写进最终 prompt，不要把分析过程输出给用户。',
     '7.8 用户只给出很短的主题时，要结合 recentConversation、userMessage、imageReferenceRegistry、artifactRegistry 和 changePlan 自动扩写为具体视觉方案；但必须按内容智能选择、增删和组合属性，这些只是可选层级，不是固定清单：主体身份、场景动作、构图/版式、镜头或渲染风格、光线、色彩、材质细节、情绪、质量层级与禁用项。文本图、UI图、OCR/读图、清晰化、锐化、修复、保真编辑应优先准确性、可读性和保留原貌，不要硬塞电影光影、情绪、镜头、奢华风格等无关词；保留用户指定的风格词和具体物件，但不能擅自换成另一个主体或目标。',
@@ -622,7 +621,7 @@ function normalizeMediaTasks(value: unknown, imageReferenceRegistry = new Map<st
       usedSlotIds.add(base);
       return base;
     }
-    for (let suffix = 2; suffix <= MAX_MEDIA_TASKS + 1; suffix += 1) {
+    for (let suffix = 2; suffix <= value.length + 1; suffix += 1) {
       const candidate = `${base}-${suffix}`.slice(0, 80);
       if (!usedSlotIds.has(candidate)) {
         usedSlotIds.add(candidate);
@@ -633,7 +632,7 @@ function normalizeMediaTasks(value: unknown, imageReferenceRegistry = new Map<st
     usedSlotIds.add(candidate);
     return candidate;
   };
-  return value.slice(0, MAX_MEDIA_TASKS).flatMap((item, index): AssistantAgentMediaTask[] => {
+  return value.flatMap((item, index): AssistantAgentMediaTask[] => {
     if (!isRecord(item) || item.kind !== 'image') return [];
     const prompt = text(item.prompt, 4000);
     const slotId = uniqueSlotId(text(item.slotId, 80), index);
@@ -716,7 +715,7 @@ function recoverInlineImageTasks(
   const recovered: AssistantAgentMediaTask[] = [];
   for (const match of assistantMessage.matchAll(INLINE_IMAGE_ATTACHMENT_PATTERN)) {
     const slotId = (match[2] || '').trim().replace(/[^\w.-]/g, '').slice(0, 80);
-    if (!slotId || existingSlots.has(slotId) || recovered.length + mediaTasks.length >= MAX_MEDIA_TASKS) continue;
+    if (!slotId || existingSlots.has(slotId)) continue;
     const altText = text(match[1], 160) || 'AI 图片';
     recovered.push({
       kind: 'image',

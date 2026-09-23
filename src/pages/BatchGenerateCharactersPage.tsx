@@ -909,7 +909,7 @@ export default function BatchGenerateCharactersPage() {
   const dailyGenerationLimit = platformAi ? entitlement?.dailyAiGenerationLimit ?? null : null;
   const dailyGenerationUsed = Number(membership?.dailyAiGenerationUsage?.used || 0);
   const dailyGenerationRemaining = dailyGenerationLimit == null || dailyGenerationLimit < 0 ? null : Math.max(0, dailyGenerationLimit - dailyGenerationUsed);
-  const batchCharacterLimit = platformAi ? entitlement?.batchCharacterGenerationLimit ?? null : null;
+  const batchCharacterLimit = platformAi ? entitlement?.batchGenerationLimit ?? null : null;
   const dailyGenerationExhausted = dailyGenerationRemaining != null && dailyGenerationRemaining <= 0;
   const batchSelectionExceeded = batchCharacterLimit != null && batchCharacterLimit >= 0 && selectedCandidateIds.length > batchCharacterLimit;
   const canGenerateNames = Boolean(topic.trim() || description.trim()) && !loadingNames && !dailyGenerationExhausted;

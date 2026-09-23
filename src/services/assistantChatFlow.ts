@@ -8,6 +8,7 @@ import { generateResponse } from './aiClient';
 import { GenerationCancelledError } from './generationCancellation';
 import { attachMessageToActiveBranch, buildBranchStateWithHead } from './messageBranching';
 import { useChatStore } from '../stores/useChatStore';
+import { useAuthStore } from '../stores/useAuthStore';
 import { api, ApiError, type AiSearchResponse, type AiSearchResultItem } from './api';
 import { resolveRoomCapabilities } from './capabilityRuntime';
 import { resolveChatAgentCapabilities } from './chatAgentCapabilities';
@@ -852,7 +853,18 @@ async function persistAssistantArtifactsFromReply(params: {
     }
     content = [buildAgentArtifactReplyContent(patchSet), dataResults.length ? formatAssistantDataResults(dataResults) : '']
       .filter(Boolean).join('\n\n');
-    const attachments = createAssistantMediaAttachments(patchSet, params.timestamp || Date.now());
+    let mediaAuthorizationError = '';
+    const requestedImageCount = patchSet.mediaTasks?.length || 0;
+    if (requestedImageCount > 0 && useAuthStore.getState().authMode === 'cloud') {
+      try {
+        await api.authorizeImageGenerationBatch(requestedImageCount);
+      } catch (error) {
+        const fallback = `本次请求包含 ${requestedImageCount} 张图片，当前会员单次批量生成上限不足。请减少图片数量或升级会员后重试。`;
+        mediaAuthorizationError = error instanceof Error && error.message ? error.message : fallback;
+      }
+    }
+    const attachments = mediaAuthorizationError ? [] : createAssistantMediaAttachments(patchSet, params.timestamp || Date.now());
+    if (mediaAuthorizationError) content = [content, mediaAuthorizationError].filter(Boolean).join('\n\n');
     const workspaceOperations = patchSet.workspaceOperations || [];
     const workspaceDirectoryIds = new Set(workspaceOperations.map((operation) => operation.directoryId));
     const workspacePlan = workspaceOperations.length && resolvedCapabilities.workspaceWrite && workspaceDirectoryIds.size === 1
