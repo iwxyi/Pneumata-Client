@@ -1,5 +1,5 @@
 import { Avatar, Box, Chip, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat } from '../../types/chat';
 import { projectGroupRelationshipGraphs, type GroupRelationshipGraph, type GroupRelationshipGraphEdge } from '../../services/groupRelationshipGraph';
@@ -67,7 +67,7 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
   fromName: string;
   toName: string;
   active: boolean;
-  onActiveChange: (pairKey: string | null, scrollToCard?: boolean) => void;
+  onActiveChange: (pairKeys: string[], scrollToCard?: boolean) => void;
   cardRef: (element: HTMLDivElement | null) => void;
 }) {
   const axes = [
@@ -78,8 +78,8 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
   return (
     <Box
       ref={cardRef}
-      onMouseEnter={() => onActiveChange(pairKey)}
-      onMouseLeave={() => onActiveChange(null)}
+      onMouseEnter={() => onActiveChange([pairKey])}
+      onMouseLeave={() => onActiveChange([])}
       sx={{ minWidth: 0, p: 0.9, borderRadius: 1, bgcolor: active ? 'action.selected' : 'background.paper', border: '1px solid', borderColor: active ? edgeColor(edge) : 'divider', boxShadow: active ? 1 : 'none', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}
     >
       <Stack direction="row" spacing={0.55} useFlexGap alignItems="center" flexWrap="wrap">
@@ -95,10 +95,10 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
   );
 }
 
-function RelationshipMap({ graph, hoveredPair, onHoveredPairChange }: {
+function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: {
   graph: GroupRelationshipGraph;
-  hoveredPair: string | null;
-  onHoveredPairChange: (pairKey: string | null, scrollToCard?: boolean) => void;
+  highlightedPairs: string[];
+  onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
 }) {
   const positions = new Map(graph.nodes.map((node, index) => [node.id, nodePosition(index, graph.nodes.length)]));
   return (
@@ -110,27 +110,30 @@ function RelationshipMap({ graph, hoveredPair, onHoveredPairChange }: {
           const to = positions.get(edge.toId)!;
           const pairKey = pairKeyFor(edge);
           const bidirectional = graph.edges.some((item) => item.fromId === edge.toId && item.toId === edge.fromId);
-          const direction = edge.fromId < edge.toId ? 1 : -1;
           const { start, end } = directionEndpoints(from, to);
           const dx = end.x - start.x;
           const dy = end.y - start.y;
           const distance = Math.hypot(dx, dy) || 1;
-          const bend = bidirectional ? 12 * direction : 0;
+          // Each directed path bends relative to its own direction. Reverse paths
+          // therefore occupy the opposite lane instead of collapsing on one curve.
+          const bend = bidirectional ? 12 : 0;
           const control = { x: (start.x + end.x) / 2 - dy * bend / distance, y: (start.y + end.y) / 2 + dx * bend / distance };
-          const active = hoveredPair === pairKey;
+          const active = highlightedPairs.includes(pairKey);
           const path = `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
           return (
-            <g key={edge.key} onMouseEnter={() => onHoveredPairChange(pairKey, true)} onMouseLeave={() => onHoveredPairChange(null)} style={{ cursor: 'pointer' }}>
+            <g key={edge.key} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} style={{ cursor: 'pointer' }}>
               <path d={path} fill="none" stroke="transparent" strokeWidth="14" />
-              <path d={path} fill="none" stroke={edgeColor(edge)} strokeWidth={active ? 2.5 : 1.45} strokeLinecap="round" markerEnd={`url(#${markerId(edge)})`} opacity={hoveredPair && !active ? 0.22 : 0.86} />
+              <path d={path} fill="none" stroke={active ? edgeColor(edge) : '#90A4AE'} strokeWidth={active ? 2.5 : 1.25} strokeLinecap="round" markerEnd={active ? `url(#${markerId(edge)})` : undefined} opacity={highlightedPairs.length && !active ? 0.18 : active ? 0.94 : 0.48} />
             </g>
           );
         })}
       </svg>
       {graph.nodes.map((node) => {
         const position = positions.get(node.id)!;
-        return <Box key={node.id} sx={{ position: 'absolute', left: `${position.x / GRAPH_WIDTH * 100}%`, top: `${position.y / GRAPH_HEIGHT * 100}%`, transform: 'translate(-50%, -50%)', display: 'grid', justifyItems: 'center', gap: 0.35, width: 92, textAlign: 'center', pointerEvents: 'none' }}>
-          <Avatar src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: 'background.paper', boxShadow: 1 }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
+        const relatedPairs = Array.from(new Set(graph.edges.filter((edge) => edge.fromId === node.id || edge.toId === node.id).map(pairKeyFor)));
+        const nodeActive = relatedPairs.some((pairKey) => highlightedPairs.includes(pairKey));
+        return <Box key={node.id} onMouseEnter={() => onHighlightedPairsChange(relatedPairs)} onMouseLeave={() => onHighlightedPairsChange([])} sx={{ position: 'absolute', left: `${position.x / GRAPH_WIDTH * 100}%`, top: `${position.y / GRAPH_HEIGHT * 100}%`, transform: 'translate(-50%, -50%)', display: 'grid', justifyItems: 'center', gap: 0.35, width: 92, textAlign: 'center', cursor: relatedPairs.length ? 'pointer' : 'default' }}>
+          <Avatar src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: nodeActive ? 'primary.main' : 'background.paper', boxShadow: nodeActive ? 2 : 1 }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
           <Typography variant="caption" sx={{ maxWidth: '100%', bgcolor: 'background.paper', px: 0.45, borderRadius: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</Typography>
         </Box>;
       })}
@@ -138,25 +141,29 @@ function RelationshipMap({ graph, hoveredPair, onHoveredPairChange }: {
   );
 }
 
-function RelationshipCards({ graph, hoveredPair, onHoveredPairChange, registerCard }: {
+function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, registerCard }: {
   graph: GroupRelationshipGraph;
-  hoveredPair: string | null;
-  onHoveredPairChange: (pairKey: string | null, scrollToCard?: boolean) => void;
+  highlightedPairs: string[];
+  onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
   registerCard: (pairKey: string, element: HTMLDivElement | null) => void;
 }) {
   return <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: 0.7 }}>
-    {graph.edges.map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={hoveredPair === pairKeyFor(edge)} onActiveChange={onHoveredPairChange} cardRef={(element) => registerCard(pairKeyFor(edge), element)} />)}
+    {graph.edges.map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(pairKeyFor(edge), element)} />)}
   </Box>;
 }
 
 export default function GroupRelationshipDialog({ open, onClose, chat, members, onRefresh }: GroupRelationshipDialogProps) {
   const projection = projectGroupRelationshipGraphs(chat, members);
-  const [hoveredPair, setHoveredPair] = useState<string | null>(null);
+  const [highlightedPairs, setHighlightedPairs] = useState<string[]>([]);
+  const [refreshRequested, setRefreshRequested] = useState(false);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
-  const handleHoveredPairChange = (pairKey: string | null, scrollToCard = false) => {
-    setHoveredPair(pairKey);
-    if (!pairKey || !scrollToCard) return;
-    window.requestAnimationFrame(() => cardRefs.current.get(pairKey)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }));
+  useEffect(() => {
+    if (chat.modeState.initialization?.status !== 'running') setRefreshRequested(false);
+  }, [chat.modeState.initialization?.status]);
+  const handleHighlightedPairsChange = (pairKeys: string[], scrollToCard = false) => {
+    setHighlightedPairs(pairKeys);
+    if (!pairKeys.length || !scrollToCard) return;
+    window.requestAnimationFrame(() => cardRefs.current.get(pairKeys[0])?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }));
   };
   const registerCard = (pairKey: string, element: HTMLDivElement | null) => {
     if (element) {
@@ -167,13 +174,13 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth PaperProps={{ sx: { height: { xs: 'calc(100% - 32px)', sm: 'min(820px, calc(100% - 64px))' }, overflow: 'hidden' } }}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexShrink: 0 }}>
         群成员关系
-        {onRefresh ? <Chip size="small" label="更新关系" onClick={() => { onRefresh(); onClose(); }} clickable variant="outlined" /> : null}
+        {onRefresh ? <Chip size="small" label={refreshRequested ? '更新中' : '更新关系'} onClick={() => { if (refreshRequested) return; setRefreshRequested(true); onRefresh(); }} clickable={!refreshRequested} variant="outlined" /> : null}
       </DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', minHeight: 0, flexDirection: 'column', overflow: 'hidden', p: 0 }}>
-        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1.25, pb: 0.8 }}><Stack spacing={0.75}>{projection.graphs.map((graph) => <RelationshipMap key={graph.key} graph={graph} hoveredPair={hoveredPair} onHoveredPairChange={handleHoveredPairChange} />)}</Stack></Box>
+        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1.25, pb: 0.8 }}><Stack spacing={0.75}>{projection.graphs.map((graph) => <RelationshipMap key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} />)}</Stack></Box>
         <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.5, pb: 1.5 }}>
           <Stack spacing={0.8}>
-            {projection.graphs.map((graph) => <RelationshipCards key={graph.key} graph={graph} hoveredPair={hoveredPair} onHoveredPairChange={handleHoveredPairChange} registerCard={registerCard} />)}
+            {projection.graphs.map((graph) => <RelationshipCards key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} registerCard={registerCard} />)}
             {projection.unconnectedMembers.length ? <Box sx={{ p: 1, borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}><Typography variant="caption" color="text.secondary">暂无关系线</Typography><Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>{projection.unconnectedMembers.map((member) => <Chip key={member.id} size="small" label={member.name} variant="outlined" />)}</Stack></Box> : null}
             {!projection.graphs.length && !projection.unconnectedMembers.length ? <Typography variant="body2" color="text.secondary">当前没有可展示的成员关系。</Typography> : null}
           </Stack>
