@@ -100,6 +100,7 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
   highlightedPairs: string[];
   onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
 }) {
+  const [sharedFactDialogFacts, setSharedFactDialogFacts] = useState<NonNullable<GroupRelationshipGraphEdge['sharedFacts']>>([]);
   const positions = new Map(graph.nodes.map((node, index) => [node.id, nodePosition(index, graph.nodes.length)]));
   const edgePairs = Array.from(graph.edges.reduce((pairs, edge) => {
     const pairKey = pairKeyFor(edge);
@@ -110,8 +111,6 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
   const missingPairs = graph.nodes.flatMap((from, index) => graph.nodes.slice(index + 1)
     .filter((to) => !recordedPairs.has(pairKeyFor({ fromId: from.id, toId: to.id })))
     .map((to) => ({ fromId: from.id, toId: to.id })));
-  const selectedEdges = highlightedPairs.length === 1 ? graph.edges.filter((edge) => pairKeyFor(edge) === highlightedPairs[0]) : [];
-  const selectedSharedFacts = Array.from(new Map(selectedEdges.flatMap((edge) => edge.sharedFacts || []).map((fact) => [fact.id, fact])).values());
   return (
     <Box sx={{ position: 'relative' }}>
     <Box sx={{ position: 'relative', width: '100%', maxWidth: GRAPH_WIDTH, height: GRAPH_HEIGHT, mx: 'auto', overflow: 'hidden' }}>
@@ -128,11 +127,12 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
           const from = positions.get(edge.fromId)!;
           const to = positions.get(edge.toId)!;
           const bidirectional = edges.length > 1;
+          const sharedFacts = Array.from(new Map(edges.flatMap((item) => item.sharedFacts || []).map((fact) => [fact.id, fact])).values());
           const { start, end } = directionEndpoints(from, to);
           const active = highlightedPairs.includes(pairKey);
           const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
           return (
-            <g key={pairKey} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} style={{ cursor: 'pointer' }}>
+            <g key={pairKey} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} onClick={() => { if (sharedFacts.length) setSharedFactDialogFacts(sharedFacts); }} style={{ cursor: sharedFacts.length ? 'pointer' : 'default' }}>
               <path d={path} fill="none" stroke="transparent" strokeWidth="14" />
               <path d={path} fill="none" stroke={active ? edgeColor(edge) : '#90A4AE'} strokeWidth={active ? 2.5 : 1.25} strokeLinecap="round" markerStart={active && bidirectional ? `url(#${markerId(pairKey)})` : undefined} markerEnd={active ? `url(#${markerId(pairKey)})` : undefined} opacity={highlightedPairs.length && !active ? 0.18 : active ? 0.94 : 0.48} />
             </g>
@@ -149,12 +149,10 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
         </Box>;
       })}
     </Box>
-    {selectedSharedFacts.length ? <Box sx={{ position: { xs: 'fixed', lg: 'absolute' }, zIndex: 1500, left: { xs: 16, lg: 'calc(50% + 310px)' }, right: { xs: 16, lg: 'auto' }, bottom: { xs: 16, lg: 'auto' }, top: { xs: 'auto', lg: 0 }, width: { xs: 'auto', lg: 250 }, maxHeight: { xs: 'min(42dvh, 260px)', lg: 'none' }, overflowY: 'auto', p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper', boxShadow: 4 }}>
-      <Typography variant="caption" color="text.secondary">关系说明</Typography>
-      <Stack spacing={0.75} sx={{ mt: 0.55 }}>
-        {selectedSharedFacts.map((fact) => <Typography key={fact.id} variant="body2">{fact.statement}</Typography>)}
-      </Stack>
-    </Box> : null}
+    <Dialog open={Boolean(sharedFactDialogFacts.length)} onClose={() => setSharedFactDialogFacts([])} maxWidth="xs" fullWidth>
+      <DialogTitle>共同关系</DialogTitle>
+      <DialogContent dividers><Stack spacing={0.9}>{sharedFactDialogFacts.map((fact) => <Box key={fact.id}><Typography variant="body2">{fact.statement}</Typography>{fact.evidence ? <Typography variant="caption" color="text.secondary">{fact.evidence}</Typography> : null}</Box>)}</Stack></DialogContent>
+    </Dialog>
     </Box>
   );
 }
