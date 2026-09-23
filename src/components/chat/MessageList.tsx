@@ -1833,11 +1833,9 @@ export default function MessageList({
     }
     if (!autoStickToBottom) {
       tailFollowStartSnapshotRef.current = null;
-      if (!metricsChanged) return;
-      const snapshot = latestScrollAnchorRef.current;
-      if (snapshot) {
-        restoreScrollAnchor(snapshot, { intent: 'resizePreserve' });
-      }
+      // These metrics describe tail mutations only. A reader whose room has
+      // disabled tail following must keep the browser's current viewport;
+      // restoring a stale anchor here can move unrelated visible content.
       return;
     }
     // An explicit branch switch owns the scroll position; do not let the
