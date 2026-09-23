@@ -22,6 +22,7 @@ import type { AssistantHtmlInteractionPayload, AssistantHtmlRuntimeError } from 
 import { buildBubblePreview, resolveCharacterBubbleStyle } from '../../utils/bubbleStyle';
 import { motion, prefersReducedMotion, transition } from '../../styles/motion';
 import { buildMessageListRenderItems, type MessageListRenderItem } from './messageListRenderItems';
+import { shouldMaintainTailAfterMutation } from './messageListTailOwnership';
 import { SCROLL_INTENT_PRIORITY, shouldBlockScrollWrite, type ScrollIntentKind, type ScrollTransaction } from '../../services/scrollCoordinator';
 
 const TOP_PREFETCH_THRESHOLD = 520;
@@ -91,6 +92,11 @@ export interface MessageListScrollRequest extends ScrollAnchorSnapshot {
   highlight?: boolean;
 }
 
+/**
+ * Tail mutations belong to the viewport only when it was already following
+ * the tail. User interaction history is deliberately not an input here:
+ * "has interacted" and "is at the bottom" are different states.
+ */
 interface MessageListProps {
   messages: Message[];
   characters: AICharacter[];
@@ -632,7 +638,6 @@ export default function MessageList({
   const shouldStickToBottomRef = useRef(true);
   const lastReportedBottomPinnedRef = useRef<boolean | null>(null);
   const lastReportedNearBottomRef = useRef<boolean | null>(null);
-  const lastKnownBottomDistanceRef = useRef<number | null>(null);
   const hasJumpedToBottomRef = useRef(false);
   const initialScrollPositionRef = useRef(initialScrollPosition);
   const pendingInitialRestoreRef = useRef<MessageListScrollPosition | null>(initialScrollPosition?.pinned ? null : initialScrollPosition);
@@ -665,8 +670,6 @@ export default function MessageList({
   const [initialViewportReady, setInitialViewportReady] = useState(() => !autoStickToBottom && !hasInitialRestorePosition);
   const [prependStabilizing, setPrependStabilizing] = useState(false);
   const [diagramViewerItem, setDiagramViewerItem] = useState<LightboxImageItem | null>(null);
-  const latestTailIsStreamingRef = useRef(Boolean(renderItems.at(-1)?.message.isStreaming));
-  latestTailIsStreamingRef.current = Boolean(renderItems.at(-1)?.message.isStreaming);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
@@ -687,7 +690,6 @@ export default function MessageList({
   messageVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => (
     autoStickToBottom
     && shouldStickToBottomRef.current
-    && !hasUserScrollIntentRef.current
   );
   const virtualMessageItems = messageVirtualizer.getVirtualItems();
 
@@ -1263,7 +1265,6 @@ export default function MessageList({
     const container = containerRef.current;
     if (!container) return false;
     const distance = getDistanceFromBottom(container);
-    lastKnownBottomDistanceRef.current = distance;
     const pinned = distance <= BOTTOM_STICKY_THRESHOLD && !hasMoreNewer;
     updateJumpToBottomVisibility(shouldShowJumpToBottomButton(container));
     shouldStickToBottomRef.current = pinned;
@@ -1467,18 +1468,16 @@ export default function MessageList({
         frame = null;
         if (scrollTransactionRef.current) return;
         if (isUserScrollMomentumActive()) return;
-        // Virtualizer measurement already preserves the tail while a bubble
-        // grows character by character. Starting another follow animation for
-        // the same height change causes visible back-and-forth movement.
-        if (latestTailIsStreamingRef.current) return;
-        if (shouldStickToBottomRef.current && autoStickToBottom) {
-          followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
-          return;
-        }
-        const snapshot = latestScrollAnchorRef.current;
-        if (!snapshot) return;
-        restoreScrollAnchor(snapshot, { intent: 'resizePreserve' });
-        lastScrollTopRef.current = containerRef.current?.scrollTop ?? lastScrollTopRef.current;
+        // A line wrap is measured after React commits. Preserve the exact
+        // bottom only for a viewport that was already following it. When a
+        // user is reading history, deliberately leave scrollTop untouched:
+        // tail-only growth cannot move their visible anchor, while replaying
+        // a stale snapshot can.
+        if (!shouldMaintainTailAfterMutation({
+          autoStickToBottom,
+          wasPinnedBeforeMutation: shouldStickToBottomRef.current,
+        })) return;
+        scrollToBottom('auto', 'tailFollow');
       });
     });
     observer.observe(content);
@@ -1486,7 +1485,7 @@ export default function MessageList({
       observer.disconnect();
       if (frame != null) window.cancelAnimationFrame(frame);
     };
-  }, [autoStickToBottom, followScrollToBottom, isUserScrollMomentumActive, restoreScrollAnchor]);
+  }, [autoStickToBottom, isUserScrollMomentumActive, scrollToBottom]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -1793,15 +1792,13 @@ export default function MessageList({
       && currentMetrics.lastItemContentLength > previousMetrics.lastItemContentLength;
     const isStreamingTailHandoff = currentMetrics.lastItemIsStreaming || previousMetrics.lastItemIsStreaming;
     if (tailGrew && isStreamingTailHandoff) return;
-    // Use the distance captured before this render. A newly appended bubble
-    // increases scrollHeight, so measuring only after insertion can make a
-    // previously-following view look far from the bottom.
-    const wasNearBottomBeforeRender = (lastKnownBottomDistanceRef.current ?? Number.POSITIVE_INFINITY) <= BOTTOM_STICKY_THRESHOLD;
-    const shouldFollowTail = shouldStickToBottomRef.current
-      || lastReportedBottomPinnedRef.current === true
-      || wasNearBottomBeforeRender
-      || (!hasUserScrollIntentRef.current && (tailChanged || tailGrew));
-    if (!shouldFollowTail) return;
+    // `shouldStickToBottomRef` is updated by actual viewport movement before
+    // this mutation. Never infer tail ownership from a missing scroll event:
+    // someone reading history may simply be still.
+    if (!shouldMaintainTailAfterMutation({
+      autoStickToBottom,
+      wasPinnedBeforeMutation: shouldStickToBottomRef.current,
+    })) return;
 
     shouldStickToBottomRef.current = true;
     if (!hasMoreNewer && lastReportedBottomPinnedRef.current !== true) {
@@ -1809,8 +1806,12 @@ export default function MessageList({
       onBottomPinnedChange?.(true);
     }
 
+    if (tailChanged && currentMetrics.lastItemIsStreaming) {
+      scrollToBottom('auto', 'tailFollow');
+      return;
+    }
     followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
-  }, [autoStickToBottom, followScrollToBottom, hasMoreNewer, onBottomPinnedChange, renderItems, restoreScrollAnchor, scrollRequest, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
+  }, [autoStickToBottom, followScrollToBottom, hasMoreNewer, onBottomPinnedChange, renderItems, restoreScrollAnchor, scrollRequest, scrollToBottom, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
 
   useLayoutEffect(() => {
     const previousValue = previousStoryChoiceSubmittingValueRef.current;
@@ -1880,7 +1881,6 @@ export default function MessageList({
         }
 
         const previousScrollTop = lastScrollTopRef.current;
-        lastKnownBottomDistanceRef.current = getDistanceFromBottom(container);
         const isScrollingUp = container.scrollTop < previousScrollTop - 2;
         const isScrollingDown = container.scrollTop > previousScrollTop + 2;
         const previousSample = lastScrollSampleRef.current;

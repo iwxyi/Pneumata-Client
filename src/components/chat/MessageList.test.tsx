@@ -3,6 +3,7 @@ import type { Message } from '../../types/message';
 import { buildChatRenderItems } from './chatRenderModel';
 import { buildMessageListRenderItems } from './messageListRenderItems';
 import { getContinuousAiMessageKeys } from './MessageList';
+import { shouldMaintainTailAfterMutation } from './messageListTailOwnership';
 import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed } from './messageListPresentation';
 
 function buildMessage(id: string, overrides: Partial<Message> = {}): Message {
@@ -149,5 +150,28 @@ describe('MessageList narrative reveal eligibility', () => {
     expect(getVisibleNarrativeDisplayBlocks(systemPanelOnly, true)).toEqual([
       expect.objectContaining({ displayMode: 'system_panel', text: expect.stringContaining('新的抉择点') }),
     ]);
+  });
+});
+
+describe('MessageList tail ownership', () => {
+  it('keeps a viewport at the tail across streaming growth', () => {
+    expect(shouldMaintainTailAfterMutation({
+      autoStickToBottom: true,
+      wasPinnedBeforeMutation: true,
+    })).toBe(true);
+  });
+
+  it('does not move a reader who is above the tail, even without a new input event', () => {
+    expect(shouldMaintainTailAfterMutation({
+      autoStickToBottom: true,
+      wasPinnedBeforeMutation: false,
+    })).toBe(false);
+  });
+
+  it('does not follow tail changes when automatic tail following is disabled', () => {
+    expect(shouldMaintainTailAfterMutation({
+      autoStickToBottom: false,
+      wasPinnedBeforeMutation: true,
+    })).toBe(false);
   });
 });
