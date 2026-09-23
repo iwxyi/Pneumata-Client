@@ -112,8 +112,8 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       },
     });
 
-    expect(contract).toContain('"messages":[{"content":"先发文字"');
-    expect(contract).toContain('messages[]: use null when there is only one send');
+    expect(contract).toContain('"messages":[{"content":"first send"');
+    expect(contract).toContain('messages[] is the authoritative ordered list');
     expect(contract).toContain('If the answer is yes, prefer messages[] for independent sends');
     expect(contract).toContain('model a short run of real sends with unequal sizes');
     expect(contract).toContain('simulate typing this turn as live chat');
@@ -260,13 +260,9 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       recentMessages: [],
     });
 
-    expect(contract).toContain('social_outing rules');
-    expect(contract).toContain('runtime will not invent or patch a social_outing from local keyword matching');
-    expect(contract).toContain('You must emit one social_outing');
-    expect(contract).toContain('old tea house with the blue curtain');
-    expect(contract).toContain('"participantStates":{"speaker-id":"interested","other-id":"invited"}');
-    expect(contract).toContain('emit social_outing with the same dedupeKey');
-    expect(contract).toContain('the runtime will not extract those updates from keywords');
-    expect(contract).toContain('participantIds/targetIds must use member ids');
+    expect(contract).toContain('socialEventHints: null unless the visible turn itself proposes');
+    expect(contract).toContain('runtime will not infer them from keywords');
+    expect(contract).toContain('participantIds/targetIds');
+    expect(contract).toContain('existing dedupeKey when updating');
   });
 });

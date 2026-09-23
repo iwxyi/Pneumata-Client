@@ -1704,6 +1704,19 @@ ${bubblePolicy}
 - Do not use messages[] for punctuation splitting, action/dialogue separation, another actor's line, or making a lecture longer.`;
 }
 
+function buildUnifiedGroupPresencePrompt(innerLife: InnerLifeProjection, richDelivery?: RichDeliveryPolicy) {
+  const bubblePolicy = richDelivery?.multiBubble.proactivity === 'high'
+    ? 'Natural consecutive sends are welcome when the character would genuinely press send, think again, then add a different beat.'
+    : richDelivery?.multiBubble.proactivity === 'medium'
+      ? 'A second send is available when it changes the timing or social feel.'
+      : 'Keep separate sends for a real change of timing or social feel.';
+  return `\n## Live Presence
+- Inner impulse: ${innerLife.impulse}; tone: ${innerLife.tone}. Let it affect what this person notices, leaves unsaid, resists, or blurts out. Never explain the state itself.
+- Do not polish awkwardness, face-saving, irritation, affection, uncertainty, or withdrawal into a correct group conclusion.
+- ${bubblePolicy} One bubble may still contain multiple paragraphs; do not split a sentence just because it ends.
+- A small reaction, a selective objection, a reluctant concession, an aside, a question, or silence can be a complete turn. Do not turn every turn into a complete response to the room.`;
+}
+
 function isBracketedLine(line: string) {
   const trimmed = line.trim();
   if (trimmed.length < 2 || trimmed.length > 80) return false;
@@ -3939,6 +3952,7 @@ export async function generateSpeakerMessage(params: {
   });
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const promptPlayMode = resolvePromptPlayMode(params.chat);
+  const usesUnifiedGroupTurn = promptPlayMode.id === 'general_group' && resolveSessionFamilyKey(params.chat) === 'conversation';
   const webSearchEnabled = Boolean(params.chat.modeState.assistantCapabilities?.webSearch) && !isStoryReader;
   const speakerSystemPrompt = buildSpeakerSystemPrompt({
     speaker: params.speaker,
@@ -3954,7 +3968,7 @@ export async function generateSpeakerMessage(params: {
     { id: 'speaker_identity', layer: 'core', priority: 0, content: speakerSystemPrompt },
     buildPromptPlayModeBlock(promptPlayMode),
     { id: 'humanization', layer: 'character', priority: 20, content: buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance) },
-    { id: 'inner_life', layer: 'character', priority: 30, content: buildInnerLifePromptBlock(innerLife) },
+    { id: 'inner_life', layer: 'character', priority: 30, content: usesUnifiedGroupTurn ? buildUnifiedGroupPresencePrompt(innerLife, richDelivery) : buildInnerLifePromptBlock(innerLife) },
     { id: 'pending_reply', layer: 'task', priority: 10, content: pendingReplyPrompt },
     { id: 'user_guidance', layer: 'task', priority: 20, content: buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities, priorGuidanceReplies) },
     { id: 'room_floor_state', layer: 'task', priority: 25, content: buildGuidanceFloorPrompt(guidanceFloorState) },
@@ -3967,12 +3981,12 @@ export async function generateSpeakerMessage(params: {
     { id: 'role_action_visibility', layer: 'runtime', priority: 10, content: buildRoleActionVisibilityPrompt(showRoleActions) },
     { id: 'expression_feedback', layer: 'runtime', priority: 20, content: buildExpressionFeedbackPrompt(expressionFeedbackTrace) },
     { id: 'turn_directive', layer: 'task', priority: 48, content: buildTurnDirectivePrompt(unifiedTurnDirective) },
-    { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
+    { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: usesUnifiedGroupTurn ? '' : buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
     { id: 'conversation_move', layer: 'task', priority: 50, content: buildConversationMovePrompt(conversationMovePlan, params.chat) },
     { id: 'expression_surface_choice', layer: 'style', priority: 20, content: buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan }) },
     { id: 'turn_length_variety', layer: 'style', priority: 30, content: buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
     { id: 'turn_format_variety', layer: 'style', priority: 40, content: buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
-    { id: 'turn_plan', layer: 'runtime', priority: 30, content: buildTurnPlanPrompt(turnPlan) },
+    { id: 'turn_plan', layer: 'runtime', priority: 30, content: usesUnifiedGroupTurn ? '' : buildTurnPlanPrompt(turnPlan) },
     { id: 'runtime_role_constraint', layer: 'runtime', priority: 40, content: buildRuntimeRoleConstraintPrompt(runtimeBundleWithMovePlan) },
     { id: 'response_surface', layer: 'style', priority: 50, content: buildResponseSurfacePrompt(responseSurface) },
     { id: 'style_quarantine', layer: 'style', priority: 60, content: buildStyleQuarantinePrompt(responseSurface) },

@@ -65,7 +65,7 @@ describe('promptBlockComposer', () => {
     expect(prompt).toBe('[core]');
   });
 
-  it('uses unified turn directive instead of scattered ordinary group chat expression blocks', () => {
+  it('uses the unified directive with only the compact group-presence delivery inputs', () => {
     const policy = resolvePromptPlayMode(chat());
     const prompt = composePromptBlocks([
       { id: 'core', layer: 'core', priority: 0, content: '[core]' },
@@ -82,7 +82,7 @@ describe('promptBlockComposer', () => {
     ], policy);
 
     expect(policy.id).toBe('general_group');
-    expect(prompt).toBe('[core][directive]');
+    expect(prompt).toBe('[core][inner life][directive][turn plan][chat rhythm]');
   });
 
   it('does not disable scenario group blocks outside ordinary conversation rooms', () => {

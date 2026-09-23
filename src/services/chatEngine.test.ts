@@ -404,9 +404,9 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('images is an array of 1-9 distinct image tasks');
     expect(contract).toContain('Text, audio, and images may be combined in one turn');
     expect(contract).toContain('visible first bubble');
-    expect(contract).toContain('deliberate repeated tone, keyword, rhythm, format');
-    expect(contract).toContain('accidental template drift');
-    expect(contract).toContain('socialEventHints: this is the only model-authored per-turn semantic source');
+    expect(contract).toContain('repeating wording, cadence, or a marker is the deliberate social move');
+    expect(contract).toContain('do not use it to excuse template drift');
+    expect(contract).toContain('socialEventHints: null unless the visible turn itself proposes');
     expect(contract).toContain('Recent transcript scope');
     expect(contract).toContain('does not repeat raw dialogue');
     expect(contract).not.toContain('美羊羊发个灰太狼证件照的图片');

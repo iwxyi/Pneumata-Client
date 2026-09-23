@@ -100,15 +100,12 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
         // companionship or scenario engines.
         disabledBlocks: [
           'humanization',
-          'inner_life',
-          'natural_chat_rhythm',
           'current_intent',
           'conversation_move',
           'expression_surface_choice',
           'turn_length_variety',
           'turn_format_variety',
           'response_surface',
-          'turn_plan',
           'runtime_role_constraint',
           'focused_situational_job_contract',
           'natural_chat_surface_contract',
