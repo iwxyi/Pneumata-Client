@@ -28,6 +28,8 @@ const METRIC_META = [
   { key: 'competence', label: '能力判断', color: '#1E88E5', hint: '表示对对方判断力、能力与专业性的评估。' },
   { key: 'trust', label: '信任', color: '#8E24AA', hint: '表示对可靠性、可预期性与合作安全感的判断。' },
   { key: 'threat', label: '威胁感', color: '#E53935', hint: '表示对风险、攻击性与压迫感的知觉。' },
+  { key: 'attachment', label: '在意', color: '#F57C00', hint: '表示惦记、牵挂和把对方放进自己行动考量的程度。' },
+  { key: 'deference', label: '让位', color: '#546E7A', hint: '表示是否会为对方让步、服从或承认其位置；负值表示更不愿让位。' },
 ] as const;
 
 type AxisKey = typeof METRIC_META[number]['key'];
@@ -124,10 +126,14 @@ function buildRelationshipStateChips(delta: ReturnType<typeof toRelationshipDisp
   const competence = delta.competence || 0;
   const trust = delta.trust || 0;
   const threat = delta.threat || 0;
+  const attachment = delta.attachment || 0;
+  const deference = delta.deference || 0;
   if (warmth >= 12 || trust >= 12) chips.push({ label: '高好感', color: 'success', hint: '亲和或信任较高，表示这一方更愿意靠近或接住对方。' });
   if (threat >= 12 || warmth <= -12 || trust <= -12) chips.push({ label: '有冲突', color: 'warning', hint: '威胁感较高，或亲和/信任明显偏低，表示这一方对对方有防备或摩擦。' });
   if (competence >= 12) chips.push({ label: '认可能力', color: 'info', hint: '能力判断较高，表示这一方更认可对方的判断力或本事。' });
   if (competence <= -12) chips.push({ label: '不太服气', color: 'warning', hint: '能力判断偏低，表示这一方不太认可对方的判断或表现。' });
+  if (attachment >= 12) chips.push({ label: '明显在意', color: 'success', hint: '在意较高，表示这一方会更容易把对方的处境纳入自己的考虑。' });
+  if (deference >= 12) chips.push({ label: '愿意让位', color: 'info', hint: '让位较高，表示这一方更愿意承认对方的位置或安排。' });
   return chips.slice(0, 3);
 }
 
@@ -174,10 +180,12 @@ function cleanRelationshipText(text: string) {
 
 function buildAxisLabels(delta: ReturnType<typeof toRelationshipDisplayDelta>) {
   return [
-    { key: 'warmth' as const, label: '亲和', value: formatSignedDelta(delta.warmth || 0), color: '#43A047', x: 56, y: 16, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
-    { key: 'competence' as const, label: '能力', value: formatSignedDelta(delta.competence || 0), color: '#1E88E5', x: 92, y: 56, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
-    { key: 'trust' as const, label: '信任', value: formatSignedDelta(delta.trust || 0), color: '#8E24AA', x: 56, y: 106, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
-    { key: 'threat' as const, label: '威胁', value: formatSignedDelta(delta.threat || 0), color: '#E53935', x: 20, y: 56, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
+    { key: 'warmth' as const, label: '亲和', value: formatSignedDelta(delta.warmth || 0), color: '#43A047', x: 56, y: 10, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
+    { key: 'competence' as const, label: '能力', value: formatSignedDelta(delta.competence || 0), color: '#1E88E5', x: 99, y: 30, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
+    { key: 'trust' as const, label: '信任', value: formatSignedDelta(delta.trust || 0), color: '#8E24AA', x: 99, y: 84, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
+    { key: 'threat' as const, label: '威胁', value: formatSignedDelta(delta.threat || 0), color: '#E53935', x: 56, y: 112, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
+    { key: 'attachment' as const, label: '在意', value: formatSignedDelta(delta.attachment || 0), color: '#F57C00', x: 13, y: 84, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
+    { key: 'deference' as const, label: '让位', value: formatSignedDelta(delta.deference || 0), color: '#546E7A', x: 13, y: 30, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
   ];
 }
 
@@ -343,7 +351,9 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
   const [activeAxis, setActiveAxis] = useState<AxisKey | null>(null);
   const axisReasonMap = normalizedEntry.axisReasons || {};
   const activeMeta = useMemo(() => METRIC_META.find((item) => item.key === activeAxis) || null, [activeAxis]);
-  const activeReasons = activeAxis ? (axisReasonMap[activeAxis] || []) : [];
+  const activeReasons = activeAxis && activeAxis in axisReasonMap
+    ? (axisReasonMap[activeAxis as keyof typeof axisReasonMap] || [])
+    : [];
 
   if (!presented) return null;
 
@@ -368,8 +378,12 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
             <Chip size="small" variant="outlined" label={dominantSummary} sx={compactPillChipSx} />
           </Tooltip>
         </Box>
-        {presented.semanticSummary ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>{presented.semanticSummary}</Typography> : null}
-        {baselineAndAdjustment ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>默认（房间变化）：{baselineAndAdjustment}</Typography> : null}
+        {presented.semanticSummary ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>关系阶段：{presented.semanticSummary === '普通互动' ? '尚未形成明显倾向' : presented.semanticSummary}</Typography> : null}
+        {baselineAndAdjustment ? (
+          <Tooltip title="角色默认关系值（本群聊天累计变化）。两者相加才是当前实际关系。" arrow>
+            <Typography variant="caption" color="text.secondary" sx={{ px: 0.25, width: 'fit-content', cursor: 'help' }}>角色默认（本群变化）：{baselineAndAdjustment}</Typography>
+          </Tooltip>
+        ) : null}
         <RelationshipEvidenceCard speakerName={evidenceSpeakerName} evidence={presented.evidence || '暂无明确证据'} label={evidenceLabel} />
         <RelationshipRadar entry={normalizedEntry} onOpenAxis={setActiveAxis} />
       </Stack>
@@ -378,7 +392,7 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
   );
 }
 
-function RelationshipFallbackCard({ memberName, targetName, note, relation, updatedAt }: { memberName: string; targetName: string; note?: string; relation: { warmth: number; competence: number; trust: number; threat: number }; updatedAt: number }) {
+function RelationshipFallbackCard({ memberName, targetName, note, relation, updatedAt }: { memberName: string; targetName: string; note?: string; relation: { warmth: number; competence: number; trust: number; threat: number; attachment: number; deference: number }; updatedAt: number }) {
   const fallbackEvidence = note?.trim() ? `预设备注：${note.trim()}` : '';
   const hasMeaningfulFallback = Math.abs(relation.warmth) >= 8 || Math.abs(relation.competence) >= 8 || Math.abs(relation.trust) >= 8 || Math.abs(relation.threat) >= 8 || Boolean(note?.trim());
   const [activeAxis, setActiveAxis] = useState<AxisKey | null>(null);

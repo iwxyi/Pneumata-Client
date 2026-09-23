@@ -15,6 +15,7 @@ import { microPillChipSx } from '../../styles/interaction';
 import { canRunAiMemberActions } from '../../services/memberActionPolicy';
 import { inferSystemAgentSubtypeFromId } from '../../services/actorRefPresentation';
 import { buildMemberAvailabilityChips } from '../../services/memberAvailabilityPresentation';
+import GroupRelationshipDialog from '../relationship/GroupRelationshipDialog';
 
 interface MemberListProps {
   members: AICharacter[];
@@ -119,6 +120,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [menuCharId, setMenuCharId] = useState<string | null>(null);
   const [seatDialogOpen, setSeatDialogOpen] = useState(false);
+  const [relationshipDialogOpen, setRelationshipDialogOpen] = useState(false);
   const showDebugDetails = developerMode && showAdvancedRuntimePanels;
   const shouldShowMysteryRoleAlias = chat?.sessionKind?.family === 'mystery' || chat?.mode === 'murder_mystery';
 
@@ -338,7 +340,8 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
         })}
       </List>
       {chat?.type === 'group' && onUpdateSeats ? (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.75 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 0.25, mt: 0.75 }}>
+          <Button size="small" variant="text" onClick={() => setRelationshipDialogOpen(true)}>关系</Button>
           <Button size="small" variant="text" onClick={openSeatDialog}>调整座位</Button>
         </Box>
       ) : null}
@@ -399,6 +402,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
           }}>保存</Button>
         </DialogActions>
       </Dialog>
+      {chat ? <GroupRelationshipDialog open={relationshipDialogOpen} onClose={() => setRelationshipDialogOpen(false)} chat={chat} members={members} /> : null}
     </Box>
   );
 }

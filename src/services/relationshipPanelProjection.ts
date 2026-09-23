@@ -20,6 +20,8 @@ export interface RelationshipPanelFallbackItem {
     competence: number;
     trust: number;
     threat: number;
+    attachment: number;
+    deference: number;
   };
 }
 
@@ -39,6 +41,8 @@ export interface RelationshipPanelDiagnosticItem {
     competence: number;
     trust: number;
     threat: number;
+    attachment: number;
+    deference: number;
   };
 }
 
@@ -153,6 +157,8 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
           competence: entry.current.competence,
           trust: entry.current.trust,
           threat: entry.current.threat,
+          attachment: entry.current.attachment || 0,
+          deference: entry.current.deference || 0,
         },
       });
       return false;
@@ -212,6 +218,8 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
                 competence: relation.competence,
                 trust: relation.trust,
                 threat: relation.threat,
+                attachment: relation.attachment || 0,
+                deference: relation.deference || 0,
               },
             });
             return null;
@@ -225,6 +233,8 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
               competence: relation.competence,
               trust: relation.trust,
               threat: relation.threat,
+              attachment: relation.attachment || 0,
+              deference: relation.deference || 0,
             },
           };
         })
