@@ -438,7 +438,7 @@ describe('assistantAgentOrchestrator validation', () => {
     expect(patchSet.mediaTasks?.[0]?.prompt).not.toBe('番茄炒蛋');
   });
 
-  it('recovers a missing image task from an inline image placeholder for an explicit image request', async () => {
+  it('rejects inline image placeholders that do not have media tasks', async () => {
     generateResponseMock.mockResolvedValue(JSON.stringify({
       assistantMessage: '好的，为你生成一张红烧肉的图片。\n\n![红烧肉成菜图](attachment:image-1)',
       patches: [],
@@ -472,38 +472,9 @@ describe('assistantAgentOrchestrator validation', () => {
       existingArtifacts: [],
     });
 
-    expect(patchSet.assistantMessage).toContain('attachment:image-1');
-    expect(patchSet.mediaTasks).toHaveLength(1);
-    expect(patchSet.mediaTasks?.[0]).toMatchObject({
-      slotId: 'image-1',
-      altText: '红烧肉成菜图',
-    });
-    expect(patchSet.mediaTasks?.[0]?.prompt).toContain('帮我生成一张红烧肉的图片');
-  });
-
-  it('recovers numbered image placeholders with their matching prompt instead of the whole batch request', async () => {
-    generateResponseMock.mockResolvedValue(JSON.stringify({
-      assistantMessage: '![第一张](attachment:image-1)\n![第二张](attachment:image-2)',
-      patches: [],
-      mediaTasks: [],
-    }));
-    const patchSet = await writeAssistantAgentPatchSet({
-      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
-      chatId: 'chat-a',
-      messages: [],
-      userMessage: {
-        id: 'message-numbered-image-recovery', chatId: 'chat-a', type: 'user', senderId: 'user', senderName: '用户', emotion: 0, timestamp: 1, isDeleted: false,
-        content: '帮我生成图片：\n\n第1张：【苹果】\n提示词：红苹果静物摄影 --ar 3:4\n\n第2张：【梨】\n提示词：黄梨静物摄影 --ar 3:4',
-      },
-      plan: { intent: 'create', scope: { targetMode: 'unknown', artifactIds: [] }, operations: [{ kind: 'create', instruction: '生成两张图片' }], requiresConfirmation: false, confidence: 0.95 },
-      existingArtifacts: [],
-    });
-    expect(patchSet.mediaTasks?.map((task) => task.prompt)).toEqual([
-      expect.stringContaining('红苹果静物摄影'),
-      expect.stringContaining('黄梨静物摄影'),
-    ]);
-    expect(patchSet.mediaTasks?.[0]?.prompt).not.toContain('黄梨静物摄影');
-    expect(patchSet.mediaTasks?.[1]?.prompt).not.toContain('红苹果静物摄影');
+    expect(patchSet.assistantMessage).toContain('图片任务输出不完整');
+    expect(patchSet.assistantMessage).toContain('image-1');
+    expect(patchSet.mediaTasks).toEqual([]);
   });
 
   it('rejects update patches outside the planned artifact scope', () => {

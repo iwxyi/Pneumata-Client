@@ -468,7 +468,7 @@ function buildWriterPrompt(options: { includeImages: boolean; includeLocalFiles:
     '',
     '输出格式：',
     'dataOperations.filter 顶层数组表示 AND；复杂条件可使用 {"all":[...]}, {"any":[...]}, {"not":{...}}。',
-    '{"assistantMessage":"面向用户的自然回复文案","patches":[{"action":"create|update","artifactId":"...","kind":"document|code|diagram|html|table|json|text","title":"...","summary":"...","language":"...","content":"完整内容","files":[],"baseVersionId":"...","changeSummary":"...","dataDescriptor":{"description":"...","primaryKey":"...","fields":[{"name":"...","type":"string|number|boolean|date|datetime|array|object","description":"..."}]},"htmlRuntime":{}}],"dataOperations":[{"kind":"query|insert|update|delete|add_column","artifactId":"...","baseVersionId":"...","filePath":"...","column":"newColumn","defaultValue":"","filter":[{"field":"...","operator":"eq|contains|startsWith|endsWith|gt|gte|lt|lte|exists|notExists|isNull|isNotNull","value":"..."}],"values":{},"limit":100,"offset":0,"sort":{"field":"...","direction":"asc|desc"}}],"workspaceOperations":[{"directoryId":"...","kind":"write|delete|copy|move","path":"relative/file.txt","destinationPath":"relative/new-file.txt","content":"write 时的完整文本","conflictPolicy":"rename|skip|overwrite"}],"mediaTasks":[]}',
+    '{"assistantMessage":"面向用户的自然回复文案","patches":[{"action":"create|update","artifactId":"...","kind":"document|code|diagram|html|table|json|text","title":"...","summary":"...","language":"...","content":"完整内容","files":[],"baseVersionId":"...","changeSummary":"...","dataDescriptor":{"description":"...","primaryKey":"...","fields":[{"name":"...","type":"string|number|boolean|date|datetime|array|object","description":"..."}]},"htmlRuntime":{}}],"dataOperations":[{"kind":"query|insert|update|delete|add_column","artifactId":"...","baseVersionId":"...","filePath":"...","column":"newColumn","defaultValue":"","filter":[{"field":"...","operator":"eq|contains|startsWith|endsWith|gt|gte|lt|lte|exists|notExists|isNull|isNotNull","value":"..."}],"values":{},"limit":100,"offset":0,"sort":{"field":"...","direction":"asc|desc"}}],"workspaceOperations":[{"directoryId":"...","kind":"write|delete|copy|move","path":"relative/file.txt","destinationPath":"relative/new-file.txt","content":"write 时的完整文本","conflictPolicy":"rename|skip|overwrite"}],"mediaTasks":[{"kind":"image","slotId":"image-1","prompt":"仅对应此槽位的一张图片的最终完整提示词","altText":"用户可见的简短说明","userCaption":"用户可见的简短说明","aspectRatio":"3:4","imageSize":"1K","targetArtifactId":"","targetImageIds":[],"referenceImageIds":[],"styleImageIds":[]}]}',
   );
   return sections.join('\n');
 }
@@ -705,67 +705,6 @@ function ensureMediaTaskPlaceholders(assistantMessage: string, mediaTasks: Assis
   return text(content, MAX_ASSISTANT_VISIBLE_MESSAGE_CHARS);
 }
 
-function extractNumberedImagePrompts(content: string) {
-  const headings = Array.from(content.matchAll(/^\s*第\s*(\d+)\s*张\s*[：:]/gm));
-  const prompts = new Map<number, string>();
-  for (let index = 0; index < headings.length; index += 1) {
-    const heading = headings[index];
-    const itemEnd = headings[index + 1]?.index ?? content.length;
-    const item = content.slice(heading.index, itemEnd);
-    const promptMarker = /(?:^|\n)\s*提示词\s*[：:]/.exec(item);
-    if (!promptMarker) continue;
-    const prompt = item.slice((promptMarker.index || 0) + promptMarker[0].length).trim();
-    const ordinal = Number(heading[1]);
-    if (Number.isInteger(ordinal) && ordinal > 0 && prompt) prompts.set(ordinal, prompt);
-  }
-  return prompts;
-}
-
-function promptForMediaSlot(slotId: string, numberedPrompts: Map<number, string>, fallback: string) {
-  const match = /^image-(\d+)$/i.exec(slotId);
-  if (match) return numberedPrompts.size ? numberedPrompts.get(Number(match[1])) || null : fallback;
-  if (numberedPrompts.size > 1) return null;
-  return numberedPrompts.values().next().value || fallback;
-}
-
-function isolateNumberedBatchPrompts(mediaTasks: AssistantAgentMediaTask[], userMessage: Message | undefined) {
-  if (!userMessage || !mediaTasks.length) return mediaTasks;
-  const numberedPrompts = extractNumberedImagePrompts(userMessage.content);
-  if (numberedPrompts.size < 2) return mediaTasks;
-  return mediaTasks.map((task) => {
-    const mentionsMultipleItems = (task.prompt.match(/^\s*第\s*\d+\s*张\s*[：:]/gm) || []).length > 1;
-    const isolatedPrompt = promptForMediaSlot(task.slotId || '', numberedPrompts, userMessage.content);
-    return mentionsMultipleItems && isolatedPrompt ? { ...task, prompt: enhanceImagePrompt(isolatedPrompt, { caption: task.userCaption, subject: task.altText }) } : task;
-  });
-}
-
-function recoverInlineImageTasks(
-  assistantMessage: string,
-  mediaTasks: AssistantAgentMediaTask[],
-  userMessage: Message | undefined,
-) {
-  if (!userMessage || !/图片|照片|插画|海报|头像|生图|生成.*图|画一张|参考图/i.test(userMessage.content)) return mediaTasks;
-  const numberedPrompts = extractNumberedImagePrompts(userMessage.content);
-  const existingSlots = new Set(mediaTasks.map((task) => task.slotId?.trim()).filter(Boolean));
-  const recovered: AssistantAgentMediaTask[] = [];
-  for (const match of assistantMessage.matchAll(INLINE_IMAGE_ATTACHMENT_PATTERN)) {
-    const slotId = (match[2] || '').trim().replace(/[^\w.-]/g, '').slice(0, 80);
-    if (!slotId || existingSlots.has(slotId)) continue;
-    const prompt = promptForMediaSlot(slotId, numberedPrompts, userMessage.content);
-    if (!prompt) continue;
-    const altText = text(match[1], 160) || 'AI 图片';
-    recovered.push({
-      kind: 'image',
-      slotId,
-      prompt: enhanceImagePrompt(prompt, { caption: altText, subject: altText }),
-      altText,
-      userCaption: altText,
-    });
-    existingSlots.add(slotId);
-  }
-  return recovered.length ? [...mediaTasks, ...recovered] : mediaTasks;
-}
-
 function inlineImageAttachmentSlots(assistantMessage: string) {
   const slots = new Set<string>();
   for (const match of assistantMessage.matchAll(INLINE_IMAGE_ATTACHMENT_PATTERN)) {
@@ -893,19 +832,19 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
       },
     });
   }
-  let mediaTasks = isolateNumberedBatchPrompts(normalizedMediaTasks, userMessage);
-  mediaTasks = recoverInlineImageTasks(
-    visibleAssistantMessage,
-    mediaTasks,
-    userMessage,
-  );
+  const mediaTaskContractError = missingTaskSlots.length
+    ? `图片任务输出不完整：缺少 ${missingTaskSlots.join('、')} 的 mediaTasks。未创建任何图片生成任务，请重试。`
+    : '';
+  let mediaTasks = mediaTaskContractError ? [] : normalizedMediaTasks;
   mediaTasks = withImplicitLatestImageTarget(mediaTasks, userMessage, imageReferenceRegistry);
-  if (!patches.length && !mediaTasks.length && userMessage) {
+  if (!mediaTaskContractError && !patches.length && !mediaTasks.length && userMessage) {
     const implicitTask = createImplicitLatestImageEditTask({ userMessage, imageReferenceRegistry });
     if (implicitTask) mediaTasks = [implicitTask];
   }
   return {
-    assistantMessage: ensureMediaTaskPlaceholders(visibleAssistantMessage, mediaTasks)
+    assistantMessage: mediaTaskContractError
+      ? [visibleAssistantMessage, mediaTaskContractError].filter(Boolean).join('\n\n')
+      : ensureMediaTaskPlaceholders(visibleAssistantMessage, mediaTasks)
       || (mediaTasks.length && !patches.length ? '我已根据你的要求准备生成图片。' : patches.length || dataOperations.length ? '已完成产物变更。' : '没有可提交的产物变更。'),
     patches,
     dataOperations,
