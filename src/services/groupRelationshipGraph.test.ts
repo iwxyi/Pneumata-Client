@@ -39,7 +39,7 @@ describe('group relationship graph projection', () => {
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
 
-  it('adds model-inferred authority structure without fabricating an affect edge', () => {
+  it('does not project deprecated directional structure as a public fact', () => {
     const room = normalizeConversation({
       ...chat(),
       relationshipStructure: {
@@ -49,9 +49,9 @@ describe('group relationship graph projection', () => {
       },
     });
     const projection = projectGroupRelationshipGraphs(room, [member('a'), member('b'), member('c'), member('d')]);
-    expect(projection.sharedFacts).toMatchObject([{ kind: 'authority', statement: '甲是乙的直属上司', memberIds: ['a', 'b'] }]);
-    expect(projection.graphs[0]?.edges[0]).toMatchObject({ source: 'structural' });
-    expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
+    expect(projection.sharedFacts).toEqual([]);
+    expect(projection.graphs).toEqual([]);
+    expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['a', 'b', 'c', 'd']);
   });
 
   it('keeps directional attitudes separate from public relationship facts', () => {
@@ -69,7 +69,7 @@ describe('group relationship graph projection', () => {
     ]);
     expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'a->b')?.note).toBeUndefined();
     expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'b->a')?.note).toBeUndefined();
-    expect(projection.sharedFacts).toMatchObject([{ kind: 'authority', statement: '甲是乙的直属上司' }]);
+    expect(projection.sharedFacts).toEqual([]);
   });
 
   it('projects shared structure facts without turning them into a directional attitude', () => {
@@ -79,11 +79,11 @@ describe('group relationship graph projection', () => {
         version: 1,
         updatedAt: 3,
         edges: [],
-        sharedFacts: [{ id: 'siblings-a-b', memberIds: ['a', 'b'], kind: 'kinship', statement: '甲乙是结义兄弟', confidence: 0.92, evidence: '设定明确', updatedAt: 3 }],
+        sharedFacts: [{ id: 'siblings-a-b', memberIds: ['a', 'b'], kind: 'kinship', kinds: ['kinship', 'affiliation', 'duty'], statement: '甲乙搭档多年，情同手足，共同负责夜巡。', confidence: 0.92, evidence: '设定明确', updatedAt: 3 }],
       },
     });
     const projection = projectGroupRelationshipGraphs(room, [member('a'), member('b'), member('c'), member('d')]);
-    expect(projection.sharedFacts).toMatchObject([{ kind: 'kinship', statement: '甲乙是结义兄弟' }]);
+    expect(projection.sharedFacts).toMatchObject([{ kind: 'kinship', kinds: ['kinship', 'affiliation', 'duty'], statement: '甲乙搭档多年，情同手足，共同负责夜巡。' }]);
     expect(projection.graphs[0]?.edges[0]).toMatchObject({ axes: { warmth: 0, trust: 0 } });
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
@@ -99,20 +99,4 @@ describe('group relationship graph projection', () => {
     expect(projection.sharedFacts).toEqual([]);
   });
 
-  it('deduplicates reciprocal legacy structure edges into one public fact', () => {
-    const room = normalizeConversation({
-      ...chat(),
-      relationshipStructure: {
-        version: 1,
-        updatedAt: 4,
-        edges: [
-          { id: 'colleague-a-b', fromId: 'a', toId: 'b', kind: 'affiliation', statement: '甲与乙同属巡夜班', confidence: 0.9, evidence: '身份设定', updatedAt: 3 },
-          { id: 'colleague-b-a', fromId: 'b', toId: 'a', kind: 'affiliation', statement: '乙与甲同属巡夜班', confidence: 0.9, evidence: '身份设定', updatedAt: 4 },
-        ],
-      },
-    });
-    const projection = projectGroupRelationshipGraphs(room, [member('a'), member('b'), member('c'), member('d')]);
-    expect(projection.sharedFacts).toHaveLength(1);
-    expect(projection.sharedFacts[0]).toMatchObject({ memberIds: ['a', 'b'], kind: 'affiliation', statement: '乙与甲同属巡夜班' });
-  });
 });

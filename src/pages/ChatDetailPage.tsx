@@ -1309,14 +1309,10 @@ export default function ChatDetailPage() {
     const sharedFacts = (latest.relationshipStructure?.sharedFacts || []).map((fact) => (
       statements.has(fact.id) ? { ...fact, statement: statements.get(fact.id)!, updatedAt } : fact
     ));
-    const edges = (latest.relationshipStructure?.edges || []).map((edge) => {
-      const legacyId = `legacy-shared-${edge.id}`;
-      return statements.has(legacyId) ? { ...edge, statement: statements.get(legacyId)!, updatedAt } : edge;
-    });
     await updateChat(latest.id, {
       relationshipStructure: {
         version: 1,
-        edges,
+        edges: latest.relationshipStructure?.edges || [],
         sharedFacts,
         updatedAt,
       },

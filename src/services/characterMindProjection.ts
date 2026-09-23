@@ -213,9 +213,6 @@ function collectRelationshipContinuity(params: {
   const targetId = params.targetId;
   const publicRelationshipFacts = targetId
     ? [
-      ...(params.chat.relationshipStructure?.edges || [])
-        .filter((edge) => [edge.fromId, edge.toId].includes(params.character.id) && [edge.fromId, edge.toId].includes(targetId))
-        .map((edge) => `共同关系：${edge.statement}`),
       ...(params.chat.relationshipStructure?.sharedFacts || [])
         .filter((fact) => fact.memberIds.includes(params.character.id) && fact.memberIds.includes(targetId))
         .map((fact) => `共同关系：${fact.statement}`),

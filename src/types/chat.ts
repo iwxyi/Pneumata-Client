@@ -909,6 +909,8 @@ export interface RoomRelationshipStructureEdge {
 export interface RoomRelationshipSharedFact {
   id: string;
   memberIds: string[];
+  /** Multiple public relationship layers may share one concise description. */
+  kinds?: RelationshipStructureKind[];
   kind: RelationshipStructureKind;
   statement: string;
   confidence: number;

@@ -183,18 +183,19 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
             group.memberIds.slice(index + 1).map((toId) => pairKeyFor({ fromId, toId })),
           );
           const active = factPairs.some((pairKey) => highlightedPairs.includes(pairKey));
+          const kinds = Array.from(new Set(group.facts.flatMap((fact) => fact.kinds?.length ? fact.kinds : [fact.kind])));
           return <Box key={groupKey} onMouseEnter={() => onHighlightedPairsChange(factPairs)} onMouseLeave={() => onHighlightedPairsChange([])} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: active ? 'primary.main' : 'divider', bgcolor: active ? 'action.selected' : 'background.paper', boxShadow: active ? 1 : 'none', cursor: 'pointer', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}>
             <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-              <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
+              <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
+                {kinds.map((kind) => <Chip key={kind} size="small" label={STRUCTURE_LABELS[kind]} variant="outlined" />)}
+              </Stack>
               {onUpdateSharedFacts ? <Tooltip title="编辑关系"><IconButton size="small" onClick={(event) => { event.stopPropagation(); setSaveError(''); setEditingFacts(group.facts); setDrafts(Object.fromEntries(group.facts.map((fact) => [fact.id, fact.statement]))); }}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip> : null}
             </Stack>
             <Stack spacing={0.45} sx={{ mt: 0.55 }}>
-              {group.facts.map((fact) => <Box key={fact.id} sx={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'start', gap: 0.55 }}>
-                <Chip size="small" label={STRUCTURE_LABELS[fact.kind]} variant="outlined" />
-                <Box sx={{ minWidth: 0 }}>
-                  <Typography variant="body2">{fact.statement}</Typography>
-                  {fact.evidence ? <Typography variant="caption" color="text.secondary">{fact.evidence}</Typography> : null}
-                </Box>
+              {group.facts.map((fact) => <Box key={fact.id} sx={{ minWidth: 0 }}>
+                <Typography variant="body2">{fact.statement}</Typography>
+                {fact.evidence ? <Typography variant="caption" color="text.secondary">{fact.evidence}</Typography> : null}
               </Box>)}
             </Stack>
           </Box>;

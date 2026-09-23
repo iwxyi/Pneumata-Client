@@ -33,35 +33,9 @@ export interface GroupRelationshipGraphProjection {
 }
 
 function projectSharedFacts(chat: GroupChat, nodeIds: Set<string>): RoomRelationshipSharedFact[] {
-  const explicitFacts = (chat.relationshipStructure?.sharedFacts || []).filter((fact) =>
+  return (chat.relationshipStructure?.sharedFacts || []).filter((fact) =>
     fact.memberIds.filter((id) => nodeIds.has(id)).length >= 2,
   );
-  // Older rooms stored public facts, such as authority or shared affiliation,
-  // on a directed structure edge. Keep those facts visible as public context.
-  const legacyFacts = (chat.relationshipStructure?.edges || []).flatMap((edge): RoomRelationshipSharedFact[] => {
-    if (!nodeIds.has(edge.fromId) || !nodeIds.has(edge.toId)) return [];
-    return [{
-      id: `legacy-shared-${edge.id}`,
-      memberIds: [edge.fromId, edge.toId],
-      kind: edge.kind,
-      statement: edge.statement,
-      confidence: edge.confidence,
-      evidence: edge.evidence,
-      updatedAt: edge.updatedAt,
-    }];
-  });
-  const byKey = new Map<string, { fact: RoomRelationshipSharedFact; explicit: boolean }>();
-  [...explicitFacts.map((fact) => ({ fact, explicit: true })), ...legacyFacts.map((fact) => ({ fact, explicit: false }))].forEach(({ fact, explicit }) => {
-    const memberIds = Array.from(new Set(fact.memberIds.filter((id) => nodeIds.has(id))).values()).sort();
-    if (memberIds.length < 2) return;
-    const key = `${memberIds.join('|')}:${fact.kind}`;
-    const candidate = { fact: { ...fact, memberIds }, explicit };
-    const existing = byKey.get(key);
-    if (!existing || (candidate.explicit && !existing.explicit) || (candidate.explicit === existing.explicit && candidate.fact.updatedAt > existing.fact.updatedAt)) {
-      byKey.set(key, candidate);
-    }
-  });
-  return Array.from(byKey.values(), ({ fact }) => fact);
 }
 
 function emptyAxes(): RelationshipAxes {

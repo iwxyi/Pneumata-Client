@@ -36,6 +36,7 @@ interface RawRelationshipStructure {
 interface RawSharedRelationshipStructure {
   memberNames?: unknown;
   kind?: unknown;
+  kinds?: unknown;
   statement?: unknown;
   confidence?: unknown;
   reason?: unknown;
@@ -157,7 +158,7 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
       '如果刚创建角色与已有角色在简介里明显有关，也可以输出新角色->已有角色或已有角色->新角色的初始印象；不要覆盖已有强关系。',
       '不要为所有组合机械生成关系。只输出有明显依据、能改善角色互动连续性的关系。',
       '六轴范围：warmth -70..70，competence -70..70，trust -70..70，threat 0..70，attachment 0..70，deference -70..70。confidence 0..1。',
-      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"角色A对角色B的主观看法","confidence":0.8,"reason":"依据"}],"sharedStructure":[{"memberNames":["角色A","角色B"],"kind":"authority","statement":"角色A是角色B的直属上司","confidence":0.9,"reason":"依据"}]}。sharedStructure 专门写双方或多方共同拥有的客观关系事实；同事、上下级、亲属、阵营、结义、共同债务或宿敌都必须写在这里。不要输出 structure。kind 只能是 authority、duty、kinship、affiliation、rivalry、obligation。',
+      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"角色A对角色B的主观看法","confidence":0.8,"reason":"依据"}],"sharedStructure":[{"memberNames":["角色A","角色B"],"kinds":["authority","duty"],"statement":"角色A是角色B的直属上司，并负责安排其差事","confidence":0.9,"reason":"依据"}]}。sharedStructure 专门写双方或多方共同拥有的客观关系事实；同事、上下级、亲属、阵营、结义、共同债务或宿敌都必须写在这里。每一组相同成员只输出一条 sharedStructure；若同时有亲属、同属、职责等多层事实，在 kinds 中列全，statement 用一段不重复的综合说明。不要输出 structure。kinds 只能包含 authority、duty、kinship、affiliation、rivalry、obligation。',
       '所有 fromName/toName 必须来自角色列表。不要输出 markdown，不要解释。',
       `角色列表：\n${characterBlock}`,
     ].join('\n\n');
@@ -176,7 +177,7 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
     'If newly created characters are clearly connected to existing characters, you may output new->existing or existing->new initial impressions. Do not overwrite strong existing relationships.',
     'Do not generate every pair mechanically. Only output relationships with clear grounding and useful interaction value.',
     'Axis ranges: warmth -70..70, competence -70..70, trust -70..70, threat 0..70, attachment 0..70, deference -70..70. confidence 0..1.',
-    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"A’s subjective view of B","confidence":0.8,"reason":"basis"}],"sharedStructure":[{"memberNames":["A","B"],"kind":"authority","statement":"A is B’s direct superior","confidence":0.9,"reason":"basis"}]}. sharedStructure is a public fact for two or more members; hierarchy, colleagues, kinship, faction, sworn siblinghood, joint debt, and rivalry must be placed here. Do not output structure. Kinds must be authority, duty, kinship, affiliation, rivalry, or obligation.',
+    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"A’s subjective view of B","confidence":0.8,"reason":"basis"}],"sharedStructure":[{"memberNames":["A","B"],"kinds":["authority","duty"],"statement":"A is B’s direct superior and assigns their duties","confidence":0.9,"reason":"basis"}]}. sharedStructure is a public fact for two or more members; hierarchy, colleagues, kinship, faction, sworn siblinghood, joint debt, and rivalry must be placed here. Output exactly one sharedStructure entry per member group; combine multiple layers in kinds and use one non-repetitive summary in statement. Do not output structure. Kinds may contain authority, duty, kinship, affiliation, rivalry, or obligation.',
     'Every fromName/toName must come from the character list. No markdown. No explanation.',
     `Characters:\n${characterBlock}`,
   ].join('\n\n');
@@ -218,16 +219,19 @@ function buildSharedStructureFacts(raw: RawSharedRelationshipStructure[] | undef
   const seen = new Set<string>();
   return (raw || []).flatMap((item, index): RoomRelationshipSharedFact[] => {
     const confidence = normalizeConfidence(item.confidence);
-    const kind = normalizeName(item.kind) as RelationshipStructureKind;
+    const kinds = Array.from(new Set((Array.isArray(item.kinds) ? item.kinds : [item.kind])
+      .map(normalizeName)
+      .filter((kind): kind is RelationshipStructureKind => STRUCTURE_KINDS.has(kind as RelationshipStructureKind))));
+    const kind = kinds[0];
     const statement = normalizeName(item.statement);
     const names = Array.isArray(item.memberNames) ? item.memberNames.map(normalizeName).filter(Boolean) : [];
     const memberIds = Array.from(new Set(names.map((name) => nameMap.get(name.toLowerCase())?.id).filter((id): id is string => Boolean(id)))).sort();
-    if (confidence < 0.55 || memberIds.length < 2 || !STRUCTURE_KINDS.has(kind) || !statement) return [];
+    if (confidence < 0.55 || memberIds.length < 2 || !kind || !statement) return [];
     if ((scope === 'created_only' || scope === 'selected_members') && memberIds.some((id) => !createdIds.has(id))) return [];
-    const key = `${memberIds.join('|')}:${kind}`;
+    const key = `${memberIds.join('|')}:${kinds.join(',')}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    return [{ id: `shared-structure-${now}-${index}-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`, memberIds, kind, statement: statement.slice(0, 180), confidence, evidence: normalizeName(item.reason).slice(0, 180), updatedAt: now }];
+    return [{ id: `shared-structure-${now}-${index}-${key.replace(/[^a-zA-Z0-9_-]/g, '-')}`, memberIds, kind, kinds, statement: statement.slice(0, 180), confidence, evidence: normalizeName(item.reason).slice(0, 180), updatedAt: now }];
   });
 }
 
