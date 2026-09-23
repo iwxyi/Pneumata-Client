@@ -96,5 +96,23 @@ describe('group relationship graph projection', () => {
     ]);
     expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'a->b')?.note).toBe('甲认可乙的能力，但不愿让步');
     expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'b->a')?.note).toBe('乙防着甲翻旧账');
+    expect(projection.sharedFacts).toEqual([]);
+  });
+
+  it('deduplicates reciprocal legacy structure edges into one public fact', () => {
+    const room = normalizeConversation({
+      ...chat(),
+      relationshipStructure: {
+        version: 1,
+        updatedAt: 4,
+        edges: [
+          { id: 'colleague-a-b', fromId: 'a', toId: 'b', kind: 'affiliation', statement: '甲与乙同属巡夜班', confidence: 0.9, evidence: '身份设定', updatedAt: 3 },
+          { id: 'colleague-b-a', fromId: 'b', toId: 'a', kind: 'affiliation', statement: '乙与甲同属巡夜班', confidence: 0.9, evidence: '身份设定', updatedAt: 4 },
+        ],
+      },
+    });
+    const projection = projectGroupRelationshipGraphs(room, [member('a'), member('b'), member('c'), member('d')]);
+    expect(projection.sharedFacts).toHaveLength(1);
+    expect(projection.sharedFacts[0]).toMatchObject({ memberIds: ['a', 'b'], kind: 'affiliation', statement: '乙与甲同属巡夜班' });
   });
 });

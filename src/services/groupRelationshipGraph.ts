@@ -50,14 +50,18 @@ function projectSharedFacts(chat: GroupChat, nodeIds: Set<string>): RoomRelation
       updatedAt: edge.updatedAt,
     }];
   });
-  const byKey = new Map<string, RoomRelationshipSharedFact>();
-  [...explicitFacts, ...legacyFacts].forEach((fact) => {
+  const byKey = new Map<string, { fact: RoomRelationshipSharedFact; explicit: boolean }>();
+  [...explicitFacts.map((fact) => ({ fact, explicit: true })), ...legacyFacts.map((fact) => ({ fact, explicit: false }))].forEach(({ fact, explicit }) => {
     const memberIds = Array.from(new Set(fact.memberIds.filter((id) => nodeIds.has(id))).values()).sort();
     if (memberIds.length < 2) return;
-    const key = `${memberIds.join('|')}:${fact.kind}:${fact.statement}`;
-    if (!byKey.has(key)) byKey.set(key, { ...fact, memberIds });
+    const key = `${memberIds.join('|')}:${fact.kind}`;
+    const candidate = { fact: { ...fact, memberIds }, explicit };
+    const existing = byKey.get(key);
+    if (!existing || (candidate.explicit && !existing.explicit) || (candidate.explicit === existing.explicit && candidate.fact.updatedAt > existing.fact.updatedAt)) {
+      byKey.set(key, candidate);
+    }
   });
-  return Array.from(byKey.values());
+  return Array.from(byKey.values(), ({ fact }) => fact);
 }
 
 function emptyAxes(): RelationshipAxes {
