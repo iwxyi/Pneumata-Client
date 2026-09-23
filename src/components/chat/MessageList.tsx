@@ -1324,22 +1324,22 @@ export default function MessageList({
     if (!container) return;
     cancelProgrammaticScroll();
     const startTop = container.scrollTop;
-    const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    const distance = targetTop - startTop;
+    const initialTargetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const distance = initialTargetTop - startTop;
     const intent = options?.intent || (options?.mode === 'jump' ? 'explicitJump' : 'tailFollow');
     if (options?.animate === false || prefersReducedMotion() || Math.abs(distance) > SMOOTH_SCROLL_DISTANCE_LIMIT) {
       const didWrite = runScrollWrite(intent, (scrollContainer) => {
-        scrollContainer.scrollTop = targetTop;
+        scrollContainer.scrollTop = initialTargetTop;
       }, { allowDuringUserScroll: intent === 'explicitJump' });
       if (!didWrite) return;
-      programmaticScrollRef.current = { mode: options?.mode || 'follow', startedAt: performance.now(), targetTop };
+      programmaticScrollRef.current = { mode: options?.mode || 'follow', startedAt: performance.now(), targetTop: initialTargetTop };
       shouldStickToBottomRef.current = !hasMoreNewer;
       return;
     }
     if (Math.abs(distance) < 1) return;
     let startTime: number | null = null;
     const mode = options?.mode || 'follow';
-    programmaticScrollRef.current = { mode, startedAt: performance.now(), targetTop };
+    programmaticScrollRef.current = { mode, startedAt: performance.now(), targetTop: initialTargetTop };
     const step = (time: number) => {
       if (!shouldStickToBottomRef.current) {
         followScrollAnimationRef.current = null;
@@ -1350,7 +1350,11 @@ export default function MessageList({
       const duration = mode === 'jump' ? JUMP_SCROLL_DURATION_MS : FOLLOW_SCROLL_DURATION_MS;
       const progress = Math.min(1, (time - startTime) / duration);
       const eased = 1 - ((1 - progress) ** 3);
-      const nextTop = startTop + distance * eased;
+      // The first streaming glyph can arrive while the new-bubble animation
+      // is in flight. Re-read the tail so the animation finishes at the
+      // current bottom rather than at the bubble's initial placeholder size.
+      const currentTargetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const nextTop = startTop + (currentTargetTop - startTop) * eased;
       const didWrite = runScrollWrite(intent, (scrollContainer) => {
         scrollContainer.scrollTop = nextTop;
       }, { allowDuringUserScroll: intent === 'explicitJump' });
@@ -1362,7 +1366,7 @@ export default function MessageList({
         followScrollAnimationRef.current = window.requestAnimationFrame(step);
       } else {
         followScrollAnimationRef.current = null;
-        programmaticScrollRef.current = { mode, startedAt: performance.now(), targetTop };
+        programmaticScrollRef.current = { mode, startedAt: performance.now(), targetTop: currentTargetTop };
       }
     };
     followScrollAnimationRef.current = window.requestAnimationFrame(step);
@@ -1482,6 +1486,10 @@ export default function MessageList({
         frame = null;
         if (scrollTransactionRef.current) return;
         if (isUserScrollMomentumActive()) return;
+        // New bubbles use a short tail-follow animation. Let that animation
+        // own scrollTop until it finishes instead of replacing it with an
+        // immediate ResizeObserver correction.
+        if (followScrollAnimationRef.current != null) return;
         // A line wrap is measured after React commits. Preserve the exact
         // bottom only for a viewport that was already following it. When a
         // user is reading history, deliberately leave scrollTop untouched:
@@ -1823,7 +1831,7 @@ export default function MessageList({
     }
 
     if (tailChanged && currentMetrics.lastItemIsStreaming) {
-      scrollToBottom('auto', 'tailFollow');
+      followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
       return;
     }
     followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
