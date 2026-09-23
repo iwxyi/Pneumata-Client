@@ -100,7 +100,6 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
   highlightedPairs: string[];
   onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
 }) {
-  const [sharedFactDialogFacts, setSharedFactDialogFacts] = useState<NonNullable<GroupRelationshipGraphEdge['sharedFacts']>>([]);
   const positions = new Map(graph.nodes.map((node, index) => [node.id, nodePosition(index, graph.nodes.length)]));
   const edgePairs = Array.from(graph.edges.reduce((pairs, edge) => {
     const pairKey = pairKeyFor(edge);
@@ -127,12 +126,11 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
           const from = positions.get(edge.fromId)!;
           const to = positions.get(edge.toId)!;
           const bidirectional = edges.length > 1;
-          const sharedFacts = Array.from(new Map(edges.flatMap((item) => item.sharedFacts || []).map((fact) => [fact.id, fact])).values());
           const { start, end } = directionEndpoints(from, to);
           const active = highlightedPairs.includes(pairKey);
           const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
           return (
-            <g key={pairKey} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} onClick={() => { if (sharedFacts.length) setSharedFactDialogFacts(sharedFacts); }} style={{ cursor: sharedFacts.length ? 'pointer' : 'default' }}>
+            <g key={pairKey} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} style={{ cursor: 'pointer' }}>
               <path d={path} fill="none" stroke="transparent" strokeWidth="14" />
               <path d={path} fill="none" stroke={active ? edgeColor(edge) : '#90A4AE'} strokeWidth={active ? 2.5 : 1.25} strokeLinecap="round" markerStart={active && bidirectional ? `url(#${markerId(pairKey)})` : undefined} markerEnd={active ? `url(#${markerId(pairKey)})` : undefined} opacity={highlightedPairs.length && !active ? 0.18 : active ? 0.94 : 0.48} />
             </g>
@@ -149,10 +147,31 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
         </Box>;
       })}
     </Box>
-    <Dialog open={Boolean(sharedFactDialogFacts.length)} onClose={() => setSharedFactDialogFacts([])} maxWidth="xs" fullWidth>
-      <DialogTitle>共同关系</DialogTitle>
-      <DialogContent dividers><Stack spacing={0.9}>{sharedFactDialogFacts.map((fact) => <Box key={fact.id}><Typography variant="body2">{fact.statement}</Typography>{fact.evidence ? <Typography variant="caption" color="text.secondary">{fact.evidence}</Typography> : null}</Box>)}</Stack></DialogContent>
-    </Dialog>
+    </Box>
+  );
+}
+
+function GroupRelationshipFacts({ chat, members }: Pick<GroupRelationshipDialogProps, 'chat' | 'members'>) {
+  const memberNames = new Map(members.map((member) => [member.id, member.name]));
+  const facts = (chat.relationshipStructure?.sharedFacts || [])
+    .filter((fact) => fact.memberIds.filter((memberId) => memberNames.has(memberId)).length >= 2);
+  if (!facts.length) return null;
+  return (
+    <Box sx={{ p: 1, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+      <Typography variant="body2" sx={{ fontWeight: 700 }}>群体关系</Typography>
+      <Stack spacing={0.75} sx={{ mt: 0.75 }}>
+        {facts.map((fact) => {
+          const names = fact.memberIds.map((memberId) => memberNames.get(memberId)).filter((name): name is string => Boolean(name));
+          return <Box key={fact.id} sx={{ minWidth: 0 }}>
+            <Stack direction="row" spacing={0.55} useFlexGap alignItems="center" flexWrap="wrap">
+              <Chip size="small" label={STRUCTURE_LABELS[fact.kind]} variant="outlined" />
+              <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
+            </Stack>
+            <Typography variant="body2" sx={{ mt: 0.3 }}>{fact.statement}</Typography>
+            {fact.evidence ? <Typography variant="caption" color="text.secondary">{fact.evidence}</Typography> : null}
+          </Box>;
+        })}
+      </Stack>
     </Box>
   );
 }
@@ -198,6 +217,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
         <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.5, pb: 1.5 }}>
           <Stack spacing={0.8}>
             {projection.graphs.map((graph) => <RelationshipCards key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} registerCard={registerCard} />)}
+            <GroupRelationshipFacts chat={chat} members={members} />
             {projection.unconnectedMembers.length ? <Box sx={{ p: 1, borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}><Typography variant="caption" color="text.secondary">暂无关系线</Typography><Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>{projection.unconnectedMembers.map((member) => <Chip key={member.id} size="small" label={member.name} variant="outlined" />)}</Stack></Box> : null}
             {!projection.graphs.length && !projection.unconnectedMembers.length ? <Typography variant="body2" color="text.secondary">当前没有可展示的成员关系。</Typography> : null}
           </Stack>

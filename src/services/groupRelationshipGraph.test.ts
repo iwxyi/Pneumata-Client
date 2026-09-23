@@ -56,7 +56,7 @@ describe('group relationship graph projection', () => {
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
 
-  it('shows a directional structural fact on both existing perspective cards', () => {
+  it('keeps directional structural facts on their own perspective card', () => {
     const room = normalizeConversation({
       ...chat(),
       relationshipStructure: {
@@ -69,7 +69,8 @@ describe('group relationship graph projection', () => {
       member('a', [{ characterId: 'b', warmth: 10, competence: 0, trust: 0, threat: 0 }]),
       member('b', [{ characterId: 'a', warmth: 0, competence: 15, trust: 0, threat: 0 }]), member('c'), member('d'),
     ]);
-    expect(projection.graphs[0]?.edges.filter((edge) => ['a->b', 'b->a'].includes(edge.key)).every((edge) => edge.structuralFacts?.[0]?.statement === '甲是乙的直属上司')).toBe(true);
+    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'a->b')?.structuralFacts?.[0]?.statement).toBe('甲是乙的直属上司');
+    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'b->a')?.structuralFacts).toBeUndefined();
   });
 
   it('projects shared structure facts without turning them into a directional attitude', () => {
