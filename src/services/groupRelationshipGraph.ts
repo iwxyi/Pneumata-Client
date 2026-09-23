@@ -126,22 +126,27 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
   (chat.relationshipStructure?.edges || []).forEach((fact) => {
     if (!nodeIds.has(fact.fromId) || !nodeIds.has(fact.toId) || fact.fromId === fact.toId) return;
     const key = `${fact.fromId}->${fact.toId}`;
+    const reverseKey = `${fact.toId}->${fact.fromId}`;
     const existing = edgeByKey.get(key);
     if (existing) {
       existing.structuralFacts = [...(existing.structuralFacts || []), fact];
-      return;
+    } else {
+      edgeByKey.set(key, {
+        key,
+        fromId: fact.fromId,
+        toId: fact.toId,
+        axes: emptyAxes(),
+        baseline: emptyAxes(),
+        adjustment: emptyAxes(),
+        note: fact.statement,
+        source: 'structural',
+        structuralFacts: [fact],
+      });
     }
-    edgeByKey.set(key, {
-      key,
-      fromId: fact.fromId,
-      toId: fact.toId,
-      axes: emptyAxes(),
-      baseline: emptyAxes(),
-      adjustment: emptyAxes(),
-      note: fact.statement,
-      source: 'structural',
-      structuralFacts: [fact],
-    });
+    // A structural fact is directional data, but both perspective cards need
+    // the same contextual fact when the opposite relation card already exists.
+    const reverse = edgeByKey.get(reverseKey);
+    if (reverse) reverse.structuralFacts = [...(reverse.structuralFacts || []), fact];
   });
 
   (chat.relationshipStructure?.sharedFacts || []).forEach((fact) => {

@@ -56,6 +56,22 @@ describe('group relationship graph projection', () => {
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
 
+  it('shows a directional structural fact on both existing perspective cards', () => {
+    const room = normalizeConversation({
+      ...chat(),
+      relationshipStructure: {
+        version: 1,
+        updatedAt: 3,
+        edges: [{ id: 'authority-a-b', fromId: 'a', toId: 'b', kind: 'authority', statement: '甲是乙的直属上司', confidence: 0.92, evidence: '角色身份明确', updatedAt: 3 }],
+      },
+    });
+    const projection = projectGroupRelationshipGraphs(room, [
+      member('a', [{ characterId: 'b', warmth: 10, competence: 0, trust: 0, threat: 0 }]),
+      member('b', [{ characterId: 'a', warmth: 0, competence: 15, trust: 0, threat: 0 }]), member('c'), member('d'),
+    ]);
+    expect(projection.graphs[0]?.edges.filter((edge) => ['a->b', 'b->a'].includes(edge.key)).every((edge) => edge.structuralFacts?.[0]?.statement === '甲是乙的直属上司')).toBe(true);
+  });
+
   it('projects shared structure facts without turning them into a directional attitude', () => {
     const room = normalizeConversation({
       ...chat(),
