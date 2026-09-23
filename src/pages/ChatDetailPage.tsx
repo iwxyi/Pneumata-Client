@@ -4497,7 +4497,7 @@ export default function ChatDetailPage() {
         </Suspense>
       ) : null}
 
-      {chatInteractionDisabled || ((isAssistantChat || isLearningProgressRoom || chat?.modeState.agentCapabilities?.enabled) && !rightPanelOpen) ? null : <RightPanel
+      {(chatInteractionDisabled && !relationshipInitializationBlocked) || ((isAssistantChat || isLearningProgressRoom || chat?.modeState.agentCapabilities?.enabled) && !rightPanelOpen) ? null : <RightPanel
         title={isAssistantChat ? '助手能力' : isLearningProgressRoom ? '学习资料' : sidebarTitle}
         hideMobileTitle
         desktopMaxWidth={isSplitDetailPane ? 340 : 420}
