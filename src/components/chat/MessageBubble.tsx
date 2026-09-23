@@ -523,7 +523,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
         <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', justifyContent: 'center', px: { xs: 2, sm: 3 }, py: 1.1, width: '100%' }}>
           <Box
             {...bubbleHandlers}
-            sx={{
+            sx={(theme) => ({
               width: '100%',
               maxWidth: contentMaxWidth,
               px: { xs: 0.5, sm: 1 },
@@ -624,7 +624,13 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
               color: bubblePreview?.color || (isUser ? 'primary.contrastText' : (resolvedStyle?.textColor || '#1f2937')),
               border: bubblePreview?.border || '1px solid rgba(15, 23, 42, 0.08)',
               boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
-            }}
+              // The global selection color is intentionally subtle on paper-like
+              // AI bubbles, but disappears over the user's solid primary fill.
+              '&::selection, & ::selection': {
+                backgroundColor: isUser ? 'rgba(255, 255, 255, 0.42)' : theme.palette.selection.main,
+                color: isUser ? theme.palette.primary.contrastText : undefined,
+              },
+            })}
           >
             {showPendingTypingDots ? <PendingTypingDots /> : isFinalWithdrawn ? (
               showWithdrawalDebug ? (
