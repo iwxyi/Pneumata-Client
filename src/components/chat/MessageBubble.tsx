@@ -142,6 +142,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
   const [promptAttachment, setPromptAttachment] = useState<MessageAttachment | null>(null);
   const [promptDialogOpen, setPromptDialogOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
+  const menuListRef = useRef<HTMLUListElement | null>(null);
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [copyFallback, setCopyFallback] = useState<{ label: string; value: string } | null>(null);
@@ -277,6 +278,25 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
   const closeMenus = () => {
     setMenuPosition(null);
   };
+
+  useEffect(() => {
+    if (!menuPosition) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      closeMenus();
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      if (menuListRef.current?.contains(event.target as Node)) return;
+      closeMenus();
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('pointerdown', handlePointerDown, true);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('pointerdown', handlePointerDown, true);
+    };
+  }, [menuPosition]);
 
   const openPromptMenu = (attachment: MessageAttachment, event: React.MouseEvent<HTMLElement>) => {
     openMenuAt(event.clientX, event.clientY);
@@ -724,6 +744,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
         onClick={closeMenus}
         anchorReference="anchorPosition"
         anchorPosition={menuPosition ? { top: menuPosition.mouseY, left: menuPosition.mouseX } : undefined}
+        MenuListProps={{ ref: menuListRef }}
         slotProps={{
           root: {
             sx: { zIndex: (theme) => theme.zIndex.modal + 500 },
