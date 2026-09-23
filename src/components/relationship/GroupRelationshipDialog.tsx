@@ -113,7 +113,7 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
   const selectedEdges = highlightedPairs.length === 1 ? graph.edges.filter((edge) => pairKeyFor(edge) === highlightedPairs[0]) : [];
   const selectedSharedFacts = Array.from(new Map(selectedEdges.flatMap((edge) => edge.sharedFacts || []).map((fact) => [fact.id, fact])).values());
   return (
-    <Box>
+    <Box sx={{ position: 'relative' }}>
     <Box sx={{ position: 'relative', width: '100%', maxWidth: GRAPH_WIDTH, height: GRAPH_HEIGHT, mx: 'auto', overflow: 'hidden' }}>
       <svg viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" aria-label="成员关系图" style={{ position: 'absolute', inset: 0 }}>
         <defs>{edgePairs.map(([pairKey, edges]) => <marker key={pairKey} id={markerId(pairKey)} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={edgeColor(edges[0])} /></marker>)}</defs>
@@ -149,7 +149,7 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
         </Box>;
       })}
     </Box>
-    {selectedSharedFacts.length ? <Box sx={{ maxWidth: GRAPH_WIDTH, mx: 'auto', mt: 0.8, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
+    {selectedSharedFacts.length ? <Box sx={{ position: { xs: 'fixed', lg: 'absolute' }, zIndex: 1500, left: { xs: 16, lg: 'calc(50% + 310px)' }, right: { xs: 16, lg: 'auto' }, bottom: { xs: 16, lg: 'auto' }, top: { xs: 'auto', lg: 0 }, width: { xs: 'auto', lg: 250 }, maxHeight: { xs: 'min(42dvh, 260px)', lg: 'none' }, overflowY: 'auto', p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper', boxShadow: 4 }}>
       <Typography variant="caption" color="text.secondary">关系说明</Typography>
       <Stack spacing={0.75} sx={{ mt: 0.55 }}>
         {selectedSharedFacts.map((fact) => <Typography key={fact.id} variant="body2">{fact.statement}</Typography>)}
