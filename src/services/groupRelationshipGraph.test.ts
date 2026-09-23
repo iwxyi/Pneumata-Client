@@ -49,14 +49,12 @@ describe('group relationship graph projection', () => {
       },
     });
     const projection = projectGroupRelationshipGraphs(room, [member('a'), member('b'), member('c'), member('d')]);
-    expect(projection.graphs[0]?.edges[0]).toMatchObject({
-      source: 'structural',
-      structuralFacts: [{ kind: 'authority', statement: '甲是乙的直属上司' }],
-    });
+    expect(projection.sharedFacts).toMatchObject([{ kind: 'authority', statement: '甲是乙的直属上司', memberIds: ['a', 'b'] }]);
+    expect(projection.graphs[0]?.edges[0]).toMatchObject({ source: 'structural' });
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
 
-  it('keeps directional structural facts on their own perspective card', () => {
+  it('keeps directional attitudes separate from public relationship facts', () => {
     const room = normalizeConversation({
       ...chat(),
       relationshipStructure: {
@@ -69,8 +67,9 @@ describe('group relationship graph projection', () => {
       member('a', [{ characterId: 'b', warmth: 10, competence: 0, trust: 0, threat: 0 }]),
       member('b', [{ characterId: 'a', warmth: 0, competence: 15, trust: 0, threat: 0 }]), member('c'), member('d'),
     ]);
-    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'a->b')?.structuralFacts?.[0]?.statement).toBe('甲是乙的直属上司');
-    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'b->a')?.structuralFacts).toBeUndefined();
+    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'a->b')?.note).toBeUndefined();
+    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'b->a')?.note).toBeUndefined();
+    expect(projection.sharedFacts).toMatchObject([{ kind: 'authority', statement: '甲是乙的直属上司' }]);
   });
 
   it('projects shared structure facts without turning them into a directional attitude', () => {
@@ -84,7 +83,18 @@ describe('group relationship graph projection', () => {
       },
     });
     const projection = projectGroupRelationshipGraphs(room, [member('a'), member('b'), member('c'), member('d')]);
-    expect(projection.graphs[0]?.edges[0]).toMatchObject({ sharedFacts: [{ kind: 'kinship', statement: '甲乙是结义兄弟' }], axes: { warmth: 0, trust: 0 } });
+    expect(projection.sharedFacts).toMatchObject([{ kind: 'kinship', statement: '甲乙是结义兄弟' }]);
+    expect(projection.graphs[0]?.edges[0]).toMatchObject({ axes: { warmth: 0, trust: 0 } });
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
+  });
+
+  it('keeps each directional attitude on its own edge', () => {
+    const projection = projectGroupRelationshipGraphs(chat(), [
+      member('a', [{ characterId: 'b', warmth: 18, competence: 0, trust: 4, threat: 0, note: '甲认可乙的能力，但不愿让步' }]),
+      member('b', [{ characterId: 'a', warmth: -4, competence: 0, trust: -12, threat: 16, note: '乙防着甲翻旧账' }]),
+      member('c'), member('d'),
+    ]);
+    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'a->b')?.note).toBe('甲认可乙的能力，但不愿让步');
+    expect(projection.graphs[0]?.edges.find((edge) => edge.key === 'b->a')?.note).toBe('乙防着甲翻旧账');
   });
 });

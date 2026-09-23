@@ -1,8 +1,8 @@
 import { Avatar, Box, Chip, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
 import { useEffect, useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
-import type { GroupChat } from '../../types/chat';
-import { projectGroupRelationshipGraphs, type GroupRelationshipGraph, type GroupRelationshipGraphEdge } from '../../services/groupRelationshipGraph';
+import type { GroupChat, RoomRelationshipSharedFact } from '../../types/chat';
+import { projectGroupRelationshipGraphs, type GroupRelationshipGraph } from '../../services/groupRelationshipGraph';
 import { isImageAvatar } from '../../utils/avatar';
 
 interface GroupRelationshipDialogProps {
@@ -15,7 +15,7 @@ interface GroupRelationshipDialogProps {
 
 const GRAPH_WIDTH = 600;
 const GRAPH_HEIGHT = 238;
-const STRUCTURE_LABELS: Record<NonNullable<GroupRelationshipGraphEdge['structuralFacts']>[number]['kind'], string> = {
+const STRUCTURE_LABELS: Record<RoomRelationshipSharedFact['kind'], string> = {
   authority: '上级', duty: '职责', kinship: '亲属', affiliation: '同属', rivalry: '对立', obligation: '约束',
 };
 
@@ -84,13 +84,11 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
     >
       <Stack direction="row" spacing={0.55} useFlexGap alignItems="center" flexWrap="wrap">
         <Typography variant="body2" sx={{ fontWeight: 700, color: edgeColor(edge) }}>{fromName} → {toName}</Typography>
-        {edge.structuralFacts?.map((fact) => <Chip key={fact.id} size="small" label={STRUCTURE_LABELS[fact.kind]} variant="outlined" />)}
       </Stack>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.45, mt: 0.65 }}>
         {axes.map(([label, baseline, adjustment]) => <Typography key={label} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{label} {formatAxisValue(baseline, adjustment)}</Typography>)}
       </Box>
-      {edge.structuralFacts?.map((fact) => <Typography key={fact.id} variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{fact.statement}{fact.evidence ? ` · ${fact.evidence}` : ''}</Typography>)}
-      {edge.note && !edge.structuralFacts?.length ? <Typography variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{edge.note}</Typography> : null}
+      {edge.note ? <Typography variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{edge.note}</Typography> : null}
     </Box>
   );
 }
@@ -152,13 +150,13 @@ function RelationshipMap({ graph, highlightedPairs, selectedPairs, onHighlighted
   );
 }
 
-function GroupRelationshipFacts({ chat, members, highlightedPairs, onHighlightedPairsChange }: Pick<GroupRelationshipDialogProps, 'chat' | 'members'> & {
+function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlightedPairsChange }: {
+  facts: RoomRelationshipSharedFact[];
+  members: AICharacter[];
   highlightedPairs: string[];
   onHighlightedPairsChange: (pairKeys: string[]) => void;
 }) {
   const memberNames = new Map(members.map((member) => [member.id, member.name]));
-  const facts = (chat.relationshipStructure?.sharedFacts || [])
-    .filter((fact) => fact.memberIds.filter((memberId) => memberNames.has(memberId)).length >= 2);
   if (!facts.length) return null;
   return (
     <Box>
@@ -191,7 +189,7 @@ function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, 
   registerCard: (pairKey: string, element: HTMLDivElement | null) => void;
 }) {
   return <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7 }}>
-    {graph.edges.filter((edge) => edge.source !== 'structural' || Boolean(edge.structuralFacts?.length)).map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(pairKeyFor(edge), element)} />)}
+    {graph.edges.filter((edge) => edge.source !== 'structural').map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(edge.key, element)} />)}
   </Box>;
 }
 
@@ -208,7 +206,8 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
   const handleHighlightedPairsChange = (pairKeys: string[], scrollToCard = false) => {
     setHighlightedPairs(pairKeys.length ? pairKeys : selectedPairs);
     if (!pairKeys.length || !scrollToCard) return;
-    window.requestAnimationFrame(() => cardRefs.current.get(pairKeys[0])?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }));
+    const pairEdges = projection.graphs.flatMap((graph) => graph.edges).filter((edge) => pairKeyFor(edge) === pairKeys[0]);
+    window.requestAnimationFrame(() => cardRefs.current.get(pairEdges[0]?.key || '')?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }));
   };
   const handleSelectedPairsChange = (pairKeys: string[]) => {
     setSelectedPairs(pairKeys);
@@ -230,7 +229,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
         <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.5, pb: 1.5 }}>
           <Stack spacing={0.8}>
             {projection.graphs.map((graph) => <RelationshipCards key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} registerCard={registerCard} />)}
-            <GroupRelationshipFacts chat={chat} members={members} highlightedPairs={highlightedPairs} onHighlightedPairsChange={(pairKeys) => setHighlightedPairs(pairKeys.length ? pairKeys : selectedPairs)} />
+            <GroupRelationshipFacts facts={projection.sharedFacts} members={members} highlightedPairs={highlightedPairs} onHighlightedPairsChange={(pairKeys) => setHighlightedPairs(pairKeys.length ? pairKeys : selectedPairs)} />
             {projection.unconnectedMembers.length ? <Box sx={{ p: 1, borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}><Typography variant="caption" color="text.secondary">暂无关系线</Typography><Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>{projection.unconnectedMembers.map((member) => <Chip key={member.id} size="small" label={member.name} variant="outlined" />)}</Stack></Box> : null}
             {!projection.graphs.length && !projection.unconnectedMembers.length ? <Typography variant="body2" color="text.secondary">当前没有可展示的成员关系。</Typography> : null}
           </Stack>

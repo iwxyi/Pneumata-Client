@@ -1,5 +1,5 @@
 import type { AICharacter } from '../types/character';
-import type { GroupChat, RoomRelationshipSharedFact, RoomRelationshipStructureEdge } from '../types/chat';
+import type { GroupChat, RoomRelationshipSharedFact } from '../types/chat';
 import type { RelationshipAxes } from '../types/runtimeEvent';
 import { isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
 
@@ -18,8 +18,6 @@ export interface GroupRelationshipGraphEdge {
   adjustment: RelationshipAxes;
   note?: string;
   source: 'room' | 'default' | 'structural';
-  structuralFacts?: RoomRelationshipStructureEdge[];
-  sharedFacts?: RoomRelationshipSharedFact[];
 }
 
 export interface GroupRelationshipGraph {
@@ -31,6 +29,35 @@ export interface GroupRelationshipGraph {
 export interface GroupRelationshipGraphProjection {
   graphs: GroupRelationshipGraph[];
   unconnectedMembers: GroupRelationshipGraphNode[];
+  sharedFacts: RoomRelationshipSharedFact[];
+}
+
+function projectSharedFacts(chat: GroupChat, nodeIds: Set<string>): RoomRelationshipSharedFact[] {
+  const explicitFacts = (chat.relationshipStructure?.sharedFacts || []).filter((fact) =>
+    fact.memberIds.filter((id) => nodeIds.has(id)).length >= 2,
+  );
+  // Older rooms stored public facts, such as authority or shared affiliation,
+  // on a directed structure edge. Keep those facts visible as public context.
+  const legacyFacts = (chat.relationshipStructure?.edges || []).flatMap((edge): RoomRelationshipSharedFact[] => {
+    if (!nodeIds.has(edge.fromId) || !nodeIds.has(edge.toId)) return [];
+    return [{
+      id: `legacy-shared-${edge.id}`,
+      memberIds: [edge.fromId, edge.toId],
+      kind: edge.kind,
+      statement: edge.statement,
+      confidence: edge.confidence,
+      evidence: edge.evidence,
+      updatedAt: edge.updatedAt,
+    }];
+  });
+  const byKey = new Map<string, RoomRelationshipSharedFact>();
+  [...explicitFacts, ...legacyFacts].forEach((fact) => {
+    const memberIds = Array.from(new Set(fact.memberIds.filter((id) => nodeIds.has(id))).values()).sort();
+    if (memberIds.length < 2) return;
+    const key = `${memberIds.join('|')}:${fact.kind}:${fact.statement}`;
+    if (!byKey.has(key)) byKey.set(key, { ...fact, memberIds });
+  });
+  return Array.from(byKey.values());
 }
 
 function emptyAxes(): RelationshipAxes {
@@ -86,6 +113,7 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
     .map((member) => ({ id: member.id, name: member.name, avatar: member.avatar }));
   const nodeIds = new Set(nodes.map((node) => node.id));
   const edgeByKey = new Map<string, GroupRelationshipGraphEdge>();
+  const sharedFacts = projectSharedFacts(chat, nodeIds);
 
   (chat.relationshipLedger || []).forEach((rawEntry) => {
     const entry = normalizeRelationshipLedgerEntry(rawEntry);
@@ -123,38 +151,12 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
     });
   });
 
-  (chat.relationshipStructure?.edges || []).forEach((fact) => {
-    if (!nodeIds.has(fact.fromId) || !nodeIds.has(fact.toId) || fact.fromId === fact.toId) return;
-    const key = `${fact.fromId}->${fact.toId}`;
-    const existing = edgeByKey.get(key);
-    if (existing) {
-      existing.structuralFacts = [...(existing.structuralFacts || []), fact];
-    } else {
-      edgeByKey.set(key, {
-        key,
-        fromId: fact.fromId,
-        toId: fact.toId,
-        axes: emptyAxes(),
-        baseline: emptyAxes(),
-        adjustment: emptyAxes(),
-        note: fact.statement,
-        source: 'structural',
-        structuralFacts: [fact],
-      });
-    }
-  });
-
-  (chat.relationshipStructure?.sharedFacts || []).forEach((fact) => {
+  sharedFacts.forEach((fact) => {
     const memberIds = fact.memberIds.filter((id) => nodeIds.has(id));
     if (memberIds.length < 2) return;
     memberIds.forEach((fromId, index) => memberIds.slice(index + 1).forEach((toId) => {
       const key = `${fromId}->${toId}`;
-      const reverseKey = `${toId}->${fromId}`;
-      const existing = edgeByKey.get(key) || edgeByKey.get(reverseKey);
-      if (existing) {
-        existing.sharedFacts = [...(existing.sharedFacts || []), fact];
-        return;
-      }
+      if (edgeByKey.has(key) || edgeByKey.has(`${toId}->${fromId}`)) return;
       edgeByKey.set(key, {
         key,
         fromId,
@@ -163,7 +165,6 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
         baseline: emptyAxes(),
         adjustment: emptyAxes(),
         source: 'structural',
-        sharedFacts: [fact],
       });
     }));
   });
@@ -177,12 +178,11 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
       edges: edges.filter((edge) => memberIds.includes(edge.fromId) && memberIds.includes(edge.toId)),
     })),
     unconnectedMembers: nodes.filter((node) => !connectedIds.has(node.id)),
+    sharedFacts,
   };
 }
 
 export function describeGroupRelationshipEdge(edge: GroupRelationshipGraphEdge) {
-  const structureStatement = edge.structuralFacts?.[0]?.statement?.replace(/\s+/g, ' ').trim();
-  if (structureStatement) return structureStatement.length > 18 ? `${structureStatement.slice(0, 17)}…` : structureStatement;
   const note = edge.note?.replace(/\s+/g, ' ').trim();
   if (note) return note.length > 18 ? `${note.slice(0, 17)}…` : note;
   const { warmth, trust, threat, attachment, deference } = edge.axes;

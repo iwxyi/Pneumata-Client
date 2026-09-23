@@ -306,7 +306,7 @@ describe('characterMindProjection', () => {
     expect(projection.expression.attention).toContain('林北');
   });
 
-  it('projects directional and shared room structure as relationship continuity', () => {
+  it('projects legacy and current public room facts as relationship continuity', () => {
     const speaker = character();
     const target = character({ id: 'char-b', name: '阿远' });
     const projection = buildCharacterMindProjection({
@@ -325,7 +325,7 @@ describe('characterMindProjection', () => {
       now: 2000,
     });
     expect(projection.continuity.relationshipMemories).toEqual(expect.arrayContaining([
-      '结构位置：苏苏负责复核阿远的交接',
+      '共同关系：苏苏负责复核阿远的交接',
       '共同关系：二人同属夜班组',
     ]));
   });

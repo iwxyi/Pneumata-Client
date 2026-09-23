@@ -210,11 +210,11 @@ function collectRelationshipContinuity(params: {
   targetId?: string;
   relationship: RelationshipProjectionInputs;
 }) {
-  const structuralFacts = params.targetId
+  const publicRelationshipFacts = params.targetId
     ? [
       ...(params.chat.relationshipStructure?.edges || [])
-        .filter((edge) => edge.fromId === params.character.id && edge.toId === params.targetId)
-        .map((edge) => `结构位置：${edge.statement}`),
+        .filter((edge) => [edge.fromId, edge.toId].includes(params.character.id) && [edge.fromId, edge.toId].includes(params.targetId))
+        .map((edge) => `共同关系：${edge.statement}`),
       ...(params.chat.relationshipStructure?.sharedFacts || [])
         .filter((fact) => fact.memberIds.includes(params.character.id) && fact.memberIds.includes(params.targetId))
         .map((fact) => `共同关系：${fact.statement}`),
@@ -231,7 +231,7 @@ function collectRelationshipContinuity(params: {
     .filter((entry) => entry.actorId === params.character.id && entry.targetId === params.targetId)
     .map((entry) => entry.derived?.semantic?.summary || '');
   return uniqueText([
-    ...structuralFacts,
+    ...publicRelationshipFacts,
     params.relationship.authored?.note ? `长期关系：${params.relationship.authored.note}` : '',
     params.relationship.ledger?.semanticSummary ? `当前关系：${params.relationship.ledger.semanticSummary}` : '',
     ...semanticSummaries.map((summary) => summary ? `当前关系：${summary}` : ''),
