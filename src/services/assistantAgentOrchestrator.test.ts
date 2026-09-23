@@ -481,6 +481,31 @@ describe('assistantAgentOrchestrator validation', () => {
     expect(patchSet.mediaTasks?.[0]?.prompt).toContain('帮我生成一张红烧肉的图片');
   });
 
+  it('recovers numbered image placeholders with their matching prompt instead of the whole batch request', async () => {
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      assistantMessage: '![第一张](attachment:image-1)\n![第二张](attachment:image-2)',
+      patches: [],
+      mediaTasks: [],
+    }));
+    const patchSet = await writeAssistantAgentPatchSet({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a',
+      messages: [],
+      userMessage: {
+        id: 'message-numbered-image-recovery', chatId: 'chat-a', type: 'user', senderId: 'user', senderName: '用户', emotion: 0, timestamp: 1, isDeleted: false,
+        content: '帮我生成图片：\n\n第1张：【苹果】\n提示词：红苹果静物摄影 --ar 3:4\n\n第2张：【梨】\n提示词：黄梨静物摄影 --ar 3:4',
+      },
+      plan: { intent: 'create', scope: { targetMode: 'unknown', artifactIds: [] }, operations: [{ kind: 'create', instruction: '生成两张图片' }], requiresConfirmation: false, confidence: 0.95 },
+      existingArtifacts: [],
+    });
+    expect(patchSet.mediaTasks?.map((task) => task.prompt)).toEqual([
+      expect.stringContaining('红苹果静物摄影'),
+      expect.stringContaining('黄梨静物摄影'),
+    ]);
+    expect(patchSet.mediaTasks?.[0]?.prompt).not.toContain('黄梨静物摄影');
+    expect(patchSet.mediaTasks?.[1]?.prompt).not.toContain('红苹果静物摄影');
+  });
+
   it('rejects update patches outside the planned artifact scope', () => {
     const plan: AssistantAgentChangePlan = {
       intent: 'update',

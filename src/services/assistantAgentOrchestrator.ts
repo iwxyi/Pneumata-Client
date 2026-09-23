@@ -705,22 +705,59 @@ function ensureMediaTaskPlaceholders(assistantMessage: string, mediaTasks: Assis
   return text(content, MAX_ASSISTANT_VISIBLE_MESSAGE_CHARS);
 }
 
+function extractNumberedImagePrompts(content: string) {
+  const headings = Array.from(content.matchAll(/^\s*第\s*(\d+)\s*张\s*[：:]/gm));
+  const prompts = new Map<number, string>();
+  for (let index = 0; index < headings.length; index += 1) {
+    const heading = headings[index];
+    const itemEnd = headings[index + 1]?.index ?? content.length;
+    const item = content.slice(heading.index, itemEnd);
+    const promptMarker = /(?:^|\n)\s*提示词\s*[：:]/.exec(item);
+    if (!promptMarker) continue;
+    const prompt = item.slice((promptMarker.index || 0) + promptMarker[0].length).trim();
+    const ordinal = Number(heading[1]);
+    if (Number.isInteger(ordinal) && ordinal > 0 && prompt) prompts.set(ordinal, prompt);
+  }
+  return prompts;
+}
+
+function promptForMediaSlot(slotId: string, numberedPrompts: Map<number, string>, fallback: string) {
+  const match = /^image-(\d+)$/i.exec(slotId);
+  if (match) return numberedPrompts.size ? numberedPrompts.get(Number(match[1])) || null : fallback;
+  if (numberedPrompts.size > 1) return null;
+  return numberedPrompts.values().next().value || fallback;
+}
+
+function isolateNumberedBatchPrompts(mediaTasks: AssistantAgentMediaTask[], userMessage: Message | undefined) {
+  if (!userMessage || !mediaTasks.length) return mediaTasks;
+  const numberedPrompts = extractNumberedImagePrompts(userMessage.content);
+  if (numberedPrompts.size < 2) return mediaTasks;
+  return mediaTasks.map((task) => {
+    const mentionsMultipleItems = (task.prompt.match(/^\s*第\s*\d+\s*张\s*[：:]/gm) || []).length > 1;
+    const isolatedPrompt = promptForMediaSlot(task.slotId || '', numberedPrompts, userMessage.content);
+    return mentionsMultipleItems && isolatedPrompt ? { ...task, prompt: enhanceImagePrompt(isolatedPrompt, { caption: task.userCaption, subject: task.altText }) } : task;
+  });
+}
+
 function recoverInlineImageTasks(
   assistantMessage: string,
   mediaTasks: AssistantAgentMediaTask[],
   userMessage: Message | undefined,
 ) {
   if (!userMessage || !/图片|照片|插画|海报|头像|生图|生成.*图|画一张|参考图/i.test(userMessage.content)) return mediaTasks;
+  const numberedPrompts = extractNumberedImagePrompts(userMessage.content);
   const existingSlots = new Set(mediaTasks.map((task) => task.slotId?.trim()).filter(Boolean));
   const recovered: AssistantAgentMediaTask[] = [];
   for (const match of assistantMessage.matchAll(INLINE_IMAGE_ATTACHMENT_PATTERN)) {
     const slotId = (match[2] || '').trim().replace(/[^\w.-]/g, '').slice(0, 80);
     if (!slotId || existingSlots.has(slotId)) continue;
+    const prompt = promptForMediaSlot(slotId, numberedPrompts, userMessage.content);
+    if (!prompt) continue;
     const altText = text(match[1], 160) || 'AI 图片';
     recovered.push({
       kind: 'image',
       slotId,
-      prompt: userMessage.content,
+      prompt: enhanceImagePrompt(prompt, { caption: altText, subject: altText }),
       altText,
       userCaption: altText,
     });
@@ -856,9 +893,10 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
       },
     });
   }
-  let mediaTasks = recoverInlineImageTasks(
+  let mediaTasks = isolateNumberedBatchPrompts(normalizedMediaTasks, userMessage);
+  mediaTasks = recoverInlineImageTasks(
     visibleAssistantMessage,
-    normalizedMediaTasks,
+    mediaTasks,
     userMessage,
   );
   mediaTasks = withImplicitLatestImageTarget(mediaTasks, userMessage, imageReferenceRegistry);
