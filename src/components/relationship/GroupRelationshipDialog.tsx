@@ -161,7 +161,7 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
 }) {
   const memberNames = new Map(members.map((member) => [member.id, member.name]));
   const [editingFacts, setEditingFacts] = useState<RoomRelationshipSharedFact[] | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const factGroups = Array.from(facts.reduce((groups, fact) => {
@@ -184,20 +184,19 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
           );
           const active = factPairs.some((pairKey) => highlightedPairs.includes(pairKey));
           const kinds = Array.from(new Set(group.facts.flatMap((fact) => fact.kinds?.length ? fact.kinds : [fact.kind])));
+          const summaryFact = [...group.facts].sort((left, right) => right.statement.length - left.statement.length)[0];
           return <Box key={groupKey} onMouseEnter={() => onHighlightedPairsChange(factPairs)} onMouseLeave={() => onHighlightedPairsChange([])} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: active ? 'primary.main' : 'divider', bgcolor: active ? 'action.selected' : 'background.paper', boxShadow: active ? 1 : 'none', cursor: 'pointer', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}>
             <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
               <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                 <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
                 {kinds.map((kind) => <Chip key={kind} size="small" label={STRUCTURE_LABELS[kind]} variant="outlined" />)}
               </Stack>
-              {onUpdateSharedFacts ? <Tooltip title="编辑关系"><IconButton size="small" onClick={(event) => { event.stopPropagation(); setSaveError(''); setEditingFacts(group.facts); setDrafts(Object.fromEntries(group.facts.map((fact) => [fact.id, fact.statement]))); }}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip> : null}
+              {onUpdateSharedFacts ? <Tooltip title="编辑关系"><IconButton size="small" onClick={(event) => { event.stopPropagation(); setSaveError(''); setEditingFacts(group.facts); setDraft(summaryFact.statement); }}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip> : null}
             </Stack>
-            <Stack spacing={0.45} sx={{ mt: 0.55 }}>
-              {group.facts.map((fact) => <Box key={fact.id} sx={{ minWidth: 0 }}>
-                <Typography variant="body2">{fact.statement}</Typography>
-                {fact.evidence ? <Typography variant="caption" color="text.secondary">{fact.evidence}</Typography> : null}
-              </Box>)}
-            </Stack>
+            <Box sx={{ minWidth: 0, mt: 0.55 }}>
+              <Typography variant="body2">{summaryFact.statement}</Typography>
+              {summaryFact.evidence ? <Typography variant="caption" color="text.secondary">{summaryFact.evidence}</Typography> : null}
+            </Box>
           </Box>;
         })}
       </Box>
@@ -205,18 +204,18 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
         <DialogTitle>编辑群体关系</DialogTitle>
         <DialogContent>
           <Stack spacing={1.2} sx={{ pt: 0.5 }}>
-            {editingFacts?.map((fact) => <TextField key={fact.id} label={STRUCTURE_LABELS[fact.kind]} value={drafts[fact.id] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [fact.id]: event.target.value }))} multiline minRows={2} fullWidth slotProps={{ htmlInput: { maxLength: 180 } }} />)}
+            <TextField label="关系说明" value={draft} onChange={(event) => setDraft(event.target.value)} multiline minRows={3} fullWidth slotProps={{ htmlInput: { maxLength: 180 } }} />
             {saveError ? <Typography variant="caption" color="error">{saveError}</Typography> : null}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button disabled={saving} onClick={() => setEditingFacts(null)}>取消</Button>
-          <Button variant="contained" disabled={saving || !editingFacts?.every((fact) => drafts[fact.id]?.trim())} onClick={async () => {
+          <Button variant="contained" disabled={saving || !draft.trim()} onClick={async () => {
             if (!editingFacts || !onUpdateSharedFacts) return;
             setSaving(true);
             setSaveError('');
             try {
-              await onUpdateSharedFacts(editingFacts.map((fact) => ({ fact, statement: drafts[fact.id].trim() })));
+              await onUpdateSharedFacts(editingFacts.map((fact) => ({ fact, statement: draft.trim() })));
               setEditingFacts(null);
             } catch (error) {
               setSaveError(error instanceof Error ? error.message : '保存失败，请稍后重试');
