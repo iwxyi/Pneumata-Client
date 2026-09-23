@@ -42,8 +42,8 @@ function nodePosition(index: number, count: number) {
   return { x: 300 + Math.cos(angle) * 202, y: 112 + Math.sin(angle) * 78 };
 }
 
-function markerId(edge: GroupRelationshipGraphEdge) {
-  return `relation-arrow-${edge.key.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+function markerId(pairKey: string) {
+  return `relation-arrow-${pairKey.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
 function directionEndpoints(from: { x: number; y: number }, to: { x: number; y: number }) {
@@ -101,29 +101,27 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
   onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
 }) {
   const positions = new Map(graph.nodes.map((node, index) => [node.id, nodePosition(index, graph.nodes.length)]));
+  const edgePairs = Array.from(graph.edges.reduce((pairs, edge) => {
+    const pairKey = pairKeyFor(edge);
+    pairs.set(pairKey, [...(pairs.get(pairKey) || []), edge]);
+    return pairs;
+  }, new Map<string, GroupRelationshipGraphEdge[]>()).entries());
   return (
     <Box sx={{ position: 'relative', height: GRAPH_HEIGHT, flexShrink: 0, overflow: 'hidden' }}>
       <svg viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" aria-label="成员关系图" style={{ position: 'absolute', inset: 0 }}>
-        <defs>{graph.edges.map((edge) => <marker key={edge.key} id={markerId(edge)} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill={edgeColor(edge)} /></marker>)}</defs>
-        {graph.edges.map((edge) => {
+        <defs>{edgePairs.map(([pairKey, edges]) => <marker key={pairKey} id={markerId(pairKey)} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={edgeColor(edges[0])} /></marker>)}</defs>
+        {edgePairs.map(([pairKey, edges]) => {
+          const edge = edges[0];
           const from = positions.get(edge.fromId)!;
           const to = positions.get(edge.toId)!;
-          const pairKey = pairKeyFor(edge);
-          const bidirectional = graph.edges.some((item) => item.fromId === edge.toId && item.toId === edge.fromId);
+          const bidirectional = edges.length > 1;
           const { start, end } = directionEndpoints(from, to);
-          const dx = end.x - start.x;
-          const dy = end.y - start.y;
-          const distance = Math.hypot(dx, dy) || 1;
-          // Each directed path bends relative to its own direction. Reverse paths
-          // therefore occupy the opposite lane instead of collapsing on one curve.
-          const bend = bidirectional ? 12 : 0;
-          const control = { x: (start.x + end.x) / 2 - dy * bend / distance, y: (start.y + end.y) / 2 + dx * bend / distance };
           const active = highlightedPairs.includes(pairKey);
-          const path = `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`;
+          const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
           return (
-            <g key={edge.key} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} style={{ cursor: 'pointer' }}>
+            <g key={pairKey} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} style={{ cursor: 'pointer' }}>
               <path d={path} fill="none" stroke="transparent" strokeWidth="14" />
-              <path d={path} fill="none" stroke={active ? edgeColor(edge) : '#90A4AE'} strokeWidth={active ? 2.5 : 1.25} strokeLinecap="round" markerEnd={active ? `url(#${markerId(edge)})` : undefined} opacity={highlightedPairs.length && !active ? 0.18 : active ? 0.94 : 0.48} />
+              <path d={path} fill="none" stroke={active ? edgeColor(edge) : '#90A4AE'} strokeWidth={active ? 2.5 : 1.25} strokeLinecap="round" markerStart={active && bidirectional ? `url(#${markerId(pairKey)})` : undefined} markerEnd={active ? `url(#${markerId(pairKey)})` : undefined} opacity={highlightedPairs.length && !active ? 0.18 : active ? 0.94 : 0.48} />
             </g>
           );
         })}
@@ -154,6 +152,7 @@ function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, 
 
 export default function GroupRelationshipDialog({ open, onClose, chat, members, onRefresh }: GroupRelationshipDialogProps) {
   const projection = projectGroupRelationshipGraphs(chat, members);
+  const eligibleMemberCount = members.filter((member) => chat.memberIds.includes(member.id) && !member.deletedAt).length;
   const [highlightedPairs, setHighlightedPairs] = useState<string[]>([]);
   const [refreshRequested, setRefreshRequested] = useState(false);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
@@ -174,7 +173,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth PaperProps={{ sx: { height: { xs: 'calc(100% - 32px)', sm: 'min(820px, calc(100% - 64px))' }, overflow: 'hidden' } }}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexShrink: 0 }}>
         群成员关系
-        {onRefresh ? <Chip size="small" label={refreshRequested ? '更新中' : '更新关系'} onClick={() => { if (refreshRequested) return; setRefreshRequested(true); onRefresh(); }} clickable={!refreshRequested} variant="outlined" /> : null}
+        {onRefresh && eligibleMemberCount >= 2 ? <Chip size="small" label={refreshRequested ? '更新中' : '更新关系'} onClick={() => { if (refreshRequested) return; setRefreshRequested(true); onRefresh(); }} clickable={!refreshRequested} variant="outlined" /> : null}
       </DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', minHeight: 0, flexDirection: 'column', overflow: 'hidden', p: 0 }}>
         <Box sx={{ flexShrink: 0, px: 1.5, pt: 1.25, pb: 0.8 }}><Stack spacing={0.75}>{projection.graphs.map((graph) => <RelationshipMap key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} />)}</Stack></Box>
