@@ -7,6 +7,7 @@ import { storageKey } from '../constants/brand';
 import { logRecoverableError, reportRecoverableError } from './diagnostics';
 import { isCloudSyncEnabled } from './cloudSyncPreference';
 import { synthesizeSpeech, usesManagedSpeechProfile } from './speech';
+import { useAuthStore } from '../stores/useAuthStore';
 
 function findProfile(profiles: AIModelProfile[], id?: string | null) {
   const profile = id ? profiles.find((item) => item.id === id) : null;
@@ -685,6 +686,27 @@ export async function processRichMessageMedia(params: {
       && (!attachmentFilter || attachmentFilter.has(item.id))
     ));
   if (!attachments.length) return;
+  const imageCount = attachments.filter((attachment) => attachment.kind === 'image').length;
+  if (imageCount > 0 && !params.attachmentIds?.length && useAuthStore.getState().authMode === 'cloud') {
+    try {
+      await api.authorizeImageGenerationBatch(imageCount);
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : `本次请求包含 ${imageCount} 张图片，当前会员单次批量生成上限不足。请减少图片数量或升级会员后重试。`;
+      let failedMessage = params.message;
+      for (const attachment of attachments) {
+        if (attachment.kind !== 'image') continue;
+        failedMessage = updateRichMediaMessage({
+          message: failedMessage,
+          attachmentId: attachment.id,
+          patch: { status: 'failed', error: message },
+          upsertMessage: params.upsertMessage,
+        });
+      }
+      return;
+    }
+  }
   await Promise.all(attachments.map((attachment) => enqueueRichMediaAttachment({
     message: params.message,
     attachment,
