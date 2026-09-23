@@ -1937,6 +1937,9 @@ export default function MessageList({
       onTouchEnd={endUserScrollGesture}
       onTouchCancel={endUserScrollGesture}
       onPointerDown={(event) => {
+        // React portal events bubble through this component tree. Do not
+        // capture pointers that started in a portaled menu or dialog.
+        if (!event.currentTarget.contains(event.target as Node)) return;
         beginUserScrollGesture();
         event.currentTarget.setPointerCapture?.(event.pointerId);
       }}
