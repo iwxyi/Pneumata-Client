@@ -106,10 +106,20 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
     pairs.set(pairKey, [...(pairs.get(pairKey) || []), edge]);
     return pairs;
   }, new Map<string, GroupRelationshipGraphEdge[]>()).entries());
+  const recordedPairs = new Set(edgePairs.map(([pairKey]) => pairKey));
+  const missingPairs = graph.nodes.flatMap((from, index) => graph.nodes.slice(index + 1)
+    .filter((to) => !recordedPairs.has(pairKeyFor({ fromId: from.id, toId: to.id })))
+    .map((to) => ({ fromId: from.id, toId: to.id })));
   return (
     <Box sx={{ position: 'relative', height: GRAPH_HEIGHT, flexShrink: 0, overflow: 'hidden' }}>
       <svg viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" aria-label="成员关系图" style={{ position: 'absolute', inset: 0 }}>
         <defs>{edgePairs.map(([pairKey, edges]) => <marker key={pairKey} id={markerId(pairKey)} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={edgeColor(edges[0])} /></marker>)}</defs>
+        {missingPairs.map((pair) => {
+          const from = positions.get(pair.fromId)!;
+          const to = positions.get(pair.toId)!;
+          const { start, end } = directionEndpoints(from, to);
+          return <path key={`${pair.fromId}:${pair.toId}`} d={`M ${start.x} ${start.y} L ${end.x} ${end.y}`} fill="none" stroke="#B0BEC5" strokeWidth="1" strokeDasharray="4 5" strokeLinecap="round" opacity="0.58" />;
+        })}
         {edgePairs.map(([pairKey, edges]) => {
           const edge = edges[0];
           const from = positions.get(edge.fromId)!;
@@ -130,8 +140,8 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
         const position = positions.get(node.id)!;
         const relatedPairs = Array.from(new Set(graph.edges.filter((edge) => edge.fromId === node.id || edge.toId === node.id).map(pairKeyFor)));
         const nodeActive = relatedPairs.some((pairKey) => highlightedPairs.includes(pairKey));
-        return <Box key={node.id} onMouseEnter={() => onHighlightedPairsChange(relatedPairs)} onMouseLeave={() => onHighlightedPairsChange([])} sx={{ position: 'absolute', left: `${position.x / GRAPH_WIDTH * 100}%`, top: `${position.y / GRAPH_HEIGHT * 100}%`, transform: 'translate(-50%, -50%)', display: 'grid', justifyItems: 'center', gap: 0.35, width: 92, textAlign: 'center', cursor: relatedPairs.length ? 'pointer' : 'default' }}>
-          <Avatar src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: nodeActive ? 'primary.main' : 'background.paper', boxShadow: nodeActive ? 2 : 1 }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
+        return <Box key={node.id} sx={{ position: 'absolute', left: `${position.x / GRAPH_WIDTH * 100}%`, top: `${position.y / GRAPH_HEIGHT * 100}%`, transform: 'translate(-50%, -50%)', display: 'grid', justifyItems: 'center', gap: 0.35, width: 92, textAlign: 'center', pointerEvents: 'none' }}>
+          <Avatar onMouseEnter={() => onHighlightedPairsChange(relatedPairs)} onMouseLeave={() => onHighlightedPairsChange([])} src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: nodeActive ? 'primary.main' : 'background.paper', boxShadow: nodeActive ? 2 : 1, pointerEvents: relatedPairs.length ? 'auto' : 'none', cursor: relatedPairs.length ? 'pointer' : 'default' }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
           <Typography variant="caption" sx={{ maxWidth: '100%', bgcolor: 'background.paper', px: 0.45, borderRadius: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</Typography>
         </Box>;
       })}
