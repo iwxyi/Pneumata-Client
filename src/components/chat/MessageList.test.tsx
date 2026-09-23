@@ -158,6 +158,7 @@ describe('MessageList tail ownership', () => {
     expect(shouldMaintainTailAfterMutation({
       autoStickToBottom: true,
       wasPinnedBeforeMutation: true,
+      isUserPointerHeld: false,
     })).toBe(true);
   });
 
@@ -165,6 +166,7 @@ describe('MessageList tail ownership', () => {
     expect(shouldMaintainTailAfterMutation({
       autoStickToBottom: true,
       wasPinnedBeforeMutation: false,
+      isUserPointerHeld: false,
     })).toBe(false);
   });
 
@@ -172,6 +174,15 @@ describe('MessageList tail ownership', () => {
     expect(shouldMaintainTailAfterMutation({
       autoStickToBottom: false,
       wasPinnedBeforeMutation: true,
+      isUserPointerHeld: false,
+    })).toBe(false);
+  });
+
+  it('does not move the viewport while a user is holding the chat surface', () => {
+    expect(shouldMaintainTailAfterMutation({
+      autoStickToBottom: true,
+      wasPinnedBeforeMutation: true,
+      isUserPointerHeld: true,
     })).toBe(false);
   });
 });

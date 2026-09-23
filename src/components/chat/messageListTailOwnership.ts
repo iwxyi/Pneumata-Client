@@ -6,6 +6,9 @@
 export function shouldMaintainTailAfterMutation(input: {
   autoStickToBottom: boolean;
   wasPinnedBeforeMutation: boolean;
+  isUserPointerHeld: boolean;
 }) {
-  return input.autoStickToBottom && input.wasPinnedBeforeMutation;
+  return input.autoStickToBottom
+    && input.wasPinnedBeforeMutation
+    && !input.isUserPointerHeld;
 }

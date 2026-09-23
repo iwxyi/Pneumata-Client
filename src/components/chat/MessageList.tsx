@@ -652,6 +652,7 @@ export default function MessageList({
   const latestScrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
   const lastScrollTopRef = useRef(0);
   const hasUserScrollIntentRef = useRef(false);
+  const isUserPointerHeldRef = useRef(false);
   const userScrollMomentumRef = useRef<{ direction: 'up' | 'down'; at: number; velocity: number } | null>(null);
   const adaptiveBottomPagesRef = useRef(MIN_BOTTOM_PREFETCH_PAGES);
   const lastScrollSampleRef = useRef<{ top: number; at: number } | null>(null);
@@ -690,6 +691,7 @@ export default function MessageList({
   messageVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => (
     autoStickToBottom
     && shouldStickToBottomRef.current
+    && !isUserPointerHeldRef.current
   );
   const virtualMessageItems = messageVirtualizer.getVirtualItems();
 
@@ -888,6 +890,15 @@ export default function MessageList({
     cancelProgrammaticScroll();
   }, [cancelProgrammaticScroll]);
 
+  const beginUserScrollGesture = useCallback(() => {
+    isUserPointerHeldRef.current = true;
+    markUserScrollIntent();
+  }, [markUserScrollIntent]);
+
+  const endUserScrollGesture = useCallback(() => {
+    isUserPointerHeldRef.current = false;
+  }, []);
+
   const recordUserScrollMomentum = useCallback((direction: 'up' | 'down' | null, velocity: number) => {
     if (!direction || velocity <= 0) return;
     userScrollMomentumRef.current = {
@@ -916,6 +927,9 @@ export default function MessageList({
   ) => {
     const container = containerRef.current;
     if (!container) return false;
+    if (isUserPointerHeldRef.current && intent !== 'explicitJump') {
+      return false;
+    }
     const now = performance.now();
     const priority = SCROLL_INTENT_PRIORITY[intent];
     const active = scrollWriteIntentRef.current;
@@ -1476,6 +1490,7 @@ export default function MessageList({
         if (!shouldMaintainTailAfterMutation({
           autoStickToBottom,
           wasPinnedBeforeMutation: shouldStickToBottomRef.current,
+          isUserPointerHeld: isUserPointerHeldRef.current,
         })) return;
         scrollToBottom('auto', 'tailFollow');
       });
@@ -1798,6 +1813,7 @@ export default function MessageList({
     if (!shouldMaintainTailAfterMutation({
       autoStickToBottom,
       wasPinnedBeforeMutation: shouldStickToBottomRef.current,
+      isUserPointerHeld: isUserPointerHeldRef.current,
     })) return;
 
     shouldStickToBottomRef.current = true;
@@ -1819,6 +1835,7 @@ export default function MessageList({
     if (!storyChoiceSubmittingValue || previousValue === storyChoiceSubmittingValue) return;
     if (!autoStickToBottom) return;
     if (!hasJumpedToBottomRef.current) return;
+    if (isUserPointerHeldRef.current) return;
     shouldStickToBottomRef.current = true;
     followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
   }, [autoStickToBottom, followScrollToBottom, storyChoiceSubmittingValue]);
@@ -1859,8 +1876,15 @@ export default function MessageList({
       ref={containerRef}
       data-chat-message-list
       onWheel={markUserScrollIntent}
-      onTouchStart={markUserScrollIntent}
-      onPointerDown={markUserScrollIntent}
+      onTouchStart={beginUserScrollGesture}
+      onTouchEnd={endUserScrollGesture}
+      onTouchCancel={endUserScrollGesture}
+      onPointerDown={(event) => {
+        beginUserScrollGesture();
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+      }}
+      onPointerUp={endUserScrollGesture}
+      onPointerCancel={endUserScrollGesture}
       onKeyDown={markUserScrollIntent}
       tabIndex={0}
       aria-label="聊天消息列表"
