@@ -81,6 +81,10 @@ interface ScrollAnchorSnapshot {
   sourceTimestamp?: number;
 }
 
+interface TailFollowStartSnapshot {
+  scrollTop: number;
+}
+
 type MessageScrollIntentKind = ScrollIntentKind;
 
 export interface MessageListScrollPosition extends ScrollAnchorSnapshot {
@@ -658,6 +662,7 @@ export default function MessageList({
   const lastScrollSampleRef = useRef<{ top: number; at: number } | null>(null);
   const scrollAnchorFrameRef = useRef<number | null>(null);
   const followScrollAnimationRef = useRef<number | null>(null);
+  const tailFollowStartSnapshotRef = useRef<TailFollowStartSnapshot | null>(null);
   const programmaticScrollRef = useRef<{ mode: 'follow' | 'jump'; startedAt: number; targetTop: number } | null>(null);
   const scrollWriteIntentRef = useRef<{ kind: MessageScrollIntentKind; priority: number; startedAt: number } | null>(null);
   const scrollTransactionRef = useRef<ScrollTransaction | null>(null);
@@ -692,6 +697,8 @@ export default function MessageList({
     autoStickToBottom
     && shouldStickToBottomRef.current
     && !isUserPointerHeldRef.current
+    && !tailFollowStartSnapshotRef.current
+    && followScrollAnimationRef.current == null
   );
   const virtualMessageItems = messageVirtualizer.getVirtualItems();
 
@@ -1319,11 +1326,18 @@ export default function MessageList({
     }
   }, [cancelProgrammaticScroll, hasMoreNewer, onBottomPinnedChange, runScrollWrite, updateJumpToBottomVisibility]);
 
-  const followScrollToBottom = useCallback((options?: { animate?: boolean; mode?: 'follow' | 'jump'; intent?: MessageScrollIntentKind }) => {
+  const followScrollToBottom = useCallback((options?: { animate?: boolean; mode?: 'follow' | 'jump'; intent?: MessageScrollIntentKind; startTop?: number }) => {
     const container = containerRef.current;
     if (!container) return;
     cancelProgrammaticScroll();
-    const startTop = container.scrollTop;
+    const capturedStartTop = options?.startTop;
+    if (capturedStartTop != null && Math.abs(container.scrollTop - capturedStartTop) >= 1) {
+      const restored = runScrollWrite(options.intent || 'tailFollow', (scrollContainer) => {
+        scrollContainer.scrollTop = capturedStartTop;
+      });
+      if (!restored) return;
+    }
+    const startTop = capturedStartTop ?? container.scrollTop;
     const initialTargetTop = Math.max(0, container.scrollHeight - container.clientHeight);
     const distance = initialTargetTop - startTop;
     const intent = options?.intent || (options?.mode === 'jump' ? 'explicitJump' : 'tailFollow');
@@ -1458,6 +1472,23 @@ export default function MessageList({
 
   useEffect(() => cancelProgrammaticScroll, [cancelProgrammaticScroll]);
 
+  // Save the viewport before React inserts a new tail row. TanStack Virtual
+  // may temporarily render that row at an estimate, so the later follow must
+  // start from this real position, not from an already-adjusted scrollTop.
+  useLayoutEffect(() => () => {
+    const container = containerRef.current;
+    if (!container || !hasJumpedToBottomRef.current) return;
+    if (!shouldMaintainTailAfterMutation({
+      autoStickToBottom,
+      wasPinnedBeforeMutation: shouldStickToBottomRef.current,
+      isUserPointerHeld: isUserPointerHeldRef.current,
+    })) {
+      tailFollowStartSnapshotRef.current = null;
+      return;
+    }
+    tailFollowStartSnapshotRef.current = { scrollTop: container.scrollTop };
+  }, [autoStickToBottom, renderItems, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
+
   useEffect(() => cancelInitialTailRevealFrames, [cancelInitialTailRevealFrames]);
   useEffect(() => cancelInitialAnchorRevealFrames, [cancelInitialAnchorRevealFrames]);
 
@@ -1489,7 +1520,7 @@ export default function MessageList({
         // New bubbles use a short tail-follow animation. Let that animation
         // own scrollTop until it finishes instead of replacing it with an
         // immediate ResizeObserver correction.
-        if (followScrollAnimationRef.current != null) return;
+        if (followScrollAnimationRef.current != null || tailFollowStartSnapshotRef.current) return;
         // A line wrap is measured after React commits. Preserve the exact
         // bottom only for a viewport that was already following it. When a
         // user is reading history, deliberately leave scrollTop untouched:
@@ -1791,10 +1822,17 @@ export default function MessageList({
     // apparently stable render (18 items can become 30 a second later). The
     // transaction therefore remains authoritative for its full timeout
     // window; render stability is diagnostic only and must not release it.
-    if (scrollTransactionRef.current) return;
+    if (scrollTransactionRef.current) {
+      tailFollowStartSnapshotRef.current = null;
+      return;
+    }
 
-    if (!hasJumpedToBottomRef.current) return;
+    if (!hasJumpedToBottomRef.current) {
+      tailFollowStartSnapshotRef.current = null;
+      return;
+    }
     if (!autoStickToBottom) {
+      tailFollowStartSnapshotRef.current = null;
       if (!metricsChanged) return;
       const snapshot = latestScrollAnchorRef.current;
       if (snapshot) {
@@ -1805,7 +1843,10 @@ export default function MessageList({
     // An explicit branch switch owns the scroll position; do not let the
     // tail-follow effect pull the viewport to the new (possibly longer) tail
     // before the anchor restoration runs.
-    if (!metricsChanged) return;
+    if (!metricsChanged) {
+      tailFollowStartSnapshotRef.current = null;
+      return;
+    }
 
     const tailChanged = currentMetrics.lastItemKey !== previousMetrics.lastItemKey
       || currentMetrics.itemCount !== previousMetrics.itemCount
@@ -1814,7 +1855,10 @@ export default function MessageList({
     const tailGrew = currentMetrics.lastItemKey === previousMetrics.lastItemKey
       && currentMetrics.lastItemContentLength > previousMetrics.lastItemContentLength;
     const isStreamingTailHandoff = currentMetrics.lastItemIsStreaming || previousMetrics.lastItemIsStreaming;
-    if (tailGrew && isStreamingTailHandoff) return;
+    if (tailGrew && isStreamingTailHandoff) {
+      tailFollowStartSnapshotRef.current = null;
+      return;
+    }
     // `shouldStickToBottomRef` is updated by actual viewport movement before
     // this mutation. Never infer tail ownership from a missing scroll event:
     // someone reading history may simply be still.
@@ -1822,7 +1866,13 @@ export default function MessageList({
       autoStickToBottom,
       wasPinnedBeforeMutation: shouldStickToBottomRef.current,
       isUserPointerHeld: isUserPointerHeldRef.current,
-    })) return;
+    })) {
+      tailFollowStartSnapshotRef.current = null;
+      return;
+    }
+
+    const startSnapshot = tailChanged ? tailFollowStartSnapshotRef.current : null;
+    tailFollowStartSnapshotRef.current = null;
 
     shouldStickToBottomRef.current = true;
     if (!hasMoreNewer && lastReportedBottomPinnedRef.current !== true) {
@@ -1830,11 +1880,12 @@ export default function MessageList({
       onBottomPinnedChange?.(true);
     }
 
-    if (tailChanged && currentMetrics.lastItemIsStreaming) {
-      followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
-      return;
-    }
-    followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
+    followScrollToBottom({
+      animate: true,
+      mode: 'follow',
+      intent: 'tailFollow',
+      startTop: startSnapshot?.scrollTop,
+    });
   }, [autoStickToBottom, followScrollToBottom, hasMoreNewer, onBottomPinnedChange, renderItems, restoreScrollAnchor, scrollRequest, scrollToBottom, storyChoiceMessageId, storyChoiceOptions, storyChoiceSubmittingValue, tailContent]);
 
   useLayoutEffect(() => {
