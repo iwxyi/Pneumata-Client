@@ -721,9 +721,13 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
       <Menu
         open={Boolean(menuPosition)}
         onClose={closeMenus}
+        onClick={closeMenus}
         anchorReference="anchorPosition"
         anchorPosition={menuPosition ? { top: menuPosition.mouseY, left: menuPosition.mouseX } : undefined}
         slotProps={{
+          root: {
+            sx: { zIndex: (theme) => theme.zIndex.modal + 500 },
+          },
           paper: {
             sx: {
               bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(255,255,255,0.72)' : 'rgba(20,22,30,0.76)',
