@@ -128,6 +128,8 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
 }
 
 export function describeGroupRelationshipEdge(edge: GroupRelationshipGraphEdge) {
+  const note = edge.note?.replace(/\s+/g, ' ').trim();
+  if (note) return note.length > 18 ? `${note.slice(0, 17)}…` : note;
   const { warmth, trust, threat, attachment, deference } = edge.axes;
   const labels = [
     attachment >= 12 ? '在意' : '',

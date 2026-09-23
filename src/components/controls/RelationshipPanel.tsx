@@ -141,25 +141,6 @@ function formatSignedDelta(value: number) {
   return formatSignedRelationshipNumber(value);
 }
 
-function formatBaselineAndAdjustment(entry: RelationshipLedgerEntry) {
-  const normalized = normalizeRelationshipLedgerEntry(entry);
-  const baseline = normalized.baseline;
-  const adjustment = normalized.adjustment;
-  if (!baseline || !adjustment) return null;
-  const axes = [
-    ['亲和', baseline.warmth, adjustment.warmth],
-    ['能力', baseline.competence, adjustment.competence],
-    ['信任', baseline.trust, adjustment.trust],
-    ['威胁', baseline.threat, adjustment.threat],
-    ['在意', baseline.attachment || 0, adjustment.attachment || 0],
-    ['让位', baseline.deference || 0, adjustment.deference || 0],
-  ] as const;
-  return axes
-    .filter(([, value, delta]) => value !== 0 || delta !== 0)
-    .map(([label, value, delta]) => `${label} ${formatSignedRelationshipNumber(value)} (${formatSignedRelationshipNumber(delta)})`)
-    .join(' · ') || null;
-}
-
 function scalePositiveBiasedRadar(value: number) {
   if (value >= 0) return Math.max(24, Math.min(100, 40 + value * 0.6));
   return Math.max(18, Math.min(44, 40 + value * 0.44));
@@ -178,14 +159,22 @@ function cleanRelationshipText(text: string) {
     .trim();
 }
 
-function buildAxisLabels(delta: ReturnType<typeof toRelationshipDisplayDelta>) {
+function formatBaselineValue(value: number) {
+  return String(Math.round(value));
+}
+
+function buildAxisLabels(entry: RelationshipLedgerEntry) {
+  const normalized = normalizeRelationshipLedgerEntry(entry);
+  const baseline = normalized.baseline || normalized.current;
+  const adjustment = normalized.adjustment || { warmth: 0, competence: 0, trust: 0, threat: 0, attachment: 0, deference: 0 };
+  const value = (axis: AxisKey) => `${formatBaselineValue(baseline[axis] || 0)} (${formatSignedDelta(adjustment[axis] || 0)})`;
   return [
-    { key: 'warmth' as const, label: '亲和', value: formatSignedDelta(delta.warmth || 0), color: '#43A047', x: 56, y: 10, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
-    { key: 'competence' as const, label: '能力', value: formatSignedDelta(delta.competence || 0), color: '#1E88E5', x: 99, y: 30, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
-    { key: 'trust' as const, label: '信任', value: formatSignedDelta(delta.trust || 0), color: '#8E24AA', x: 99, y: 84, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
-    { key: 'threat' as const, label: '威胁', value: formatSignedDelta(delta.threat || 0), color: '#E53935', x: 56, y: 112, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
-    { key: 'attachment' as const, label: '在意', value: formatSignedDelta(delta.attachment || 0), color: '#F57C00', x: 13, y: 84, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
-    { key: 'deference' as const, label: '让位', value: formatSignedDelta(delta.deference || 0), color: '#546E7A', x: 13, y: 30, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
+    { key: 'warmth' as const, label: '亲和', value: value('warmth'), color: '#43A047', x: 56, y: 10, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
+    { key: 'competence' as const, label: '能力', value: value('competence'), color: '#1E88E5', x: 99, y: 30, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
+    { key: 'trust' as const, label: '信任', value: value('trust'), color: '#8E24AA', x: 99, y: 84, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
+    { key: 'threat' as const, label: '威胁', value: value('threat'), color: '#E53935', x: 56, y: 112, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
+    { key: 'attachment' as const, label: '在意', value: value('attachment'), color: '#F57C00', x: 13, y: 84, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
+    { key: 'deference' as const, label: '让位', value: value('deference'), color: '#546E7A', x: 13, y: 30, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
   ];
 }
 
@@ -207,10 +196,10 @@ function AxisReasonDialog({ open, onClose, axisLabel, reasons }: { open: boolean
   );
 }
 
-function RadarAxisLabels({ delta, onOpenAxis }: { delta: ReturnType<typeof toRelationshipDisplayDelta>; onOpenAxis: (axis: AxisKey) => void }) {
+function RadarAxisLabels({ entry, onOpenAxis }: { entry: RelationshipLedgerEntry; onOpenAxis: (axis: AxisKey) => void }) {
   return (
     <>
-      {buildAxisLabels(delta).map((item) => {
+      {buildAxisLabels(entry).map((item) => {
         const meta = METRIC_META.find((axis) => axis.key === item.key);
         return (
           <Tooltip key={item.key} title={meta?.hint || item.label} arrow>
@@ -255,7 +244,7 @@ export function RelationshipRadar({ entry, onOpenAxis, compact = false }: { entr
             return <circle key={item.key} cx={x} cy={y} r={compact ? '2' : '2.5'} fill={item.color} />;
           })}
         </g>
-        {compact ? null : <RadarAxisLabels delta={delta} onOpenAxis={onOpenAxis} />}
+        {compact ? null : <RadarAxisLabels entry={entry} onOpenAxis={onOpenAxis} />}
       </svg>
     </Box>
   );
@@ -364,7 +353,6 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
     ? undefined
     : presented.speakerName;
   const evidenceLabel = buildRelationshipEvidenceLabel(normalizedEntry);
-  const baselineAndAdjustment = formatBaselineAndAdjustment(normalizedEntry);
 
   return (
     <RelationshipCardFrame>
@@ -378,12 +366,7 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
             <Chip size="small" variant="outlined" label={dominantSummary} sx={compactPillChipSx} />
           </Tooltip>
         </Box>
-        {presented.semanticSummary ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>关系阶段：{presented.semanticSummary === '普通互动' ? '尚未形成明显倾向' : presented.semanticSummary}</Typography> : null}
-        {baselineAndAdjustment ? (
-          <Tooltip title="角色默认关系值（本群聊天累计变化）。两者相加才是当前实际关系。" arrow>
-            <Typography variant="caption" color="text.secondary" sx={{ px: 0.25, width: 'fit-content', cursor: 'help' }}>角色默认（本群变化）：{baselineAndAdjustment}</Typography>
-          </Tooltip>
-        ) : null}
+        {presented.semanticSummary && presented.semanticSummary !== '普通互动' ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>关系阶段：{presented.semanticSummary}</Typography> : null}
         <RelationshipEvidenceCard speakerName={evidenceSpeakerName} evidence={presented.evidence || '暂无明确证据'} label={evidenceLabel} />
         <RelationshipRadar entry={normalizedEntry} onOpenAxis={setActiveAxis} />
       </Stack>

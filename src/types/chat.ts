@@ -661,7 +661,7 @@ export interface OpenChatModeConfig {
 
 export interface ConversationInitializationState {
   /** Versioned so future room initialization steps can evolve without reusing stale completion records. */
-  version: 1;
+  version: 2;
   status: 'running' | 'completed' | 'failed';
   memberFingerprint: string;
   attemptedAt?: number;
