@@ -95,10 +95,12 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
   );
 }
 
-function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: {
+function RelationshipMap({ graph, highlightedPairs, selectedPairs, onHighlightedPairsChange, onSelectedPairsChange }: {
   graph: GroupRelationshipGraph;
   highlightedPairs: string[];
+  selectedPairs: string[];
   onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
+  onSelectedPairsChange: (pairKeys: string[]) => void;
 }) {
   const positions = new Map(graph.nodes.map((node, index) => [node.id, nodePosition(index, graph.nodes.length)]));
   const edgePairs = Array.from(graph.edges.reduce((pairs, edge) => {
@@ -111,7 +113,7 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
     .filter((to) => !recordedPairs.has(pairKeyFor({ fromId: from.id, toId: to.id })))
     .map((to) => ({ fromId: from.id, toId: to.id })));
   return (
-    <Box sx={{ position: 'relative' }}>
+    <Box sx={{ position: 'relative' }} onClick={() => onSelectedPairsChange([])}>
     <Box sx={{ position: 'relative', width: '100%', maxWidth: GRAPH_WIDTH, height: GRAPH_HEIGHT, mx: 'auto', overflow: 'hidden' }}>
       <svg viewBox={`0 0 ${GRAPH_WIDTH} ${GRAPH_HEIGHT}`} preserveAspectRatio="xMidYMid meet" width="100%" height="100%" aria-label="成员关系图" style={{ position: 'absolute', inset: 0 }}>
         <defs>{edgePairs.map(([pairKey, edges]) => <marker key={pairKey} id={markerId(pairKey)} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={edgeColor(edges[0])} /></marker>)}</defs>
@@ -130,7 +132,7 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
           const active = highlightedPairs.includes(pairKey);
           const path = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
           return (
-            <g key={pairKey} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} style={{ cursor: 'pointer' }}>
+            <g key={pairKey} onMouseEnter={() => onHighlightedPairsChange([pairKey], true)} onMouseLeave={() => onHighlightedPairsChange([])} onClick={(event) => { event.stopPropagation(); onSelectedPairsChange(selectedPairs.length === 1 && selectedPairs[0] === pairKey ? [] : [pairKey]); }} style={{ cursor: 'pointer' }}>
               <path d={path} fill="none" stroke="transparent" strokeWidth="14" />
               <path d={path} fill="none" stroke={active ? edgeColor(edge) : '#90A4AE'} strokeWidth={active ? 2.5 : 1.25} strokeLinecap="round" markerStart={active && bidirectional ? `url(#${markerId(pairKey)})` : undefined} markerEnd={active ? `url(#${markerId(pairKey)})` : undefined} opacity={highlightedPairs.length && !active ? 0.18 : active ? 0.94 : 0.48} />
             </g>
@@ -142,7 +144,7 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
         const relatedPairs = Array.from(new Set(graph.edges.filter((edge) => edge.fromId === node.id || edge.toId === node.id).map(pairKeyFor)));
         const nodeActive = relatedPairs.some((pairKey) => highlightedPairs.includes(pairKey));
         return <Box key={node.id} sx={{ position: 'absolute', left: `${position.x / GRAPH_WIDTH * 100}%`, top: `${position.y / GRAPH_HEIGHT * 100}%`, transform: 'translate(-50%, -50%)', display: 'grid', justifyItems: 'center', gap: 0.35, width: 92, textAlign: 'center', pointerEvents: 'none' }}>
-          <Avatar onMouseEnter={() => onHighlightedPairsChange(relatedPairs)} onMouseLeave={() => onHighlightedPairsChange([])} src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: nodeActive ? 'primary.main' : 'background.paper', boxShadow: nodeActive ? 2 : 1, pointerEvents: relatedPairs.length ? 'auto' : 'none', cursor: relatedPairs.length ? 'pointer' : 'default' }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
+          <Avatar onMouseEnter={() => onHighlightedPairsChange(relatedPairs)} onMouseLeave={() => onHighlightedPairsChange([])} onClick={(event) => { event.stopPropagation(); onSelectedPairsChange(relatedPairs); }} src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: nodeActive ? 'primary.main' : 'background.paper', boxShadow: nodeActive ? 2 : 1, pointerEvents: relatedPairs.length ? 'auto' : 'none', cursor: relatedPairs.length ? 'pointer' : 'default' }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
           <Typography variant="caption" sx={{ maxWidth: '100%', bgcolor: 'background.paper', px: 0.45, borderRadius: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</Typography>
         </Box>;
       })}
@@ -157,12 +159,12 @@ function GroupRelationshipFacts({ chat, members }: Pick<GroupRelationshipDialogP
     .filter((fact) => fact.memberIds.filter((memberId) => memberNames.has(memberId)).length >= 2);
   if (!facts.length) return null;
   return (
-    <Box sx={{ p: 1, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+    <Box>
       <Typography variant="body2" sx={{ fontWeight: 700 }}>群体关系</Typography>
-      <Stack spacing={0.75} sx={{ mt: 0.75 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7, mt: 0.75 }}>
         {facts.map((fact) => {
           const names = fact.memberIds.map((memberId) => memberNames.get(memberId)).filter((name): name is string => Boolean(name));
-          return <Box key={fact.id} sx={{ minWidth: 0 }}>
+          return <Box key={fact.id} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
             <Stack direction="row" spacing={0.55} useFlexGap alignItems="center" flexWrap="wrap">
               <Chip size="small" label={STRUCTURE_LABELS[fact.kind]} variant="outlined" />
               <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
@@ -171,7 +173,7 @@ function GroupRelationshipFacts({ chat, members }: Pick<GroupRelationshipDialogP
             {fact.evidence ? <Typography variant="caption" color="text.secondary">{fact.evidence}</Typography> : null}
           </Box>;
         })}
-      </Stack>
+      </Box>
     </Box>
   );
 }
@@ -191,15 +193,20 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
   const projection = projectGroupRelationshipGraphs(chat, members);
   const eligibleMemberCount = members.filter((member) => chat.memberIds.includes(member.id) && !member.deletedAt).length;
   const [highlightedPairs, setHighlightedPairs] = useState<string[]>([]);
+  const [selectedPairs, setSelectedPairs] = useState<string[]>([]);
   const [refreshRequested, setRefreshRequested] = useState(false);
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
   useEffect(() => {
     if (chat.modeState.initialization?.status !== 'running') setRefreshRequested(false);
   }, [chat.modeState.initialization?.status]);
   const handleHighlightedPairsChange = (pairKeys: string[], scrollToCard = false) => {
-    setHighlightedPairs(pairKeys);
+    setHighlightedPairs(pairKeys.length ? pairKeys : selectedPairs);
     if (!pairKeys.length || !scrollToCard) return;
     window.requestAnimationFrame(() => cardRefs.current.get(pairKeys[0])?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }));
+  };
+  const handleSelectedPairsChange = (pairKeys: string[]) => {
+    setSelectedPairs(pairKeys);
+    setHighlightedPairs(pairKeys);
   };
   const registerCard = (pairKey: string, element: HTMLDivElement | null) => {
     if (element) {
@@ -213,7 +220,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
         {onRefresh && eligibleMemberCount >= 2 ? <Chip size="small" label={refreshRequested ? '更新中' : '更新关系'} onClick={() => { if (refreshRequested) return; setRefreshRequested(true); onRefresh(); }} clickable={!refreshRequested} variant="outlined" /> : null}
       </DialogTitle>
       <DialogContent dividers sx={{ display: 'flex', minHeight: 0, flexDirection: 'column', overflow: 'hidden', p: 0 }}>
-        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1.25, pb: 0.8 }}><Stack spacing={0.75}>{projection.graphs.map((graph) => <RelationshipMap key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} />)}</Stack></Box>
+        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1.25, pb: 0.8 }}><Stack spacing={0.75}>{projection.graphs.map((graph) => <RelationshipMap key={graph.key} graph={graph} highlightedPairs={highlightedPairs} selectedPairs={selectedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} onSelectedPairsChange={handleSelectedPairsChange} />)}</Stack></Box>
         <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.5, pb: 1.5 }}>
           <Stack spacing={0.8}>
             {projection.graphs.map((graph) => <RelationshipCards key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} registerCard={registerCard} />)}
