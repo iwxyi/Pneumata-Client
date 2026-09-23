@@ -4,7 +4,7 @@ import { isAIProfileUsable, type AIModelProfile } from '../types/settings';
 import { api } from './api';
 import { generateImageWithAdapter, synthesizeSpeechWithAdapter } from './aiGenerationAdapter';
 import { storageKey } from '../constants/brand';
-import { reportRecoverableError } from './diagnostics';
+import { logRecoverableError, reportRecoverableError } from './diagnostics';
 import { isCloudSyncEnabled } from './cloudSyncPreference';
 import { synthesizeSpeech, usesManagedSpeechProfile } from './speech';
 
@@ -250,7 +250,15 @@ function updateRichMediaMessage(params: {
   const nextMessage = { ...params.message, metadata: nextMetadata };
   rememberRichMediaMessage(nextMessage);
   params.upsertMessage(nextMessage);
-  if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(nextMessage.serverId || nextMessage.id, nextMetadata).catch(() => undefined);
+  if (!isLocalOnlyMediaMode()) {
+    void api.updateMessageMetadata(nextMessage.serverId || nextMessage.id, nextMetadata).catch((error) => {
+      logRecoverableError({
+        location: 'rich-message-media.persist-metadata',
+        error,
+        extra: { messageId: nextMessage.id, attachmentId: params.attachmentId },
+      });
+    });
+  }
   return nextMessage;
 }
 
@@ -706,7 +714,15 @@ export async function retryRichMessageMedia(params: {
   const retryMessage = { ...params.message, metadata: retryMetadata };
   rememberRichMediaMessage(retryMessage);
   params.upsertMessage(retryMessage);
-  if (!isLocalOnlyMediaMode()) void api.updateMessageMetadata(retryMessage.serverId || retryMessage.id, retryMetadata).catch(() => undefined);
+  if (!isLocalOnlyMediaMode()) {
+    void api.updateMessageMetadata(retryMessage.serverId || retryMessage.id, retryMetadata).catch((error) => {
+      logRecoverableError({
+        location: 'rich-message-media.retry-persist-metadata',
+        error,
+        extra: { messageId: retryMessage.id, attachmentId: params.attachmentId },
+      });
+    });
+  }
   void processRichMessageMedia({
     message: retryMessage,
     character: params.character,

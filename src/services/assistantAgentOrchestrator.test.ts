@@ -438,6 +438,49 @@ describe('assistantAgentOrchestrator validation', () => {
     expect(patchSet.mediaTasks?.[0]?.prompt).not.toBe('番茄炒蛋');
   });
 
+  it('recovers a missing image task from an inline image placeholder for an explicit image request', async () => {
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      assistantMessage: '好的，为你生成一张红烧肉的图片。\n\n![红烧肉成菜图](attachment:image-1)',
+      patches: [],
+      mediaTasks: [],
+    }));
+    const plan: AssistantAgentChangePlan = {
+      intent: 'create',
+      scope: { targetMode: 'unknown', artifactIds: [] },
+      operations: [{ kind: 'create', instruction: '生成一张红烧肉图片' }],
+      requiresConfirmation: false,
+      confidence: 0.95,
+    };
+    const userMessage: Message = {
+      id: 'message-image-recovery',
+      chatId: 'chat-a',
+      type: 'user',
+      senderId: 'user',
+      senderName: '用户',
+      content: '帮我生成一张红烧肉的图片',
+      emotion: 0,
+      timestamp: 1,
+      isDeleted: false,
+    };
+
+    const patchSet = await writeAssistantAgentPatchSet({
+      api: { provider: 'openai', apiKey: 'k', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4.1' },
+      chatId: 'chat-a',
+      messages: [],
+      userMessage,
+      plan,
+      existingArtifacts: [],
+    });
+
+    expect(patchSet.assistantMessage).toContain('attachment:image-1');
+    expect(patchSet.mediaTasks).toHaveLength(1);
+    expect(patchSet.mediaTasks?.[0]).toMatchObject({
+      slotId: 'image-1',
+      altText: '红烧肉成菜图',
+    });
+    expect(patchSet.mediaTasks?.[0]?.prompt).toContain('帮我生成一张红烧肉的图片');
+  });
+
   it('rejects update patches outside the planned artifact scope', () => {
     const plan: AssistantAgentChangePlan = {
       intent: 'update',

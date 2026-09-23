@@ -442,7 +442,7 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
         if (!attachment) {
           return (
             <Box key={`missing-attachment-${part.slotId}-${index}`} sx={{ borderRadius: 1.5, border: '1px dashed', borderColor: 'divider', px: 1.25, py: 1, color: 'text.secondary' }}>
-              <Typography variant="caption">{part.altText || '图片'}暂不可用</Typography>
+              <Typography variant="caption">{part.altText || '图片'}的生成任务数据缺失</Typography>
             </Box>
           );
         }

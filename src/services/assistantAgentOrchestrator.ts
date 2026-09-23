@@ -16,6 +16,7 @@ import type { Message, MessageAttachment } from '../types/message';
 import type { APIConfig } from '../types/settings';
 import { generateResponse } from './aiClient';
 import { enhanceImagePrompt } from './imagePromptComposer';
+import { logRecoverableError } from './diagnostics';
 import { normalizeAssistantHtmlRuntime } from '../features/assistantHtml/assistantHtmlValidation';
 import { summarizeAssistantArtifactData } from './assistantArtifactData';
 
@@ -35,6 +36,7 @@ const MAX_TOTAL_TARGET_CONTEXT_CHARS = 180_000;
 const MAX_SINGLE_TARGET_CONTEXT_CHARS = 80_000;
 const MAX_LOCAL_WORKSPACE_FILES_IN_REGISTRY = 160;
 const MAX_LOCAL_FILE_CONTEXT_CHARS = 120_000;
+const INLINE_IMAGE_ATTACHMENT_PATTERN = /!\[([^\]\n]*)\]\(attachment:(?:\/\/)?([^)\s]+)\)/g;
 // This is an output safety ceiling, not a context-window limit. 64K tokens
 // covers long HTML/document artifacts while keeping accidental runaway output
 // bounded across providers with different maximum-output policies.
@@ -704,6 +706,39 @@ function ensureMediaTaskPlaceholders(assistantMessage: string, mediaTasks: Assis
   return text(content, MAX_ASSISTANT_VISIBLE_MESSAGE_CHARS);
 }
 
+function recoverInlineImageTasks(
+  assistantMessage: string,
+  mediaTasks: AssistantAgentMediaTask[],
+  userMessage: Message | undefined,
+) {
+  if (!userMessage || !/图片|照片|插画|海报|头像|生图|生成.*图|画一张|参考图/i.test(userMessage.content)) return mediaTasks;
+  const existingSlots = new Set(mediaTasks.map((task) => task.slotId?.trim()).filter(Boolean));
+  const recovered: AssistantAgentMediaTask[] = [];
+  for (const match of assistantMessage.matchAll(INLINE_IMAGE_ATTACHMENT_PATTERN)) {
+    const slotId = (match[2] || '').trim().replace(/[^\w.-]/g, '').slice(0, 80);
+    if (!slotId || existingSlots.has(slotId) || recovered.length + mediaTasks.length >= MAX_MEDIA_TASKS) continue;
+    const altText = text(match[1], 160) || 'AI 图片';
+    recovered.push({
+      kind: 'image',
+      slotId,
+      prompt: userMessage.content,
+      altText,
+      userCaption: altText,
+    });
+    existingSlots.add(slotId);
+  }
+  return recovered.length ? [...mediaTasks, ...recovered] : mediaTasks;
+}
+
+function inlineImageAttachmentSlots(assistantMessage: string) {
+  const slots = new Set<string>();
+  for (const match of assistantMessage.matchAll(INLINE_IMAGE_ATTACHMENT_PATTERN)) {
+    const slotId = (match[2] || '').trim().replace(/[^\w.-]/g, '').slice(0, 80);
+    if (slotId) slots.add(slotId);
+  }
+  return slots;
+}
+
 function compactLocalFilesForPrompt(localFiles: AssistantAgentLocalFileContext[] | undefined) {
   let remaining = MAX_LOCAL_FILE_CONTEXT_CHARS;
   return (localFiles || []).flatMap((file) => {
@@ -802,15 +837,36 @@ function normalizePatchSet(raw: unknown, imageReferenceRegistry = new Map<string
     const conflictPolicy: 'rename' | 'skip' | 'overwrite' = item.conflictPolicy === 'skip' || item.conflictPolicy === 'overwrite' ? item.conflictPolicy : 'rename';
     return [{ directoryId, kind, path, destinationPath, content: kind === 'write' ? text(item.content, MAX_CONTENT_CHARS) : undefined, conflictPolicy, recursive: kind === 'delete' && Boolean(item.recursive) }];
   }) : [];
-  let mediaTasks = withImplicitLatestImageTarget(normalizeMediaTasks(raw.mediaTasks, imageReferenceRegistry), userMessage, imageReferenceRegistry);
-  if (!patches.length && !mediaTasks.length && userMessage) {
-    const implicitTask = createImplicitLatestImageEditTask({ userMessage, imageReferenceRegistry });
-    if (implicitTask) mediaTasks = [implicitTask];
-  }
   const visibleAssistantMessage = stripHtmlArtifactSourceFromAssistantMessage(
     text(raw.assistantMessage, MAX_ASSISTANT_VISIBLE_MESSAGE_CHARS),
     patches,
   );
+  const normalizedMediaTasks = normalizeMediaTasks(raw.mediaTasks, imageReferenceRegistry);
+  const inlineSlots = inlineImageAttachmentSlots(visibleAssistantMessage);
+  const normalizedSlots = new Set(normalizedMediaTasks.map((task) => task.slotId?.trim()).filter(Boolean));
+  const missingTaskSlots = [...inlineSlots].filter((slotId) => !normalizedSlots.has(slotId));
+  if (missingTaskSlots.length) {
+    logRecoverableError({
+      location: 'assistant-agent.normalize-media-tasks',
+      error: new Error('Agent response contains image attachment placeholders without valid media tasks.'),
+      extra: {
+        rawMediaTaskCount: Array.isArray(raw.mediaTasks) ? raw.mediaTasks.length : 0,
+        normalizedMediaTaskCount: normalizedMediaTasks.length,
+        missingTaskSlots,
+        explicitImageRequest: Boolean(userMessage && /图片|照片|插画|海报|头像|生图|生成.*图|画一张|参考图/i.test(userMessage.content)),
+      },
+    });
+  }
+  let mediaTasks = recoverInlineImageTasks(
+    visibleAssistantMessage,
+    normalizedMediaTasks,
+    userMessage,
+  );
+  mediaTasks = withImplicitLatestImageTarget(mediaTasks, userMessage, imageReferenceRegistry);
+  if (!patches.length && !mediaTasks.length && userMessage) {
+    const implicitTask = createImplicitLatestImageEditTask({ userMessage, imageReferenceRegistry });
+    if (implicitTask) mediaTasks = [implicitTask];
+  }
   return {
     assistantMessage: ensureMediaTaskPlaceholders(visibleAssistantMessage, mediaTasks)
       || (mediaTasks.length && !patches.length ? '我已根据你的要求准备生成图片。' : patches.length || dataOperations.length ? '已完成产物变更。' : '没有可提交的产物变更。'),
