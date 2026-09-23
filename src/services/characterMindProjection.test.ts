@@ -306,6 +306,30 @@ describe('characterMindProjection', () => {
     expect(projection.expression.attention).toContain('林北');
   });
 
+  it('projects directional and shared room structure as relationship continuity', () => {
+    const speaker = character();
+    const target = character({ id: 'char-b', name: '阿远' });
+    const projection = buildCharacterMindProjection({
+      chat: {
+        ...chat('group'),
+        relationshipStructure: {
+          version: 1,
+          updatedAt: 10,
+          edges: [{ id: 'duty', fromId: 'char-a', toId: 'char-b', kind: 'duty', statement: '苏苏负责复核阿远的交接', confidence: 0.9, evidence: '职责设定', updatedAt: 10 }],
+          sharedFacts: [{ id: 'affiliation', memberIds: ['char-a', 'char-b'], kind: 'affiliation', statement: '二人同属夜班组', confidence: 0.9, evidence: '阵营设定', updatedAt: 10 }],
+        },
+      },
+      character: speaker,
+      characters: [speaker, target],
+      messages: [message('交接单在这儿。', 'char-b')],
+      now: 2000,
+    });
+    expect(projection.continuity.relationshipMemories).toEqual(expect.arrayContaining([
+      '结构位置：苏苏负责复核阿远的交接',
+      '共同关系：二人同属夜班组',
+    ]));
+  });
+
   it('ranks relevant memories before older unrelated memories in the mind projection', () => {
     const target = character({ id: 'char-b', name: '阿远' });
     const unrelated = Array.from({ length: 12 }, (_, index) => memory({

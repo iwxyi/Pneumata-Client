@@ -149,12 +149,10 @@ function RelationshipMap({ graph, highlightedPairs, onHighlightedPairsChange }: 
         </Box>;
       })}
     </Box>
-    {selectedEdges.length ? <Box sx={{ width: { xs: '100%', lg: 250 }, minHeight: GRAPH_HEIGHT, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
+    {selectedSharedFacts.length ? <Box sx={{ width: { xs: '100%', lg: 250 }, alignSelf: 'flex-start', p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
       <Typography variant="caption" color="text.secondary">关系说明</Typography>
       <Stack spacing={0.75} sx={{ mt: 0.55 }}>
         {selectedSharedFacts.map((fact) => <Typography key={fact.id} variant="body2">{fact.statement}</Typography>)}
-        {selectedEdges.flatMap((edge) => (edge.structuralFacts || []).map((fact) => ({ edge, fact }))).map(({ edge, fact }) => <Typography key={fact.id} variant="caption" color="text.secondary">{graph.nodes.find((node) => node.id === edge.fromId)?.name} 对 {graph.nodes.find((node) => node.id === edge.toId)?.name}：{fact.statement}</Typography>)}
-        {!selectedSharedFacts.length && !selectedEdges.some((edge) => edge.structuralFacts?.length) ? <Typography variant="caption" color="text.secondary">当前只有数值关系记录，尚无共同关系事实。</Typography> : null}
       </Stack>
     </Box> : null}
     </Box>
@@ -167,7 +165,7 @@ function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, 
   onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
   registerCard: (pairKey: string, element: HTMLDivElement | null) => void;
 }) {
-  return <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, minmax(0, 1fr))', md: 'repeat(4, minmax(0, 1fr))', xl: 'repeat(6, minmax(0, 1fr))' }, gap: 0.7 }}>
+  return <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7 }}>
     {graph.edges.filter((edge) => edge.source !== 'structural' || Boolean(edge.structuralFacts?.length)).map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(pairKeyFor(edge), element)} />)}
   </Box>;
 }
