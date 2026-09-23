@@ -142,9 +142,8 @@ function RelationshipMap({ graph, highlightedPairs, selectedPairs, onHighlighted
       {graph.nodes.map((node) => {
         const position = positions.get(node.id)!;
         const relatedPairs = Array.from(new Set(graph.edges.filter((edge) => edge.fromId === node.id || edge.toId === node.id).map(pairKeyFor)));
-        const nodeActive = relatedPairs.some((pairKey) => highlightedPairs.includes(pairKey));
         return <Box key={node.id} sx={{ position: 'absolute', left: `${position.x / GRAPH_WIDTH * 100}%`, top: `${position.y / GRAPH_HEIGHT * 100}%`, transform: 'translate(-50%, -50%)', display: 'grid', justifyItems: 'center', gap: 0.35, width: 92, textAlign: 'center', pointerEvents: 'none' }}>
-          <Avatar onMouseEnter={() => onHighlightedPairsChange(relatedPairs)} onMouseLeave={() => onHighlightedPairsChange([])} onClick={(event) => { event.stopPropagation(); onSelectedPairsChange(relatedPairs); }} src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: nodeActive ? 'primary.main' : 'background.paper', boxShadow: nodeActive ? 2 : 1, pointerEvents: relatedPairs.length ? 'auto' : 'none', cursor: relatedPairs.length ? 'pointer' : 'default' }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
+          <Avatar onMouseEnter={() => onHighlightedPairsChange(relatedPairs)} onMouseLeave={() => onHighlightedPairsChange([])} onClick={(event) => { event.stopPropagation(); onSelectedPairsChange(relatedPairs); }} src={isImageAvatar(node.avatar || '') ? node.avatar : undefined} sx={{ width: 42, height: 42, bgcolor: 'primary.light', border: '2px solid', borderColor: 'background.paper', boxShadow: 1, pointerEvents: relatedPairs.length ? 'auto' : 'none', cursor: relatedPairs.length ? 'pointer' : 'default' }}>{isImageAvatar(node.avatar || '') ? undefined : node.name.slice(0, 1)}</Avatar>
           <Typography variant="caption" sx={{ maxWidth: '100%', bgcolor: 'background.paper', px: 0.45, borderRadius: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</Typography>
         </Box>;
       })}
@@ -153,7 +152,10 @@ function RelationshipMap({ graph, highlightedPairs, selectedPairs, onHighlighted
   );
 }
 
-function GroupRelationshipFacts({ chat, members }: Pick<GroupRelationshipDialogProps, 'chat' | 'members'>) {
+function GroupRelationshipFacts({ chat, members, highlightedPairs, onHighlightedPairsChange }: Pick<GroupRelationshipDialogProps, 'chat' | 'members'> & {
+  highlightedPairs: string[];
+  onHighlightedPairsChange: (pairKeys: string[]) => void;
+}) {
   const memberNames = new Map(members.map((member) => [member.id, member.name]));
   const facts = (chat.relationshipStructure?.sharedFacts || [])
     .filter((fact) => fact.memberIds.filter((memberId) => memberNames.has(memberId)).length >= 2);
@@ -164,7 +166,9 @@ function GroupRelationshipFacts({ chat, members }: Pick<GroupRelationshipDialogP
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7, mt: 0.75 }}>
         {facts.map((fact) => {
           const names = fact.memberIds.map((memberId) => memberNames.get(memberId)).filter((name): name is string => Boolean(name));
-          return <Box key={fact.id} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: 'divider', bgcolor: 'background.paper' }}>
+          const factPairs = fact.memberIds.flatMap((fromId, index) => fact.memberIds.slice(index + 1).map((toId) => pairKeyFor({ fromId, toId }));
+          const active = factPairs.some((pairKey) => highlightedPairs.includes(pairKey));
+          return <Box key={fact.id} onMouseEnter={() => onHighlightedPairsChange(factPairs)} onMouseLeave={() => onHighlightedPairsChange([])} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: active ? 'primary.main' : 'divider', bgcolor: active ? 'action.selected' : 'background.paper', boxShadow: active ? 1 : 'none', cursor: 'pointer', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}>
             <Stack direction="row" spacing={0.55} useFlexGap alignItems="center" flexWrap="wrap">
               <Chip size="small" label={STRUCTURE_LABELS[fact.kind]} variant="outlined" />
               <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
@@ -224,7 +228,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
         <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.5, pb: 1.5 }}>
           <Stack spacing={0.8}>
             {projection.graphs.map((graph) => <RelationshipCards key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} registerCard={registerCard} />)}
-            <GroupRelationshipFacts chat={chat} members={members} />
+            <GroupRelationshipFacts chat={chat} members={members} highlightedPairs={highlightedPairs} onHighlightedPairsChange={(pairKeys) => setHighlightedPairs(pairKeys.length ? pairKeys : selectedPairs)} />
             {projection.unconnectedMembers.length ? <Box sx={{ p: 1, borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}><Typography variant="caption" color="text.secondary">暂无关系线</Typography><Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>{projection.unconnectedMembers.map((member) => <Chip key={member.id} size="small" label={member.name} variant="outlined" />)}</Stack></Box> : null}
             {!projection.graphs.length && !projection.unconnectedMembers.length ? <Typography variant="body2" color="text.secondary">当前没有可展示的成员关系。</Typography> : null}
           </Stack>
