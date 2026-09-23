@@ -159,14 +159,32 @@ describe('turnDirective', () => {
 
     expect(directive?.targetName).toBe('陈越');
     expect(directive?.socialJob).toContain('condition');
-    expect(directive?.relationshipEffect).toContain('do not automatically repeat their claim');
-    expect(directive?.relationshipEffect).toContain('joke');
+    expect(directive?.relationshipEffect).toContain('weak surface fallback');
+    expect(directive?.relationshipEffect).toContain('relational consequence');
     expect(directive?.situationalConstraints).toEqual([]);
     const prompt = buildTurnDirectivePrompt(directive);
     expect(prompt).toContain('Character drive is the primary behavior decision');
     expect(prompt).toContain('Attention target for interpretation only: 陈越');
     expect(prompt).toContain('not an instruction to visibly address them by name');
     expect(prompt).not.toContain('Active target: 陈越');
+  });
+
+  it('treats scalar social posture as subordinate to concrete relationship evidence', () => {
+    const directive = buildTurnDirective({
+      chat: chat(),
+      speaker: character('rui', '瑞瑞'),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message()],
+      styleProfile: 'casual_room',
+      intent,
+      innerLife,
+      conversationMovePlan: movePlan,
+      turnPlan,
+    });
+
+    const prompt = buildTurnDirectivePrompt(directive);
+    expect(prompt).toContain('close, unequal, competitive, indebted, wounded, desired, feared, or professional relationship');
+    expect(prompt).toContain('friendly teamwork');
   });
 
   it('keeps user guidance above AI-to-AI room momentum', () => {

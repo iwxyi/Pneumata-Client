@@ -1,7 +1,6 @@
 import type { AICharacter, CharacterSoulState, InnerImpulse } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import { getRelationshipWeight } from './relationshipEngine';
 import { getExpressionFeedbackSignal, summarizeExpressionFeedbackInfluence } from './expressionFeedbackInfluence';
 
 export type InnerLifeTone = 'casual' | 'defensive' | 'teasing' | 'serious' | 'tired' | 'vulnerable';
@@ -105,14 +104,13 @@ function looksLikeRelationshipBruise(text: string) {
   return /(不是|你这|凭什么|离谱|算了|懒得|闭嘴|别装|急什么|就这|呵|笑死|无语|算我多嘴|当我没说)/i.test(text);
 }
 
-function inferRepairPressure(character: AICharacter, lastOwn: Message | null, lastMessage: Message | null, state: CharacterSoulState) {
+function inferRepairPressure(lastOwn: Message | null, lastMessage: Message | null, state: CharacterSoulState) {
   if (!lastOwn || !lastMessage) return 0;
   const ownBruise = looksLikeRelationshipBruise(lastOwn.content);
   const shameRepair = state.shame >= 42 || state.repression >= 52;
   const roomSafeEnough = state.trustInRoom >= 38;
-  const relationWarmth = lastMessage.senderId !== 'user' ? Math.max(0, getRelationshipWeight(character, lastMessage.senderId)) : 0;
   if (!ownBruise && !shameRepair) return 0;
-  return (ownBruise ? 26 : 0) + (shameRepair ? 18 : 0) + (roomSafeEnough ? 10 : -8) + relationWarmth * 24;
+  return (ownBruise ? 26 : 0) + (shameRepair ? 18 : 0) + (roomSafeEnough ? 10 : -8);
 }
 
 function isAddressed(character: AICharacter, message: Message | null) {
@@ -129,28 +127,20 @@ function inferTopicAttention(character: AICharacter, message: Message | null) {
   return character.expertise.some((keyword) => keyword && text.includes(keyword.toLowerCase())) ? 16 : 0;
 }
 
-function inferRelationshipPressure(character: AICharacter, lastMessage: Message | null) {
-  if (!lastMessage || lastMessage.senderId === 'user' || lastMessage.senderId === character.id) return 0;
-  const relation = getRelationshipWeight(character, lastMessage.senderId);
-  const safe = Number.isFinite(relation) ? relation : 0;
-  return Math.min(22, Math.abs(safe) * 18);
-}
-
 function chooseImpulse(params: {
   character: AICharacter;
   state: CharacterSoulState;
   addressed: boolean;
-  relationPressure: number;
   repairPressure: number;
   lastMessage: Message | null;
 }): { impulse: InnerImpulse; reason: string; pressure: number } {
-  const { character, state, addressed, relationPressure, repairPressure, lastMessage } = params;
+  const { character, state, addressed, repairPressure, lastMessage } = params;
   if (addressed) return { impulse: 'answer', reason: '被点名或被直接接话，需要先回应。', pressure: 0.86 };
   if (repairPressure >= 38) return { impulse: 'repair', reason: '前面的刺或嘴硬留下了关系余波，现在有一点找补、缓和或别扭靠近的冲动。', pressure: 0.57 };
   if (state.loneliness >= 62 && character.behavior.proactivity >= 45) return { impulse: 'seek_attention', reason: '最近发言没有被接住，想确认自己仍被看见。', pressure: 0.58 };
   if (state.shame >= 58 || state.repression >= 64) return { impulse: 'defend_face', reason: '面子风险和压抑感较高，容易嘴硬或找补。', pressure: 0.62 };
   if ((character.emotionalState?.affection || 0) >= 62 && lastMessage) return { impulse: 'comfort', reason: '对当前对象有温和牵挂，倾向接住对方。', pressure: 0.5 };
-  if ((character.emotionalState?.irritation || 0) >= 58 || relationPressure >= 14) return { impulse: 'mock', reason: '关系张力或烦躁感在推动反驳、调侃或挑刺。', pressure: 0.54 };
+  if ((character.emotionalState?.irritation || 0) >= 58) return { impulse: 'mock', reason: '烦躁感在推动反驳、调侃或挑刺。', pressure: 0.54 };
   if (state.energy < 28 || state.trustInRoom < 26) return { impulse: 'avoid', reason: '当前能量或房间安全感偏低，更倾向短句回避。', pressure: 0.42 };
   if (character.behavior.proactivity >= 72) return { impulse: 'show_off', reason: '主动性较高，想争取解释权或表现自己。', pressure: 0.46 };
   return { impulse: 'stay_silent', reason: '没有强触发，内在动机暂时不足。', pressure: 0.24 };
@@ -185,7 +175,6 @@ export function projectInnerLife(params: {
   const lastOwnMessage = latestOwnMessage(params.character, params.messages);
   const addressed = isAddressed(params.character, lastMessage);
   const ignoredStreak = countIgnoredTurns(params.character, params.messages);
-  const relationPressure = inferRelationshipPressure(params.character, lastMessage);
   const topicAttention = inferTopicAttention(params.character, lastMessage);
   const emotional = params.character.emotionalState;
   const room = params.chat?.worldState.structuredRoomState;
@@ -199,20 +188,19 @@ export function projectInnerLife(params: {
     energy: clamp((previous.energy || 45) * 0.72 + (params.character.personality.extroversion || 50) * 0.12 + (params.character.behavior.proactivity || 50) * 0.12 + (emotional?.excitement || 0) * 0.08 - ignoredStreak * 2),
     attention: clamp((previous.attention || 45) * 0.6 + (addressed ? 28 : 0) + topicAttention + (room?.heat || 0) * 0.08),
     loneliness: clamp((previous.loneliness || 0) * 0.55 + ignoredStreak * 17 - (addressed ? 22 : 0)),
-    repression: clamp((previous.repression || 0) * 0.72 + (emotional?.irritation || 0) * 0.08 + (emotional?.insecurity || 0) * 0.08 + (addressed ? 0 : relationPressure * 0.4)),
+    repression: clamp((previous.repression || 0) * 0.72 + (emotional?.irritation || 0) * 0.08 + (emotional?.insecurity || 0) * 0.08),
     shame: clamp((previous.shame || 0) * 0.66 + (emotional?.embarrassment || 0) * 0.18 + (emotional?.insecurity || 0) * 0.08),
-    envy: clamp((previous.envy || 0) * 0.72 + Math.max(0, relationPressure - 12) * 0.5),
+    envy: clamp((previous.envy || 0) * 0.72),
     trustInRoom: clamp((previous.trustInRoom || 50) * 0.7 + (params.character.personality.agreeableness || 50) * 0.12 + (room?.cohesion || 0) * 0.08 - (emotional?.irritation || 0) * 0.08),
     ignoredStreak,
     updatedAt: now,
   };
-  const repairPressure = inferRepairPressure(params.character, lastOwnMessage, lastMessage, state);
-  const impulse = chooseImpulse({ character: params.character, state, addressed, relationPressure, repairPressure, lastMessage });
+  const repairPressure = inferRepairPressure(lastOwnMessage, lastMessage, state);
+  const impulse = chooseImpulse({ character: params.character, state, addressed, repairPressure, lastMessage });
   const expressionPlan = buildExpressionPlan(impulse.impulse, state, params.character);
   const evidence = [
     addressed ? '最近消息直接提到或指向该角色' : '',
     ignoredStreak ? `最近 ${ignoredStreak} 轮未被明显接住` : '',
-    relationPressure >= 10 ? '与上一位发言者存在关系张力' : '',
     repairPressure >= 38 ? '前一次尖锐表达留下关系修复压力' : '',
     topicAttention ? '当前话题命中角色关注领域' : '',
     state.repression >= 56 ? '压抑值偏高' : '',

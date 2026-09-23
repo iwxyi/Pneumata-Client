@@ -164,10 +164,8 @@ function describeEmotion(innerLife: InnerLifeProjection) {
 function describeRelationship(input: BuildTurnDirectiveInput, targetName?: string) {
   const posture = input.conversationMovePlan.socialPosture;
   const target = targetName ? `with ${targetName} in mind` : 'toward the room';
-  if (input.intent.stance === 'support' || input.intent.stance === 'back_up') return `be warm ${target}, but do not automatically repeat their claim; support may sound like a joke, a gripe, a small rescue, or a partial concession`;
-  if (input.intent.stance === 'challenge' || input.intent.stance === 'pile_on') return `be ${posture.directness} ${target}; challenge one point, not the whole person, and let irritation or disbelief show if it fits`;
-  if (input.intent.stance === 'deflect' || input.innerLife.impulse === 'avoid') return `keep some distance ${target}; a partial reply, dodge, or tired aside is acceptable`;
-  return `${posture.warmth} warmth and ${posture.directness} directness ${target}; the stance does not need to sound morally tidy`;
+  const fallback = `${posture.warmth} warmth and ${posture.directness} directness`;
+  return `treat ${fallback} ${target} as a weak surface fallback only. The current Character Mind relationship continuity and relational consequence are more specific evidence: let them decide what this speaker risks, permits, withholds, protects, tests, resents, or needs from this person. Do not reduce a close, unequal, competitive, indebted, wounded, desired, feared, or professional relationship to that scalar, friendly teamwork, or neutral professionalism`;
 }
 
 function describeExpression(input: BuildTurnDirectiveInput) {

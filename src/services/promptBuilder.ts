@@ -1100,6 +1100,23 @@ function getRelationshipSnapshot(character: AICharacter, chat: GroupChat, target
   };
 }
 
+function buildRelationalConsequencePrompt(params: {
+  target?: AICharacter;
+  relationshipSnapshot: AICharacter['relationships'][number] | null;
+  mind: ReturnType<typeof buildCharacterMindAdapterOutput>;
+}) {
+  if (!params.target) return '';
+  const hasRelationshipEvidence = Boolean(params.relationshipSnapshot)
+    || params.mind.projection.continuity.relationshipMemories.length > 0
+    || params.mind.projection.relationship.stance.length > 0;
+  if (!hasRelationshipEvidence) return '';
+  return `\n## Relational Consequence For This Turn
+- The current interpersonal object is ${params.target.name}. The relationship continuity and stance above are live evidence, not character-sheet decoration.
+- Before writing, privately decide what this particular relationship costs or permits in this moment. It may change what you dare say, what you leave unsaid, whether you seek approval, save face, protect, test, avoid, needle, defer, compete, soften, or act unaffected. Let the situation and the relationship decide; do not follow a fixed menu.
+- Let at least one such consequence become visible in wording, timing, address, omission, interruption, concession, or refusal when the relationship is relevant. Do not turn every relationship into friendly teamwork, detached professionalism, or a polished consensus.
+- Do not announce relationship scores, labels, memories, or private reasoning. Do not invent a dramatic reaction when the actual exchange gives no reason for one.`;
+}
+
 export type PromptTranscriptOptions = ConversationProjectionOptions;
 
 export function buildChatMessages(
@@ -1142,6 +1159,11 @@ export function buildPromptAssemblyWithContext(character: AICharacter, chat: Gro
     buildRelationshipSection(character, memoryContext.target, chat),
     buildPromptMemorySection(chat, character, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, memoryContext.target, memoryContext.relationshipSnapshot, characters, memoryContext.recallCue, Boolean(companionshipPrompt), memoryContext.recentMemoryUseIds, mind),
     mind.adapter.promptBlock,
+    buildRelationalConsequencePrompt({
+      target: memoryContext.target,
+      relationshipSnapshot: memoryContext.relationshipSnapshot,
+      mind,
+    }),
     renderedCompanionshipPrompt,
     buildMessageStyleRules(character, { includeGeneralNaturalness: !usesUnifiedOrdinaryGroupTurnContract(chat) }),
     buildRecentMessagesSection(messages, characters),

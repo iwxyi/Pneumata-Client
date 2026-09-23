@@ -153,6 +153,31 @@ const leakySpeakerId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
 const leakyTargetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
 
 describe('buildSystemPromptWithContext', () => {
+  it('requires an active group relationship to have a visible turn-level consequence', () => {
+    const speaker = buildCharacter({
+      relationships: [{
+        characterId: 'char-b',
+        warmth: -12,
+        competence: 42,
+        trust: 18,
+        threat: 30,
+        note: '对方是上位者，既得听令，也始终怕被看穿心思。',
+      }],
+    });
+    const target = buildCharacter({ id: 'char-b', name: '阎君' });
+    const prompt = buildSystemPromptWithContext(speaker, { ...buildChat(), memberIds: [speaker.id, target.id] }, 0, [
+      buildMessage({ senderId: target.id, senderName: target.name, content: '西巷的事，谁来担？' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(prompt).toContain('## Relational Consequence For This Turn');
+    expect(prompt).toContain('阎君');
+    expect(prompt).toContain('not character-sheet decoration');
+    expect(prompt).toContain('Do not turn every relationship into friendly teamwork');
+  });
+
   it('passes developer guidance messages to the model as user turns', () => {
     const rendered = buildChatMessages([
       buildMessage({ type: 'god', senderId: 'user', senderName: '开发者', content: '新话题：狼抓羊有过错吗？' }),

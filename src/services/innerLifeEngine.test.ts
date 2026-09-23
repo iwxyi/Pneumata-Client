@@ -163,6 +163,20 @@ describe('innerLifeEngine', () => {
     expect(projection.expressionPlan.allowWithdraw).toBe(true);
   });
 
+  it('does not turn relationship intensity into a locally prescribed mocking impulse', () => {
+    const projection = projectInnerLife({
+      character: character({
+        relationships: [{ characterId: 'b', warmth: -60, trust: -50, competence: 10, threat: 60 }],
+        emotionalState: { affection: 0, irritation: 8, insecurity: 0, excitement: 0, embarrassment: 0 },
+      }),
+      messages: [message({ content: '这件事我会处理。', senderId: 'b' })],
+      now: 20,
+    });
+
+    expect(projection.impulse).not.toBe('mock');
+    expect(projection.reason).not.toContain('关系张力');
+  });
+
   it('projects repair impulse after a sharp previous message leaves residue', () => {
     const projection = projectInnerLife({
       character: character({
