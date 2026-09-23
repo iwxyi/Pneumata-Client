@@ -166,7 +166,9 @@ function GroupRelationshipFacts({ chat, members, highlightedPairs, onHighlighted
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7, mt: 0.75 }}>
         {facts.map((fact) => {
           const names = fact.memberIds.map((memberId) => memberNames.get(memberId)).filter((name): name is string => Boolean(name));
-          const factPairs = fact.memberIds.flatMap((fromId, index) => fact.memberIds.slice(index + 1).map((toId) => pairKeyFor({ fromId, toId }));
+          const factPairs = fact.memberIds.flatMap((fromId, index) =>
+            fact.memberIds.slice(index + 1).map((toId) => pairKeyFor({ fromId, toId })),
+          );
           const active = factPairs.some((pairKey) => highlightedPairs.includes(pairKey));
           return <Box key={fact.id} onMouseEnter={() => onHighlightedPairsChange(factPairs)} onMouseLeave={() => onHighlightedPairsChange([])} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: active ? 'primary.main' : 'divider', bgcolor: active ? 'action.selected' : 'background.paper', boxShadow: active ? 1 : 'none', cursor: 'pointer', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}>
             <Stack direction="row" spacing={0.55} useFlexGap alignItems="center" flexWrap="wrap">
