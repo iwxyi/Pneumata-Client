@@ -1,13 +1,15 @@
-export const STREAMING_DISPLAY_TICK_MS = 33;
+// Keep the first few characters individually perceptible. The model can still
+// stream quickly, but the UI buffer should read as someone typing.
+export const STREAMING_DISPLAY_TICK_MS = 46;
 
-const MIN_REVEAL_GRAPHEMES = 2;
-const MAX_REVEAL_GRAPHEMES = 8;
+const MIN_REVEAL_GRAPHEMES = 1;
+const MAX_REVEAL_GRAPHEMES = 4;
 
 function revealStepSize(remaining: number) {
   if (remaining <= MIN_REVEAL_GRAPHEMES) return remaining;
-  if (remaining >= 80) return MAX_REVEAL_GRAPHEMES;
-  if (remaining >= 32) return 6;
-  if (remaining >= 12) return 4;
+  if (remaining >= 96) return MAX_REVEAL_GRAPHEMES;
+  if (remaining >= 36) return 3;
+  if (remaining >= 14) return 2;
   return MIN_REVEAL_GRAPHEMES;
 }
 

@@ -125,7 +125,10 @@ describe('generateAndCommitAiMessage', () => {
     await generateAndCommitAiMessage(buildParams({ upsertMessage, onChunk }));
 
     const writtenContents = upsertMessage.mock.calls.map((call) => (call[0] as Message).content);
-    expect(writtenContents).toEqual(['', '有效内容']);
+    expect(writtenContents).toEqual(['']);
+    expect(commitMocks.commitGeneratedMessageTurn).toHaveBeenCalledWith(expect.objectContaining({
+      streamingMessage: expect.objectContaining({ content: '' }),
+    }));
     expect(onChunk).toHaveBeenCalledTimes(1);
     expect(onChunk).toHaveBeenCalledWith('有效内容');
   });

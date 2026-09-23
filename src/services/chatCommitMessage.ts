@@ -15,6 +15,8 @@ interface PersistLocalFirstMessageParams {
   withdrawalRevealDelayMs?: number;
   localReveal?: boolean;
   localRevealTickMs?: number;
+  localRevealStartDelayMs?: number;
+  localMessageIdentitySalt?: string;
   delay?: (ms: number) => Promise<void>;
   shouldContinue?: () => boolean;
 }
@@ -70,10 +72,13 @@ async function revealLocalMessage(params: {
   upsertMessage: (message: Message) => void;
   delay?: (ms: number) => Promise<void>;
   tickMs?: number;
+  startDelayMs?: number;
+  initialContent?: string;
 }) {
-  let displayed = '';
+  let displayed = params.initialContent || '';
   const wait = params.delay || delayMs;
-  params.upsertMessage({ ...params.message, content: '', isStreaming: true });
+  params.upsertMessage({ ...params.message, content: displayed, isStreaming: displayed !== params.message.content });
+  if (displayed !== params.message.content && params.startDelayMs) await wait(params.startDelayMs);
   while (displayed !== params.message.content) {
     displayed = getNextStreamingDisplayContent(displayed, params.message.content);
     params.upsertMessage({ ...params.message, content: displayed, isStreaming: displayed !== params.message.content });
@@ -172,7 +177,7 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
         isOptimistic: false,
         isStreaming: false,
       }
-    : createCommittedLocalMessage(messagePayload, { timestamp: params.timestamp });
+    : createCommittedLocalMessage(messagePayload, { timestamp: params.timestamp, identitySalt: params.localMessageIdentitySalt });
   const revealMessage = buildPreWithdrawalRevealMessage(localMessage);
   if (revealMessage) {
     ensureCurrent();
@@ -180,12 +185,14 @@ export async function persistLocalFirstMessage(params: PersistLocalFirstMessageP
     await (params.delay || delayMs)(params.withdrawalRevealDelayMs ?? 1200);
     ensureCurrent();
   }
-  if (params.localReveal && !params.existingLocalMessage && !params.deferLocalUpsert && localMessage.content) {
+  if (params.localReveal && !params.deferLocalUpsert && localMessage.content) {
     await revealLocalMessage({
       message: localMessage,
       upsertMessage: params.upsertMessage,
       delay: params.delay,
       tickMs: params.localRevealTickMs,
+      startDelayMs: params.localRevealStartDelayMs,
+      initialContent: params.existingLocalMessage?.content,
     });
   } else {
     ensureCurrent();

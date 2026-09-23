@@ -82,6 +82,8 @@ export function useChatRunLoop(params: {
   loopTokenRef: React.MutableRefObject<string | null>;
   activeChatIdRef: React.MutableRefObject<string | null>;
   streamingMessageRef: React.MutableRefObject<Message | null>;
+  getDisplayedStreamingMessage: () => Message | null;
+  freezeStreamingDisplay: () => void;
   updateStreamingMessage: (updater: (current: Message | null) => Message | null, options?: { immediate?: boolean }) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   discardStreamingMessage: () => void;
@@ -170,6 +172,7 @@ export function useChatRunLoop(params: {
         }),
         getUserDraftActivity: current.getUserDraftActivity,
         getStreamingMessage: () => current.streamingMessageRef.current,
+        getDisplayedStreamingMessage: current.getDisplayedStreamingMessage,
         getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === current.chatId),
         getCurrentCharacters: () => useCharacterStore.getState().characters,
         ensureCharacterDetail: (characterId) => useCharacterStore.getState().loadCharacter(characterId),
@@ -277,6 +280,7 @@ export function useChatRunLoop(params: {
           current.updateStreamingMessage((message) => message ? { ...message, content, isStreaming: true } : message);
           setChatError(null);
         },
+        onStreamingComplete: current.freezeStreamingDisplay,
         onLocalInterception: current.onLocalInterception,
         onIdle: (reason) => {
           current.discardStreamingMessage();

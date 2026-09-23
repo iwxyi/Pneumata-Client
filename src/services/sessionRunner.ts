@@ -227,6 +227,7 @@ export async function runSessionLoop(params: {
   getCurrentMessages: () => Message[];
   getUserDraftActivity?: () => UserDraftActivity | null;
   getStreamingMessage?: () => Message | null;
+  getDisplayedStreamingMessage?: () => Message | null;
   getCurrentChat?: () => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
   ensureCharacterDetail?: (characterId: string) => Promise<AICharacter | null>;
@@ -242,6 +243,7 @@ export async function runSessionLoop(params: {
   onTurnWorkFinished?: () => void;
   onIdle?: (reason: string) => void;
   onMessageChunk: (content: string) => void;
+  onStreamingComplete?: () => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
   onClearStreamingState: () => void;
   onEngineError: (error: Error) => void;
@@ -496,6 +498,9 @@ export async function runSessionLoop(params: {
               contentLength: message.content.length,
               elapsedMs: Number((nowMs() - roundStartedAt).toFixed(2)),
             }, 'info', 'chat-run');
+            // From here the commit pipeline owns the visual reveal. Leaving
+            // the model-stream timer alive lets it overwrite later bubbles.
+            params.onStreamingComplete?.();
             params.onCommitStarted?.();
             const commitStartedAt = nowMs();
             try {
@@ -505,7 +510,7 @@ export async function runSessionLoop(params: {
                 chat: currentChat,
                 characters: currentCharacters,
                 message,
-                streamingMessage: roundStreamingMessage || params.getStreamingMessage?.() || null,
+                streamingMessage: params.getDisplayedStreamingMessage?.() || roundStreamingMessage || params.getStreamingMessage?.() || null,
                 currentMessages: params.getCurrentMessages(),
                 onCommit: params.onCommit,
                 upsertMessage: params.upsertMessage,

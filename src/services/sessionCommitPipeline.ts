@@ -246,6 +246,7 @@ export async function runSessionCommitPipeline(params: {
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
   shouldContinue?: () => boolean;
+  localMessageIdentitySalt?: string;
 }): Promise<SessionCommitPipelineResult> {
   const { persistedMessage, transition } = await runChatCommitPipeline({
     ...params,

@@ -21,7 +21,6 @@ import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import type { RuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
-import { evolveCharacterCoreProfile } from './coreProfileEvolution';
 import { projectInnerLife } from './innerLifeEngine';
 import { buildRitualEventsFromRelationshipRuntimeEvents, buildRitualEventsFromSharedAnchorEvents, buildSharedAnchorEventsFromCompanionshipEvents } from './companionshipSharedAnchorBackflow';
 import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipSharedPhraseBackflow';
@@ -426,7 +425,6 @@ export function buildRelationshipTransition(params: {
     const summary = truncateWithEllipsis(params.message.content, 48);
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
-    const speakerCoreProfile = evolveCharacterCoreProfile({ character: speaker, content: params.message.content, emotionalState: speakerEmotion });
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: nextEventTimestamp() }] : [];
 
@@ -466,7 +464,6 @@ export function buildRelationshipTransition(params: {
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
         soulState: projectedSpeakerSoul,
-        coreProfile: speakerCoreProfile,
         layeredMemories: speakerLayeredResult.layeredMemories,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {
           type: 'relationship',
@@ -485,7 +482,6 @@ export function buildRelationshipTransition(params: {
       if (!reciprocalDelta) continue;
       const updatedTarget = updateCharacterRelationshipFromDelta(target, speaker.id, reciprocalDelta, config.reciprocalRelationshipMultiplier);
       const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
-      const targetCoreProfile = evolveCharacterCoreProfile({ character: target, content: params.message.content, emotionalState: targetEmotion });
       const projectedTargetSoul = projectInnerLife({
         chat: params.conversation,
         character: { ...target, relationships: updatedTarget.relationships, emotionalState: targetEmotion },
@@ -515,7 +511,6 @@ export function buildRelationshipTransition(params: {
           relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
           soulState: projectedTargetSoul,
-          coreProfile: targetCoreProfile,
           layeredMemories: targetLayeredResult.layeredMemories,
           runtimeTimeline: accumulateCharacterRuntime(target, {
             type: 'relationship',
@@ -648,7 +643,6 @@ export function buildRelationshipTransition(params: {
   if (isCharacterAuthoredMessage && speaker && !targetEntries.length) {
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier * 0.75);
     const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
-    const speakerCoreProfile = evolveCharacterCoreProfile({ character: speaker, content: params.message.content, emotionalState: speakerEmotion });
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const projectedSpeakerSoul = projectInnerLife({
       chat: params.conversation,
@@ -673,7 +667,6 @@ export function buildRelationshipTransition(params: {
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
         soulState: projectedSpeakerSoul,
-        coreProfile: speakerCoreProfile,
         layeredMemories: speakerLayeredResult.layeredMemories,
         runtimeTimeline: accumulateCharacterRuntime(speaker, {
           type: 'memory',

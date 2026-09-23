@@ -133,6 +133,7 @@ function buildCharacterAnalysisContext(character: AICharacter) {
         character.coreProfile.sensitivities?.length ? `敏感点：${character.coreProfile.sensitivities.join('、')}` : '',
         character.coreProfile.perceptionBiases?.length ? `认知滤镜：${character.coreProfile.perceptionBiases.join('、')}` : '',
         character.coreProfile.interactionHabits?.length ? `互动习惯：${character.coreProfile.interactionHabits.join('、')}` : '',
+        character.coreProfile.expressionHabits?.length ? `表达习惯：${character.coreProfile.expressionHabits.join('、')}` : '',
         character.coreProfile.attachmentStyle ? `依恋/关系倾向：${character.coreProfile.attachmentStyle}` : '',
         character.coreProfile.conflictStyle ? `冲突方式：${character.coreProfile.conflictStyle}` : '',
         character.coreProfile.unmetNeeds?.length ? `未满足需求：${character.coreProfile.unmetNeeds.join('、')}` : '',
@@ -286,6 +287,7 @@ function normalizeCoreProfilePatch(raw: unknown): CoreProfilePatch | null {
     perceptionBiases: normalizeStringList(record.perceptionBiases),
     biases: normalizeStringList(record.perceptionBiases),
     interactionHabits: normalizeStringList(record.interactionHabits),
+    expressionHabits: normalizeStringList(record.expressionHabits),
     attachmentStyle: normalizeString(record.attachmentStyle),
     conflictStyle: normalizeString(record.conflictStyle),
     unmetNeeds: normalizeStringList(record.unmetNeeds),
@@ -302,6 +304,8 @@ function buildCoreProfileDistillationPrompt() {
 - 支持任意语言输入，输出中文。
 - 不要因为单句玩笑就过度改写长期人格。
 - 如果已有字段合理，可以保留；只有证据足够时才修正。
+- expressionHabits 只记录多次可见发言共同呈现、且会随关系或处境变化的聊天习惯。用自然语言描述观察，不要输出句号率、语气词频率、固定概率、字数阈值或强制格式；证据不足时省略该字段。
+- expressionHabits 会替换过时观察，不得把一次性的口头禅、某个标点或某次情绪反应固化成永久人设。
 - 不要输出解释、markdown 或多余字段。
 
 JSON 结构：
@@ -314,6 +318,7 @@ JSON 结构：
     "sensitivities": ["敏感点/痛点"],
     "perceptionBiases": ["容易如何误读他人或局面"],
     "interactionHabits": ["互动习惯"],
+    "expressionHabits": ["基于多次可见发言的可变表达习惯"],
     "attachmentStyle": "关系/依恋倾向",
     "conflictStyle": "冲突处理方式",
     "unmetNeeds": ["未满足需求"],
@@ -333,6 +338,7 @@ export function mergeCoreProfilePatch(current: CharacterCoreProfile | undefined,
     sensitivities: current?.sensitivities || [],
     perceptionBiases: current?.perceptionBiases || current?.biases || [],
     interactionHabits: current?.interactionHabits || [],
+    expressionHabits: current?.expressionHabits || [],
     unmetNeeds: current?.unmetNeeds || [],
     hiddenSoftSpots: current?.hiddenSoftSpots || [],
   };
@@ -363,6 +369,9 @@ export function mergeCoreProfilePatch(current: CharacterCoreProfile | undefined,
     perceptionBiases,
     biases: perceptionBiases,
     interactionHabits: mergeList(base.interactionHabits, patch.interactionHabits),
+    // Expression habits describe the current observed voice, not permanent rules.
+    // A fresh LLM observation replaces stale ones rather than accumulating quirks forever.
+    expressionHabits: patch.expressionHabits?.length ? patch.expressionHabits.slice(-5) : base.expressionHabits,
     attachmentStyle: pickText('attachmentStyle'),
     conflictStyle: pickText('conflictStyle'),
     unmetNeeds: mergeList(base.unmetNeeds, patch.unmetNeeds),

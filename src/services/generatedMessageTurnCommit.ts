@@ -5,6 +5,7 @@ import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { GeneratedRoundMessage } from './chatEngine';
 import { splitGeneratedRoundMessage } from './generatedMessageSegmenter';
 import { runSessionCommitPipeline, type SessionCommitPipelineResult } from './sessionCommitPipeline';
+import { useSettingsStore } from '../stores/useSettingsStore';
 
 export async function commitGeneratedMessageTurn(params: {
   api: APIConfig;
@@ -40,6 +41,8 @@ export async function commitGeneratedMessageTurn(params: {
   let workingCharacters = params.characters;
   let workingMessages = [...params.currentMessages];
   const results: SessionCommitPipelineResult[] = [];
+  const animateLocalReveal = useSettingsStore.getState().enableStreamingDisplayAnimation;
+  const turnIdentitySalt = `turn:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 
   for (let index = 0; index < segments.length; index += 1) {
     const result = await runSessionCommitPipeline({
@@ -49,6 +52,9 @@ export async function commitGeneratedMessageTurn(params: {
       characters: workingCharacters,
       message: segments[index],
       streamingMessage: index === 0 ? params.streamingMessage : null,
+      localReveal: index > 0 ? animateLocalReveal : undefined,
+      localRevealStartDelayMs: index > 0 ? Math.min(720, 180 + Array.from(segments[index].content).length * 18) : undefined,
+      localMessageIdentitySalt: `${turnIdentitySalt}:${index}`,
       currentMessages: workingMessages,
       onCommit: params.onCommit,
       upsertMessage: params.upsertMessage,

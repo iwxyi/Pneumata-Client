@@ -47,10 +47,32 @@ const PREPEND_STABILIZE_MAX_FRAMES = 36;
 const PREPEND_STABILIZE_STABLE_FRAMES = 6;
 const PREPEND_STABILIZE_OVERSCAN = 18;
 const INITIAL_TAIL_REVEAL_THRESHOLD = 4;
+const CONTINUOUS_SENDER_WINDOW_MS = 90_000;
 const storyNodeFadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 `;
+
+export function getContinuousAiMessageKeys(items: MessageListRenderItem[]) {
+  const keys = new Set<string>();
+  for (let index = 1; index < items.length; index += 1) {
+    const previous = items[index - 1];
+    const current = items[index];
+    if (
+      previous.renderKind === 'bubble'
+      && current.renderKind === 'bubble'
+      && previous.message.type === 'ai'
+      && current.message.type === 'ai'
+      && previous.message.senderId === current.message.senderId
+      && current.message.timestamp >= previous.message.timestamp
+      && current.message.timestamp - previous.message.timestamp <= CONTINUOUS_SENDER_WINDOW_MS
+    ) {
+      keys.add(current.key);
+    }
+  }
+  return keys;
+}
+
 type ResponsiveInset = number | string | Record<string, number | string>;
 interface ScrollAnchorSnapshot {
   messageId: string;
@@ -579,6 +601,7 @@ export default function MessageList({
     storyChoiceMessageId,
     storyChoiceOptions,
   }), [developerMode, eventRenderFlags, messages, storyChoiceMessageId, storyChoiceOptions]);
+  const continuousAiMessageKeys = useMemo(() => getContinuousAiMessageKeys(renderItems), [renderItems]);
   useEffect(() => {
     if (!messages.length && !renderItems.length) return;
     logDeveloperDiagnostic('message-pagination:render-state', {
@@ -642,10 +665,13 @@ export default function MessageList({
   const [initialViewportReady, setInitialViewportReady] = useState(() => !autoStickToBottom && !hasInitialRestorePosition);
   const [prependStabilizing, setPrependStabilizing] = useState(false);
   const [diagramViewerItem, setDiagramViewerItem] = useState<LightboxImageItem | null>(null);
+  const latestTailIsStreamingRef = useRef(Boolean(renderItems.at(-1)?.message.isStreaming));
+  latestTailIsStreamingRef.current = Boolean(renderItems.at(-1)?.message.isStreaming);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
     lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
+    lastItemIsStreaming: Boolean(renderItems.at(-1)?.message.isStreaming),
     hasTailContent: Boolean(tailContent),
     storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceSubmittingValue || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
   });
@@ -696,6 +722,7 @@ export default function MessageList({
     <MessageBubble
       key={options?.key || item.key}
       message={options?.message || item.message}
+      continuesPreviousSender={!options?.message && continuousAiMessageKeys.has(item.key)}
       characters={characters}
       character={options?.character || (item.message.type === 'ai' ? resolveCharacterOrDeleted(characters, item.message.senderId, item.message.senderName) : undefined)}
       currentUser={currentUser}
@@ -722,7 +749,7 @@ export default function MessageList({
       selfMemberId={selfMemberId}
       privateConversation={privateConversation}
     />
-  ), [branchVersionInfoByMessageId, characters, currentUser, onAddImagesToReference, onAnalyzeMessage, onCharacterAvatarClick, onConfirmWorkspaceMutationPlan, onCreateRevision, onDeleteMessage, onExpressionFeedback, onHtmlAutosave, onHtmlRepair, onHtmlSubmit, onOpenArtifact, onOpenHtmlFullscreen, onRegenerate, onRetryMedia, onSwitchRevision, onWithdrawMessage, openChatDiagram, openChatImage, privateConversation, readOnly, selfMemberId]);
+  ), [branchVersionInfoByMessageId, characters, continuousAiMessageKeys, currentUser, onAddImagesToReference, onAnalyzeMessage, onCharacterAvatarClick, onConfirmWorkspaceMutationPlan, onCreateRevision, onDeleteMessage, onExpressionFeedback, onHtmlAutosave, onHtmlRepair, onHtmlSubmit, onOpenArtifact, onOpenHtmlFullscreen, onRegenerate, onRetryMedia, onSwitchRevision, onWithdrawMessage, openChatDiagram, openChatImage, privateConversation, readOnly, selfMemberId]);
 
   const renderMessageItem = useCallback((item: MessageListRenderItem) => {
     const anchorProps = {
@@ -1440,6 +1467,10 @@ export default function MessageList({
         frame = null;
         if (scrollTransactionRef.current) return;
         if (isUserScrollMomentumActive()) return;
+        // Virtualizer measurement already preserves the tail while a bubble
+        // grows character by character. Starting another follow animation for
+        // the same height change causes visible back-and-forth movement.
+        if (latestTailIsStreamingRef.current) return;
         if (shouldStickToBottomRef.current && autoStickToBottom) {
           followScrollToBottom({ animate: true, mode: 'follow', intent: 'tailFollow' });
           return;
@@ -1719,6 +1750,7 @@ export default function MessageList({
       itemCount: renderItems.length,
       lastItemKey: renderItems.at(-1)?.key ?? null,
       lastItemContentLength: renderItems.at(-1)?.message.content.length ?? 0,
+      lastItemIsStreaming: Boolean(renderItems.at(-1)?.message.isStreaming),
       hasTailContent: Boolean(tailContent),
       storyChoiceKey: `${storyChoiceMessageId || ''}:${storyChoiceSubmittingValue || ''}:${storyChoiceOptions.map((option) => option.value).join('|')}`,
     };
@@ -1727,6 +1759,7 @@ export default function MessageList({
     const metricsChanged = !(
       currentMetrics.itemCount === previousMetrics.itemCount
       && currentMetrics.lastItemContentLength === previousMetrics.lastItemContentLength
+      && currentMetrics.lastItemIsStreaming === previousMetrics.lastItemIsStreaming
       && currentMetrics.lastItemKey === previousMetrics.lastItemKey
       && currentMetrics.hasTailContent === previousMetrics.hasTailContent
       && currentMetrics.storyChoiceKey === previousMetrics.storyChoiceKey
@@ -1758,6 +1791,8 @@ export default function MessageList({
       || currentMetrics.storyChoiceKey !== previousMetrics.storyChoiceKey;
     const tailGrew = currentMetrics.lastItemKey === previousMetrics.lastItemKey
       && currentMetrics.lastItemContentLength > previousMetrics.lastItemContentLength;
+    const isStreamingTailHandoff = currentMetrics.lastItemIsStreaming || previousMetrics.lastItemIsStreaming;
+    if (tailGrew && isStreamingTailHandoff) return;
     // Use the distance captured before this render. A newly appended bubble
     // increases scrollHeight, so measuring only after insertion can make a
     // previously-following view look far from the bottom.

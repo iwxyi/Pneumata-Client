@@ -71,6 +71,10 @@ describe('commitGeneratedMessageTurn', () => {
 
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(2);
     expect(runSessionCommitPipelineMock.mock.calls.map((call) => call[0].message.content)).toEqual(['等下', '你刚说谁来着？']);
+    expect(runSessionCommitPipelineMock.mock.calls[1]?.[0]).toMatchObject({
+      streamingMessage: null,
+      localRevealStartDelayMs: expect.any(Number),
+    });
   });
 
   it('passes each segment metadata independently to the normal commit pipeline', async () => {

@@ -92,6 +92,7 @@ export interface CharacterCoreProfile {
   sensitivities?: string[];
   perceptionBiases?: string[];
   interactionHabits?: string[];
+  expressionHabits?: string[];
   attachmentStyle?: string;
   conflictStyle?: string;
   unmetNeeds?: string[];
@@ -415,6 +416,7 @@ export const DEFAULT_CORE_PROFILE: CharacterCoreProfile = {
   sensitivities: [],
   perceptionBiases: [],
   interactionHabits: [],
+  expressionHabits: [],
   attachmentStyle: '',
   conflictStyle: '',
   unmetNeeds: [],
@@ -496,6 +498,7 @@ export function normalizeCharacter(input: Partial<AICharacter> & Pick<AICharacte
       sensitivities: input.coreProfile?.sensitivities || [],
       perceptionBiases: input.coreProfile?.perceptionBiases || input.coreProfile?.biases || [],
       interactionHabits: input.coreProfile?.interactionHabits || [],
+      expressionHabits: input.coreProfile?.expressionHabits || [],
       unmetNeeds: input.coreProfile?.unmetNeeds || [],
       hiddenSoftSpots: input.coreProfile?.hiddenSoftSpots || [],
     },

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { buildChatRenderItems } from './chatRenderModel';
 import { buildMessageListRenderItems } from './messageListRenderItems';
+import { getContinuousAiMessageKeys } from './MessageList';
 import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed } from './messageListPresentation';
 
 function buildMessage(id: string, overrides: Partial<Message> = {}): Message {
@@ -41,6 +42,21 @@ function buildNarrativeMessage(id: string, overrides: Partial<Message> = {}): Me
 }
 
 describe('MessageList narrative reveal eligibility', () => {
+  it('groups adjacent AI bubbles from the same character, but not separated or stale messages', () => {
+    const items = buildMessageListRenderItems({
+      messages: [
+        buildMessage('one', { senderId: 'char-1', timestamp: 1_000 }),
+        buildMessage('two', { senderId: 'char-1', timestamp: 2_000 }),
+        buildMessage('three', { senderId: 'char-2', timestamp: 3_000 }),
+        buildMessage('four', { senderId: 'char-2', timestamp: 100_000 }),
+      ],
+      eventRenderFlags: { developerMode: false, showStateEvents: false, showRelationshipEvents: false, showAffectEvents: false, showMemoryDebug: false, showMemoryDistillationEvents: false, showCalendarEvents: false, showLocalInterceptionHints: false, showConflictEvents: false },
+      showDeveloperDetails: false,
+    });
+
+    expect(getContinuousAiMessageKeys(items)).toEqual(new Set([items[1].key]));
+  });
+
   it('requires an explicit live story node key for node animation', () => {
     const [item] = buildChatRenderItems([
       buildNarrativeMessage('story-live', { clientKey: 'client-story-live', serverId: 'server-story-live', timestamp: 2 }),

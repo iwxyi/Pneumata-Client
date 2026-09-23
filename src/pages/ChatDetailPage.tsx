@@ -64,6 +64,7 @@ import { motion, prefersReducedMotion, transition } from '../styles/motion';
 import { attachMessageToActiveBranch, buildBranchStateWithHead, buildMessageBranchVersionInfoByMessageId, createMessageRevisionDraft, forkBranchState, getBranchRevisionGroup, getMessageBranchVersionInfo, isMessageBranchingEnabled, projectActiveBranchMessages, resolveMessageBranchNodes } from '../services/messageBranching';
 import { getLatestChatPreviewMessage } from '../services/chatLatestMessage';
 import { projectMergedChatMessages } from '../services/currentChatMessages';
+import { overlayTransientMessages, releaseConfirmedTransientMessages, removeTransientMessage, upsertTransientMessage } from '../services/transientMessageOverlay';
 import { resolveSessionFamilyKey } from '../services/sessionEngineKeys';
 import { isAssistantArtifactCloudSyncEnabled, setAssistantArtifactCloudSyncEnabled } from '../services/assistantArtifactCloudSyncPreference';
 import { hasRoomCapability } from '../services/capabilityRuntime';
@@ -954,7 +955,17 @@ export default function ChatDetailPage() {
     // cannot remain clickable while the exit animation is running.
     setVisiblePendingAppCommand(pendingAppCommand);
   }, [pendingAppCommand]);
+  const [transientMessages, setTransientMessages] = useState<Message[]>([]);
+  useEffect(() => {
+    setTransientMessages([]);
+  }, [id]);
   const upsertMessageWithLiveReveal = useCallback((message: Message) => {
+    if (message.isStreaming) {
+      setTransientMessages((current) => (message.isDeleted
+        ? removeTransientMessage(current, message)
+        : upsertTransientMessage(current, message)));
+      return;
+    }
     const revealKeys = getNarrativeRevealIdentityKeys(message);
     if (revealKeys.length && shouldRegisterLiveNarrativeReveal(message)) {
       setNarrativeRevealMessageKeys((current) => {
@@ -969,6 +980,12 @@ export default function ChatDetailPage() {
         return changed ? next : current;
       });
     }
+    // Complete the same rendered bubble in place. The committed message is
+    // written in parallel and later confirms this presentation entry.
+    setTransientMessages((current) => {
+      const exists = current.some((item) => item.clientKey === message.clientKey || item.id === message.id);
+      return exists ? upsertTransientMessage(current, { ...message, isStreaming: false }) : current;
+    });
     upsertMessage(message);
   }, [upsertMessage]);
   const clearNarrativeRevealMessage = useCallback((message: Message) => {
@@ -988,6 +1005,8 @@ export default function ChatDetailPage() {
     updateStreamingMessage,
     discardStreamingMessage,
     clearStreamingMessageRef,
+    freezeStreamingDisplay,
+    getDisplayedStreamingMessage,
   } = useStreamingMessageState(upsertMessageWithLiveReveal);
 
   useLayoutEffect(() => {
@@ -1097,6 +1116,13 @@ export default function ChatDetailPage() {
     }
     return result;
   }, [chat, currentChatAllMessages, id, messages]);
+  const visibleChatMessages = useMemo(
+    () => overlayTransientMessages(currentChatMessages, transientMessages),
+    [currentChatMessages, transientMessages],
+  );
+  useEffect(() => {
+    setTransientMessages((current) => releaseConfirmedTransientMessages(current, currentChatMessages));
+  }, [currentChatMessages]);
   useEffect(() => {
     if (!chat || chat.type !== 'assistant' || !id || !currentChatMessages.length) return;
     if (chat.modeState.assistantTitle?.source === 'user') return;
@@ -1839,6 +1865,8 @@ export default function ChatDetailPage() {
     loopTokenRef,
     activeChatIdRef,
     streamingMessageRef,
+    getDisplayedStreamingMessage,
+    freezeStreamingDisplay,
     updateStreamingMessage,
     onLocalInterception: appendLocalInterceptionHint,
     discardStreamingMessage,
@@ -4002,7 +4030,7 @@ export default function ChatDetailPage() {
         <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
           <MessageList
             key={id}
-            messages={currentChatMessages}
+            messages={visibleChatMessages}
             characters={characters}
             selfMemberId={effectiveAiDirectPerspectiveMemberId}
             currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
@@ -4135,7 +4163,7 @@ export default function ChatDetailPage() {
         <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
           {shouldDelayStoryMessageListForRestore ? null : <MessageList
             key={id}
-            messages={currentChatMessages}
+            messages={visibleChatMessages}
             characters={characters}
             currentUser={currentUser ? { nickname: currentUser.nickname, avatar: currentUser.avatar } : undefined}
             onCreateRevision={isMessageBranchingEnabled(chat) && !chatInteractionDisabled ? handleCreateMessageRevision : undefined}

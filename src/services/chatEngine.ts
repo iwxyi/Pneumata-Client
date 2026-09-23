@@ -1714,6 +1714,7 @@ function buildUnifiedGroupPresencePrompt(innerLife: InnerLifeProjection, richDel
 - Inner impulse: ${innerLife.impulse}; tone: ${innerLife.tone}. Let it affect what this person notices, leaves unsaid, resists, or blurts out. Never explain the state itself.
 - Do not polish awkwardness, face-saving, irritation, affection, uncertainty, or withdrawal into a correct group conclusion.
 - ${bubblePolicy} One bubble may still contain multiple paragraphs; do not split a sentence just because it ends.
+- This is still chat even when the subject is grave. Terminal punctuation is part of its timing: by default, a short send may end without a full stop when it is a mutter, a held thought, a reaction, or a follow-up. Use a full stop only when the speaker is deliberately landing a thought. Do not make every bubble in one run a polished sentence with the same closing mark. Only a genuinely requested document, report, or formal deliverable needs document-like closing punctuation.
 - A small reaction, a selective objection, a reluctant concession, an aside, a question, or silence can be a complete turn. Do not turn every turn into a complete response to the room.`;
 }
 

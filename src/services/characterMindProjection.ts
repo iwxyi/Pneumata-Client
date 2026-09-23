@@ -476,6 +476,7 @@ export function buildCharacterMindProjection(params: {
       stableVoice: uniqueText([
         params.character.speakingStyle,
         identity?.interactionHabits?.join('、'),
+        identity?.expressionHabits?.join('、'),
         params.character.speechProfile?.sentenceLengthBias ? `表达长度倾向：${params.character.speechProfile.sentenceLengthBias}` : '',
       ], 5),
       desires: uniqueText([identity?.coreDesire, ...(identity?.hiddenSoftSpots || [])], 4),

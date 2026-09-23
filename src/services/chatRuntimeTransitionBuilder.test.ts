@@ -247,7 +247,7 @@ describe('buildRelationshipTransition', () => {
     expect(result.runtimeEvents.some((event) => event.eventType === 'conflict_focus_shift')).toBe(false);
   });
 
-  it('evolves core profile from runtime speech without replacing existing manual anchors', () => {
+  it('keeps core profile unchanged during runtime speech and leaves evolution to LLM distillation', () => {
     const chat = buildChat();
     const speaker = buildCharacter('char-a', '甲');
     const target = buildCharacter('char-b', '乙');
@@ -281,10 +281,7 @@ describe('buildRelationshipTransition', () => {
     });
 
     const speakerPatch = result.characterPatches.find((patch) => patch.characterId === 'char-a')?.patch;
-    expect(speakerPatch?.coreProfile?.coreDesire).toBe('想被当作可靠的人。');
-    expect(speakerPatch?.coreProfile?.coreFear).toContain('轻视');
-    expect(speakerPatch?.coreProfile?.biases?.some((item) => item.includes('打断'))).toBe(true);
-    expect(speakerPatch?.coreProfile?.interactionHabits?.some((item) => item.includes('追问'))).toBe(true);
+    expect(speakerPatch?.coreProfile).toBeUndefined();
   });
 
   it('treats speak-as user messages as character-authored runtime speech', () => {

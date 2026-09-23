@@ -348,6 +348,7 @@ describe('llmMemoryDistillation', () => {
       valuePriority: ['可靠'],
       biases: ['容易把沉默理解为否定'],
       interactionHabits: ['先追问再表态'],
+      expressionHabits: ['旧的表达观察'],
     }, {
       coreDesire: '',
       values: ['可靠', '被认可'],
@@ -358,6 +359,7 @@ describe('llmMemoryDistillation', () => {
       unmetNeeds: ['稳定的认可'],
       selfImage: '觉得自己应该撑住场面。',
       hiddenSoftSpots: ['被真诚维护时会动摇'],
+      expressionHabits: ['熟人面前会把犹豫拆成两句补发', '被逼问时先停半句再回答'],
     });
 
     expect(merged.coreDesire).toBe('想被认真当成可靠的人。');
@@ -371,5 +373,6 @@ describe('llmMemoryDistillation', () => {
     expect(merged.attachmentStyle).toContain('试探');
     expect(merged.unmetNeeds).toContain('稳定的认可');
     expect(merged.hiddenSoftSpots?.some((item) => item.includes('真诚维护'))).toBe(true);
+    expect(merged.expressionHabits).toEqual(['熟人面前会把犹豫拆成两句补发', '被逼问时先停半句再回答']);
   });
 });

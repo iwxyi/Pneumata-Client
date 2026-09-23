@@ -1,9 +1,7 @@
 import { useCallback, useRef } from 'react';
 import type { Message } from '../types/message';
-import { useMessageStore } from '../stores/useMessageStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { getNextStreamingDisplayContent, STREAMING_DISPLAY_TICK_MS } from '../services/streamingDisplayBuffer';
-import { shouldDiscardStreamingDraft } from '../services/streamingMessageLifecycle';
 
 export function useStreamingMessageState(upsertMessage: (message: Message) => void) {
   const enableStreamingDisplayAnimation = useSettingsStore((state) => state.enableStreamingDisplayAnimation);
@@ -53,20 +51,7 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
     stopStreamingFlushTimer();
     const current = streamingMessageRef.current;
     if (current) {
-      const state = useMessageStore.getState();
-      const persisted = state.messageWindowsByChatId[current.chatId]?.messages.find((message) => message.id === current.id)
-        || state.messages.find((message) => message.id === current.id)
-        || null;
-      if (shouldDiscardStreamingDraft(current, persisted)) {
-        if (typeof console !== 'undefined' && typeof console.warn === 'function') {
-          console.warn('[streaming-message:discard-draft]', {
-            current,
-            persisted,
-            chatId: current.chatId,
-          });
-        }
-        upsertMessage({ ...current, isDeleted: true, isStreaming: false });
-      }
+      upsertMessage({ ...current, isDeleted: true, isStreaming: true });
     }
     streamingMessageRef.current = null;
     displayedStreamingMessageRef.current = null;
@@ -74,31 +59,22 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
 
   const clearStreamingMessageRef = useCallback(() => {
     stopStreamingFlushTimer();
-    const current = streamingMessageRef.current;
-    if (current) {
-      const state = useMessageStore.getState();
-      const persisted = state.messageWindowsByChatId[current.chatId]?.messages.find((message) => message.id === current.id)
-        || state.messages.find((message) => message.id === current.id)
-        || null;
-      upsertMessage({
-        ...current,
-        ...(persisted || {}),
-        content: persisted?.content || current.content,
-        metadata: {
-          ...(current.metadata || {}),
-          ...(persisted?.metadata || {}),
-        },
-        isStreaming: false,
-      });
-    }
     streamingMessageRef.current = null;
     displayedStreamingMessageRef.current = null;
-  }, [stopStreamingFlushTimer, upsertMessage]);
+  }, [stopStreamingFlushTimer]);
+
+  const freezeStreamingDisplay = useCallback(() => {
+    stopStreamingFlushTimer();
+  }, [stopStreamingFlushTimer]);
+
+  const getDisplayedStreamingMessage = useCallback(() => displayedStreamingMessageRef.current, []);
 
   return {
     streamingMessageRef,
     updateStreamingMessage,
     discardStreamingMessage,
     clearStreamingMessageRef,
+    freezeStreamingDisplay,
+    getDisplayedStreamingMessage,
   };
 }

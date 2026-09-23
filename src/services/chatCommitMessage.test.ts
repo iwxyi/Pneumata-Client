@@ -97,6 +97,45 @@ describe('persistLocalFirstMessage', () => {
     }));
   });
 
+  it('reveals only the unseen tail when committing an existing streaming bubble', async () => {
+    const upserts: Message[] = [];
+    const delays: number[] = [];
+    const existingLocalMessage: Message = {
+      id: 'local-stream-reveal',
+      clientKey: 'local-stream-reveal',
+      chatId: 'chat-1',
+      type: 'ai',
+      senderId: 'char-1',
+      senderName: '甲',
+      content: '已经显示',
+      emotion: 0,
+      timestamp: 222223,
+      isDeleted: false,
+      isStreaming: true,
+    };
+
+    await persistLocalFirstMessage({
+      existingLocalMessage,
+      localReveal: true,
+      message: {
+        chatId: 'chat-1',
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: '已经显示的后半句',
+        emotion: 0,
+      },
+      upsertMessage: (message) => { upserts.push(message); },
+      delay: async (ms) => { delays.push(ms); },
+      localRevealTickMs: 7,
+    });
+
+    expect(upserts[0]?.content).toBe('已经显示');
+    expect(upserts.at(-1)?.content).toBe('已经显示的后半句');
+    expect(upserts.slice(1).some((message) => message.content.length > '已经显示'.length && message.content.length < '已经显示的后半句'.length)).toBe(true);
+    expect(delays).toContain(7);
+  });
+
   it('keeps the fuller streamed text when final commit content is a suffix', async () => {
     const upserts: Message[] = [];
     const existingLocalMessage: Message = {
@@ -204,6 +243,32 @@ describe('persistLocalFirstMessage', () => {
       id: localMessage.id,
       content: '第二个气泡慢慢出现',
     }));
+  });
+
+  it('keeps the empty streaming state visible before revealing a new message', async () => {
+    const upserts: Message[] = [];
+    const delays: number[] = [];
+
+    await persistLocalFirstMessage({
+      timestamp: 666667,
+      localReveal: true,
+      localRevealStartDelayMs: 260,
+      message: {
+        chatId: 'chat-1',
+        type: 'ai',
+        senderId: 'char-1',
+        senderName: '甲',
+        content: '现在开始显示',
+        emotion: 0,
+      },
+      upsertMessage: (message) => { upserts.push(message); },
+      delay: async (ms) => { delays.push(ms); },
+      localRevealTickMs: 7,
+    });
+
+    expect(upserts[0]).toMatchObject({ content: '', isStreaming: true });
+    expect(delays[0]).toBe(260);
+    expect(upserts[1]?.content).not.toBe('');
   });
 
   it('briefly reveals the original text before writing the withdrawn notice', async () => {

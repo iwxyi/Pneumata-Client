@@ -35,6 +35,7 @@ import { cacheSpeechPlayback, clearCachedSpeechPlayback, getCachedSpeechPlayback
 
 interface MessageBubbleProps {
   message: Message;
+  continuesPreviousSender?: boolean;
   character?: AICharacter;
   characters?: AICharacter[];
   onDelete?: (id: string) => void;
@@ -125,7 +126,7 @@ function buildWithdrawalDebugTitle(withdrawal: NonNullable<Message['metadata']>[
   );
 }
 
-function MessageBubble({ message, character, characters = [], onDelete, onWithdraw, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onAddImagesToReference, onOpenDiagram, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onRegenerate, onSwitchRevision, onOpenArtifact, onOpenHtmlFullscreen, onHtmlAutosave, onHtmlSubmit, onHtmlRepair, onConfirmWorkspaceMutationPlan }: MessageBubbleProps) {
+function MessageBubble({ message, continuesPreviousSender = false, character, characters = [], onDelete, onWithdraw, onAnalyze, onExpressionFeedback, onRetryMedia, onOpenImage, onAddImagesToReference, onOpenDiagram, onCharacterAvatarClick, pending = false, currentUser, selfMemberId = null, privateConversation = false, branchVersionInfo, onCreateRevision, onRegenerate, onSwitchRevision, onOpenArtifact, onOpenHtmlFullscreen, onHtmlAutosave, onHtmlSubmit, onHtmlRepair, onConfirmWorkspaceMutationPlan }: MessageBubbleProps) {
   const customBubbleStyles = useSettingsStore((state) => state.customBubbleStyles);
   const userBubbleStyleId = useSettingsStore((state) => state.userBubbleStyleId);
   const userBubbleStyle = useSettingsStore((state) => state.userBubbleStyle);
@@ -508,6 +509,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
     ? { xs: 'calc(100% - 16px)', sm: 'calc(100% - 24px)' }
     : undefined;
   const compactMediaBubble = !isFinalWithdrawn && shouldUseCompactMediaBubble(message);
+  const showPendingTypingDots = (pending || message.isStreaming) && !message.content;
   const shouldRenderNarrativeReader = hasNarrativeReaderBlocks(narrativeParagraphBlocks);
   if (shouldRenderNarrativeReader || ((pending || message.isStreaming) && useNarrativeParagraph)) {
     const narrativeCharacters = characters.length ? characters : effectiveCharacter ? [effectiveCharacter] : [];
@@ -552,9 +554,9 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
 
   return (
     <Box sx={{ width: '100%', minWidth: 0, maxWidth: '100%' }}>
-      <Box data-message-id={message.id} data-message-type={message.type} sx={{ display: 'flex', width: '100%', minWidth: 0, maxWidth: '100%', justifyContent: wrapperJustify, px: hidePrivateChatIdentity ? { xs: 2, sm: 3 } : 2, py: 0.75, gap: hidePrivateChatIdentity ? 0 : 1.25, alignItems: 'flex-start' }}>
+      <Box data-message-id={message.id} data-message-type={message.type} aria-label={continuesPreviousSender ? `${displaySenderName} 的连续消息` : undefined} sx={{ display: 'flex', width: '100%', minWidth: 0, maxWidth: '100%', justifyContent: wrapperJustify, px: hidePrivateChatIdentity ? { xs: 2, sm: 3 } : 2, py: continuesPreviousSender ? 0.2 : 0.75, gap: hidePrivateChatIdentity ? 0 : 1.25, alignItems: 'flex-start' }}>
         {!isUser && !hidePrivateChatIdentity ? (
-          <Box onClick={handleAvatarClick} sx={{ cursor: message.type === 'ai' && !pending ? 'pointer' : 'default', flexShrink: 0 }}>
+          <Box onClick={handleAvatarClick} sx={{ cursor: message.type === 'ai' && !pending ? 'pointer' : 'default', flexShrink: 0, width: 38, visibility: continuesPreviousSender ? 'hidden' : 'visible' }} aria-hidden={continuesPreviousSender}>
             {avatar && isImageAvatar(avatar) ? (
               <Avatar src={resolveSafeAvatarSrc(avatar)} alt={message.senderName} slotProps={{ img: { loading: 'lazy', decoding: 'async', onError: () => rememberFailedAvatarUrl(avatar) } }} sx={{ width: 38, height: 38 }} />
             ) : (
@@ -571,7 +573,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
             title={formatTimestamp(message.timestamp)}
             sx={{ color: 'text.secondary', px: 0.5, width: 'fit-content', maxWidth: '100%', alignItems: 'center' }}
           >
-            {!hidePrivateChatIdentity ? (
+            {!hidePrivateChatIdentity && !continuesPreviousSender ? (
               <Typography variant="caption" sx={{ fontWeight: 500, textAlign: isUser ? 'right' : 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {displaySenderName}
               </Typography>
@@ -604,9 +606,15 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
             sx={{
               width: compactMediaBubble ? 'fit-content' : undefined,
               minWidth: 0,
+              // Reserve the same first-line height used by a text reply so
+              // switching from typing dots to the first grapheme does not
+              // change the virtual row's height.
+              minHeight: showPendingTypingDots ? 37 : undefined,
               maxWidth: '100%',
               boxSizing: 'border-box',
               overflow: 'hidden',
+              display: showPendingTypingDots ? 'flex' : undefined,
+              alignItems: showPendingTypingDots ? 'center' : undefined,
               justifySelf: compactMediaBubble ? (isUser ? 'end' : 'start') : undefined,
               px: 1.4,
               py: 1,
@@ -618,7 +626,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
               boxShadow: bubblePreview?.boxShadow || '0 8px 24px rgba(15, 23, 42, 0.08)',
             }}
           >
-            {(pending || message.isStreaming) && !message.content ? <PendingTypingDots /> : isFinalWithdrawn ? (
+            {showPendingTypingDots ? <PendingTypingDots /> : isFinalWithdrawn ? (
               showWithdrawalDebug ? (
                 <Tooltip title={buildWithdrawalDebugTitle(finalWithdrawal)} arrow placement="top" enterTouchDelay={0}>
                   <Box sx={{ cursor: 'help', '&:hover .MuiTypography-root': { textDecoration: 'underline' } }}>
@@ -889,6 +897,7 @@ function MessageBubble({ message, character, characters = [], onDelete, onWithdr
 
 function areMessageBubblePropsEqual(previous: MessageBubbleProps, next: MessageBubbleProps) {
   return previous.message === next.message
+    && previous.continuesPreviousSender === next.continuesPreviousSender
     && previous.character === next.character
     && previous.characters === next.characters
     && previous.onDelete === next.onDelete

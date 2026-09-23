@@ -105,6 +105,7 @@ function buildCoreProfileDescription(character: AICharacter) {
     profile.socialMask ? `- Social mask: ${profile.socialMask}` : '',
     profile.valuePriority?.length ? `- Values: ${profile.valuePriority.join(', ')}` : '',
     profile.interactionHabits?.length ? `- Interaction habits: ${profile.interactionHabits.join(', ')}` : '',
+    profile.expressionHabits?.length ? `- Current expression habits: ${profile.expressionHabits.join(', ')}` : '',
   ].filter(Boolean);
 
   return lines.length ? `\n## Deeper Motivation\n${lines.join('\n')}` : '';

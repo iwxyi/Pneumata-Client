@@ -48,6 +48,9 @@ export async function runChatCommitPipeline(params: {
   recordSpeak: (characterId: string) => void;
   aiProfiles?: import('../types/settings').AIModelProfile[];
   shouldContinue?: () => boolean;
+  localReveal?: boolean;
+  localRevealStartDelayMs?: number;
+  localMessageIdentitySalt?: string;
 }): Promise<ChatCommitPipelineResult> {
   const timer = createRuntimeMemoryTimer('chat-commit', {
     chatId: params.chatId,
@@ -75,17 +78,18 @@ export async function runChatCommitPipeline(params: {
         upsertMessage: params.upsertMessage,
       });
     };
+    const streamingAnimationEnabled = useSettingsStore.getState().enableStreamingDisplayAnimation;
+    const localReveal = params.localReveal ?? Boolean(params.streamingMessage && streamingAnimationEnabled);
+    const localRevealStartDelayMs = params.localRevealStartDelayMs ?? (localReveal ? 260 : undefined);
     const persistedMessage = await persistStreamingMessage({
       message: attachMessageToActiveBranch(params.chat, nextMessages, params.message),
       upsertMessage: params.upsertMessage,
       existingLocalMessage: params.streamingMessage,
       shouldContinue: params.shouldContinue,
       deferLocalUpsert: false,
-      localReveal: Boolean(
-        params.streamingMessage
-        && !params.streamingMessage.content.trim()
-        && useSettingsStore.getState().enableStreamingDisplayAnimation,
-      ),
+      localReveal,
+      localRevealStartDelayMs,
+      localMessageIdentitySalt: params.localMessageIdentitySalt,
       onPersisted: (message) => {
         if (!isLocalOnlyMediaMode()) startMediaProcessing(message);
       },
