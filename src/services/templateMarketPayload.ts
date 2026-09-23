@@ -126,6 +126,10 @@ export function buildBundleMarketPayload(chat: GroupChat, characters: AICharacte
       runtimeTimeline: chat.runtimeTimeline || [],
       runtimeEventsV2: filterRuntimeEvents(chat.runtimeEventsV2, allowedIds),
       relationshipLedger: (chat.relationshipLedger || []).filter((entry) => allowedIds.has(entry.actorId) && allowedIds.has(entry.targetId)),
+      relationshipStructure: chat.relationshipStructure ? {
+        ...chat.relationshipStructure,
+        edges: chat.relationshipStructure.edges.filter((edge) => allowedIds.has(edge.fromId) && allowedIds.has(edge.toId)),
+      } : null,
     },
     characters: memberCharacters.map((character) => ({
       localId: character.id,

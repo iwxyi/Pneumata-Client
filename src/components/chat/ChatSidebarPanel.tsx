@@ -60,6 +60,7 @@ interface ChatSidebarPanelProps {
   onStartDirectChat?: (charId: string) => void;
   onRemoveMember?: (charId: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
+  onRefreshRelationships?: () => void;
   onStoryChapterClick?: (chapter: StoryChapterState) => void;
   perspectiveMemberId?: string | null;
 }
@@ -700,6 +701,7 @@ export default function ChatSidebarPanel({
   onStartDirectChat,
   onRemoveMember,
   onUpdateSeats,
+  onRefreshRelationships,
   onStoryChapterClick,
   perspectiveMemberId,
 }: ChatSidebarPanelProps) {
@@ -764,6 +766,7 @@ export default function ChatSidebarPanel({
               onStartDirectChat={onStartDirectChat}
               onRemove={onRemoveMember}
               onUpdateSeats={onUpdateSeats}
+              onRefreshRelationships={onRefreshRelationships}
               perspectiveMemberId={perspectiveMemberId}
             />
             <Suspense fallback={<PanelFallback />}>

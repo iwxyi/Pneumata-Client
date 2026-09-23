@@ -128,6 +128,8 @@ export function toRelationshipDisplayDelta(current: RelationshipLedgerEntry['cur
     competence: roundDisplayValue(normalized.competence),
     trust: roundDisplayValue(normalized.trust),
     threat: roundDisplayValue(normalized.threat),
+    attachment: roundDisplayValue(normalized.attachment || 0),
+    deference: roundDisplayValue(normalized.deference || 0),
   };
 }
 

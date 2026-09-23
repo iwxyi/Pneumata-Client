@@ -2,6 +2,7 @@ import { generateResponse } from './aiClient';
 import type { AIModelProfile } from '../types/settings';
 import { isAIProfileUsable } from '../types/settings';
 import type { AICharacter, CharacterRelationshipPreset } from '../types/character';
+import type { RelationshipStructureKind, RoomRelationshipStructureEdge } from '../types/chat';
 
 interface RawRelationshipInference {
   fromName?: unknown;
@@ -19,6 +20,16 @@ interface RawRelationshipInference {
 
 interface RawRelationshipInferenceResponse {
   relationships?: RawRelationshipInference[];
+  structure?: RawRelationshipStructure[];
+}
+
+interface RawRelationshipStructure {
+  fromName?: unknown;
+  toName?: unknown;
+  kind?: unknown;
+  statement?: unknown;
+  confidence?: unknown;
+  reason?: unknown;
 }
 
 export type DefaultRelationshipScope = 'created_only' | 'created_and_existing' | 'selected_members';
@@ -50,6 +61,11 @@ export interface DefaultRelationshipSuggestionResult {
 export interface DefaultRelationshipPatchPlan {
   patches: DefaultRelationshipPatch[];
   results: DefaultRelationshipSuggestionResult[];
+}
+
+export interface DefaultRelationshipInitializationResult {
+  patches: DefaultRelationshipPatch[];
+  structureEdges: RoomRelationshipStructureEdge[];
 }
 
 function clampNumber(value: unknown, min: number, max: number, fallback = 0) {
@@ -129,7 +145,7 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
       '如果刚创建角色与已有角色在简介里明显有关，也可以输出新角色->已有角色或已有角色->新角色的初始印象；不要覆盖已有强关系。',
       '不要为所有组合机械生成关系。只输出有明显依据、能改善角色互动连续性的关系。',
       '六轴范围：warmth -70..70，competence -70..70，trust -70..70，threat 0..70，attachment 0..70，deference -70..70。confidence 0..1。',
-      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"自然语言关系说明","confidence":0.8,"reason":"依据"}]}',
+      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"自然语言关系说明","confidence":0.8,"reason":"依据"}],"structure":[{"fromName":"角色A","toName":"角色B","kind":"authority","statement":"角色A是角色B的直属上司","confidence":0.9,"reason":"依据"}]}。structure.kind 只能是 authority、duty、kinship、affiliation、rivalry、obligation；方向表示前者相对后者的结构位置。',
       '所有 fromName/toName 必须来自角色列表。不要输出 markdown，不要解释。',
       `角色列表：\n${characterBlock}`,
     ].join('\n\n');
@@ -146,15 +162,42 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
     'If newly created characters are clearly connected to existing characters, you may output new->existing or existing->new initial impressions. Do not overwrite strong existing relationships.',
     'Do not generate every pair mechanically. Only output relationships with clear grounding and useful interaction value.',
     'Axis ranges: warmth -70..70, competence -70..70, trust -70..70, threat 0..70, attachment 0..70, deference -70..70. confidence 0..1.',
-    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"natural-language relationship note","confidence":0.8,"reason":"basis"}]}',
+    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"natural-language relationship note","confidence":0.8,"reason":"basis"}],"structure":[{"fromName":"A","toName":"B","kind":"authority","statement":"A is B’s direct superior","confidence":0.9,"reason":"basis"}]}. structure.kind must be authority, duty, kinship, affiliation, rivalry, or obligation; direction means the first role relative to the second.',
     'Every fromName/toName must come from the character list. No markdown. No explanation.',
     `Characters:\n${characterBlock}`,
   ].join('\n\n');
 }
 
-function parseRelationshipInference(content: string) {
-  const parsed = JSON.parse(extractJsonObject(content)) as RawRelationshipInferenceResponse;
-  return Array.isArray(parsed.relationships) ? parsed.relationships : [];
+function parseRelationshipInference(content: string): RawRelationshipInferenceResponse {
+  return JSON.parse(extractJsonObject(content)) as RawRelationshipInferenceResponse;
+}
+
+const STRUCTURE_KINDS = new Set<RelationshipStructureKind>(['authority', 'duty', 'kinship', 'affiliation', 'rivalry', 'obligation']);
+
+function buildStructureEdges(raw: RawRelationshipStructure[] | undefined, nameMap: Map<string, AICharacter>, createdIds: Set<string>, scope: DefaultRelationshipScope, now: number) {
+  const seen = new Set<string>();
+  return (raw || []).flatMap((item, index): RoomRelationshipStructureEdge[] => {
+    const confidence = normalizeConfidence(item.confidence);
+    const from = nameMap.get(normalizeName(item.fromName).toLowerCase());
+    const to = nameMap.get(normalizeName(item.toName).toLowerCase());
+    const kind = normalizeName(item.kind) as RelationshipStructureKind;
+    const statement = normalizeName(item.statement);
+    if (!from || !to || from.id === to.id || confidence < 0.55 || !STRUCTURE_KINDS.has(kind) || !statement) return [];
+    if ((scope === 'created_only' || scope === 'selected_members') && (!createdIds.has(from.id) || !createdIds.has(to.id))) return [];
+    const key = `${from.id}->${to.id}:${kind}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [{
+      id: `structure-${now}-${index}-${from.id}-${to.id}-${kind}`,
+      fromId: from.id,
+      toId: to.id,
+      kind,
+      statement: statement.slice(0, 180),
+      confidence,
+      evidence: normalizeName(item.reason).slice(0, 180),
+      updatedAt: now,
+    }];
+  });
 }
 
 function hasExistingDefaultRelationship(existing?: CharacterRelationshipPreset) {
@@ -210,6 +253,7 @@ export async function buildDefaultRelationshipSuggestions(params: {
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
+  onStructure?: (edges: RoomRelationshipStructureEdge[]) => void;
 }): Promise<DefaultRelationshipSuggestion[]> {
   const now = resolveNow(params.now);
   const scope = params.scope || 'created_and_existing';
@@ -230,7 +274,11 @@ export async function buildDefaultRelationshipSuggestions(params: {
   const suggestions: DefaultRelationshipSuggestion[] = [];
   const suggestionIdCounts = new Map<string, number>();
 
-  parseRelationshipInference(response).forEach((raw) => {
+  const inference = parseRelationshipInference(response);
+  const structureEdges = buildStructureEdges(inference.structure, nameMap, createdIds, scope, now);
+  params.onStructure?.(structureEdges);
+
+  (inference.relationships || []).forEach((raw) => {
     const confidence = normalizeConfidence(raw.confidence);
     if (confidence < 0.55) return;
     const from = nameMap.get(normalizeName(raw.fromName).toLowerCase());
@@ -259,6 +307,31 @@ export async function buildDefaultRelationshipSuggestions(params: {
   });
 
   return suggestions;
+}
+
+export async function buildDefaultRelationshipInitialization(params: {
+  config: AIModelProfile;
+  createdCharacters: AICharacter[];
+  allCharacters: AICharacter[];
+  language: 'zh' | 'en';
+  scope?: DefaultRelationshipScope;
+  now?: number;
+  signal?: AbortSignal;
+}): Promise<DefaultRelationshipInitializationResult> {
+  let structureEdges: RoomRelationshipStructureEdge[] = [];
+  const suggestions = await buildDefaultRelationshipSuggestions({
+    ...params,
+    onStructure: (edges) => { structureEdges = edges; },
+  });
+  return {
+    patches: buildDefaultRelationshipPatchesFromSuggestions({
+      suggestions,
+      allCharacters: params.allCharacters,
+      language: params.language,
+      now: params.now,
+    }),
+    structureEdges,
+  };
 }
 
 export function buildDefaultRelationshipPatchesFromSuggestions(params: {
@@ -333,9 +406,10 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
+  updateRelationshipStructure?: (edges: RoomRelationshipStructureEdge[]) => Promise<void>;
 }) {
   if (!params.config) return [];
-  const patches = await buildDefaultRelationshipPatches({
+  const result = await buildDefaultRelationshipInitialization({
     config: params.config,
     createdCharacters: params.createdCharacters,
     allCharacters: params.allCharacters,
@@ -344,6 +418,7 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
     now: params.now,
     signal: params.signal,
   });
-  if (patches.length) await params.updateCharacters(patches);
-  return patches;
+  if (result.patches.length) await params.updateCharacters(result.patches);
+  if (result.structureEdges.length && params.updateRelationshipStructure) await params.updateRelationshipStructure(result.structureEdges);
+  return result.patches;
 }

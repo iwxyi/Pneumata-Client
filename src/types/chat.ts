@@ -661,7 +661,7 @@ export interface OpenChatModeConfig {
 
 export interface ConversationInitializationState {
   /** Versioned so future room initialization steps can evolve without reusing stale completion records. */
-  version: 2;
+  version: 3;
   status: 'running' | 'completed' | 'failed';
   memberFingerprint: string;
   attemptedAt?: number;
@@ -892,6 +892,25 @@ export interface GroupVisualIdentity {
   backgroundOpacity?: number | null;
 }
 
+export type RelationshipStructureKind = 'authority' | 'duty' | 'kinship' | 'affiliation' | 'rivalry' | 'obligation';
+
+export interface RoomRelationshipStructureEdge {
+  id: string;
+  fromId: string;
+  toId: string;
+  kind: RelationshipStructureKind;
+  statement: string;
+  confidence: number;
+  evidence: string;
+  updatedAt: number;
+}
+
+export interface RoomRelationshipStructure {
+  version: 1;
+  edges: RoomRelationshipStructureEdge[];
+  updatedAt: number;
+}
+
 export interface GroupChat {
   id: string;
   type: ConversationType;
@@ -940,6 +959,8 @@ export interface GroupChat {
   runtimeTimeline?: Array<{ type: 'note' | 'artifact' | 'relationship'; text: string; createdAt: number }>;
   runtimeEventsV2?: RuntimeEventV2[];
   relationshipLedger?: RelationshipLedgerEntry[];
+  /** Group-level authority, duty, kinship, affiliation, and rivalry facts. */
+  relationshipStructure?: RoomRelationshipStructure | null;
   governance: ConversationGovernance;
   dramaRules: ConversationDramaRules;
   worldState: ConversationWorldState;
@@ -1053,6 +1074,7 @@ export function normalizeConversation(input: (Omit<GroupChat, 'type' | 'governan
     runtimeTimeline: input.runtimeTimeline || [],
     runtimeEventsV2: input.runtimeEventsV2 || [],
     relationshipLedger: input.relationshipLedger || [],
+    relationshipStructure: input.relationshipStructure || null,
     governance: {
       ...DEFAULT_CONVERSATION_GOVERNANCE,
       ...(input.governance || {}),

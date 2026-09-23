@@ -27,6 +27,7 @@ interface MemberListProps {
   onSetPerspectiveMember?: (id: string) => void;
   onStartDirectChat?: (id: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
+  onRefreshRelationships?: () => void;
   perspectiveMemberId?: string | null;
 }
 
@@ -113,7 +114,7 @@ function buildMemberAvatarFallback(member: AICharacter) {
   return name.slice(0, 1);
 }
 
-export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onGuideMember, onSetPerspectiveMember, onStartDirectChat, onUpdateSeats, perspectiveMemberId }: MemberListProps) {
+export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onGuideMember, onSetPerspectiveMember, onStartDirectChat, onUpdateSeats, onRefreshRelationships, perspectiveMemberId }: MemberListProps) {
   const { i18n } = useTranslation();
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -402,7 +403,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
           }}>保存</Button>
         </DialogActions>
       </Dialog>
-      {chat ? <GroupRelationshipDialog open={relationshipDialogOpen} onClose={() => setRelationshipDialogOpen(false)} chat={chat} members={members} /> : null}
+      {chat ? <GroupRelationshipDialog open={relationshipDialogOpen} onClose={() => setRelationshipDialogOpen(false)} chat={chat} members={members} onRefresh={onRefreshRelationships} /> : null}
     </Box>
   );
 }

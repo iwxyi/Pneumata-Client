@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AICharacter } from '../types/character';
 import { DEFAULT_CHARACTER_BEHAVIOR, DEFAULT_CHARACTER_INTERVENTION, DEFAULT_CHARACTER_MEMORY, DEFAULT_PERSONALITY } from '../types/character';
-import { buildDefaultRelationshipPatches } from './defaultRelationshipInitializer';
+import { buildDefaultRelationshipInitialization, buildDefaultRelationshipPatches } from './defaultRelationshipInitializer';
 
 vi.mock('./aiClient', () => ({
   generateResponse: vi.fn(async () => JSON.stringify({
@@ -9,6 +9,10 @@ vi.mock('./aiClient', () => ({
       { fromName: '新角色', toName: '旧角色', warmth: 42, competence: 8, trust: 24, threat: 3, note: '新角色天然愿意靠近旧角色，但还保留一点试探。', confidence: 0.88, reason: '背景互补' },
       { fromName: '旧角色', toName: '新角色', warmth: 18, competence: 30, trust: 10, threat: 0, note: '旧角色认可新角色的能力，但还不算熟。', confidence: 0.8, reason: '能力线索明确' },
       { fromName: '旧角色', toName: '旁观者', warmth: 70, competence: 70, trust: 70, threat: 0, note: '不应写入完全无关的已有角色关系。', confidence: 0.9, reason: '无关' },
+    ],
+    structure: [
+      { fromName: '旧角色', toName: '新角色', kind: 'authority', statement: '旧角色是新角色的直属上司', confidence: 0.91, reason: '职责设定明确' },
+      { fromName: '旧角色', toName: '旁观者', kind: 'authority', statement: '不应写入无关结构', confidence: 0.9, reason: '无关' },
     ],
   })),
 }));
@@ -104,5 +108,21 @@ describe('defaultRelationshipInitializer', () => {
     const newPatch = patches.find((patch) => patch.id === 'new');
     expect(newPatch?.updates.relationships?.[0]?.updatedAt).toBe(0);
     expect(newPatch?.updates.runtimeTimeline?.at(-1)?.createdAt).toBe(0);
+  });
+
+  it('returns group structural facts from the same initialization response', async () => {
+    const created = character('new', '新角色');
+    const old = character('old', '旧角色');
+    const result = await buildDefaultRelationshipInitialization({
+      config: { id: 'p', name: 'Text', type: 'text', provider: 'openai', apiKey: 'k', baseUrl: '', model: 'm' },
+      createdCharacters: [created, old],
+      allCharacters: [created, old],
+      language: 'zh',
+      scope: 'selected_members',
+      now: 10,
+    });
+    expect(result.structureEdges).toEqual([expect.objectContaining({
+      fromId: 'old', toId: 'new', kind: 'authority', statement: '旧角色是新角色的直属上司', updatedAt: 10,
+    })]);
   });
 });

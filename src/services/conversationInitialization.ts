@@ -1,9 +1,9 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat, ConversationInitializationState } from '../types/chat';
 
-// v2 expands the model contract from affect-only hints to explicit room roles,
-// authority, duty, affiliation, and other structural relationship evidence.
-export const CONVERSATION_INITIALIZATION_VERSION = 2 as const;
+// v3 persists explicit room roles, authority, duty, affiliation, and other
+// structural relationship evidence alongside the directional relationship axes.
+export const CONVERSATION_INITIALIZATION_VERSION = 3 as const;
 
 export interface ConversationInitializationRequirement {
   required: boolean;

@@ -227,6 +227,7 @@ async function createChatRemote(chatData: ChatCreatePayload) {
     runtimeTimeline: chatData.runtimeTimeline,
     runtimeEventsV2: chatData.runtimeEventsV2,
     relationshipLedger: chatData.relationshipLedger,
+    relationshipStructure: chatData.relationshipStructure,
     governance: chatData.governance,
     dramaRules: chatData.dramaRules,
     worldState: chatData.worldState,

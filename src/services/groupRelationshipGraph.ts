@@ -1,5 +1,5 @@
 import type { AICharacter } from '../types/character';
-import type { GroupChat } from '../types/chat';
+import type { GroupChat, RoomRelationshipStructureEdge } from '../types/chat';
 import type { RelationshipAxes } from '../types/runtimeEvent';
 import { isMeaningfulRelationshipLedgerEntry, normalizeRelationshipLedgerEntry, toRelationshipDisplayDelta } from './relationshipLedger';
 
@@ -14,8 +14,11 @@ export interface GroupRelationshipGraphEdge {
   fromId: string;
   toId: string;
   axes: RelationshipAxes;
+  baseline: RelationshipAxes;
+  adjustment: RelationshipAxes;
   note?: string;
-  source: 'room' | 'default';
+  source: 'room' | 'default' | 'structural';
+  structuralFacts?: RoomRelationshipStructureEdge[];
 }
 
 export interface GroupRelationshipGraph {
@@ -92,6 +95,8 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
       fromId: entry.actorId,
       toId: entry.targetId,
       axes: toRelationshipDisplayDelta(entry.current),
+      baseline: entry.baseline || entry.current,
+      adjustment: entry.adjustment || emptyAxes(),
       note: entry.derived?.semantic?.summary || entry.recentEvents.at(-1)?.summary,
       source: 'room',
     });
@@ -109,9 +114,32 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
         fromId: member.id,
         toId: relation.characterId,
         axes,
+        baseline: axes,
+        adjustment: emptyAxes(),
         note: relation.note,
         source: 'default',
       });
+    });
+  });
+
+  (chat.relationshipStructure?.edges || []).forEach((fact) => {
+    if (!nodeIds.has(fact.fromId) || !nodeIds.has(fact.toId) || fact.fromId === fact.toId) return;
+    const key = `${fact.fromId}->${fact.toId}`;
+    const existing = edgeByKey.get(key);
+    if (existing) {
+      existing.structuralFacts = [...(existing.structuralFacts || []), fact];
+      return;
+    }
+    edgeByKey.set(key, {
+      key,
+      fromId: fact.fromId,
+      toId: fact.toId,
+      axes: emptyAxes(),
+      baseline: emptyAxes(),
+      adjustment: emptyAxes(),
+      note: fact.statement,
+      source: 'structural',
+      structuralFacts: [fact],
     });
   });
 
@@ -128,6 +156,8 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
 }
 
 export function describeGroupRelationshipEdge(edge: GroupRelationshipGraphEdge) {
+  const structureStatement = edge.structuralFacts?.[0]?.statement?.replace(/\s+/g, ' ').trim();
+  if (structureStatement) return structureStatement.length > 18 ? `${structureStatement.slice(0, 17)}…` : structureStatement;
   const note = edge.note?.replace(/\s+/g, ' ').trim();
   if (note) return note.length > 18 ? `${note.slice(0, 17)}…` : note;
   const { warmth, trust, threat, attachment, deference } = edge.axes;
