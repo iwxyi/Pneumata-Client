@@ -10,6 +10,8 @@ interface RawRelationshipInference {
   competence?: unknown;
   trust?: unknown;
   threat?: unknown;
+  attachment?: unknown;
+  deference?: unknown;
   note?: unknown;
   confidence?: unknown;
   reason?: unknown;
@@ -19,7 +21,7 @@ interface RawRelationshipInferenceResponse {
   relationships?: RawRelationshipInference[];
 }
 
-export type DefaultRelationshipScope = 'created_only' | 'created_and_existing';
+export type DefaultRelationshipScope = 'created_only' | 'created_and_existing' | 'selected_members';
 
 export interface DefaultRelationshipPatch {
   id: string;
@@ -103,7 +105,11 @@ function summarizeCharacter(character: AICharacter) {
 function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: AICharacter[]; language: 'zh' | 'en'; scope: DefaultRelationshipScope }) {
   const createdNames = params.createdCharacters.map((character) => character.name).join(params.language === 'zh' ? '、' : ', ');
   const characterBlock = params.allCharacters.map((character) => `---\n${summarizeCharacter(character)}`).join('\n');
-  const scopeRule = params.scope === 'created_only'
+  const scopeRule = params.scope === 'selected_members'
+    ? params.language === 'zh'
+      ? '本次只判断当前群聊成员彼此之间的默认关系；不要输出成员之外的任何角色关系。'
+      : 'Only infer default relationships among the current group members; do not output relationships involving anyone outside this room.'
+    : params.scope === 'created_only'
     ? params.language === 'zh'
       ? '本次只判断刚创建角色彼此之间的关系；不要输出刚创建角色与旧角色之间的关系。'
       : 'Only infer relationships among newly created characters in this pass; do not output relationships between newly created and existing characters.'
@@ -112,31 +118,31 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
       : 'Prioritize completing relationships between newly created and existing characters in this pass; you may include still-missing relationships among newly created characters. Do not output relationships among existing characters only.';
   if (params.language === 'zh') {
     return [
-      `刚创建的角色：${createdNames}`,
-      '请根据刚创建角色的信息，以及所有 AI 角色的名字和简介，判断这些角色之间是否需要初始化方向性关系。',
+      `${params.scope === 'selected_members' ? '当前群聊成员' : '刚创建的角色'}：${createdNames}`,
+      `请根据${params.scope === 'selected_members' ? '当前群聊成员' : '刚创建角色'}的信息，以及所有 AI 角色的名字和简介，判断这些角色之间是否需要初始化方向性关系。`,
       scopeRule,
-      '不要使用“夫妻/朋友/前任/同事”等固定标签作为输出字段。也不要因为一个标签就硬套高好感。只输出四轴数值、自然语言说明和置信度。',
+      '不要使用“夫妻/朋友/前任/同事”等固定标签作为输出字段。也不要因为一个标签就硬套高好感。输出六轴数值、自然语言说明和置信度。',
       '允许复杂多重关系：同一对角色可以既亲密又危险、既有保护欲又不信任、既是亲属/伴侣又是仇敌或政治对手。请把这种矛盾体现在 warmth、trust、competence、threat 和 note 中。',
       '可以更新任意方向，但应优先输出与刚创建角色有关的关系；如果两个刚创建角色之间明显有关，也可以输出。',
       '如果刚创建角色与已有角色在简介里明显有关，也可以输出新角色->已有角色或已有角色->新角色的初始印象；不要覆盖已有强关系。',
       '不要为所有组合机械生成关系。只输出有明显依据、能改善角色互动连续性的关系。',
-      '四轴范围：warmth -70..70，competence -70..70，trust -70..70，threat 0..70。confidence 0..1。',
-      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"note":"自然语言关系说明","confidence":0.8,"reason":"依据"}]}',
+      '六轴范围：warmth -70..70，competence -70..70，trust -70..70，threat 0..70，attachment 0..70，deference -70..70。confidence 0..1。',
+      '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"自然语言关系说明","confidence":0.8,"reason":"依据"}]}',
       '所有 fromName/toName 必须来自角色列表。不要输出 markdown，不要解释。',
       `角色列表：\n${characterBlock}`,
     ].join('\n\n');
   }
   return [
-    `Newly created characters: ${createdNames}`,
-    'Infer directional initial relationships between these AI characters from their profiles.',
+    `${params.scope === 'selected_members' ? 'Current group members' : 'Newly created characters'}: ${createdNames}`,
+    `Infer directional initial relationships ${params.scope === 'selected_members' ? 'among the current group members' : 'between these AI characters'} from their profiles.`,
     scopeRule,
-    'Do not output fixed relationship labels such as spouse/friend/ex/colleague. Do not hard-code affection from labels. Output only four-axis scores, natural-language note, confidence, and reason.',
+    'Do not output fixed relationship labels such as spouse/friend/ex/colleague. Do not hard-code affection from labels. Output only six-axis scores, a natural-language note, confidence, and reason.',
     'Allow complex layered relationships: the same pair can be intimate and dangerous, protective but distrustful, relatives/spouses and enemies or political rivals at once. Represent that contradiction across warmth, trust, competence, threat, and note.',
     'You may update any direction, but prioritize relationships involving newly created characters. Include relationships among newly created characters when clearly implied.',
     'If newly created characters are clearly connected to existing characters, you may output new->existing or existing->new initial impressions. Do not overwrite strong existing relationships.',
     'Do not generate every pair mechanically. Only output relationships with clear grounding and useful interaction value.',
-    'Axis ranges: warmth -70..70, competence -70..70, trust -70..70, threat 0..70. confidence 0..1.',
-    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"note":"natural-language relationship note","confidence":0.8,"reason":"basis"}]}',
+    'Axis ranges: warmth -70..70, competence -70..70, trust -70..70, threat 0..70, attachment 0..70, deference -70..70. confidence 0..1.',
+    'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"natural-language relationship note","confidence":0.8,"reason":"basis"}]}',
     'Every fromName/toName must come from the character list. No markdown. No explanation.',
     `Characters:\n${characterBlock}`,
   ].join('\n\n');
@@ -147,11 +153,8 @@ function parseRelationshipInference(content: string) {
   return Array.isArray(parsed.relationships) ? parsed.relationships : [];
 }
 
-function shouldProtectExistingRelationship(existing?: CharacterRelationshipPreset) {
-  if (!existing) return false;
-  const hasNote = Boolean(existing.note?.trim());
-  const strength = Math.abs(existing.warmth || 0) + Math.abs(existing.competence || 0) + Math.abs(existing.trust || 0) + Math.abs(existing.threat || 0);
-  return hasNote || strength >= 60;
+function hasExistingDefaultRelationship(existing?: CharacterRelationshipPreset) {
+  return Boolean(existing);
 }
 
 function buildRelationshipPreset(targetId: string, raw: RawRelationshipInference): CharacterRelationshipPreset {
@@ -162,7 +165,12 @@ function buildRelationshipPreset(targetId: string, raw: RawRelationshipInference
     competence: clampNumber(raw.competence, -70, 70),
     trust: clampNumber(raw.trust, -70, 70),
     threat: clampNumber(raw.threat, 0, 70),
+    attachment: clampNumber(raw.attachment, 0, 70),
+    deference: clampNumber(raw.deference, -70, 70),
     note: note.slice(0, 180),
+    source: 'ai_inferred',
+    confidence: normalizeConfidence(raw.confidence),
+    evidence: normalizeName(raw.reason).slice(0, 180),
     updatedAt: Date.now(),
   };
 }
@@ -223,10 +231,10 @@ export async function buildDefaultRelationshipSuggestions(params: {
     const to = nameMap.get(normalizeName(raw.toName).toLowerCase());
     if (!from || !to || from.id === to.id) return;
     if (!createdIds.has(from.id) && !createdIds.has(to.id)) return;
-    if (scope === 'created_only' && (!createdIds.has(from.id) || !createdIds.has(to.id))) return;
+    if ((scope === 'created_only' || scope === 'selected_members') && (!createdIds.has(from.id) || !createdIds.has(to.id))) return;
 
     const existing = from.relationships.find((relation) => relation.characterId === to.id);
-    if (shouldProtectExistingRelationship(existing)) return;
+    if (hasExistingDefaultRelationship(existing)) return;
 
     const preset = { ...buildRelationshipPreset(to.id, raw), updatedAt: now };
     const baseId = `${from.id}->${to.id}`;
@@ -284,7 +292,7 @@ export function planDefaultRelationshipPatchesFromSuggestions(params: {
       ? { ...from, ...currentPatch.updates, relationships: currentPatch.updates.relationships || from.relationships }
       : from;
     const existing = source.relationships.find((relation) => relation.characterId === to.id);
-    if (shouldProtectExistingRelationship(existing)) {
+    if (hasExistingDefaultRelationship(existing)) {
       results.push({ suggestionId: suggestion.id, status: 'skipped', reason: 'protected_existing_relationship' });
       return;
     }

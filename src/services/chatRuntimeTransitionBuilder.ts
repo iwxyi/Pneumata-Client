@@ -8,6 +8,7 @@ import {
   getRelationshipLedgerEntry,
   inferRelationshipDelta,
   reduceRelationshipLedger,
+  resolveEffectiveRelationshipAxes,
 } from './relationshipLedger';
 import type { ConflictFocusPayload, ConflictFocusState, ConflictRuntimeState, RuntimeEventV2 } from '../types/runtimeEvent';
 import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
@@ -368,18 +369,50 @@ export function buildNextWorldState(
 }
 
 function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICharacter[]) {
-  if ((conversation.relationshipLedger || []).length > 0) return conversation.relationshipLedger || [];
+  if ((conversation.relationshipLedger || []).length > 0) {
+    const characterById = new Map(characters.map((character) => [character.id, character] as const));
+    return (conversation.relationshipLedger || []).map((entry) => {
+      const authored = characterById.get(entry.actorId)?.relationships.find((relation) => relation.characterId === entry.targetId);
+      if (!authored) return entry;
+      const adjustment = entry.adjustment || createBaselineRelationshipCurrent();
+      const baseline = {
+        warmth: authored.warmth,
+        competence: authored.competence,
+        trust: authored.trust,
+        threat: authored.threat,
+        attachment: authored.attachment || 0,
+        deference: authored.deference || 0,
+      };
+      return {
+        ...entry,
+        baseline,
+        adjustment,
+        current: resolveEffectiveRelationshipAxes(baseline, adjustment),
+      };
+    });
+  }
   return characters.flatMap((character) => character.relationships
     .filter((relation) => !/^draft-\d+$/i.test(relation.characterId))
     .map((relation) => ({
       pairKey: `${character.id}->${relation.characterId}`,
       actorId: character.id,
       targetId: relation.characterId,
+      baseline: {
+        warmth: relation.warmth ?? createBaselineRelationshipCurrent().warmth,
+        competence: relation.competence ?? createBaselineRelationshipCurrent().competence,
+        trust: relation.trust ?? createBaselineRelationshipCurrent().trust,
+        threat: relation.threat ?? createBaselineRelationshipCurrent().threat,
+        attachment: relation.attachment ?? createBaselineRelationshipCurrent().attachment,
+        deference: relation.deference ?? createBaselineRelationshipCurrent().deference,
+      },
+      adjustment: createBaselineRelationshipCurrent(),
       current: {
         warmth: relation.warmth ?? createBaselineRelationshipCurrent().warmth,
         competence: relation.competence ?? createBaselineRelationshipCurrent().competence,
         trust: relation.trust ?? createBaselineRelationshipCurrent().trust,
         threat: relation.threat ?? createBaselineRelationshipCurrent().threat,
+        attachment: relation.attachment ?? createBaselineRelationshipCurrent().attachment,
+        deference: relation.deference ?? createBaselineRelationshipCurrent().deference,
       },
       derived: {},
       axisReasons: {},

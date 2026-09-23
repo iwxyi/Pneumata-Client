@@ -1,4 +1,4 @@
-import { toRelationshipLedgerRecentEvent, type InteractionEventPayload, type RelationshipAxisReason, type RelationshipDeltaPayload, type RelationshipLedgerEntry, type RuntimeEventV2 } from '../types/runtimeEvent';
+import { toRelationshipLedgerRecentEvent, type InteractionEventPayload, type RelationshipAxes, type RelationshipAxisReason, type RelationshipDeltaPayload, type RelationshipLedgerEntry, type RuntimeEventV2 } from '../types/runtimeEvent';
 
 const MAX_RELATIONSHIP_AXIS_REASONS = 6;
 const MAX_RELATIONSHIP_RECENT_EVENTS = 8;
@@ -10,6 +10,8 @@ export const RELATIONSHIP_BASELINE = {
   competence: 0,
   trust: 0,
   threat: 0,
+  attachment: 0,
+  deference: 0,
 } as const;
 
 function pairKey(actorId: string, targetId: string) {
@@ -21,13 +23,36 @@ function clampMetric(value: number) {
   return Math.max(-100, Math.min(100, safeValue));
 }
 
-function clampDelta(value: number | undefined) {
+function clampDelta(value: number | undefined, limit = 8) {
   if (!value) return 0;
-  return Math.max(-8, Math.min(8, value));
+  return Math.max(-limit, Math.min(limit, value));
 }
 
-function buildBaselineCurrent() {
+function buildBaselineCurrent(): RelationshipAxes {
   return { ...RELATIONSHIP_BASELINE };
+}
+
+function normalizeAxes(value?: Partial<RelationshipAxes> | null): RelationshipAxes {
+  const baseline = buildBaselineCurrent();
+  return {
+    warmth: clampMetric(typeof value?.warmth === 'number' ? value.warmth : baseline.warmth),
+    competence: clampMetric(typeof value?.competence === 'number' ? value.competence : baseline.competence),
+    trust: clampMetric(typeof value?.trust === 'number' ? value.trust : baseline.trust),
+    threat: clampMetric(typeof value?.threat === 'number' ? value.threat : baseline.threat),
+    attachment: clampMetric(typeof value?.attachment === 'number' ? value.attachment : baseline.attachment),
+    deference: clampMetric(typeof value?.deference === 'number' ? value.deference : baseline.deference),
+  };
+}
+
+export function resolveEffectiveRelationshipAxes(baseline: RelationshipAxes, adjustment: RelationshipAxes): RelationshipAxes {
+  return {
+    warmth: clampMetric(baseline.warmth + adjustment.warmth),
+    competence: clampMetric(baseline.competence + adjustment.competence),
+    trust: clampMetric(baseline.trust + adjustment.trust),
+    threat: clampMetric(baseline.threat + adjustment.threat),
+    attachment: clampMetric((baseline.attachment || 0) + (adjustment.attachment || 0)),
+    deference: clampMetric((baseline.deference || 0) + (adjustment.deference || 0)),
+  };
 }
 
 function hasMeaningfulEvidence(interaction: InteractionEventPayload) {
@@ -35,17 +60,11 @@ function hasMeaningfulEvidence(interaction: InteractionEventPayload) {
 }
 
 function scoreDirection(delta: RelationshipDeltaPayload['delta']) {
-  return (delta.warmth || 0) + (delta.competence || 0) + (delta.trust || 0) - (delta.threat || 0);
+  return (delta.warmth || 0) + (delta.competence || 0) + (delta.trust || 0) - (delta.threat || 0) + (delta.attachment || 0) * 0.35 - (delta.deference || 0) * 0.1;
 }
 
 export function normalizeCurrent(current?: Partial<RelationshipLedgerEntry['current']> | null) {
-  const baseline = buildBaselineCurrent();
-  return {
-    warmth: clampMetric(typeof current?.warmth === 'number' ? current.warmth : baseline.warmth),
-    competence: clampMetric(typeof current?.competence === 'number' ? current.competence : baseline.competence),
-    trust: clampMetric(typeof current?.trust === 'number' ? current.trust : baseline.trust),
-    threat: clampMetric(typeof current?.threat === 'number' ? current.threat : baseline.threat),
-  };
+  return normalizeAxes(current);
 }
 
 function normalizeRuntimeEntryForComputation(entry: RelationshipLedgerEntry | undefined) {
@@ -57,10 +76,16 @@ function normalizeRuntimeEntryForComputation(entry: RelationshipLedgerEntry | un
 }
 
 export function normalizeRelationshipLedgerEntry(entry: RelationshipLedgerEntry): RelationshipLedgerEntry {
-  const current = normalizeCurrent(entry.current);
+  // Legacy entries stored only the final current value. Preserve that value
+  // as their frozen baseline rather than inventing an adjustment history.
+  const baseline = entry.baseline ? normalizeAxes(entry.baseline) : normalizeAxes(entry.current);
+  const adjustment = entry.baseline ? normalizeAxes(entry.adjustment) : buildBaselineCurrent();
+  const current = resolveEffectiveRelationshipAxes(baseline, adjustment);
   const axisReasons = entry.axisReasons || {};
   return {
     ...entry,
+    baseline,
+    adjustment,
     current,
     axisReasons,
     derived: {
@@ -353,12 +378,25 @@ export function reduceRelationshipLedgerWithDelta(entries: RelationshipLedgerEnt
     competence: clampMetric(current.competence + dampenTowardSaturation(current.competence, clampDelta(delta.delta.competence))),
     trust: buildNextTrust(current, delta.delta),
     threat: clampMetric(current.threat + dampenTowardSaturation(current.threat, clampDelta(delta.delta.threat))),
+    attachment: clampMetric((current.attachment || 0) + dampenTowardSaturation(current.attachment || 0, clampDelta(delta.delta.attachment, 2))),
+    deference: clampMetric((current.deference || 0) + dampenTowardSaturation(current.deference || 0, clampDelta(delta.delta.deference, 2))),
   });
+  const baseline = normalizedExisting?.baseline || buildBaselineCurrent();
+  const adjustment: RelationshipAxes = {
+    warmth: nextCurrent.warmth - baseline.warmth,
+    competence: nextCurrent.competence - baseline.competence,
+    trust: nextCurrent.trust - baseline.trust,
+    threat: nextCurrent.threat - baseline.threat,
+    attachment: (nextCurrent.attachment || 0) - (baseline.attachment || 0),
+    deference: (nextCurrent.deference || 0) - (baseline.deference || 0),
+  };
   const axisReasons = appendAxisReasons(normalizedExisting, delta.axisReasons);
   const updated: RelationshipLedgerEntry = {
     pairKey: key,
     actorId: delta.actorId,
     targetId: delta.targetId,
+    baseline,
+    adjustment,
     current: nextCurrent,
     derived: computeDerived(normalizedExisting, nextCurrent, axisReasons, delta.semanticLabels, delta.semanticStance),
     axisReasons,
@@ -392,6 +430,8 @@ export function calculateRelationshipCurrent(previous: RelationshipLedgerEntry |
     competence: clampMetric(current.competence + dampenTowardSaturation(current.competence, clampDelta(delta.competence))),
     trust: buildNextTrust(current, delta),
     threat: clampMetric(current.threat + dampenTowardSaturation(current.threat, clampDelta(delta.threat))),
+    attachment: clampMetric((current.attachment || 0) + dampenTowardSaturation(current.attachment || 0, clampDelta(delta.attachment, 2))),
+    deference: clampMetric((current.deference || 0) + dampenTowardSaturation(current.deference || 0, clampDelta(delta.deference, 2))),
   };
 }
 

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InteractionEventPayload, RuntimeEventV2 } from '../types/runtimeEvent';
-import { RELATIONSHIP_BASELINE, normalizeRelationshipLedgerEntry, reduceRelationshipLedger, replayRelationshipLedger } from './relationshipLedger';
+import { RELATIONSHIP_BASELINE, normalizeRelationshipLedgerEntry, reduceRelationshipLedger, reduceRelationshipLedgerWithDelta, replayRelationshipLedger } from './relationshipLedger';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -62,7 +62,9 @@ describe('relationshipLedger', () => {
     };
 
     const result = reduceRelationshipLedger([], interaction, buildEvent(interaction));
-    expect(result[0].current).toEqual({ warmth: 1, competence: 2, trust: -2, threat: 3 });
+    expect(result[0].current).toEqual({ warmth: 1, competence: 2, trust: -2, threat: 3, attachment: 0, deference: 0 });
+    expect(result[0].baseline).toEqual({ warmth: 0, competence: 0, trust: 0, threat: 0, attachment: 0, deference: 0 });
+    expect(result[0].adjustment).toEqual({ warmth: 1, competence: 2, trust: -2, threat: 3, attachment: 0, deference: 0 });
     expect(result[0].derived?.semantic?.labels).toEqual(['愿意协助但保持戒备']);
     expect(result[0].derived?.semantic?.summary).toBe('提供帮助，同时收紧信任边界');
   });
@@ -83,6 +85,20 @@ describe('relationshipLedger', () => {
     expect(result[0].current.competence).toBe(1);
     expect(result[0].current.threat).toBe(4);
     expect(result[0].current.trust).toBe(-1);
+  });
+
+  it('preserves room adjustment when the relationship baseline is replaced', () => {
+    const event = buildEvent({ actorId: 'a', targetId: 'b' } as InteractionEventPayload);
+    const initial = reduceRelationshipLedgerWithDelta([{
+      pairKey: 'a->b', actorId: 'a', targetId: 'b',
+      baseline: { warmth: 30, competence: 0, trust: 20, threat: 0, attachment: 10, deference: 0 },
+      adjustment: { warmth: 5, competence: 0, trust: -2, threat: 0, attachment: 0, deference: 0 },
+      current: { warmth: 35, competence: 0, trust: 18, threat: 0, attachment: 10, deference: 0 },
+      derived: {}, axisReasons: {}, trend: 'flat', recentEvents: [], lastUpdatedAt: 1,
+    }], { actorId: 'a', targetId: 'b', delta: { warmth: 0 }, reason: 'keep' }, event)[0];
+
+    expect(initial.adjustment?.warmth).toBe(5);
+    expect(initial.current.warmth).toBe(35);
   });
 
   it('normalizes legacy zero-based runtime entries before applying new deltas', () => {

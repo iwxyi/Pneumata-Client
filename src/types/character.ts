@@ -27,7 +27,12 @@ export interface CharacterRelationshipPreset {
   competence: number;
   trust: number;
   threat: number;
+  attachment?: number;
+  deference?: number;
   note?: string;
+  source?: 'user' | 'ai_inferred' | 'imported';
+  confidence?: number;
+  evidence?: string;
   updatedAt?: number;
 }
 

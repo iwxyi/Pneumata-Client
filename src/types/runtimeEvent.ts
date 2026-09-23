@@ -43,6 +43,8 @@ export interface ModelRelationshipAssessment {
     competence: number;
     trust: number;
     threat: number;
+    attachment?: number;
+    deference?: number;
   };
   labels?: string[];
   stance?: string;
@@ -108,6 +110,8 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
         competence: Math.max(-8, Math.min(8, Number(hint.relationship.delta?.competence || 0))),
         trust: Math.max(-8, Math.min(8, Number(hint.relationship.delta?.trust || 0))),
         threat: Math.max(-8, Math.min(8, Number(hint.relationship.delta?.threat || 0))),
+        attachment: Math.max(-2, Math.min(2, Number(hint.relationship.delta?.attachment || 0))),
+        deference: Math.max(-2, Math.min(2, Number(hint.relationship.delta?.deference || 0))),
       },
       labels: Array.isArray(hint.relationship.labels) ? hint.relationship.labels.filter((item): item is string => typeof item === 'string').slice(0, 5) : [],
       stance: typeof hint.relationship.stance === 'string' ? hint.relationship.stance.slice(0, 160) : undefined,
@@ -163,6 +167,8 @@ export interface RelationshipDeltaPayload {
     competence?: number;
     trust?: number;
     threat?: number;
+    attachment?: number;
+    deference?: number;
   };
   reason: string;
   semanticLabels?: string[];
@@ -507,16 +513,25 @@ export function toRelationshipLedgerRecentEvent(event: Pick<RuntimeEventV2, 'id'
   };
 }
 
+export interface RelationshipAxes {
+  warmth: number;
+  competence: number;
+  trust: number;
+  threat: number;
+  attachment?: number;
+  deference?: number;
+}
+
 export interface RelationshipLedgerEntry {
   pairKey: string;
   actorId: string;
   targetId: string;
-  current: {
-    warmth: number;
-    competence: number;
-    trust: number;
-    threat: number;
-  };
+  /** Room baseline derived from the current relationship default; absent on legacy entries. */
+  baseline?: RelationshipAxes;
+  /** Room-local evolution; effective current is baseline plus adjustment. */
+  adjustment?: RelationshipAxes;
+  /** Compatibility cache of the effective relationship; never independently mutated. */
+  current: RelationshipAxes;
   derived?: {
     stability?: number;
     reciprocity?: number;

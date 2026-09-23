@@ -6,7 +6,7 @@ import { adaptCharacterMindProjectionForPrompt } from './characterMindPromptAdap
 import { retrieveRelevantMemories } from './memoryRetrieval';
 import type { MemoryItem } from './memoryTypes';
 import { projectNarrativeLines, type NarrativeLineProjection } from './narrativeProjection';
-import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
+import { normalizeRelationshipLedgerEntry, resolveEffectiveRelationshipAxes } from './relationshipLedger';
 
 const USER_ACTOR_ID = 'user';
 
@@ -117,6 +117,8 @@ interface RelationshipProjectionSource {
   competence: number;
   trust: number;
   threat: number;
+  attachment?: number;
+  deference?: number;
   note: string;
   semanticSummary?: string;
 }
@@ -133,17 +135,31 @@ function toAuthoredRelationshipSource(relation: AICharacter['relationships'][num
     competence: relation.competence,
     trust: relation.trust,
     threat: relation.threat,
+    attachment: relation.attachment || 0,
+    deference: relation.deference || 0,
     note: relation.note || '',
   };
 }
 
-function toLedgerRelationshipSource(entry: ReturnType<typeof normalizeRelationshipLedgerEntry> | undefined): RelationshipProjectionSource | null {
+function toLedgerRelationshipSource(entry: ReturnType<typeof normalizeRelationshipLedgerEntry> | undefined, authored?: AICharacter['relationships'][number], usesRoomAdjustment = false): RelationshipProjectionSource | null {
   if (!entry) return null;
+  const current = authored && usesRoomAdjustment && entry.adjustment
+    ? resolveEffectiveRelationshipAxes({
+      warmth: authored.warmth,
+      competence: authored.competence,
+      trust: authored.trust,
+      threat: authored.threat,
+      attachment: authored.attachment || 0,
+      deference: authored.deference || 0,
+    }, entry.adjustment)
+    : entry.current;
   return {
-    warmth: entry.current.warmth,
-    competence: entry.current.competence,
-    trust: entry.current.trust,
-    threat: entry.current.threat,
+    warmth: current.warmth,
+    competence: current.competence,
+    trust: current.trust,
+    threat: current.threat,
+    attachment: current.attachment || 0,
+    deference: current.deference || 0,
     note: entry.derived?.semantic?.summary || '',
     semanticSummary: entry.derived?.semantic?.summary || '',
   };
@@ -157,12 +173,12 @@ function resolveRelationshipInputs(params: {
   if (!params.targetId) return { authored: null, ledger: null };
 
   const authored = params.character.relationships.find((item) => item.characterId === params.targetId);
-  const ledger = (params.chat.relationshipLedger || [])
-    .map(normalizeRelationshipLedgerEntry)
+  const rawLedgerEntry = (params.chat.relationshipLedger || [])
     .find((item) => item.actorId === params.character.id && item.targetId === params.targetId);
+  const ledgerEntry = rawLedgerEntry ? normalizeRelationshipLedgerEntry(rawLedgerEntry) : undefined;
   return {
     authored: toAuthoredRelationshipSource(authored),
-    ledger: toLedgerRelationshipSource(ledger),
+    ledger: toLedgerRelationshipSource(ledgerEntry, authored, Boolean(rawLedgerEntry?.baseline || rawLedgerEntry?.adjustment)),
   };
 }
 
@@ -173,8 +189,10 @@ function formatRelationshipStance(relationship: RelationshipProjectionSource | n
     relationship.trust >= 12 ? '更愿意配合或透露' : relationship.trust <= -12 ? '会验证、保留或不轻易相信' : '',
     relationship.competence >= 12 ? '认可对方的判断能力' : relationship.competence <= -12 ? '容易挑战对方的判断' : '',
     relationship.threat >= 20 ? '保持戒备，避免把主动权交出去' : '',
+    (relationship.attachment || 0) >= 20 ? '会更在意对方的反应，不容易彻底抽身' : '',
+    (relationship.deference || 0) >= 20 ? '会让出一部分表达主动权或更谨慎地顶撞' : (relationship.deference || 0) <= -20 ? '不愿被对方压住，容易争取解释权' : '',
   ];
-  return uniqueText(stance, 4);
+  return uniqueText(stance, 6);
 }
 
 function formatMergedRelationshipStance(inputs: RelationshipProjectionInputs) {

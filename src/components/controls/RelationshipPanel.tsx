@@ -135,6 +135,25 @@ function formatSignedDelta(value: number) {
   return formatSignedRelationshipNumber(value);
 }
 
+function formatBaselineAndAdjustment(entry: RelationshipLedgerEntry) {
+  const normalized = normalizeRelationshipLedgerEntry(entry);
+  const baseline = normalized.baseline;
+  const adjustment = normalized.adjustment;
+  if (!baseline || !adjustment) return null;
+  const axes = [
+    ['亲和', baseline.warmth, adjustment.warmth],
+    ['能力', baseline.competence, adjustment.competence],
+    ['信任', baseline.trust, adjustment.trust],
+    ['威胁', baseline.threat, adjustment.threat],
+    ['在意', baseline.attachment || 0, adjustment.attachment || 0],
+    ['让位', baseline.deference || 0, adjustment.deference || 0],
+  ] as const;
+  return axes
+    .filter(([, value, delta]) => value !== 0 || delta !== 0)
+    .map(([label, value, delta]) => `${label} ${formatSignedRelationshipNumber(value)} (${formatSignedRelationshipNumber(delta)})`)
+    .join(' · ') || null;
+}
+
 function scalePositiveBiasedRadar(value: number) {
   if (value >= 0) return Math.max(24, Math.min(100, 40 + value * 0.6));
   return Math.max(18, Math.min(44, 40 + value * 0.44));
@@ -335,6 +354,7 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
     ? undefined
     : presented.speakerName;
   const evidenceLabel = buildRelationshipEvidenceLabel(normalizedEntry);
+  const baselineAndAdjustment = formatBaselineAndAdjustment(normalizedEntry);
 
   return (
     <RelationshipCardFrame>
@@ -349,6 +369,7 @@ function RelationshipLedgerCard({ entry, members, hideSpeakerName = false, rever
           </Tooltip>
         </Box>
         {presented.semanticSummary ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>{presented.semanticSummary}</Typography> : null}
+        {baselineAndAdjustment ? <Typography variant="caption" color="text.secondary" sx={{ px: 0.25 }}>默认（房间变化）：{baselineAndAdjustment}</Typography> : null}
         <RelationshipEvidenceCard speakerName={evidenceSpeakerName} evidence={presented.evidence || '暂无明确证据'} label={evidenceLabel} />
         <RelationshipRadar entry={normalizedEntry} onOpenAxis={setActiveAxis} />
       </Stack>
