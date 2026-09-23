@@ -659,11 +659,22 @@ export interface OpenChatModeConfig {
   showRoleActions: boolean;
 }
 
+export interface ConversationInitializationState {
+  /** Versioned so future room initialization steps can evolve without reusing stale completion records. */
+  version: 1;
+  status: 'running' | 'completed' | 'failed';
+  memberFingerprint: string;
+  attemptedAt?: number;
+  completedAt?: number;
+}
+
 export interface OpenChatModeState {
   phase: 'free';
   currentSpeakerId?: string | null;
   currentTopicFocus?: string;
   lastRelationshipEventAt?: number | null;
+  /** Persisted room-entry initialization, currently including AI relationship analysis. */
+  initialization?: ConversationInitializationState;
   assistantTitle?: {
     source?: 'ai' | 'user';
     updatedAt?: number;

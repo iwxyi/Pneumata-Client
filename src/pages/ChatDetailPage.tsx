@@ -54,7 +54,7 @@ import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
-import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
+import { getInputCapabilityWarning, getUsablePreferredAIProfile, isAIProfileUsable, resolveAIModelInputCapabilities } from '../types/settings';
 import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
 import { isGenerationCancelledError } from '../services/generationCancellation';
 import { getStoryChoiceGateState, resolveStoryReaderRole, sanitizeStoryChoicePrompt } from '../services/storyChoices';
@@ -72,6 +72,9 @@ import { useAssistantArtifactStore } from '../stores/useAssistantArtifactStore';
 import type { AssistantHtmlInteractionPayload, AssistantHtmlRuntimeError } from '../features/assistantHtml/AssistantHtmlFrame';
 import { readAssistantAgentDefaultEnabled, writeAssistantAgentDefaultEnabled } from '../services/assistantAgentPreference';
 import { isChatBlockedByMissingRequiredCharacters } from '../services/chatAvailability';
+import { createConversationInitializationState, getConversationInitializationRequirement, getInitializationMembers } from '../services/conversationInitialization';
+import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
+import { buildOpeningTopicGuideMessage } from '../services/createChatOpening';
 import { getPendingAppCommand, subscribePendingAppCommand, type PendingAppCommand } from '../features/appCommand/pendingCommandStore';
 import {
   buildStoryChoicePendingKey,
@@ -1270,10 +1273,20 @@ export default function ChatDetailPage() {
     () => isChatBlockedByMissingRequiredCharacters(chat, characters),
     [characters, chat],
   );
+  const relationshipInitialization = useMemo(
+    () => chat ? getConversationInitializationRequirement(chat, characters) : { required: false, fingerprint: '', status: 'ready' as const },
+    [characters, chat],
+  );
+  const relationshipInitializationBlocked = relationshipInitialization.required;
+  const relationshipInitializationFailed = relationshipInitialization.status === 'failed';
   const chatReadOnlyReason = isRemoteDeletedChat
     ? '此会话已在其他设备删除'
     : isMissingRequiredCharacterChat
       ? '角色已删除，无法继续聊天'
+      : relationshipInitializationBlocked
+        ? relationshipInitializationFailed
+          ? '初始化失败，请重试'
+          : '正在初始化'
       : '';
   const chatInteractionDisabled = Boolean(chatReadOnlyReason);
   const activeMembers = useMemo(
@@ -1292,6 +1305,70 @@ export default function ChatDetailPage() {
   const isStudyRoom = Boolean(chat && hasRoomCapability(chat, 'knowledge'));
   const isAssistantChat = chat?.type === 'assistant';
   const isLearningProgressRoom = Boolean(chat && hasRoomCapability(chat, 'html-interactive'));
+  useEffect(() => {
+    if (!id || !detailBootstrapComplete || isMissingRequiredCharacterChat || !relationshipInitialization.required || relationshipInitialization.status === 'failed') return undefined;
+    const controller = new AbortController();
+    let cancelled = false;
+    const fingerprint = relationshipInitialization.fingerprint;
+    const persistState = async (status: 'running' | 'completed' | 'failed') => {
+      const current = useChatStore.getState().chats.find((item) => item.id === id);
+      if (cancelled || activeChatIdRef.current !== id || !current) return false;
+      const currentRequirement = getConversationInitializationRequirement(current, useCharacterStore.getState().characters);
+      if (currentRequirement.fingerprint !== fingerprint) return false;
+      await updateChat(id, {
+        modeState: {
+          ...current.modeState,
+          initialization: createConversationInitializationState(status, fingerprint),
+        },
+      });
+      return !cancelled && activeChatIdRef.current === id;
+    };
+    const run = async () => {
+      const settings = useSettingsStore.getState();
+      const profile = getUsablePreferredAIProfile(settings.aiProfiles, 'text')
+        || (isAIProfileUsable(settings.api) ? settings.api : null);
+      if (!profile) {
+        await persistState('failed');
+        return;
+      }
+      try {
+        const current = useChatStore.getState().chats.find((item) => item.id === id);
+        if (!current || cancelled || activeChatIdRef.current !== id) return;
+        const membersForInitialization = getInitializationMembers(current, useCharacterStore.getState().characters);
+        await initializeDefaultRelationshipsForCreatedCharacters({
+          config: profile,
+          createdCharacters: membersForInitialization,
+          allCharacters: membersForInitialization,
+          language: isZh ? 'zh' : 'en',
+          updateCharacters: useCharacterStore.getState().updateCharacters,
+          scope: 'selected_members',
+          signal: controller.signal,
+        });
+        if (cancelled || controller.signal.aborted || activeChatIdRef.current !== id) return;
+        const latestChat = useChatStore.getState().chats.find((item) => item.id === id);
+        const latestRequirement = latestChat
+          ? getConversationInitializationRequirement(latestChat, useCharacterStore.getState().characters)
+          : null;
+        if (!latestChat || latestRequirement?.fingerprint !== fingerprint) return;
+        const hasExistingMessage = useMessageStore.getState().messages.some((message) => (
+          message.chatId === id && !message.isDeleted && message.type !== 'system'
+        ));
+        if (!hasExistingMessage && latestChat.topic.trim()) {
+          await addMessage(buildOpeningTopicGuideMessage(id, latestChat.topic));
+        }
+        await persistState('completed');
+      } catch (error) {
+        if (cancelled || controller.signal.aborted || activeChatIdRef.current !== id) return;
+        console.error('[chat-detail:conversation-initialization:error]', error);
+        await persistState('failed');
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [addMessage, detailBootstrapComplete, id, isMissingRequiredCharacterChat, isZh, relationshipInitialization.fingerprint, relationshipInitialization.required, relationshipInitialization.status, updateChat]);
   useEffect(() => {
     if (!id || !isAssistantChat) {
       setPendingAppCommand(null);
@@ -4140,7 +4217,13 @@ export default function ChatDetailPage() {
                 <ArrowBackIcon />
             </IconButton>
           ) : null}
-          actions={chatInteractionDisabled ? null : (
+          actions={chatInteractionDisabled ? (
+            relationshipInitializationBlocked && !isAssistantChat ? (
+              <IconButton onClick={() => navigate(`/chats/${chat.id}/edit`)} aria-label="编辑群聊">
+                <InfoIcon />
+              </IconButton>
+            ) : null
+          ) : (
             <>
               {isAssistantChat ? null : headerPrimaryActionButton}
               {isAssistantChat ? (
@@ -4161,6 +4244,16 @@ export default function ChatDetailPage() {
         />
         {storyTailStatusBar}
         <Box sx={{ position: 'absolute', inset: 0, overflow: 'hidden', zIndex: 1 }}>
+          {relationshipInitializationBlocked ? (
+            <Box sx={{ position: 'absolute', top: { xs: 'calc(80px + env(safe-area-inset-top, 0px))', sm: 72 }, left: 0, right: 0, zIndex: 3, display: 'flex', justifyContent: 'center', px: 2, pointerEvents: 'none' }}>
+              <Box role="status" sx={{ display: 'flex', alignItems: 'center', gap: 0.8, px: 1.25, py: 0.65, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', boxShadow: 1 }}>
+                {relationshipInitializationFailed ? null : <CircularProgress size={14} />}
+                <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                  {relationshipInitializationFailed ? '初始化未完成' : '正在初始化'}
+                </Typography>
+              </Box>
+            </Box>
+          ) : null}
           {shouldDelayStoryMessageListForRestore ? null : <MessageList
             key={id}
             messages={visibleChatMessages}
@@ -4249,13 +4342,25 @@ export default function ChatDetailPage() {
                 <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.4, overflowWrap: 'anywhere', opacity: readOnlyEmphasis ? 1 : 0.58, transition: 'opacity 900ms ease' }}>
                   {chatReadOnlyReason}
                 </Typography>
+                {relationshipInitializationFailed ? (
+                  <Button size="small" variant="text" onClick={() => void updateChat(chat.id, {
+                    modeState: {
+                      ...chat.modeState,
+                      initialization: createConversationInitializationState('running', relationshipInitialization.fingerprint),
+                    },
+                  })}>
+                    重试
+                  </Button>
+                ) : null}
                 <Tooltip
                   arrow
                   enterDelay={450}
                   describeChild
                   title={isRemoteDeletedChat
                     ? '当前仅保留本地只读历史；已停止自动生成和新消息提交。'
-                    : '当前仅可查看历史消息；修复或恢复角色后才能继续聊天。'}
+                    : relationshipInitializationBlocked
+                      ? '初始化完成后会自动恢复聊天。'
+                      : '当前仅可查看历史消息；修复或恢复角色后才能继续聊天。'}
                 >
                   <HelpOutlineIcon aria-label="查看只读状态说明" sx={{ fontSize: 17, color: 'text.secondary', opacity: readOnlyEmphasis ? 0.85 : 0.48, transition: 'opacity 900ms ease', flexShrink: 0 }} />
                 </Tooltip>

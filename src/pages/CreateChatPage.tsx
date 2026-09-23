@@ -19,7 +19,6 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import type { AICharacter } from '../types/character';
 import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
-import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
 import type { ChatStyle, GroupChat, RuntimeEvolutionIntensity } from '../types/chat';
 import { ROOM_TEMPLATES, filterRoomTemplatesForAvailability, getRoomTemplate, getRoomTemplateKernel, getRoomTemplateKeyBySessionKind, type RoomTemplateKey } from '../services/roomTemplates';
 import {
@@ -136,7 +135,10 @@ function buildInitialSessionResetPatch(chat: GroupChat): Partial<GroupChat> {
 
   return {
     isActive: false,
-    modeState: initialDraft.modeState,
+    modeState: {
+      ...initialDraft.modeState,
+      initialization: chat.modeState.initialization,
+    },
     scenarioState: initialDraft.scenarioState,
     channels: initialDraft.channels,
     layoutState: initialDraft.layoutState,
@@ -1417,28 +1419,6 @@ export default function CreateChatPage() {
     };
   };
 
-  const initializeMissingRoomRelationshipDefaults = async (memberIds: string[]) => {
-    const profile = getPreferredAIProfile(useSettingsStore.getState().aiProfiles, 'text') || useSettingsStore.getState().api;
-    if (!isAIProfileUsable(profile)) return;
-    const members = memberIds
-      .filter((memberId) => memberId !== 'user')
-      .map((memberId) => useCharacterStore.getState().characters.find((character) => character.id === memberId))
-      .filter((character): character is AICharacter => Boolean(character));
-    if (members.length < 2) return;
-    try {
-      await initializeDefaultRelationshipsForCreatedCharacters({
-        config: profile,
-        createdCharacters: members,
-        allCharacters: members,
-        language: i18n.language.startsWith('zh') ? 'zh' : 'en',
-        updateCharacters: useCharacterStore.getState().updateCharacters,
-        scope: 'selected_members',
-      });
-    } catch (error) {
-      console.error('[create-chat:relationship-defaults:error]', error);
-    }
-  };
-
   const handleSaveAsChat = async () => {
     if (!editingChat) return;
     if (saving || saveAsChatSaving) {
@@ -1560,7 +1540,12 @@ export default function CreateChatPage() {
                 ? { source: 'user', updatedAt: Date.now() }
                 : editingChat.modeState?.assistantTitle,
             }
-            : nextDraft.modeState,
+            : {
+              ...nextDraft.modeState,
+              // Detail-page initialization owns this lifecycle. Keep a completed
+              // marker until a changed member fingerprint makes it stale again.
+              initialization: editingChat.modeState.initialization,
+            },
           runtimeTimeline: editingChat.runtimeTimeline || nextDraft.runtimeTimeline || [],
           runtimeEventsV2: editingChat.runtimeEventsV2 || nextDraft.runtimeEventsV2 || [],
           relationshipLedger: editingChat.relationshipLedger || nextDraft.relationshipLedger || [],
@@ -1571,7 +1556,6 @@ export default function CreateChatPage() {
             ...nextDraft.worldState,
           },
         });
-        await initializeMissingRoomRelationshipDefaults(draftContext.validMemberIds);
         setChatDraftDefaults({ style, showRoleActions, includeUserAsMember, runtimeEvolutionIntensity });
         navigate(-1);
         return;
@@ -1616,7 +1600,6 @@ export default function CreateChatPage() {
         sourceMarketItemVersion: marketImportDraft?.item.payloadVersion,
         sourceMarketKind: marketImportDraft?.item.kind,
       });
-      await initializeMissingRoomRelationshipDefaults(baseDraft.memberIds);
       // Keep automatic avatar generation consistent with the character setting:
       // a newly created group gets a themed group avatar in the same background
       // image queue, while creation itself remains fast and non-blocking.
@@ -1648,7 +1631,6 @@ export default function CreateChatPage() {
           timestamp: Date.now(),
         });
       }
-      await seedOpeningTopicMessage(chat.id, topic);
       if (marketImportDraft?.item.id) {
         void marketApi.recordImported(marketImportDraft.item.id).catch((error) => {
           console.warn('[market:record-imported:error]', error);

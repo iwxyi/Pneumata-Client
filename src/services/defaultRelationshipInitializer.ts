@@ -186,6 +186,7 @@ export async function buildDefaultRelationshipPatches(params: {
   language: 'zh' | 'en';
   scope?: DefaultRelationshipScope;
   now?: number;
+  signal?: AbortSignal;
 }): Promise<DefaultRelationshipPatch[]> {
   const now = resolveNow(params.now);
   const suggestions = await buildDefaultRelationshipSuggestions({ ...params, now });
@@ -204,6 +205,7 @@ export async function buildDefaultRelationshipSuggestions(params: {
   language: 'zh' | 'en';
   scope?: DefaultRelationshipScope;
   now?: number;
+  signal?: AbortSignal;
 }): Promise<DefaultRelationshipSuggestion[]> {
   const now = resolveNow(params.now);
   const scope = params.scope || 'created_and_existing';
@@ -216,7 +218,7 @@ export async function buildDefaultRelationshipSuggestions(params: {
     'You infer initial directional relationship axes for AI characters. Return valid JSON only.',
     [{ role: 'user', content: buildPrompt({ createdCharacters: created, allCharacters: all, language: params.language, scope }) }],
     undefined,
-    { maxTokens: 3200, aiUsage: { type: 'relationship_analysis', label: '初始化角色关系', scope: 'character' } },
+    { maxTokens: 3200, signal: params.signal, aiUsage: { type: 'relationship_analysis', label: '初始化角色关系', scope: 'character' } },
   );
 
   const nameMap = buildUniqueNameMap(all);
@@ -326,6 +328,7 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
   updateCharacters: (patches: DefaultRelationshipPatch[]) => Promise<void>;
   scope?: DefaultRelationshipScope;
   now?: number;
+  signal?: AbortSignal;
 }) {
   if (!params.config) return [];
   const patches = await buildDefaultRelationshipPatches({
@@ -335,6 +338,7 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
     language: params.language,
     scope: params.scope,
     now: params.now,
+    signal: params.signal,
   });
   if (patches.length) await params.updateCharacters(patches);
   return patches;
