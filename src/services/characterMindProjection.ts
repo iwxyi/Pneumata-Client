@@ -210,17 +210,18 @@ function collectRelationshipContinuity(params: {
   targetId?: string;
   relationship: RelationshipProjectionInputs;
 }) {
-  const publicRelationshipFacts = params.targetId
+  const targetId = params.targetId;
+  const publicRelationshipFacts = targetId
     ? [
       ...(params.chat.relationshipStructure?.edges || [])
-        .filter((edge) => [edge.fromId, edge.toId].includes(params.character.id) && [edge.fromId, edge.toId].includes(params.targetId))
+        .filter((edge) => [edge.fromId, edge.toId].includes(params.character.id) && [edge.fromId, edge.toId].includes(targetId))
         .map((edge) => `共同关系：${edge.statement}`),
       ...(params.chat.relationshipStructure?.sharedFacts || [])
-        .filter((fact) => fact.memberIds.includes(params.character.id) && fact.memberIds.includes(params.targetId))
+        .filter((fact) => fact.memberIds.includes(params.character.id) && fact.memberIds.includes(targetId))
         .map((fact) => `共同关系：${fact.statement}`),
     ]
     : [];
-  if (!params.targetId) {
+  if (!targetId) {
     return uniqueText([
       params.relationship.authored?.note,
       params.relationship.ledger?.semanticSummary || params.relationship.ledger?.note,

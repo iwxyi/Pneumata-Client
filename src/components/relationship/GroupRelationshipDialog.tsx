@@ -1,8 +1,9 @@
-import { Avatar, Box, Chip, Dialog, DialogContent, DialogTitle, Stack, Typography } from '@mui/material';
+import { Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, IconButton, Stack, TextField, Tooltip, Typography } from '@mui/material';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useEffect, useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
 import type { GroupChat, RoomRelationshipSharedFact } from '../../types/chat';
-import { projectGroupRelationshipGraphs, type GroupRelationshipGraph } from '../../services/groupRelationshipGraph';
+import { projectGroupRelationshipGraphs, type GroupRelationshipGraph, type GroupRelationshipGraphEdge } from '../../services/groupRelationshipGraph';
 import { isImageAvatar } from '../../utils/avatar';
 
 interface GroupRelationshipDialogProps {
@@ -11,6 +12,7 @@ interface GroupRelationshipDialogProps {
   chat: GroupChat;
   members: AICharacter[];
   onRefresh?: () => void;
+  onUpdateSharedFacts?: (updates: Array<{ fact: RoomRelationshipSharedFact; statement: string }>) => Promise<void>;
 }
 
 const GRAPH_WIDTH = 600;
@@ -21,7 +23,7 @@ const STRUCTURE_LABELS: Record<RoomRelationshipSharedFact['kind'], string> = {
 
 function edgeColor(edge: GroupRelationshipGraphEdge) {
   if (edge.axes.threat >= 12 || edge.axes.warmth <= -12 || edge.axes.trust <= -12) return '#D84315';
-  if (edge.axes.attachment >= 12) return '#EF6C00';
+  if ((edge.axes.attachment || 0) >= 12) return '#EF6C00';
   if (edge.axes.warmth >= 12 || edge.axes.trust >= 12) return '#2E7D32';
   return '#607D8B';
 }
@@ -82,7 +84,7 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
       onMouseLeave={() => onActiveChange([])}
       sx={{ minWidth: 0, p: 0.9, borderRadius: 1, bgcolor: active ? 'action.selected' : 'background.paper', border: '1px solid', borderColor: active ? edgeColor(edge) : 'divider', boxShadow: active ? 1 : 'none', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}
     >
-      <Stack direction="row" spacing={0.55} useFlexGap alignItems="center" flexWrap="wrap">
+      <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
         <Typography variant="body2" sx={{ fontWeight: 700, color: edgeColor(edge) }}>{fromName} → {toName}</Typography>
       </Stack>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.45, mt: 0.65 }}>
@@ -150,13 +152,18 @@ function RelationshipMap({ graph, highlightedPairs, selectedPairs, onHighlighted
   );
 }
 
-function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlightedPairsChange }: {
+function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlightedPairsChange, onUpdateSharedFacts }: {
   facts: RoomRelationshipSharedFact[];
   members: AICharacter[];
   highlightedPairs: string[];
   onHighlightedPairsChange: (pairKeys: string[]) => void;
+  onUpdateSharedFacts?: GroupRelationshipDialogProps['onUpdateSharedFacts'];
 }) {
   const memberNames = new Map(members.map((member) => [member.id, member.name]));
+  const [editingFacts, setEditingFacts] = useState<RoomRelationshipSharedFact[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const factGroups = Array.from(facts.reduce((groups, fact) => {
     const memberIds = Array.from(new Set(fact.memberIds)).sort();
     const key = memberIds.join('|');
@@ -177,8 +184,9 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
           );
           const active = factPairs.some((pairKey) => highlightedPairs.includes(pairKey));
           return <Box key={groupKey} onMouseEnter={() => onHighlightedPairsChange(factPairs)} onMouseLeave={() => onHighlightedPairsChange([])} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: active ? 'primary.main' : 'divider', bgcolor: active ? 'action.selected' : 'background.paper', boxShadow: active ? 1 : 'none', cursor: 'pointer', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}>
-            <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+            <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
               <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
+              {onUpdateSharedFacts ? <Tooltip title="编辑关系"><IconButton size="small" onClick={(event) => { event.stopPropagation(); setSaveError(''); setEditingFacts(group.facts); setDrafts(Object.fromEntries(group.facts.map((fact) => [fact.id, fact.statement]))); }}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip> : null}
             </Stack>
             <Stack spacing={0.45} sx={{ mt: 0.55 }}>
               {group.facts.map((fact) => <Box key={fact.id} sx={{ display: 'grid', gridTemplateColumns: 'auto minmax(0, 1fr)', alignItems: 'start', gap: 0.55 }}>
@@ -192,6 +200,31 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
           </Box>;
         })}
       </Box>
+      <Dialog open={Boolean(editingFacts)} onClose={() => { if (!saving) setEditingFacts(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle>编辑群体关系</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.2} sx={{ pt: 0.5 }}>
+            {editingFacts?.map((fact) => <TextField key={fact.id} label={STRUCTURE_LABELS[fact.kind]} value={drafts[fact.id] || ''} onChange={(event) => setDrafts((current) => ({ ...current, [fact.id]: event.target.value }))} multiline minRows={2} fullWidth slotProps={{ htmlInput: { maxLength: 180 } }} />)}
+            {saveError ? <Typography variant="caption" color="error">{saveError}</Typography> : null}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button disabled={saving} onClick={() => setEditingFacts(null)}>取消</Button>
+          <Button variant="contained" disabled={saving || !editingFacts?.every((fact) => drafts[fact.id]?.trim())} onClick={async () => {
+            if (!editingFacts || !onUpdateSharedFacts) return;
+            setSaving(true);
+            setSaveError('');
+            try {
+              await onUpdateSharedFacts(editingFacts.map((fact) => ({ fact, statement: drafts[fact.id].trim() })));
+              setEditingFacts(null);
+            } catch (error) {
+              setSaveError(error instanceof Error ? error.message : '保存失败，请稍后重试');
+            } finally {
+              setSaving(false);
+            }
+          }}>保存</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
@@ -207,7 +240,7 @@ function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, 
   </Box>;
 }
 
-export default function GroupRelationshipDialog({ open, onClose, chat, members, onRefresh }: GroupRelationshipDialogProps) {
+export default function GroupRelationshipDialog({ open, onClose, chat, members, onRefresh, onUpdateSharedFacts }: GroupRelationshipDialogProps) {
   const projection = projectGroupRelationshipGraphs(chat, members);
   const eligibleMemberCount = members.filter((member) => chat.memberIds.includes(member.id) && !member.deletedAt).length;
   const [highlightedPairs, setHighlightedPairs] = useState<string[]>([]);
@@ -233,7 +266,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
     } else cardRefs.current.delete(pairKey);
   };
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth PaperProps={{ sx: { height: { xs: 'calc(100% - 32px)', sm: 'min(820px, calc(100% - 64px))' }, overflow: 'hidden' } }}>
+    <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth slotProps={{ paper: { sx: { height: { xs: 'calc(100% - 32px)', sm: 'min(820px, calc(100% - 64px))' }, overflow: 'hidden' } } }}>
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, flexShrink: 0 }}>
         群成员关系
         {onRefresh && eligibleMemberCount >= 2 ? <Chip size="small" label={refreshRequested ? '更新中' : '更新关系'} onClick={() => { if (refreshRequested) return; setRefreshRequested(true); onRefresh(); }} clickable={!refreshRequested} variant="outlined" /> : null}
@@ -242,9 +275,9 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
         <Box sx={{ flexShrink: 0, px: 1.5, pt: 1.25, pb: 0.8 }}><Stack spacing={0.75}>{projection.graphs.map((graph) => <RelationshipMap key={graph.key} graph={graph} highlightedPairs={highlightedPairs} selectedPairs={selectedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} onSelectedPairsChange={handleSelectedPairsChange} />)}</Stack></Box>
         <Box sx={{ minHeight: 0, flex: 1, overflowY: 'auto', px: 1.5, pb: 1.5 }}>
           <Stack spacing={0.8}>
-            <GroupRelationshipFacts facts={projection.sharedFacts} members={members} highlightedPairs={highlightedPairs} onHighlightedPairsChange={(pairKeys) => setHighlightedPairs(pairKeys.length ? pairKeys : selectedPairs)} />
+            <GroupRelationshipFacts facts={projection.sharedFacts} members={members} highlightedPairs={highlightedPairs} onHighlightedPairsChange={(pairKeys) => setHighlightedPairs(pairKeys.length ? pairKeys : selectedPairs)} onUpdateSharedFacts={onUpdateSharedFacts} />
             {projection.graphs.map((graph) => <RelationshipCards key={graph.key} graph={graph} highlightedPairs={highlightedPairs} onHighlightedPairsChange={handleHighlightedPairsChange} registerCard={registerCard} />)}
-            {projection.unconnectedMembers.length ? <Box sx={{ p: 1, borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}><Typography variant="caption" color="text.secondary">暂无关系线</Typography><Stack direction="row" spacing={0.6} useFlexGap flexWrap="wrap" sx={{ mt: 0.6 }}>{projection.unconnectedMembers.map((member) => <Chip key={member.id} size="small" label={member.name} variant="outlined" />)}</Stack></Box> : null}
+            {projection.unconnectedMembers.length ? <Box sx={{ p: 1, borderRadius: 1, border: '1px dashed', borderColor: 'divider' }}><Typography variant="caption" color="text.secondary">暂无关系线</Typography><Stack direction="row" spacing={0.6} useFlexGap sx={{ mt: 0.6, flexWrap: 'wrap' }}>{projection.unconnectedMembers.map((member) => <Chip key={member.id} size="small" label={member.name} variant="outlined" />)}</Stack></Box> : null}
             {!projection.graphs.length && !projection.unconnectedMembers.length ? <Typography variant="body2" color="text.secondary">当前没有可展示的成员关系。</Typography> : null}
           </Stack>
         </Box>

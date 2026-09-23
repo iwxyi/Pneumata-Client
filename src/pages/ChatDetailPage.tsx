@@ -23,7 +23,7 @@ import { useSchedulerStore } from '../stores/useSchedulerStore';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { useUIStore } from '../stores/useUIStore';
 import { useLocalWorkspaceStore } from '../stores/useLocalWorkspaceStore';
-import { type DriverMessageCommitResult, type GroupChat, type MessageBranchState, type StoryChapterState } from '../types/chat';
+import { type DriverMessageCommitResult, type GroupChat, type MessageBranchState, type RoomRelationshipSharedFact, type StoryChapterState } from '../types/chat';
 import MessageList, { type MessageListScrollPosition, type MessageListScrollRequest } from '../components/chat/MessageList';
 import type { NarrativeStoryChoiceOption } from '../components/chat/messageBubblePresentation';
 import SessionComposerHost from '../components/session/SessionComposerHost';
@@ -1300,6 +1300,28 @@ export default function ChatDetailPage() {
       },
     });
   }, [characters, chat, updateChat]);
+  const handleUpdateSharedRelationshipFacts = useCallback(async (updates: Array<{ fact: RoomRelationshipSharedFact; statement: string }>) => {
+    if (!chat || !updates.length) return;
+    const latest = useChatStore.getState().chats.find((item) => item.id === chat.id);
+    if (!latest) throw new Error('当前群聊不存在');
+    const statements = new Map(updates.map(({ fact, statement }) => [fact.id, statement]));
+    const updatedAt = Date.now();
+    const sharedFacts = (latest.relationshipStructure?.sharedFacts || []).map((fact) => (
+      statements.has(fact.id) ? { ...fact, statement: statements.get(fact.id)!, updatedAt } : fact
+    ));
+    const edges = (latest.relationshipStructure?.edges || []).map((edge) => {
+      const legacyId = `legacy-shared-${edge.id}`;
+      return statements.has(legacyId) ? { ...edge, statement: statements.get(legacyId)!, updatedAt } : edge;
+    });
+    await updateChat(latest.id, {
+      relationshipStructure: {
+        version: 1,
+        edges,
+        sharedFacts,
+        updatedAt,
+      },
+    });
+  }, [chat, updateChat]);
   const activeMembers = useMemo(
     () => chat ? characters.filter((c) => chat.memberIds.includes(c.id)) : [],
     [characters, chat]
@@ -4657,6 +4679,7 @@ export default function ChatDetailPage() {
                   }
                 } : undefined}
                 onRefreshRelationships={chat.type === 'group' ? handleRefreshGroupRelationships : undefined}
+                onUpdateSharedRelationshipFacts={chat.type === 'group' ? handleUpdateSharedRelationshipFacts : undefined}
                 onStoryChapterClick={handleStoryChapterClick}
               />}
             </LazyPanel>

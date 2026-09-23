@@ -3,7 +3,7 @@ import { Box, Button, Chip, Stack, Typography } from '@mui/material';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import type { AICharacter } from '../../types/character';
-import type { GroupChat, StoryChapterState } from '../../types/chat';
+import type { GroupChat, RoomRelationshipSharedFact, StoryChapterState } from '../../types/chat';
 import type { Message } from '../../types/message';
 import MemberList from '../controls/MemberList';
 import FloatingSegmentedTabs from '../common/FloatingSegmentedTabs';
@@ -61,6 +61,7 @@ interface ChatSidebarPanelProps {
   onRemoveMember?: (charId: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
   onRefreshRelationships?: () => void;
+  onUpdateSharedRelationshipFacts?: (updates: Array<{ fact: RoomRelationshipSharedFact; statement: string }>) => Promise<void>;
   onStoryChapterClick?: (chapter: StoryChapterState) => void;
   perspectiveMemberId?: string | null;
 }
@@ -702,6 +703,7 @@ export default function ChatSidebarPanel({
   onRemoveMember,
   onUpdateSeats,
   onRefreshRelationships,
+  onUpdateSharedRelationshipFacts,
   onStoryChapterClick,
   perspectiveMemberId,
 }: ChatSidebarPanelProps) {
@@ -767,6 +769,7 @@ export default function ChatSidebarPanel({
               onRemove={onRemoveMember}
               onUpdateSeats={onUpdateSeats}
               onRefreshRelationships={onRefreshRelationships}
+              onUpdateSharedRelationshipFacts={onUpdateSharedRelationshipFacts}
               perspectiveMemberId={perspectiveMemberId}
             />
             <Suspense fallback={<PanelFallback />}>

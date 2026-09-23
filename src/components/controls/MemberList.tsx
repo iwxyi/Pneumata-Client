@@ -8,7 +8,7 @@ import { useMemo, useState } from 'react';
 import SortableList from '../common/SortableList';
 import { useTranslation } from 'react-i18next';
 import type { AICharacter } from '../../types/character';
-import type { GroupChat } from '../../types/chat';
+import type { GroupChat, RoomRelationshipSharedFact } from '../../types/chat';
 import { buildMemberExpressionFeedbackChips, buildMemberInnerLifeChips } from '../../services/memberInnerLifePresentation';
 import { useSettingsStore } from '../../stores/useSettingsStore';
 import { microPillChipSx } from '../../styles/interaction';
@@ -28,6 +28,7 @@ interface MemberListProps {
   onStartDirectChat?: (id: string) => void;
   onUpdateSeats?: (memberIds: string[]) => void;
   onRefreshRelationships?: () => void;
+  onUpdateSharedRelationshipFacts?: (updates: Array<{ fact: RoomRelationshipSharedFact; statement: string }>) => Promise<void>;
   perspectiveMemberId?: string | null;
 }
 
@@ -114,7 +115,7 @@ function buildMemberAvatarFallback(member: AICharacter) {
   return name.slice(0, 1);
 }
 
-export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onGuideMember, onSetPerspectiveMember, onStartDirectChat, onUpdateSeats, onRefreshRelationships, perspectiveMemberId }: MemberListProps) {
+export default function MemberList({ members, thinkingId, chat, onRemove, onSpeakAs, onGuideMember, onSetPerspectiveMember, onStartDirectChat, onUpdateSeats, onRefreshRelationships, onUpdateSharedRelationshipFacts, perspectiveMemberId }: MemberListProps) {
   const { i18n } = useTranslation();
   const developerMode = useSettingsStore((state) => state.developerMode);
   const showAdvancedRuntimePanels = useSettingsStore((state) => state.developerUI.showAdvancedRuntimePanels);
@@ -403,7 +404,7 @@ export default function MemberList({ members, thinkingId, chat, onRemove, onSpea
           }}>保存</Button>
         </DialogActions>
       </Dialog>
-      {chat ? <GroupRelationshipDialog open={relationshipDialogOpen} onClose={() => setRelationshipDialogOpen(false)} chat={chat} members={members} onRefresh={onRefreshRelationships} /> : null}
+      {chat ? <GroupRelationshipDialog open={relationshipDialogOpen} onClose={() => setRelationshipDialogOpen(false)} chat={chat} members={members} onRefresh={onRefreshRelationships} onUpdateSharedFacts={onUpdateSharedRelationshipFacts} /> : null}
     </Box>
   );
 }

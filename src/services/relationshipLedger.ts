@@ -39,8 +39,8 @@ function normalizeAxes(value?: Partial<RelationshipAxes> | null): RelationshipAx
     competence: clampMetric(typeof value?.competence === 'number' ? value.competence : baseline.competence),
     trust: clampMetric(typeof value?.trust === 'number' ? value.trust : baseline.trust),
     threat: clampMetric(typeof value?.threat === 'number' ? value.threat : baseline.threat),
-    attachment: clampMetric(typeof value?.attachment === 'number' ? value.attachment : baseline.attachment),
-    deference: clampMetric(typeof value?.deference === 'number' ? value.deference : baseline.deference),
+    attachment: clampMetric(typeof value?.attachment === 'number' ? value.attachment : baseline.attachment || 0),
+    deference: clampMetric(typeof value?.deference === 'number' ? value.deference : baseline.deference || 0),
   };
 }
 

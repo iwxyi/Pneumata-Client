@@ -191,10 +191,10 @@ export function describeGroupRelationshipEdge(edge: GroupRelationshipGraphEdge) 
   if (note) return note.length > 18 ? `${note.slice(0, 17)}…` : note;
   const { warmth, trust, threat, attachment, deference } = edge.axes;
   const labels = [
-    attachment >= 12 ? '在意' : '',
+    (attachment || 0) >= 12 ? '在意' : '',
     warmth >= 12 || trust >= 12 ? '亲近' : '',
     threat >= 12 || warmth <= -12 || trust <= -12 ? '戒备' : '',
-    deference >= 12 ? '让位' : deference <= -12 ? '不让' : '',
+    (deference || 0) >= 12 ? '让位' : (deference || 0) <= -12 ? '不让' : '',
   ].filter(Boolean);
   return labels.join('、') || '关系线';
 }
