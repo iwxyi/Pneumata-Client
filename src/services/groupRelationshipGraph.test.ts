@@ -39,6 +39,19 @@ describe('group relationship graph projection', () => {
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
 
+  it('does not turn near-zero placeholder values into relationship cards', () => {
+    const room = normalizeConversation({
+      ...chat(),
+      relationshipLedger: [{ pairKey: 'a->b', actorId: 'a', targetId: 'b', current: { warmth: 1, competence: 0, trust: 2, threat: 0, attachment: 0, deference: 0 }, trend: 'flat', recentEvents: [], lastUpdatedAt: 2 }],
+    });
+    const projection = projectGroupRelationshipGraphs(room, [
+      member('a', [{ characterId: 'b', warmth: 4, competence: 0, trust: 2, threat: 0 }]),
+      member('b'), member('c'), member('d'),
+    ]);
+    expect(projection.graphs).toEqual([]);
+    expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
   it('does not project deprecated directional structure as a public fact', () => {
     const room = normalizeConversation({
       ...chat(),

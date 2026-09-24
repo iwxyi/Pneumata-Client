@@ -207,19 +207,26 @@ function formatMergedRelationshipStance(inputs: RelationshipProjectionInputs) {
 function collectRelationshipContinuity(params: {
   chat: GroupChat;
   character: AICharacter;
+  characters: AICharacter[];
   targetId?: string;
   relationship: RelationshipProjectionInputs;
 }) {
   const targetId = params.targetId;
-  const publicRelationshipFacts = targetId
-    ? [
-      ...(params.chat.relationshipStructure?.sharedFacts || [])
-        .filter((fact) => fact.memberIds.includes(params.character.id) && fact.memberIds.includes(targetId))
-        .map((fact) => `共同关系：${fact.statement}`),
-    ]
-    : [];
+  const sharedFacts = (params.chat.relationshipStructure?.sharedFacts || [])
+    .filter((fact) => fact.memberIds.includes(params.character.id))
+    .sort((left, right) => {
+      const leftTargetsCurrent = targetId && left.memberIds.includes(targetId) ? 1 : 0;
+      const rightTargetsCurrent = targetId && right.memberIds.includes(targetId) ? 1 : 0;
+      return rightTargetsCurrent - leftTargetsCurrent;
+    });
+  const publicRelationshipFacts = params.chat.type === 'group'
+    ? sharedFacts.map((fact) => `共同关系：${fact.statement}`)
+    : targetId
+      ? sharedFacts.filter((fact) => fact.memberIds.includes(targetId)).map((fact) => `共同关系：${fact.statement}`)
+      : [];
   if (!targetId) {
     return uniqueText([
+      ...publicRelationshipFacts,
       params.relationship.authored?.note,
       params.relationship.ledger?.semanticSummary || params.relationship.ledger?.note,
     ], 3);
@@ -228,11 +235,19 @@ function collectRelationshipContinuity(params: {
     .map(normalizeRelationshipLedgerEntry)
     .filter((entry) => entry.actorId === params.character.id && entry.targetId === params.targetId)
     .map((entry) => entry.derived?.semantic?.summary || '');
+  const groupRelationshipNotes = params.chat.type === 'group'
+    ? params.character.relationships
+      .filter((relation) => relation.characterId !== targetId && params.chat.memberIds.includes(relation.characterId))
+      .filter((relation) => Boolean(relation.note?.trim()))
+      .slice(0, 3)
+      .map((relation) => `对${characterName(relation.characterId, params.characters)}的看法：${relation.note}`)
+    : [];
   return uniqueText([
     ...publicRelationshipFacts,
     params.relationship.authored?.note ? `长期关系：${params.relationship.authored.note}` : '',
     params.relationship.ledger?.semanticSummary ? `当前关系：${params.relationship.ledger.semanticSummary}` : '',
     ...semanticSummaries.map((summary) => summary ? `当前关系：${summary}` : ''),
+    ...groupRelationshipNotes,
   ], 4);
 }
 
@@ -448,6 +463,7 @@ export function buildCharacterMindProjection(params: {
   const relationshipContinuity = collectRelationshipContinuity({
     chat: params.chat,
     character: params.character,
+    characters: params.characters,
     targetId: target?.id,
     relationship,
   });

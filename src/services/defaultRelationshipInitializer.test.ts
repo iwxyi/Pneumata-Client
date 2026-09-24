@@ -84,6 +84,19 @@ describe('defaultRelationshipInitializer', () => {
     expect(patches.find((patch) => patch.id === 'new')).toBeUndefined();
   });
 
+  it('replaces a near-zero legacy placeholder when analysis finds a real stance', async () => {
+    const created = character('new', '新角色', [{ characterId: 'old', warmth: 4, competence: 0, trust: 2, threat: 0, updatedAt: 2 }]);
+    const old = character('old', '旧角色');
+    const patches = await buildDefaultRelationshipPatches({
+      config: { id: 'p', name: 'Text', type: 'text', provider: 'openai', apiKey: 'k', baseUrl: '', model: 'm' },
+      createdCharacters: [created],
+      allCharacters: [created, old],
+      language: 'zh',
+    });
+
+    expect(patches.find((patch) => patch.id === 'new')?.updates.relationships?.[0]).toMatchObject({ characterId: 'old', warmth: 42, trust: 24 });
+  });
+
   it('can restrict inference to newly created characters only', async () => {
     const created = character('new', '新角色');
     const old = character('old', '旧角色');
