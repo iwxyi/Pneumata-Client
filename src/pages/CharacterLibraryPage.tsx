@@ -541,6 +541,7 @@ export default function CharacterLibraryPage() {
       limit: CHARACTER_LIBRARY_PAGE_SIZE,
       sort: sortField,
       direction: sortDirection,
+      groupFirst: sortGroupFirst,
       group: selectedGroup,
     }).then((result) => {
       if (libraryRequestIdRef.current !== requestId) return;
