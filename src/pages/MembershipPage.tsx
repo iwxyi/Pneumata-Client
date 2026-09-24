@@ -461,7 +461,7 @@ export default function MembershipPage() {
   ];
   const selectedVipTier = vipTiers.find((tier) => tier.code === selectedVipTierCode) || vipTiers[0];
   const selectedTierOption = tierOptions.find((tier) => tier.code === selectedVipTierCode) || selectedVipTier || tierOptions[0];
-  const displayTierOptions = tierOptions.filter((tier) => tier.code !== 'free');
+  const displayTierOptions = tierOptions;
   // Desktop tier cards should retain a calm, readable width instead of
   // stretching across the whole content column. The same tracks are reused
   // by the cue row below so the arrow remains anchored to the selected card.
@@ -776,7 +776,7 @@ export default function MembershipPage() {
                   return (
                     <Box ref={(node: HTMLDivElement | null) => { tierCardRefs.current[tier.code] = node; }} key={tier.code} sx={{ position: 'relative', display: 'flex', flex: { xs: '0 0 min(238px, 78vw)', md: 'initial' }, width: { xs: 'min(238px, 78vw)', md: 'auto' }, minWidth: { xs: 0, md: 0 }, maxWidth: { xs: 'min(238px, 78vw)', md: 'none' }, flexDirection: 'column' }}>
                     <Box
-                      onClick={() => {
+                      onClick={isFree ? undefined : () => {
                         setSelectedVipTierCode(tier.code);
                         window.requestAnimationFrame(() => {
                           tierCardRefs.current[tier.code]?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
@@ -785,7 +785,7 @@ export default function MembershipPage() {
                       sx={{
                         borderRadius: membershipRadius.card,
                         border: '1px solid',
-                        cursor: 'pointer',
+                        cursor: isFree ? 'default' : 'pointer',
                         width: '100%',
                         height: '100%',
                         minHeight: 0,
@@ -801,7 +801,7 @@ export default function MembershipPage() {
                         animation: `membershipRiseIn 460ms ${motion.softOut} both`,
                         animationDelay: `${Math.min(tierIndex * 60, 180)}ms`,
                         transition: transition(['border-color', 'box-shadow', 'transform', 'background-color'], motion.durations.slow, motion.gentleSpring),
-                        '&:hover': {
+                        ...(!isFree ? { '&:hover': {
                           transform: 'translateY(-2px)',
                           borderColor: (theme) => alpha(theme.palette.primary.main, 0.62),
                           boxShadow: (theme) => `0 14px 30px ${alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.18 : 0.10)}`,
@@ -814,8 +814,8 @@ export default function MembershipPage() {
                           '& .tierBenefitMark': {
                             transform: 'scale(1.08)',
                           },
-                        },
-                        ...refinedHoverSx,
+                        } } : {}),
+                        ...(!isFree ? refinedHoverSx : {}),
                       }}
                     >
                       <Stack direction="row" spacing={1} sx={{ alignItems: 'flex-start', justifyContent: 'space-between', gap: 1 }}>
