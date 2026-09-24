@@ -1,4 +1,5 @@
 import { toRelationshipLedgerRecentEvent, type InteractionEventPayload, type RelationshipAxes, type RelationshipAxisReason, type RelationshipDeltaPayload, type RelationshipLedgerEntry, type RuntimeEventV2 } from '../types/runtimeEvent';
+import type { AICharacter } from '../types/character';
 
 const MAX_RELATIONSHIP_AXIS_REASONS = 6;
 const MAX_RELATIONSHIP_RECENT_EVENTS = 8;
@@ -93,6 +94,46 @@ export function normalizeRelationshipLedgerEntry(entry: RelationshipLedgerEntry)
       semantic: entry.derived?.semantic || buildRelationshipSemanticProfile(current, axisReasons),
     },
   };
+}
+
+/**
+ * Rebase a room ledger onto freshly inferred character defaults without
+ * discarding room-local changes accumulated in `adjustment`.
+ */
+export function refreshRelationshipLedgerBaselines(
+  ledger: RelationshipLedgerEntry[],
+  characters: AICharacter[],
+  memberIds: string[],
+  now = Date.now(),
+): RelationshipLedgerEntry[] {
+  const roomIds = new Set(memberIds);
+  const characterById = new Map(characters.map((character) => [character.id, character] as const));
+  const zero = buildBaselineCurrent();
+  return ledger.map((entry) => {
+    if (!roomIds.has(entry.actorId) || !roomIds.has(entry.targetId)) return entry;
+    const normalized = normalizeRelationshipLedgerEntry(entry);
+    const authored = characterById.get(entry.actorId)?.relationships.find((relation) => relation.characterId === entry.targetId);
+    const baseline = authored
+      ? {
+        warmth: authored.warmth ?? 0,
+        competence: authored.competence ?? 0,
+        trust: authored.trust ?? 0,
+        threat: authored.threat ?? 0,
+        attachment: authored.attachment ?? 0,
+        deference: authored.deference ?? 0,
+      }
+      : zero;
+    const adjustment = zero;
+    const current = resolveEffectiveRelationshipAxes(baseline, adjustment);
+    return {
+      ...normalized,
+      baseline,
+      adjustment,
+      current,
+      derived: computeDerived(normalized, current, normalized.axisReasons || {}),
+      lastUpdatedAt: now,
+    };
+  });
 }
 
 export function createBaselineRelationshipCurrent() {

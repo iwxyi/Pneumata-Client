@@ -284,7 +284,7 @@ describe('buildRelationshipTransition', () => {
     expect(speakerPatch?.coreProfile).toBeUndefined();
   });
 
-  it('keeps runtime relationship deltas in the room ledger instead of rewriting authored baselines', () => {
+  it('writes runtime relationship deltas back to global character relationships and the room ledger', () => {
     const chat = buildChat();
     const speaker = buildCharacter('char-a', '甲');
     speaker.relationships = [{ characterId: 'char-b', warmth: 30, competence: 20, trust: 25, threat: 4, attachment: 12, deference: 8, note: '甲认可乙，但仍会观察。' }];
@@ -312,7 +312,7 @@ describe('buildRelationshipTransition', () => {
     });
 
     const speakerPatch = result.characterPatches.find((patch) => patch.characterId === 'char-a')?.patch;
-    expect(speakerPatch?.relationships).toBeUndefined();
+    expect(speakerPatch?.relationships?.[0]).toMatchObject({ characterId: 'char-b', warmth: 32, trust: 27 });
     const ledger = result.relationshipLedger.find((entry) => entry.pairKey === 'char-a->char-b');
     expect(ledger?.baseline).toMatchObject({ warmth: 30, trust: 25 });
     expect(ledger?.adjustment.warmth).toBeGreaterThan(0);

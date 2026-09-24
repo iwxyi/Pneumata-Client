@@ -196,8 +196,8 @@ function formatRelationshipStance(relationship: RelationshipProjectionSource | n
 }
 
 function formatMergedRelationshipStance(inputs: RelationshipProjectionInputs) {
-  const currentFirst = inputs.ledger || inputs.authored;
-  const longTermAfter = inputs.ledger && inputs.authored ? inputs.authored : null;
+  const currentFirst = inputs.authored || inputs.ledger;
+  const longTermAfter = inputs.authored && inputs.ledger ? inputs.ledger : null;
   return uniqueText([
     ...formatRelationshipStance(currentFirst),
     ...formatRelationshipStance(longTermAfter),

@@ -374,7 +374,6 @@ function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICh
     return (conversation.relationshipLedger || []).map((entry) => {
       const authored = characterById.get(entry.actorId)?.relationships.find((relation) => relation.characterId === entry.targetId);
       if (!authored) return entry;
-      const adjustment = entry.adjustment || createBaselineRelationshipCurrent();
       const baseline = {
         warmth: authored.warmth,
         competence: authored.competence,
@@ -383,6 +382,10 @@ function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICh
         attachment: authored.attachment || 0,
         deference: authored.deference || 0,
       };
+      // Character relationships are the global source of truth. The room
+      // entry is retained for event history, but must not add a second layer
+      // of numeric state on top of the character relationship.
+      const adjustment = createBaselineRelationshipCurrent();
       return {
         ...entry,
         baseline,
@@ -493,6 +496,7 @@ export function buildRelationshipTransition(params: {
     characterPatches.push({
       characterId: speaker.id,
       patch: {
+        relationships: updatedSpeakerRelationships,
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
         soulState: projectedSpeakerSoul,
@@ -540,6 +544,7 @@ export function buildRelationshipTransition(params: {
       characterPatches.push({
         characterId: target.id,
         patch: {
+          relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
           soulState: projectedTargetSoul,
           layeredMemories: targetLayeredResult.layeredMemories,

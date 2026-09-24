@@ -74,6 +74,7 @@ import { readAssistantAgentDefaultEnabled, writeAssistantAgentDefaultEnabled } f
 import { isChatBlockedByMissingRequiredCharacters } from '../services/chatAvailability';
 import { createConversationInitializationState, getConversationInitializationRequirement, getInitializationMembers } from '../services/conversationInitialization';
 import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
+import { refreshRelationshipLedgerBaselines } from '../services/relationshipLedger';
 import { buildOpeningTopicGuideMessage } from '../services/createChatOpening';
 import { getPendingAppCommand, subscribePendingAppCommand, type PendingAppCommand } from '../features/appCommand/pendingCommandStore';
 import {
@@ -1409,6 +1410,18 @@ export default function ChatDetailPage() {
           scope: 'selected_members',
           signal: controller.signal,
         });
+        if (forceRelationshipRefresh) {
+          const latestAfterRelationshipUpdate = useChatStore.getState().chats.find((item) => item.id === id);
+          if (latestAfterRelationshipUpdate) {
+            const refreshedLedger = refreshRelationshipLedgerBaselines(
+              latestAfterRelationshipUpdate.relationshipLedger || [],
+              useCharacterStore.getState().characters,
+              membersForInitialization.map((member) => member.id),
+              Date.now(),
+            );
+            await updateChat(id, { relationshipLedger: refreshedLedger });
+          }
+        }
         if (cancelled || controller.signal.aborted || activeChatIdRef.current !== id) return;
         const latestChat = useChatStore.getState().chats.find((item) => item.id === id);
         const latestRequirement = latestChat

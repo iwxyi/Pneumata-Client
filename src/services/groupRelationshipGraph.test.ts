@@ -26,7 +26,7 @@ describe('group relationship graph projection', () => {
     expect(projection.unconnectedMembers).toEqual([]);
   });
 
-  it('uses the room ledger over a default edge and preserves direction', () => {
+  it('uses the global character relationship over a stale room ledger entry', () => {
     const room = normalizeConversation({
       ...chat(),
       relationshipLedger: [{ pairKey: 'a->b', actorId: 'a', targetId: 'b', current: { warmth: -18, competence: 0, trust: -12, threat: 24, attachment: 0, deference: 0 }, trend: 'down', recentEvents: [], lastUpdatedAt: 2 }],
@@ -35,7 +35,7 @@ describe('group relationship graph projection', () => {
       member('a', [{ characterId: 'b', warmth: 30, competence: 0, trust: 30, threat: 0 }]),
       member('b'), member('c'), member('d'),
     ]);
-    expect(projection.graphs[0]?.edges[0]).toMatchObject({ source: 'room', fromId: 'a', toId: 'b', axes: { warmth: -18, threat: 24 } });
+    expect(projection.graphs[0]?.edges[0]).toMatchObject({ source: 'default', fromId: 'a', toId: 'b', axes: { warmth: 30, threat: 0 } });
     expect(projection.unconnectedMembers.map((node) => node.id)).toEqual(['c', 'd']);
   });
 

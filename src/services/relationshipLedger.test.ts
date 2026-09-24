@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InteractionEventPayload, RuntimeEventV2 } from '../types/runtimeEvent';
-import { RELATIONSHIP_BASELINE, normalizeRelationshipLedgerEntry, reduceRelationshipLedger, reduceRelationshipLedgerWithDelta, replayRelationshipLedger } from './relationshipLedger';
+import type { AICharacter } from '../types/character';
+import { RELATIONSHIP_BASELINE, normalizeRelationshipLedgerEntry, refreshRelationshipLedgerBaselines, reduceRelationshipLedger, reduceRelationshipLedgerWithDelta, replayRelationshipLedger } from './relationshipLedger';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -26,6 +27,19 @@ function buildEvent(interaction: InteractionEventPayload): RuntimeEventV2 {
 }
 
 describe('relationshipLedger', () => {
+  it('rebases room baselines onto global defaults while preserving runtime adjustments', () => {
+    const ledger = [{
+      pairKey: 'a->b', actorId: 'a', targetId: 'b',
+      baseline: { warmth: 1, competence: 0, trust: 1, threat: 0, attachment: 0, deference: 0 },
+      adjustment: { warmth: 3, competence: 0, trust: -1, threat: 0, attachment: 0, deference: 0 },
+      current: { warmth: 4, competence: 0, trust: 0, threat: 0, attachment: 0, deference: 0 },
+      trend: 'up' as const, recentEvents: [], lastUpdatedAt: 1,
+    }];
+    const characters = [{ id: 'a', relationships: [{ characterId: 'b', warmth: 42, competence: 18, trust: 24, threat: 5, attachment: 12, deference: 8 }] }, { id: 'b', relationships: [] }] as unknown as AICharacter[];
+    const refreshed = refreshRelationshipLedgerBaselines(ledger, characters, ['a', 'b'], 10);
+    expect(refreshed[0]).toMatchObject({ baseline: { warmth: 42, competence: 18, trust: 24 }, adjustment: { warmth: 0, trust: 0 }, current: { warmth: 42, trust: 24 }, lastUpdatedAt: 10 });
+  });
+
   it('tracks trust and tension for meaningful interactions', () => {
     const interaction: InteractionEventPayload = {
       kind: 'support',

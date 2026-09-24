@@ -93,9 +93,16 @@ export function projectGroupRelationshipGraphs(chat: GroupChat, members: AIChara
   const edgeByKey = new Map<string, GroupRelationshipGraphEdge>();
   const sharedFacts = projectSharedFacts(chat, nodeIds);
 
+  const authoredKeys = new Set(
+    members.flatMap((member) => member.relationships
+      .filter((relation) => nodeIds.has(member.id) && nodeIds.has(relation.characterId))
+      .map((relation) => `${member.id}->${relation.characterId}`)),
+  );
+
   (chat.relationshipLedger || []).forEach((rawEntry) => {
     const entry = normalizeRelationshipLedgerEntry(rawEntry);
     if (!nodeIds.has(entry.actorId) || !nodeIds.has(entry.targetId) || entry.actorId === entry.targetId) return;
+    if (authoredKeys.has(`${entry.actorId}->${entry.targetId}`)) return;
     if (!isMeaningfulRelationshipLedgerEntry(entry)) return;
     edgeByKey.set(`${entry.actorId}->${entry.targetId}`, {
       key: `${entry.actorId}->${entry.targetId}`,
