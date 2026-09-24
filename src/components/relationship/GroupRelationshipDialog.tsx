@@ -179,7 +179,7 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
   if (!visibleFacts.length) return null;
   return (
     <Box>
-      <Typography variant="body2" sx={{ fontWeight: 700 }}>群体关系</Typography>
+      <Typography variant="body2" sx={{ fontWeight: 700 }}>共同关系</Typography>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7, mt: 0.75 }}>
         {Array.from(visibleFacts.reduce((groups, fact) => {
           const memberIds = Array.from(new Set(fact.memberIds)).sort();
@@ -250,7 +250,7 @@ function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, 
   const edges = graph.edges.filter((edge) => edge.source !== 'structural' && (showAll || highlightedPairs.includes(pairKeyFor(edge))));
   if (!edges.length) return null;
   return <Box>
-    <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>单向关系</Typography>
+    <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>成员看法</Typography>
     <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7 }}>{edges.map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(edge.key, element)} interactive={showAll} />)}</Box>
   </Box>;
 }
