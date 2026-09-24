@@ -6,7 +6,7 @@ import type { GroupChat, RoomRelationshipSharedFact } from '../../types/chat';
 import { projectGroupRelationshipGraphs, type GroupRelationshipGraph, type GroupRelationshipGraphEdge } from '../../services/groupRelationshipGraph';
 import { isImageAvatar } from '../../utils/avatar';
 import { scopedStorageKey } from '../../constants/brand';
-import { relationshipAxisDeltaColor, relationshipAxisValueColor, type RelationshipAxisColorKey } from '../../styles/relationshipAxisColor';
+import { relationshipAxisValueColor, type RelationshipAxisColorKey } from '../../styles/relationshipAxisColor';
 
 interface GroupRelationshipDialogProps {
   open: boolean;
@@ -63,12 +63,6 @@ function directionEndpoints(from: { x: number; y: number }, to: { x: number; y: 
   };
 }
 
-function formatAxisValue(baseline: number | undefined, adjustment: number | undefined) {
-  const base = Number.isFinite(baseline) ? Number(baseline) : 0;
-  const delta = Number.isFinite(adjustment) ? Number(adjustment) : 0;
-  return `${Math.round(base)} (${delta > 0 ? '+' : ''}${Math.round(delta)})`;
-}
-
 function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardRef, interactive }: {
   edge: GroupRelationshipGraphEdge;
   fromName: string;
@@ -96,8 +90,7 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
       </Stack>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.45, mt: 0.65 }}>
         {axes.map(([axis, label, baseline, adjustment]) => <Typography key={axis} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
-          {label} <Box component="span" sx={{ color: relationshipAxisValueColor(axis as RelationshipAxisColorKey, baseline || 0, theme.palette.mode), fontWeight: 700 }}>{formatAxisValue(baseline, 0).split(' ')[0]}</Box>{' '}
-          <Box component="span" sx={{ color: relationshipAxisDeltaColor(axis as RelationshipAxisColorKey, adjustment || 0, theme.palette.mode) }}>({formatAxisValue(0, adjustment).match(/\([^)]*\)/)?.[0] || '(0)'})</Box>
+          {label} <Box component="span" sx={{ color: relationshipAxisValueColor(axis as RelationshipAxisColorKey, Math.max(-100, Math.min(100, (baseline || 0) + (adjustment || 0))), theme.palette.mode), fontWeight: 700 }}>{Math.round(baseline || 0)} ({(adjustment || 0) > 0 ? '+' : ''}{Math.round(adjustment || 0)})</Box>
         </Typography>)}
       </Box>
       {edge.note ? <Typography variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{edge.note}</Typography> : null}
