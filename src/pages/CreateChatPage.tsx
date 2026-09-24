@@ -33,7 +33,7 @@ import {
   stripUserMemberId,
 } from '../services/chatDraftBuilder';
 import { api as apiClient, type BillingMembershipResponse, type VipEntitlementInfo } from '../services/api';
-import { MIN_MEMBERS, MAX_MEMBERS } from '../constants/defaults';
+import { MIN_MEMBERS, MAX_MEMBERS, MAX_GROUP_MEMBERS_HARD_LIMIT } from '../constants/defaults';
 import { getChatStyleOption } from '../constants/chatStyles';
 import { storageKey } from '../constants/brand';
 import DirectorControlsSection from '../components/createChat/DirectorControlsSection';
@@ -344,7 +344,11 @@ export default function CreateChatPage() {
   const minRequiredMembers = isGroupConversation ? MIN_MEMBERS : 1;
   const roomTemplateMemberLimit = getRoomTemplate(roomTemplate).maxMembers;
   const maxAllowedMembers = roomTemplateMemberLimit
-    ?? (isGroupConversation ? MAX_MEMBERS : (conversationKind === 'ai_direct' ? 2 : 1));
+    ?? (isGroupConversation
+      ? Math.min(MAX_GROUP_MEMBERS_HARD_LIMIT, entitlementReady
+        ? (useFreeEntitlement ? freeEntitlement?.maxGroupMembers : membership?.vipEntitlement?.entitlement.maxGroupMembers) ?? MAX_MEMBERS
+        : MAX_MEMBERS)
+      : (conversationKind === 'ai_direct' ? 2 : 1));
 
   const showError = (message: string) => {
     setSnackbar({ open: true, message, severity: 'error' });

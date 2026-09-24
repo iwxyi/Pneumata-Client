@@ -85,6 +85,7 @@ type VipEntitlementForm = {
   benefitsMarkdown: string;
   maxCharacters: string;
   maxChats: string;
+  maxGroupMembers: string;
   dailyAiGenerationLimit: string;
   batchGenerationLimit: string;
   officialProviderAccessText: string;
@@ -217,6 +218,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     benefitsMarkdown: '- 基础聊天体验\n- 每日/每月免费点数\n- 100MB 云空间\n- 本地数据可用',
     maxCharacters: '10',
     maxChats: '30',
+    maxGroupMembers: '10',
     dailyAiGenerationLimit: '3',
     batchGenerationLimit: '3',
     officialProviderAccessText: 'official-1',
@@ -240,6 +242,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     benefitsMarkdown: '',
     maxCharacters: '50',
     maxChats: '200',
+    maxGroupMembers: '15',
     dailyAiGenerationLimit: '20',
     batchGenerationLimit: '10',
     officialProviderAccessText: 'official-1\nofficial-2',
@@ -263,6 +266,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     benefitsMarkdown: '',
     maxCharacters: '500',
     maxChats: '2000',
+    maxGroupMembers: '20',
     dailyAiGenerationLimit: '100',
     batchGenerationLimit: '30',
     officialProviderAccessText: 'official-1\nofficial-2\nofficial-team',
@@ -286,6 +290,7 @@ const DEFAULT_VIP_ENTITLEMENTS: Record<string, VipEntitlementForm> = {
     benefitsMarkdown: '',
     maxCharacters: '500',
     maxChats: '2000',
+    maxGroupMembers: '30',
     dailyAiGenerationLimit: '100',
     batchGenerationLimit: '30',
     officialProviderAccessText: 'official-1\nofficial-2\nofficial-team\nofficial-4',
@@ -547,6 +552,7 @@ function toEntitlementForm(value: unknown, fallback: VipEntitlementForm): VipEnt
     benefitsMarkdown: hasOwnRecordValue(record, 'benefitsMarkdown') ? String(record.benefitsMarkdown || '') : fallback.benefitsMarkdown,
     maxCharacters: hasOwnRecordValue(record, 'maxCharacters') ? limitText(record.maxCharacters, fallback.maxCharacters) : fallback.maxCharacters,
     maxChats: hasOwnRecordValue(record, 'maxChats') ? limitText(record.maxChats, fallback.maxChats) : fallback.maxChats,
+    maxGroupMembers: hasOwnRecordValue(record, 'maxGroupMembers') ? limitText(record.maxGroupMembers, fallback.maxGroupMembers) : fallback.maxGroupMembers,
     dailyAiGenerationLimit: hasOwnRecordValue(record, 'dailyAiGenerationLimit') ? limitText(record.dailyAiGenerationLimit, fallback.dailyAiGenerationLimit) : fallback.dailyAiGenerationLimit,
     batchGenerationLimit: hasOwnRecordValue(record, 'batchGenerationLimit') ? limitText(record.batchGenerationLimit, fallback.batchGenerationLimit) : fallback.batchGenerationLimit,
     officialProviderAccessText: providerAccess,
@@ -599,6 +605,7 @@ function buildEntitlementPayload(form: VipEntitlementForm, allowedProviderIds?: 
     benefitsMarkdown: form.benefitsMarkdown,
     maxCharacters: parseLimitValue(form.maxCharacters),
     maxChats: parseLimitValue(form.maxChats),
+    maxGroupMembers: parseLimitValue(form.maxGroupMembers),
     dailyAiGenerationLimit: parseLimitValue(form.dailyAiGenerationLimit),
     batchGenerationLimit: parseLimitValue(form.batchGenerationLimit),
     officialProviderAccess: filterAllowedProviderAccess(parseProviderAccessText(form.officialProviderAccessText), allowedProviderIds),
@@ -882,6 +889,7 @@ function EntitlementEditor({
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' }, gap: 1 }}>
         <TextField label="角色上限" value={entitlement.maxCharacters} onChange={(event) => onEntitlementChange('maxCharacters', event.target.value)} fullWidth />
         <TextField label="聊天上限" value={entitlement.maxChats} onChange={(event) => onEntitlementChange('maxChats', event.target.value)} fullWidth />
+        <TextField label="单群 AI 成员上限" value={entitlement.maxGroupMembers} onChange={(event) => onEntitlementChange('maxGroupMembers', event.target.value)} fullWidth />
         <TextField label="每日生成次数" value={entitlement.dailyAiGenerationLimit} onChange={(event) => onEntitlementChange('dailyAiGenerationLimit', event.target.value)} fullWidth />
         <TextField label="单次批量生成上限" value={entitlement.batchGenerationLimit} onChange={(event) => onEntitlementChange('batchGenerationLimit', event.target.value)} fullWidth />
         <TextField label="每日领取点数" value={entitlement.dailyPointGrant} onChange={(event) => onEntitlementChange('dailyPointGrant', event.target.value)} fullWidth />

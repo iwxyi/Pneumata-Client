@@ -5,6 +5,8 @@ export const CHAT_STYLE_OPTIONS = CHAT_STYLE_DEFINITIONS.map(({ value, icon }) =
 // A group room always includes the user; one selected AI role is enough to start it.
 export const MIN_MEMBERS = 1;
 export const MAX_MEMBERS = 10;
+/** Product safety ceiling; membership entitlements may raise the default up to this value. */
+export const MAX_GROUP_MEMBERS_HARD_LIMIT = 30;
 
 export const SPEED_MIN = 0.5;
 export const SPEED_MAX = 2.0;

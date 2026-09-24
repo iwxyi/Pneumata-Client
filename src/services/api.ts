@@ -93,6 +93,7 @@ export interface VipEntitlementInfo {
   benefitsMarkdown?: string;
   maxCharacters: number | null;
   maxChats: number | null;
+  maxGroupMembers: number | null;
   dailyAiGenerationLimit: number | null;
   batchGenerationLimit: number | null;
   officialProviderAccess: string[];
