@@ -116,30 +116,38 @@ function buildCoreContinuityLines(
   const selfContinuity = cleanValues(rawSelfContinuity, visibility, 4);
   const rawTargetStance = projection.relationship.stance;
   const targetStance = cleanValues(rawTargetStance, visibility, 3);
-  const lines = [
+  const identityLines = [
     bullet('Stable self', cleanValues(projection.identity.selfModel, visibility, 3)),
     bullet('Voice and habits', cleanValues(projection.identity.stableVoice, visibility, 3)),
-    bullet('Self continuity', selfContinuity),
+  ].filter(Boolean);
+  const targetRelationshipLine = projection.relationship.targetName
+    ? bullet(`Stance toward ${stripInternalIds(projection.relationship.targetName)}`, [
+      ...targetStance,
+      ...relationshipContinuity.map((item) => `Relationship continuity: ${item}`),
+      ...sharedHistory.map((item) => `Shared history: ${item}`),
+    ].slice(0, 5))
+    : '';
+  const immediatePressureLine = bullet('Immediate inner pressure', cleanValues([
+    ...projection.currentState.emotionalUndercurrent,
+    ...projection.currentState.activeNeeds,
+  ], visibility, 4));
+  const priorityLines = [
+    ...identityLines,
+    targetRelationshipLine,
+    immediatePressureLine,
+  ].filter(Boolean);
+  const continuityLines = [
     bullet('Desires', cleanValues(projection.identity.desires, visibility, 2)),
     bullet('Fears and sensitivities', cleanValues(projection.identity.fears, visibility, 2)),
+    bullet('Self continuity', selfContinuity),
     bullet('User continuity', userContinuity),
-    bullet('Relationship continuity', relationshipContinuity),
-    bullet('Shared history', sharedHistory),
-    projection.relationship.targetName
-      ? bullet(`Stance toward ${stripInternalIds(projection.relationship.targetName)}`, targetStance.length
-        ? targetStance
-        : publicContinuityFallback(
-          targetStance,
-          'A relationship stance exists toward the current target; show it through tone, omission, or boundary.',
-          visibility,
-          rawTargetStance.length,
-        ))
-      : '',
-    bullet('Emotional undercurrent', cleanValues(projection.currentState.emotionalUndercurrent, visibility, 3)),
-    bullet('Active needs', cleanValues(projection.currentState.activeNeeds, visibility, 2)),
+    !projection.relationship.targetName ? bullet('Relationship continuity', relationshipContinuity) : '',
+    !projection.relationship.targetName ? bullet('Shared history', sharedHistory) : '',
     projection.currentState.selfAppraisal ? `- Self-appraisal: ${stripInternalIds(compactText(projection.currentState.selfAppraisal))}` : '',
   ].filter(Boolean);
-  return lines.slice(0, maxLines);
+  return [...priorityLines, ...continuityLines]
+    .filter((line, index, lines) => lines.indexOf(line) === index)
+    .slice(0, maxLines);
 }
 
 function buildRoomLines(

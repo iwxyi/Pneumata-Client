@@ -236,7 +236,13 @@ function describeSituationalConstraints(input: BuildTurnDirectiveInput) {
 
 export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirective | null {
   if (!shouldUseUnifiedTurnDirective(input.chat)) return null;
-  const targetName = speakerName(input.members, input.conversationMovePlan.targetActorId || input.intent.target);
+  const targetActorId = input.conversationMovePlan.targetActorId || input.intent.target;
+  const targetName = speakerName(input.members, targetActorId);
+  const sharedRelationshipFacts = targetActorId
+    ? (input.chat.relationshipStructure?.sharedFacts || [])
+      .filter((fact) => fact.memberIds.includes(input.speaker.id) && fact.memberIds.includes(targetActorId))
+      .map((fact) => fact.statement)
+    : [];
   const forbiddenDrift = [
     'do not use recent transcript wording as a template',
     'do not turn agreement into a paraphrase, a meeting recap, or a newly invented condition just to prove the turn contributes; agreement may simply reveal attitude, relationship, relief, reluctance, or a decision to let the point rest',
@@ -254,6 +260,10 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
       speaker: input.speaker,
       messages: input.messages,
       innerLife: input.innerLife,
+      targetActorId,
+      targetName,
+      sharedRelationshipFacts,
+      includeRelationshipNote: false,
     }),
     socialJob: describeSocialJob(input.conversationMovePlan, input.intent),
     targetName,
@@ -273,13 +283,16 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
   const situationalLine = directive.situationalConstraints.length
     ? `\n- Situational constraints: ${directive.situationalConstraints.join('; ')}.`
     : '';
+  const relationshipAction = directive.characterDrive.relationalAction === 'situated'
+    ? 'let the target-specific relationship evidence decide the action; do not map one axis to a preset reaction'
+    : directive.characterDrive.relationalAction;
   return `\n## Turn Directive
 - This is the single behavior decision for this ordinary group-chat turn. Character drive is the primary behavior decision; the social job is only a secondary realization option. Never replace the drive with generic room management.
 - Do not recite the room's agenda, redistribute the same terms, or produce a cleaned-up consensus merely because the social job is to advance the topic. Let this speaker's own stake, blind spot, memory, irritation, affection, uncertainty, or appetite change what they notice and whether they agree.
 - A believable reply may leave part of the proposal untouched, seize on one word, object to the framing, make an aside, concede reluctantly, ask for something personal, or stop after a small reaction. It does not need to carry every prior condition forward.
 - Room style: ${directive.roomStyle}.${targetLine}
 - Personal stake: ${directive.characterDrive.stake}.
-- Relationship action: ${directive.characterDrive.relationalAction}.
+- Relationship action: ${relationshipAction}.
 - Attention lens: ${directive.characterDrive.attentionLens}.
 - Speaking necessity: ${directive.characterDrive.speakingNecessity}; a turn marked let_silence_stand may be brief, partial, or omitted when the runtime allows it.
 - Social job: ${directive.socialJob}.

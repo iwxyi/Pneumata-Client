@@ -237,7 +237,7 @@ describe('characterMindProjection', () => {
     expect(projection.expression.omissions).toContain('内部状态分数');
   });
 
-  it('keeps long-term warmth while exposing current-session guardedness', () => {
+  it('keeps the global authored relationship authoritative over a stale room ledger', () => {
     const target = character({ id: 'char-b', name: '小铁' });
     const speaker = character({
       relationships: [{
@@ -278,12 +278,12 @@ describe('characterMindProjection', () => {
 
     expect(projection.relationship.stance).toEqual(expect.arrayContaining([
       '更容易靠近、维护或给对方留余地',
-      '会验证、保留或不轻易相信',
-      '保持戒备，避免把主动权交出去',
+      '更愿意配合或透露',
     ]));
+    expect(projection.relationship.stance).not.toContain('保持戒备，避免把主动权交出去');
     expect(projection.continuity.relationshipMemories).toContain('长期关系：长期愿意替小铁留余地。');
-    expect(projection.continuity.relationshipMemories).toContain('当前关系：紧张对峙：戒备');
-    expect(projection.expression.temperature).toBe('克制或带防备');
+    expect(projection.continuity.relationshipMemories).not.toContain('当前关系：紧张对峙：戒备');
+    expect(projection.expression.temperature).toBe('更容易柔和');
   });
 
   it('uses an upstream resolved target instead of re-picking the latest speaker', () => {

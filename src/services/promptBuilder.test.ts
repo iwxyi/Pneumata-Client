@@ -371,6 +371,40 @@ describe('buildSystemPromptWithContext', () => {
     expect(trace.targetReason).toBe('来自上一条消息的最近发言者');
   });
 
+  it('keeps the behavior planner target aligned with the relationship posture', () => {
+    const speaker = buildCharacter({
+      id: 'char-a',
+      name: '牛头',
+      relationships: [{ characterId: 'char-c', warmth: 6, competence: 72, trust: 38, threat: 24, deference: 70, note: '对阎君既熟悉又敬畏。' }],
+    });
+    const latestAi = buildCharacter({ id: 'char-b', name: '马面' });
+    const plannedTarget = buildCharacter({ id: 'char-c', name: '阎君' });
+    const room = {
+      ...buildChat(),
+      memberIds: ['char-a', 'char-b', 'char-c'],
+      relationshipStructure: {
+        version: 1 as const,
+        edges: [],
+        sharedFacts: [{ id: 'authority', memberIds: ['char-a', 'char-c'], kind: 'authority' as const, statement: '阎君统辖幽都，牛头受其差遣。', confidence: 0.98, evidence: '角色设定', updatedAt: 1 }],
+        updatedAt: 1,
+      },
+    };
+    const assembly = buildPromptAssemblyWithContext(speaker, room, 0, [
+      buildMessage({ senderId: latestAi.id, senderName: latestAi.name, content: '我先去看西巷。' }),
+    ], new Map([
+      [speaker.id, speaker],
+      [latestAi.id, latestAi],
+      [plannedTarget.id, plannedTarget],
+    ]), { preferredTargetActorId: plannedTarget.id });
+
+    expect(assembly.memoryTrace.targetActorId).toBe(plannedTarget.id);
+    expect(assembly.memoryTrace.targetReason).toBe('来自本回合行为规划的当前对象');
+    expect(assembly.systemPrompt).toContain('Current counterpart: 阎君');
+    expect(assembly.systemPrompt).toContain('Shared reality: 阎君统辖幽都，牛头受其差遣。');
+    expect(assembly.systemPrompt).toContain('deference 70');
+    expect(assembly.systemPrompt).not.toContain('Current counterpart: 马面');
+  });
+
   it('targets the latest AI speaker in group prompts when that message explicitly addresses the current speaker', () => {
     const speaker = buildCharacter({ id: 'char-a', name: '喜羊羊' });
     const latestAi = buildCharacter({ id: 'char-b', name: '灰太狼' });

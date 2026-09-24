@@ -3911,7 +3911,9 @@ export async function generateSpeakerMessage(params: {
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const promptAssembly = resolveSessionEngineKey(params.chat) === 'open_chat'
     && resolveSessionFamilyKey(params.chat) !== 'analysis'
-    ? buildPromptAssemblyWithContext(params.speaker, params.chat, emotion, activeMessages, characterMap)
+    ? buildPromptAssemblyWithContext(params.speaker, params.chat, emotion, activeMessages, characterMap, {
+      preferredTargetActorId: conversationMovePlan.targetActorId || intent.target,
+    })
     : null;
   const memoryTrace = promptAssembly?.memoryTrace || buildPromptMemoryTrace(params.speaker, params.chat, activeMessages, characterMap);
   const characterMindTrace = promptAssembly?.characterMindTrace || buildPromptCharacterMindTrace(params.speaker, params.chat, activeMessages, characterMap);

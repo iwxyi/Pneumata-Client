@@ -196,12 +196,10 @@ function formatRelationshipStance(relationship: RelationshipProjectionSource | n
 }
 
 function formatMergedRelationshipStance(inputs: RelationshipProjectionInputs) {
-  const currentFirst = inputs.authored || inputs.ledger;
-  const longTermAfter = inputs.authored && inputs.ledger ? inputs.ledger : null;
-  return uniqueText([
-    ...formatRelationshipStance(currentFirst),
-    ...formatRelationshipStance(longTermAfter),
-  ], 5);
+  // Authored relationships are the cross-room source of truth. The room ledger
+  // only remains as a migration fallback for characters that have no global
+  // relationship yet; mixing both can re-introduce stale, contradictory stance.
+  return formatRelationshipStance(inputs.authored || inputs.ledger);
 }
 
 function collectRelationshipContinuity(params: {
@@ -245,8 +243,8 @@ function collectRelationshipContinuity(params: {
   return uniqueText([
     ...publicRelationshipFacts,
     params.relationship.authored?.note ? `长期关系：${params.relationship.authored.note}` : '',
-    params.relationship.ledger?.semanticSummary ? `当前关系：${params.relationship.ledger.semanticSummary}` : '',
-    ...semanticSummaries.map((summary) => summary ? `当前关系：${summary}` : ''),
+    !params.relationship.authored && params.relationship.ledger?.semanticSummary ? `当前关系：${params.relationship.ledger.semanticSummary}` : '',
+    ...(!params.relationship.authored ? semanticSummaries.map((summary) => summary ? `当前关系：${summary}` : '') : []),
     ...groupRelationshipNotes,
   ], 4);
 }
@@ -459,7 +457,7 @@ export function buildCharacterMindProjection(params: {
     chat: params.chat,
     targetId: target?.id,
   });
-  const activeRelationship = relationship.ledger || relationship.authored;
+  const activeRelationship = relationship.authored || relationship.ledger;
   const relationshipContinuity = collectRelationshipContinuity({
     chat: params.chat,
     character: params.character,

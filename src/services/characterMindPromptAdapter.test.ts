@@ -191,6 +191,23 @@ describe('characterMindPromptAdapter', () => {
     expect(output.coreContinuityBlock.split('\n').length).toBeLessThanOrEqual(5);
   });
 
+  it('reserves a relationship and inner-pressure line inside a small core budget', () => {
+    const value = projection();
+    value.relationship.targetName = '阿远';
+    value.relationship.stance = ['面对阿远时会明显收敛锋芒'];
+    value.continuity.relationshipMemories = ['阿远掌握最终裁决权'];
+    const output = adaptCharacterMindProjectionForPrompt(value, {
+      chatType: 'group',
+      visibility: 'public',
+      maxCoreLines: 4,
+      visibleMemoryRecall: 'off',
+    });
+
+    expect(output.coreContinuityBlock).toContain('Stance toward 阿远');
+    expect(output.coreContinuityBlock).toContain('面对阿远时会明显收敛锋芒');
+    expect(output.coreContinuityBlock).toContain('Immediate inner pressure');
+  });
+
   it('can omit room topic when another prompt block already owns topic context', () => {
     const output = adaptCharacterMindProjectionForPrompt(projection(), {
       chatType: 'group',

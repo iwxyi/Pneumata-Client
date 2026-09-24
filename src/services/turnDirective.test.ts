@@ -229,7 +229,7 @@ describe('turnDirective', () => {
 
     expect(prompt).toContain('不让朋友在众人面前被当成可牺牲的那一个');
     expect(prompt).toContain('先看谁在替别人吞下代价');
-    expect(prompt).toContain('Relationship action: protect');
+    expect(prompt).toContain('Relationship action: let the target-specific relationship evidence decide the action');
     expect(prompt).toContain('Character drive is the primary behavior decision');
   });
 

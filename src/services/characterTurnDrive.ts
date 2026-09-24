@@ -2,7 +2,7 @@ import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
 import type { InnerLifeProjection } from './innerLifeEngine';
 
-export type CharacterRelationalAction = 'approach' | 'protect' | 'test' | 'resist' | 'avoid' | 'repair' | 'compete' | 'observe' | 'disengage';
+export type CharacterRelationalAction = 'approach' | 'resist' | 'avoid' | 'repair' | 'compete' | 'situated' | 'observe' | 'disengage';
 export type SpeakingNecessity = 'strong' | 'optional' | 'let_silence_stand';
 
 export interface CharacterTurnDrive {
@@ -17,9 +17,10 @@ function latestOtherMessage(character: AICharacter, messages: Message[]) {
   return messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event' && message.senderId !== character.id).at(-1) || null;
 }
 
-function relationshipToLastSpeaker(character: AICharacter, message: Message | null) {
-  if (!message || message.senderId === 'user') return undefined;
-  return character.relationships.find((item) => item.characterId === message.senderId);
+function relationshipToTarget(character: AICharacter, targetActorId: string | undefined, message: Message | null) {
+  const resolvedTargetId = targetActorId || message?.senderId;
+  if (!resolvedTargetId) return undefined;
+  return character.relationships.find((item) => item.characterId === resolvedTargetId);
 }
 
 /**
@@ -31,15 +32,23 @@ export function deriveCharacterTurnDrive(input: {
   speaker: AICharacter;
   messages: Message[];
   innerLife: InnerLifeProjection;
+  targetActorId?: string;
+  targetName?: string;
+  sharedRelationshipFacts?: string[];
+  includeRelationshipNote?: boolean;
 }): CharacterTurnDrive {
   const { speaker, innerLife } = input;
   const core = speaker.coreProfile;
   const latest = latestOtherMessage(speaker, input.messages);
-  const relationship = relationshipToLastSpeaker(speaker, latest);
+  const relationship = relationshipToTarget(speaker, input.targetActorId, latest);
+  const targetName = input.targetName || latest?.senderName || 'the current person';
+  const sharedRelationshipFacts = (input.sharedRelationshipFacts || []).filter(Boolean).slice(0, 2);
   const evidence: string[] = [];
   const directAddress = Boolean(latest && (latest.content.includes(speaker.name) || (latest as Message & { addressedTargetIds?: string[] }).addressedTargetIds?.includes(speaker.id)));
   if (directAddress) evidence.push('direct_address');
-  if (relationship && latest?.senderId) evidence.push('relationship_to_latest_speaker');
+  if (relationship) evidence.push('relationship_to_current_target');
+  if (input.includeRelationshipNote !== false && relationship?.note?.trim()) evidence.push('directional_relationship_note');
+  if (sharedRelationshipFacts.length) evidence.push('shared_relationship_structure');
   if (core?.coreDesire) evidence.push('core_desire');
   if (core?.coreFear) evidence.push('core_fear');
   if (core?.valuePriority?.length || core?.values?.length) evidence.push('core_values');
@@ -48,12 +57,11 @@ export function deriveCharacterTurnDrive(input: {
 
   let relationalAction: CharacterRelationalAction = 'observe';
   if (innerLife.impulse === 'repair') relationalAction = 'repair';
-  else if (relationship?.threat && relationship.threat >= 12) relationalAction = 'test';
-  else if (relationship?.warmth && relationship.warmth >= 12) relationalAction = 'protect';
-  else if (innerLife.impulse === 'avoid' || innerLife.impulse === 'withdraw' || innerLife.impulse === 'stay_silent') relationalAction = 'avoid';
   else if (innerLife.impulse === 'mock' || innerLife.impulse === 'defend_face') relationalAction = 'resist';
   else if (innerLife.impulse === 'comfort') relationalAction = 'approach';
   else if (innerLife.impulse === 'show_off') relationalAction = 'compete';
+  else if (relationship || sharedRelationshipFacts.length) relationalAction = 'situated';
+  else if (innerLife.impulse === 'avoid' || innerLife.impulse === 'withdraw' || innerLife.impulse === 'stay_silent') relationalAction = 'avoid';
 
   const attentionLens = core?.interactionHabits?.[0]
     || core?.perceptionBiases?.[0]
@@ -61,16 +69,20 @@ export function deriveCharacterTurnDrive(input: {
     || core?.valuePriority?.[0]
     || core?.values?.[0]
     || (latest ? 'the concrete pressure or loose end in the latest line' : 'what is actually present, without inventing a hidden motive');
-  const stake = core?.coreDesire
-    ? `What matters personally is ${core.coreDesire}`
+  const explicitRelationshipStakes = [
+    input.includeRelationshipNote !== false && relationship?.note?.trim() ? `With ${targetName}, the live personal stake is: ${relationship.note.trim()}` : '',
+    sharedRelationshipFacts.length ? `With ${targetName}, the shared reality is: ${sharedRelationshipFacts.join(' / ')}` : '',
+  ].filter(Boolean);
+  const relationshipStake = explicitRelationshipStakes.join('; ')
+    || (relationship ? `The current relationship with ${targetName} matters, but its six axes must be interpreted together rather than reduced to one preset reaction` : '');
+  const identityStake = core?.coreDesire
+    ? `Their standing desire is ${core.coreDesire}`
     : core?.coreFear
-      ? `What they do not want repeated is ${core.coreFear}`
-      : relationship?.warmth && relationship.warmth >= 12
-        ? 'the person in front of them matters more than looking correct'
-        : relationship?.threat && relationship.threat >= 12
-          ? 'they do not want to yield their position without testing the terms'
-          : 'no invented private stake; only respond to something concrete if there is one';
-  const speakingNecessity: SpeakingNecessity = directAddress || innerLife.pressure >= 0.66 || relationalAction === 'repair' || relationalAction === 'protect' || relationalAction === 'test' || relationalAction === 'resist'
+      ? `They do not want ${core.coreFear} repeated`
+      : '';
+  const stake = [relationshipStake, identityStake].filter(Boolean).join('; ')
+    || 'no invented private stake; only respond to something concrete if there is one';
+  const speakingNecessity: SpeakingNecessity = directAddress || innerLife.pressure >= 0.66 || relationalAction === 'repair' || relationalAction === 'resist'
     ? 'strong'
     : innerLife.impulse === 'stay_silent' || relationalAction === 'avoid'
       ? 'let_silence_stand'

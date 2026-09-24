@@ -791,8 +791,8 @@ function buildTraceFromPromptMemories(items: MemoryItem[], members: DisplayTextM
   };
 }
 
-function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>) {
-  const targetResolution = resolvePromptTarget(chat, messages, characters, character);
+function resolvePromptMemoryContext(character: AICharacter, chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>, preferredTargetActorId?: string) {
+  const targetResolution = resolvePromptTarget(chat, messages, characters, character, preferredTargetActorId);
   const target = targetResolution?.target;
   const relationshipSnapshot = getRelationshipSnapshot(character, chat, target);
   const policies = buildPromptMemoryPolicies(chat);
@@ -1049,9 +1049,13 @@ function resolveHumanGuidanceTarget(messages: Message[], characters: Map<string,
   return undefined;
 }
 
-function resolvePromptTarget(chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>, speaker: AICharacter) {
+function resolvePromptTarget(chat: GroupChat, messages: Message[], characters: Map<string, AICharacter>, speaker: AICharacter, preferredTargetActorId?: string) {
   const guidanceTarget = resolveHumanGuidanceTarget(messages, characters, speaker);
   if (guidanceTarget) return guidanceTarget;
+  if (preferredTargetActorId && preferredTargetActorId !== speaker.id) {
+    const preferredTarget = characters.get(preferredTargetActorId);
+    if (preferredTarget) return { target: preferredTarget, reason: '来自本回合行为规划的当前对象' };
+  }
   if (chat.type === 'direct') {
     return messages.filter((item) => !item.isDeleted).slice().reverse().find((item) => item.senderId !== speaker.id && item.type !== 'system' && item.type !== 'event')
       ? undefined
@@ -1101,6 +1105,8 @@ function getRelationshipSnapshot(character: AICharacter, chat: GroupChat, target
 }
 
 function buildRelationalConsequencePrompt(params: {
+  chat: GroupChat;
+  character: AICharacter;
   target?: AICharacter;
   relationshipSnapshot: AICharacter['relationships'][number] | null;
   mind: ReturnType<typeof buildCharacterMindAdapterOutput>;
@@ -1110,11 +1116,35 @@ function buildRelationalConsequencePrompt(params: {
     || params.mind.projection.continuity.relationshipMemories.length > 0
     || params.mind.projection.relationship.stance.length > 0;
   if (!hasRelationshipEvidence) return '';
+  const relationship = params.relationshipSnapshot;
+  const sharedFacts = (params.chat.relationshipStructure?.sharedFacts || [])
+    .filter((fact) => fact.memberIds.includes(params.character.id) && fact.memberIds.includes(params.target!.id))
+    .map((fact) => fact.statement.trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  const axes = relationship
+    ? [
+        `warmth ${relationship.warmth || 0}`,
+        `competence ${relationship.competence || 0}`,
+        `trust ${relationship.trust || 0}`,
+        `threat ${relationship.threat || 0}`,
+        `attachment ${relationship.attachment || 0}`,
+        `deference ${relationship.deference || 0}`,
+      ].join(', ')
+    : '';
+  const rawDirectionalNote = relationship?.note?.trim() || '';
+  // Public notes already pass through CharacterMindPromptAdapter's privacy
+  // projection above. Do not bypass that boundary by rendering the raw note a
+  // second time here.
+  const directionalNote = params.chat.type === 'group' ? '' : rawDirectionalNote;
   return `\n## Relational Consequence For This Turn
-- The current interpersonal object is ${params.target.name}. The relationship continuity and stance above are live evidence, not character-sheet decoration.
-- Before writing, privately decide what this particular relationship costs or permits in this moment. It may change what you dare say, what you leave unsaid, whether you seek approval, save face, protect, test, avoid, needle, defer, compete, soften, or act unaffected. Let the situation and the relationship decide; do not follow a fixed menu.
-- Let at least one such consequence become visible in wording, timing, address, omission, interruption, concession, or refusal when the relationship is relevant. Do not turn every relationship into friendly teamwork, detached professionalism, or a polished consensus.
-- Do not announce relationship scores, labels, memories, or private reasoning. Do not invent a dramatic reaction when the actual exchange gives no reason for one.`;
+- Current counterpart: ${params.target.name}. The relationship evidence above is live, not character-sheet decoration. This person's identity changes the reaction; do not write a line that could be addressed unchanged to any other member.
+${sharedFacts.length ? `- Shared reality: ${sharedFacts.join(' / ')}.` : ''}
+${directionalNote ? `- ${params.character.name}'s subjective view of ${params.target.name}: ${directionalNote}` : ''}
+${axes ? `- Directional relationship axes (${params.character.name} toward ${params.target.name}): ${axes}. Read the six axes together; a bond may be warm yet fearful, loyal yet resentful, deferential yet familiar.` : ''}
+- Before writing, decide the immediate relational pressure: whose approval matters, who may interrupt whom, what can be said casually, what must be softened or hidden, and whether the speaker protects, tests, needles, yields, resists, or seeks closeness. Use only pressures supported by the evidence above and the current exchange.
+- Make one consequence perceptible in address, timing, confidence, interruption, omission, concession, refusal, teasing, or emotional leakage. Do not turn every relationship into friendly teamwork, detached professionalism, or a polished consensus. Hierarchy need not mean panic, closeness need not mean kindness, and hostility need not mean shouting.
+- Do not state scores, labels, or this reasoning in the visible reply.`;
 }
 
 export type PromptTranscriptOptions = ConversationProjectionOptions;
@@ -1132,8 +1162,8 @@ export function buildSystemPromptWithContext(character: AICharacter, chat: Group
   return buildPromptAssemblyWithContext(character, chat, emotion, messages, characters).systemPrompt;
 }
 
-export function buildPromptAssemblyWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>): PromptAssemblyWithContext {
-  const memoryContext = resolvePromptMemoryContext(character, chat, messages, characters);
+export function buildPromptAssemblyWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>, options: { preferredTargetActorId?: string } = {}): PromptAssemblyWithContext {
+  const memoryContext = resolvePromptMemoryContext(character, chat, messages, characters, options.preferredTargetActorId);
   const personaActivation = resolvePersonaActivation({ chat, speaker: character, messages });
   const companionshipPrompt = buildCompanionshipPromptBlock({ chat, character, messages });
   const renderedCompanionshipPrompt = chat.type === 'group' ? '' : companionshipPrompt;
@@ -1160,6 +1190,8 @@ export function buildPromptAssemblyWithContext(character: AICharacter, chat: Gro
     buildPromptMemorySection(chat, character, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, memoryContext.target, memoryContext.relationshipSnapshot, characters, memoryContext.recallCue, Boolean(companionshipPrompt), memoryContext.recentMemoryUseIds, mind),
     mind.adapter.promptBlock,
     buildRelationalConsequencePrompt({
+      chat,
+      character,
       target: memoryContext.target,
       relationshipSnapshot: memoryContext.relationshipSnapshot,
       mind,
