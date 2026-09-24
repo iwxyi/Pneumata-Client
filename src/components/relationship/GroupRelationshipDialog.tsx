@@ -1,4 +1,4 @@
-import { Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Stack, Switch, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TextField, Tooltip, Typography } from '@mui/material';
+import { Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useEffect, useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
@@ -74,7 +74,7 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
   toName: string;
   active: boolean;
   onActiveChange: (pairKeys: string[], scrollToCard?: boolean) => void;
-  cardRef: (element: HTMLTableRowElement | null) => void;
+  cardRef: (element: HTMLDivElement | null) => void;
   interactive: boolean;
 }) {
   const axes = [
@@ -83,16 +83,18 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
   ] as const;
   const pairKey = pairKeyFor(edge);
   return (
-    <TableRow
+    <Box
       ref={cardRef}
       onMouseEnter={interactive ? () => onActiveChange([pairKey]) : undefined}
       onMouseLeave={interactive ? () => onActiveChange([]) : undefined}
-      sx={{ cursor: interactive ? 'pointer' : 'default', bgcolor: active ? 'action.selected' : 'background.paper', '& > td': { borderBottom: '1px solid', borderColor: active ? edgeColor(edge) : 'divider' }, '&:last-child > td': { borderBottom: 0 }, transition: 'background-color 120ms ease, box-shadow 120ms ease', boxShadow: active ? 1 : 'none' }}
+      sx={{ minWidth: 0, p: 0.9, borderRadius: 1, bgcolor: active ? 'action.selected' : 'background.paper', border: '1px solid', borderColor: active ? edgeColor(edge) : 'divider', boxShadow: active ? 1 : 'none', cursor: interactive ? 'pointer' : 'default', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}
     >
-      <TableCell sx={{ minWidth: 140, py: 0.8 }}><Typography variant="body2" sx={{ fontWeight: 700, color: edgeColor(edge) }}>{fromName} → {toName}</Typography></TableCell>
-      <TableCell sx={{ minWidth: 270, py: 0.8 }}><Stack direction="row" spacing={0.7} useFlexGap sx={{ flexWrap: 'wrap' }}>{axes.map(([label, baseline, adjustment]) => <Typography key={label} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{label} {formatAxisValue(baseline, adjustment)}</Typography>)}</Stack></TableCell>
-      <TableCell sx={{ py: 0.8, color: 'text.secondary', overflowWrap: 'anywhere' }}><Typography variant="caption">{edge.note || '暂无明确说明'}</Typography></TableCell>
-    </TableRow>
+      <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+        <Typography variant="body2" sx={{ fontWeight: 700, color: edgeColor(edge) }}>{fromName} → {toName}</Typography>
+      </Stack>
+      <Stack direction="row" spacing={0.7} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.65 }}>{axes.map(([label, baseline, adjustment]) => <Typography key={label} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{label} {formatAxisValue(baseline, adjustment)}</Typography>)}</Stack>
+      <Typography variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{edge.note || '暂无明确说明'}</Typography>
+    </Box>
   );
 }
 
@@ -176,17 +178,7 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
   return (
     <Box>
       <Typography variant="body2" sx={{ fontWeight: 700 }}>群体关系</Typography>
-      <TableContainer sx={{ mt: 0.75, border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper' }}>
-        <Table size="small" sx={{ minWidth: 620, tableLayout: 'fixed' }}>
-          <TableHead>
-            <TableRow>
-              <TableCell sx={{ width: '22%', fontWeight: 700 }}>成员</TableCell>
-              <TableCell sx={{ width: '22%', fontWeight: 700 }}>关系标签</TableCell>
-              <TableCell sx={{ fontWeight: 700 }}>共同关系说明</TableCell>
-              {onUpdateSharedFacts ? <TableCell sx={{ width: 56 }} /> : null}
-            </TableRow>
-          </TableHead>
-          <TableBody>
+      <Stack spacing={0.7} sx={{ mt: 0.75 }}>
         {Array.from(visibleFacts.reduce((groups, fact) => {
           const memberIds = Array.from(new Set(fact.memberIds)).sort();
           const key = memberIds.join('|');
@@ -202,16 +194,19 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
           const active = factPairs.some((pairKey) => highlightedPairs.includes(pairKey));
           const kinds = Array.from(new Set(group.facts.flatMap((fact) => fact.kinds?.length ? fact.kinds : [fact.kind])));
           const summaryFact = [...group.facts].sort((left, right) => right.statement.length - left.statement.length)[0];
-          return <TableRow key={groupKey} onMouseEnter={showAll ? () => onHighlightedPairsChange(factPairs) : undefined} onMouseLeave={showAll ? () => onHighlightedPairsChange([]) : undefined} sx={{ bgcolor: active ? 'action.selected' : 'background.paper', cursor: showAll ? 'pointer' : 'default', '& > td': { borderBottom: '1px solid', borderColor: active ? 'primary.main' : 'divider' }, '&:last-child > td': { borderBottom: 0 }, transition: 'background-color 120ms ease' }}>
-            <TableCell sx={{ verticalAlign: 'top', overflowWrap: 'anywhere' }}><Typography variant="body2">{names.join('、')}</Typography></TableCell>
-            <TableCell sx={{ verticalAlign: 'top' }}><Stack direction="row" spacing={0.45} useFlexGap sx={{ flexWrap: 'wrap' }}>{kinds.map((kind) => <Chip key={kind} size="small" label={STRUCTURE_LABELS[kind]} variant="outlined" />)}</Stack></TableCell>
-            <TableCell sx={{ verticalAlign: 'top', overflowWrap: 'anywhere' }}><Typography variant="body2">{summaryFact.statement}</Typography>{summaryFact.evidence ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35 }}>{summaryFact.evidence}</Typography> : null}</TableCell>
-            {onUpdateSharedFacts ? <TableCell sx={{ width: 56, verticalAlign: 'top', p: 0.45 }}><Tooltip title="编辑关系"><IconButton size="small" onClick={(event) => { event.stopPropagation(); setSaveError(''); setEditingFacts(group.facts); setDraft(summaryFact.statement); }}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip></TableCell> : null}
-          </TableRow>;
+          return <Box key={groupKey} onMouseEnter={showAll ? () => onHighlightedPairsChange(factPairs) : undefined} onMouseLeave={showAll ? () => onHighlightedPairsChange([]) : undefined} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: active ? 'primary.main' : 'divider', bgcolor: active ? 'action.selected' : 'background.paper', boxShadow: active ? 1 : 'none', cursor: showAll ? 'pointer' : 'default', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}>
+            <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>{names.join('、')}</Typography>
+                {kinds.map((kind) => <Chip key={kind} size="small" label={STRUCTURE_LABELS[kind]} variant="outlined" />)}
+              </Stack>
+              {onUpdateSharedFacts ? <Tooltip title="编辑关系"><IconButton size="small" onClick={(event) => { event.stopPropagation(); setSaveError(''); setEditingFacts(group.facts); setDraft(summaryFact.statement); }}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip> : null}
+            </Stack>
+            <Typography variant="body2" sx={{ mt: 0.55, overflowWrap: 'anywhere' }}>{summaryFact.statement}</Typography>
+            {summaryFact.evidence ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, overflowWrap: 'anywhere' }}>{summaryFact.evidence}</Typography> : null}
+          </Box>;
         })}
-          </TableBody>
-        </Table>
-      </TableContainer>
+      </Stack>
       <Dialog open={Boolean(editingFacts)} onClose={() => { if (!saving) setEditingFacts(null); }} maxWidth="sm" fullWidth>
         <DialogTitle>编辑群体关系</DialogTitle>
         <DialogContent>
@@ -245,19 +240,14 @@ function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, 
   graph: GroupRelationshipGraph;
   highlightedPairs: string[];
   onHighlightedPairsChange: (pairKeys: string[], scrollToCard?: boolean) => void;
-  registerCard: (pairKey: string, element: HTMLTableRowElement | null) => void;
+  registerCard: (pairKey: string, element: HTMLDivElement | null) => void;
   showAll: boolean;
 }) {
   const edges = graph.edges.filter((edge) => edge.source !== 'structural' && (showAll || highlightedPairs.includes(pairKeyFor(edge))));
   if (!edges.length) return null;
   return <Box>
     <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>单向关系</Typography>
-    <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, bgcolor: 'background.paper', overflowX: 'auto' }}>
-      <Table size="small" sx={{ minWidth: 720, tableLayout: 'fixed' }}>
-        <TableHead><TableRow><TableCell sx={{ width: '20%', fontWeight: 700 }}>方向</TableCell><TableCell sx={{ width: '38%', fontWeight: 700 }}>关系数值</TableCell><TableCell sx={{ fontWeight: 700 }}>单向看法</TableCell></TableRow></TableHead>
-        <TableBody>{edges.map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(edge.key, element)} interactive={showAll} />)}</TableBody>
-      </Table>
-    </TableContainer>
+    <Stack spacing={0.7}>{edges.map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(edge.key, element)} interactive={showAll} />)}</Stack>
   </Box>;
 }
 
@@ -274,7 +264,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
     }
   });
   const [refreshRequested, setRefreshRequested] = useState(false);
-  const cardRefs = useRef(new Map<string, HTMLTableRowElement>());
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
   useEffect(() => {
     if (chat.modeState.initialization?.status !== 'running') setRefreshRequested(false);
   }, [chat.modeState.initialization?.status]);
@@ -288,7 +278,7 @@ export default function GroupRelationshipDialog({ open, onClose, chat, members, 
     setSelectedPairs(pairKeys);
     setHighlightedPairs(pairKeys);
   };
-  const registerCard = (pairKey: string, element: HTMLTableRowElement | null) => {
+  const registerCard = (pairKey: string, element: HTMLDivElement | null) => {
     if (element) {
       if (!cardRefs.current.has(pairKey)) cardRefs.current.set(pairKey, element);
     } else cardRefs.current.delete(pairKey);
