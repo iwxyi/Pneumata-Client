@@ -202,6 +202,26 @@ describe('projectNarrativeLines', () => {
     expect(relationship?.status).toBe('escalating');
   });
 
+  it('projects legacy relationship entries without a recent event collection', () => {
+    const legacyEntry = {
+      pairKey: 'a->b',
+      actorId: 'a',
+      targetId: 'b',
+      current: { warmth: -20, competence: 5, trust: -35, threat: 60 },
+      derived: { salience: 90 },
+      lastUpdatedAt: 10,
+    } as NonNullable<GroupChat['relationshipLedger']>[number];
+    const lines = projectNarrativeLines({
+      chat: buildChat({ relationshipLedger: [legacyEntry] }),
+      messages: [buildMessage({ content: '你又来了。' })],
+      now: 20,
+    });
+
+    const relationship = lines.find((line) => line.id === 'relationship:a->b');
+    expect(relationship?.sourceEventIds).toEqual([]);
+    expect(relationship?.type).toBe('relationship');
+  });
+
   it('redacts private relationship facts in narrative relationship lines', () => {
     const lines = projectNarrativeLines({
       chat: buildChat({

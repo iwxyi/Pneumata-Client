@@ -7,6 +7,7 @@ import { resolveSessionDefinition } from '../types/sessionEngine';
 import { projectFactionClusters } from './factionProjection';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
 import { buildPublicSafeRelationshipSemanticSummary } from './relationshipSemanticPrivacy';
+import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 
 export type NarrativeLineType = 'conflict' | 'relationship' | 'topic' | 'goal' | 'mystery' | 'faction' | 'growth' | 'scenario';
 export type NarrativeLineStatus = 'latent' | 'active' | 'escalating' | 'cooling' | 'resolved' | 'abandoned';
@@ -239,6 +240,13 @@ function buildRoomLines(chat: GroupChat, now: number): NarrativeLineProjection[]
 
 function buildRelationshipLines(chat: GroupChat, characters: AICharacter[], now: number): NarrativeLineProjection[] {
   return (chat.relationshipLedger || [])
+    .map((entry) => {
+      const normalized = normalizeRelationshipLedgerEntry(entry);
+      // Normalization repairs legacy collection fields. Keep the projection's
+      // existing fallback semantics when the stored entry never had a derived
+      // profile instead of inventing a new narrative label during rendering.
+      return { ...normalized, derived: entry.derived };
+    })
     .map((entry) => {
       const tension = relationshipTension(entry);
       const momentum = relationshipMomentum(entry, now);

@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import { normalizeCharacterGroup } from '../types/character';
 import type { GroupChat } from '../types/chat';
+import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import type { RelationshipLedgerEntry } from '../types/runtimeEvent';
 
 export interface FactionProjection {
@@ -65,7 +66,9 @@ function getFactionMembers(chat: GroupChat, characters: AICharacter[], factionId
 }
 
 function getRelationshipEntriesForActor(chat: GroupChat, actorId: string) {
-  return (chat.relationshipLedger || []).filter((entry) => entry.actorId === actorId);
+  return (chat.relationshipLedger || [])
+    .filter((entry) => entry.actorId === actorId)
+    .map(normalizeRelationshipLedgerEntry);
 }
 
 export function projectFactionAffiliations(params: {

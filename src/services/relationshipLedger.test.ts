@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { InteractionEventPayload, RuntimeEventV2 } from '../types/runtimeEvent';
+import type { InteractionEventPayload, RelationshipLedgerEntry, RuntimeEventV2 } from '../types/runtimeEvent';
 import type { AICharacter } from '../types/character';
 import { RELATIONSHIP_BASELINE, normalizeRelationshipLedgerEntry, refreshRelationshipLedgerBaselines, reduceRelationshipLedger, reduceRelationshipLedgerWithDelta, replayRelationshipLedger } from './relationshipLedger';
 
@@ -237,6 +237,20 @@ describe('relationshipLedger', () => {
 
     expect(normalized.derived?.semantic?.stage).toBe('深度绑定');
     expect(normalized.derived?.semantic?.labels).toEqual(expect.arrayContaining(['亲密', '喜欢']));
+  });
+
+  it('fills collection and metadata fields missing from legacy ledger entries', () => {
+    const normalized = normalizeRelationshipLedgerEntry({
+      pairKey: 'a->b',
+      actorId: 'a',
+      targetId: 'b',
+      current: { warmth: 12, competence: 8, trust: 6, threat: 2 },
+    } as unknown as RelationshipLedgerEntry);
+
+    expect(normalized.recentEvents).toEqual([]);
+    expect(normalized.axisReasons).toEqual({});
+    expect(normalized.trend).toBe('flat');
+    expect(normalized.lastUpdatedAt).toBe(0);
   });
 
   it('marks tense mixed relationships as complex instead of only negative numbers', () => {

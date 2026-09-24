@@ -83,12 +83,20 @@ export function normalizeRelationshipLedgerEntry(entry: RelationshipLedgerEntry)
   const adjustment = entry.baseline ? normalizeAxes(entry.adjustment) : buildBaselineCurrent();
   const current = resolveEffectiveRelationshipAxes(baseline, adjustment);
   const axisReasons = entry.axisReasons || {};
+  const recentEvents = Array.isArray(entry.recentEvents) ? entry.recentEvents.filter(Boolean) : [];
+  const trend = entry.trend === 'up' || entry.trend === 'down' || entry.trend === 'volatile' || entry.trend === 'flat'
+    ? entry.trend
+    : 'flat';
+  const lastUpdatedAt = Number.isFinite(entry.lastUpdatedAt) ? entry.lastUpdatedAt : 0;
   return {
     ...entry,
     baseline,
     adjustment,
     current,
     axisReasons,
+    trend,
+    recentEvents,
+    lastUpdatedAt,
     derived: {
       ...(entry.derived || {}),
       semantic: entry.derived?.semantic || buildRelationshipSemanticProfile(current, axisReasons),
