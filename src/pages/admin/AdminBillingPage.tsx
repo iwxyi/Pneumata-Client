@@ -889,7 +889,7 @@ function EntitlementEditor({
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' }, gap: 1 }}>
         <TextField label="角色上限" value={entitlement.maxCharacters} onChange={(event) => onEntitlementChange('maxCharacters', event.target.value)} fullWidth />
         <TextField label="聊天上限" value={entitlement.maxChats} onChange={(event) => onEntitlementChange('maxChats', event.target.value)} fullWidth />
-        <TextField label="单群 AI 成员上限" value={entitlement.maxGroupMembers} onChange={(event) => onEntitlementChange('maxGroupMembers', event.target.value)} fullWidth />
+        <TextField label="群成员上限" value={entitlement.maxGroupMembers} onChange={(event) => onEntitlementChange('maxGroupMembers', event.target.value)} fullWidth />
         <TextField label="每日生成次数" value={entitlement.dailyAiGenerationLimit} onChange={(event) => onEntitlementChange('dailyAiGenerationLimit', event.target.value)} fullWidth />
         <TextField label="单次批量生成上限" value={entitlement.batchGenerationLimit} onChange={(event) => onEntitlementChange('batchGenerationLimit', event.target.value)} fullWidth />
         <TextField label="每日领取点数" value={entitlement.dailyPointGrant} onChange={(event) => onEntitlementChange('dailyPointGrant', event.target.value)} fullWidth />
