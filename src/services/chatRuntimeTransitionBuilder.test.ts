@@ -284,6 +284,41 @@ describe('buildRelationshipTransition', () => {
     expect(speakerPatch?.coreProfile).toBeUndefined();
   });
 
+  it('keeps runtime relationship deltas in the room ledger instead of rewriting authored baselines', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    speaker.relationships = [{ characterId: 'char-b', warmth: 30, competence: 20, trust: 25, threat: 4, attachment: 12, deference: 8, note: '甲认可乙，但仍会观察。' }];
+    const target = buildCharacter('char-b', '乙');
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '乙，这次你处理得不错。',
+        interactionHint: {
+          kind: 'support',
+          actorId: 'char-a',
+          targetId: 'char-b',
+          intensity: 4,
+          tone: 'warm',
+          evidenceText: '乙，这次你处理得不错。',
+          confidence: 0.94,
+          relationship: { delta: { warmth: 2, trust: 2 }, labels: ['支持'], stance: '这次确实值得肯定' },
+        },
+      },
+      previousAiMessage: null,
+    });
+
+    const speakerPatch = result.characterPatches.find((patch) => patch.characterId === 'char-a')?.patch;
+    expect(speakerPatch?.relationships).toBeUndefined();
+    const ledger = result.relationshipLedger.find((entry) => entry.pairKey === 'char-a->char-b');
+    expect(ledger?.baseline).toMatchObject({ warmth: 30, trust: 25 });
+    expect(ledger?.adjustment.warmth).toBeGreaterThan(0);
+    expect(ledger?.adjustment.trust).toBeGreaterThan(0);
+  });
+
   it('treats speak-as user messages as character-authored runtime speech', () => {
     const chat = buildChat();
     const speaker = buildCharacter('char-a', '甲');

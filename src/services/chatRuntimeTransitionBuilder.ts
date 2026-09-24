@@ -493,7 +493,6 @@ export function buildRelationshipTransition(params: {
     characterPatches.push({
       characterId: speaker.id,
       patch: {
-        relationships: updatedSpeakerRelationships,
         personalityDrift: speakerDrift,
         emotionalState: speakerEmotion,
         soulState: projectedSpeakerSoul,
@@ -541,7 +540,6 @@ export function buildRelationshipTransition(params: {
       characterPatches.push({
         characterId: target.id,
         patch: {
-          relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
           soulState: projectedTargetSoul,
           layeredMemories: targetLayeredResult.layeredMemories,
