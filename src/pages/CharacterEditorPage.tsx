@@ -16,11 +16,9 @@ import ConfirmDialog from '../components/common/ConfirmDialog';
 import LoadingState from '../components/common/LoadingState';
 import MarketUploadDialog, { type MarketUploadDraft } from '../components/market/MarketUploadDialog';
 import { enqueueAvatarGenerationForCharacter } from '../services/avatarGeneration';
-import { initializeDefaultRelationshipsForCreatedCharacters } from '../services/defaultRelationshipInitializer';
 import { marketApi } from '../services/marketApi';
 import { buildImportedCharacterDraft, getMarketImportDraftState } from '../services/marketImportDraft';
 import { buildCharacterMarketPayload, getMarketCoverForCharacter, getMarketSummaryForCharacter, getMarketTitleForCharacter } from '../services/templateMarketPayload';
-import { getPreferredAIProfile, isAIProfileUsable } from '../types/settings';
 
 export default function CharacterEditorPage() {
   const { t, i18n } = useTranslation();
@@ -244,18 +242,6 @@ export default function CharacterEditorPage() {
               if (marketImportDraft?.item.id) {
                 void marketApi.recordImported(marketImportDraft.item.id).catch((error) => {
                   console.warn('[market:record-imported:error]', error);
-                });
-              }
-              const profile = getPreferredAIProfile(settings.aiProfiles, 'text');
-              if (isAIProfileUsable(profile)) {
-                void initializeDefaultRelationshipsForCreatedCharacters({
-                  config: profile,
-                  createdCharacters: [created],
-                  allCharacters: [...characters, created],
-                  language: i18n.language.startsWith('zh') ? 'zh' : 'en',
-                  updateCharacters,
-                }).catch((error) => {
-                  console.error('[character-editor:default-relationships:error]', error);
                 });
               }
               if (settings.avatarGeneration.autoGenerateCharacterAvatar && data.generatedByAI) {

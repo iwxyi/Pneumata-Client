@@ -1057,7 +1057,9 @@ export default function BatchGenerateCharactersPage() {
           allCharacters: useCharacterStore.getState().characters,
           language: i18n.language.startsWith('zh') ? 'zh' : 'en',
           updateCharacters,
-          scope: 'created_only',
+          // Use the same selected-member analysis mode as group creation so
+          // the batch can be reused as a relationship-analysis context.
+          scope: 'selected_members',
         }).catch((error) => {
           console.error('[batch-generate:default-relationships:error]', error);
         });
