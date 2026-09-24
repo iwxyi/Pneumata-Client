@@ -422,7 +422,7 @@ describe('relationshipPanelProjection', () => {
     expect(projection.diagnostics).toHaveLength(0);
   });
 
-  it('deduplicates fallback pairs already covered by ledger without hiding other fallback data', () => {
+  it('prefers the global character relationship over a stale room ledger pair', () => {
     const chat = normalizeConversation({
       ...buildChat(),
       relationshipLedger: [{
@@ -443,8 +443,8 @@ describe('relationshipPanelProjection', () => {
       member('b', '乙'),
     ];
     const projection = projectRelationshipPanelData(chat, members, false);
-    expect(projection.ledgerSections.some((section) => section.member.id === 'a')).toBe(true);
-    expect(projection.fallbackSections.find((section) => section.member.id === 'a')).toBeUndefined();
+    expect(projection.ledgerSections.some((section) => section.member.id === 'a')).toBe(false);
+    expect(projection.fallbackSections.find((section) => section.member.id === 'a')?.items[0]?.relation).toMatchObject({ warmth: 9, trust: 9 });
     expect(projection.diagnostics).toHaveLength(0);
   });
 });

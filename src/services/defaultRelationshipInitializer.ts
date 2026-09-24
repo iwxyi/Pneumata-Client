@@ -150,10 +150,11 @@ function summarizeCharacter(character: AICharacter) {
 function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: AICharacter[]; language: 'zh' | 'en'; scope: DefaultRelationshipScope }) {
   const createdNames = params.createdCharacters.map((character) => character.name).join(params.language === 'zh' ? '、' : ', ');
   const characterBlock = params.allCharacters.map((character) => `---\n${summarizeCharacter(character)}`).join('\n');
+  const selectedLabel = params.scope === 'selected_members' ? (params.language === 'zh' ? '当前选定成员' : 'the selected members') : (params.language === 'zh' ? '刚创建的角色' : 'newly created characters');
   const scopeRule = params.scope === 'selected_members'
     ? params.language === 'zh'
-      ? '本次只判断当前群聊成员彼此之间的默认关系；不要输出成员之外的任何角色关系。'
-      : 'Only infer default relationships among the current group members; do not output relationships involving anyone outside this room.'
+      ? '本次只判断当前选定成员彼此之间的默认关系；不要输出成员之外的任何角色关系。'
+      : 'Only infer default relationships among the selected members; do not output relationships involving anyone outside this set.'
     : params.scope === 'created_only'
     ? params.language === 'zh'
       ? '本次只判断刚创建角色彼此之间的关系；不要输出刚创建角色与旧角色之间的关系。'
@@ -163,8 +164,8 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
       : 'Prioritize completing relationships between newly created and existing characters in this pass; you may include still-missing relationships among newly created characters. Do not output relationships among existing characters only.';
   if (params.language === 'zh') {
     return [
-      `${params.scope === 'selected_members' ? '当前群聊成员' : '刚创建的角色'}：${createdNames}`,
-      `请根据${params.scope === 'selected_members' ? '当前群聊成员' : '刚创建角色'}的信息，以及所有 AI 角色的名字和简介，判断这些角色之间是否需要初始化方向性关系。`,
+      `${selectedLabel}：${createdNames}`,
+      `请根据${selectedLabel}的信息，以及所有 AI 角色的名字和简介，判断这些角色之间是否需要初始化方向性关系。`,
       scopeRule,
       '不要使用“夫妻/朋友/前任/同事”等固定标签作为输出字段。也不要因为一个标签就硬套高好感。输出六轴数值、自然语言说明和置信度。',
       '允许复杂多重关系：同一对角色可以既亲密又危险、既有保护欲又不信任、既是亲属/伴侣又是仇敌或政治对手。请把这种矛盾体现在 warmth、trust、competence、threat 和 note 中。',
@@ -182,8 +183,8 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
     ].join('\n\n');
   }
   return [
-    `${params.scope === 'selected_members' ? 'Current group members' : 'Newly created characters'}: ${createdNames}`,
-    `Infer directional initial relationships ${params.scope === 'selected_members' ? 'among the current group members' : 'between these AI characters'} from their profiles.`,
+      `${selectedLabel}: ${createdNames}`,
+      `Infer directional initial relationships ${params.scope === 'selected_members' ? 'among the selected members' : 'between these AI characters'} from their profiles.`,
     scopeRule,
     'Do not output fixed relationship labels such as spouse/friend/ex/colleague. Do not hard-code affection from labels. Output only six-axis scores, a natural-language note, confidence, and reason.',
     'Allow complex layered relationships: the same pair can be intimate and dangerous, protective but distrustful, relatives/spouses and enemies or political rivals at once. Represent that contradiction across warmth, trust, competence, threat, and note.',

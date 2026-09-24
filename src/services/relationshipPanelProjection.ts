@@ -131,10 +131,19 @@ export function projectRelationshipPanelData(chat: GroupChat, members: AICharact
   const prefix = reverseLedger ? 'reverse' : 'forward';
   const relationshipMembers = buildRelationshipMembers(chat, members);
   const memberById = new Map(relationshipMembers.map((member) => [member.id, member] as const));
+  const authoredPairs = new Set(
+    members.flatMap((member) => member.relationships
+      .filter((relation) => memberById.has(member.id) && memberById.has(relation.characterId))
+      .map((relation) => `${member.id}->${relation.characterId}`)),
+  );
   const diagnostics: RelationshipPanelDiagnosticItem[] = [];
   const ledgerEntries = (chat.relationshipLedger || [])
     .filter((entry) => !isDraftRelationshipId(entry.actorId) && !isDraftRelationshipId(entry.targetId))
     .filter((entry) => isRelationshipEntryRelevantToPanel(chat, entry))
+    // Character relationships are the global source of truth. A room ledger
+    // entry is only a compatibility fallback when that authored direction is
+    // genuinely absent.
+    .filter((entry) => !authoredPairs.has(`${entry.actorId}->${entry.targetId}`))
     .filter((entry) => {
       const actor = memberById.get(entry.actorId);
       const target = memberById.get(entry.targetId);
