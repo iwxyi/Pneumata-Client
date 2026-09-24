@@ -341,17 +341,12 @@ function inferTrend(previous: RelationshipLedgerEntry | undefined, delta: Relati
 export function isMeaningfulRelationshipLedgerEntry(entry: RelationshipLedgerEntry) {
   const normalized = normalizeRelationshipLedgerEntry(entry);
   const delta = toRelationshipDisplayDelta(normalized.current);
-  const strongestAxis = Math.max(
-    Math.abs(delta.warmth),
-    Math.abs(delta.competence),
-    Math.abs(delta.trust),
-    Math.abs(delta.threat),
-    Math.abs(delta.attachment || 0),
-    Math.abs(delta.deference || 0),
-  );
-  const semanticSummary = normalized.derived?.semantic?.summary?.trim() || '';
-  const hasSpecificSemantic = Boolean(semanticSummary) && semanticSummary !== '普通互动';
-  return strongestAxis >= 8 || hasSpecificSemantic;
+  return delta.warmth !== 0
+    || delta.competence !== 0
+    || delta.trust !== 0
+    || delta.threat !== 0
+    || delta.attachment !== 0
+    || delta.deference !== 0;
 }
 
 function buildNextTrust(current: RelationshipLedgerEntry['current'], delta: RelationshipDeltaPayload['delta']) {

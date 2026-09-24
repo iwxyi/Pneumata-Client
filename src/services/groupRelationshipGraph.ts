@@ -43,8 +43,7 @@ function emptyAxes(): RelationshipAxes {
 }
 
 function hasRelationshipSignal(axes: RelationshipAxes, note?: string) {
-  const strongestAxis = Math.max(...Object.values(axes).map((value) => Math.abs(value || 0)), 0);
-  return strongestAxis >= 8 || Boolean(note?.trim() && !/^普通互动$/.test(note.trim()));
+  return Object.values(axes).some((value) => value !== 0) || Boolean(note?.trim());
 }
 
 function toDefaultAxes(relation: AICharacter['relationships'][number]): RelationshipAxes {

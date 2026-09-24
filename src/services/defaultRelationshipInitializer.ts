@@ -93,14 +93,6 @@ function normalizeName(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-const MIN_DIRECTIONAL_RELATIONSHIP_SIGNAL = 8;
-
-function hasMeaningfulDirectionalInference(raw: RawRelationshipInference) {
-  const values = [raw.warmth, raw.competence, raw.trust, raw.threat, raw.attachment, raw.deference]
-    .map((value) => typeof value === 'number' && Number.isFinite(value) ? Math.abs(value) : 0);
-  return Math.max(...values, 0) >= MIN_DIRECTIONAL_RELATIONSHIP_SIGNAL || normalizeName(raw.note).length >= 8;
-}
-
 function extractJsonObject(content: string) {
   const cleaned = content.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
   const first = cleaned.indexOf('{');
@@ -164,7 +156,7 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
       'note 要写成可展示的简短主观看法，例如“怕他翻旧账，便不肯先低头”或“认可他的本事，却不愿受他摆布”，而不是“普通互动”或空泛情绪词。用 deference 表示让位、服从或不服从，用 attachment 表示牵挂与行动上的在意。',
       '可以更新任意方向，但应优先输出与刚创建角色有关的关系；如果两个刚创建角色之间明显有关，也可以输出。',
       '如果刚创建角色与已有角色在简介里明显有关，也可以输出新角色->已有角色或已有角色->新角色的初始印象；不要覆盖已有强关系。',
-      '不要为所有组合机械生成关系。只输出有明显依据、能改善角色互动连续性的关系。没有明确关系时不要填 1、2、3 这类占位分数：六轴都接近 0 且没有具体 note 的关系应直接省略；需要输出时至少有一个轴达到约 8 以上或 -8 以下，或写出具体的主观看法。',
+      '不要为所有组合机械生成关系。只输出有明显依据、能改善角色互动连续性的关系；如果 AI 判断关系确实很弱，也要如实给出对应数值和说明，不要把弱关系伪装成更强的关系。',
       '六轴范围：warmth -70..70，competence -70..70，trust -70..70，threat 0..70，attachment 0..70，deference -70..70。confidence 0..1。',
       '返回严格 JSON：{"relationships":[{"fromName":"角色A","toName":"角色B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"角色A对角色B的主观看法","confidence":0.8,"reason":"依据"}],"sharedStructure":[{"memberNames":["角色A","角色B"],"kinds":["authority","duty"],"statement":"角色A是角色B的直属上司，并负责安排其差事","confidence":0.9,"reason":"依据"}]}。sharedStructure 专门写双方或多方共同拥有的客观关系事实；同事、上下级、亲属、阵营、结义、共同债务或宿敌都必须写在这里。每一组相同成员只输出一条 sharedStructure；若同时有亲属、同属、职责等多层事实，在 kinds 中列全，statement 用一段不重复的综合说明。不要输出 structure。kinds 只能包含 authority、duty、kinship、affiliation、rivalry、obligation。',
       '所有 fromName/toName 必须来自角色列表。不要输出 markdown，不要解释。',
@@ -183,7 +175,7 @@ function buildPrompt(params: { createdCharacters: AICharacter[]; allCharacters: 
     'Write note as a concise displayable subjective view, such as “fears old debts and refuses to yield first” or “respects their skill but refuses to be controlled”, never as “ordinary interaction” or a vague emotion. Use deference for yielding/obedience or refusal to yield, and attachment for concern that changes action.',
     'You may update any direction, but prioritize relationships involving newly created characters. Include relationships among newly created characters when clearly implied.',
     'If newly created characters are clearly connected to existing characters, you may output new->existing or existing->new initial impressions. Do not overwrite strong existing relationships.',
-    'Do not generate every pair mechanically. Only output relationships with clear grounding and useful interaction value. Do not fill 1, 2, or 3 as placeholder scores when no relationship is established: omit a relation whose axes are all near zero and whose note is not specific; an emitted relation should have at least one axis around 8 or -8, or a concrete subjective note.',
+    'Do not generate every pair mechanically. Only output relationships with clear grounding and useful interaction value. If the model judges a relationship as weak, represent that weak relationship honestly instead of inflating it or disguising it as something stronger.',
     'Axis ranges: warmth -70..70, competence -70..70, trust -70..70, threat 0..70, attachment 0..70, deference -70..70. confidence 0..1.',
     'Return strict JSON: {"relationships":[{"fromName":"A","toName":"B","warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0,"note":"A’s subjective view of B","confidence":0.8,"reason":"basis"}],"sharedStructure":[{"memberNames":["A","B"],"kinds":["authority","duty"],"statement":"A is B’s direct superior and assigns their duties","confidence":0.9,"reason":"basis"}]}. sharedStructure is a public fact for two or more members; hierarchy, colleagues, kinship, faction, sworn siblinghood, joint debt, and rivalry must be placed here. Output exactly one sharedStructure entry per member group; combine multiple layers in kinds and use one non-repetitive summary in statement. Do not output structure. Kinds may contain authority, duty, kinship, affiliation, rivalry, or obligation.',
     'Every fromName/toName must come from the character list. No markdown. No explanation.',
@@ -244,13 +236,7 @@ function buildSharedStructureFacts(raw: RawSharedRelationshipStructure[] | undef
 }
 
 function hasExistingDefaultRelationship(existing?: CharacterRelationshipPreset) {
-  if (!existing) return false;
-  const values = [existing.warmth, existing.competence, existing.trust, existing.threat, existing.attachment, existing.deference]
-    .map((value) => Number.isFinite(value) ? Math.abs(value) : 0);
-  const weakPlaceholder = Math.max(...values, 0) > 0
-    && Math.max(...values, 0) < MIN_DIRECTIONAL_RELATIONSHIP_SIGNAL
-    && !existing.note?.trim();
-  return !weakPlaceholder;
+  return Boolean(existing);
 }
 
 function buildRelationshipPreset(targetId: string, raw: RawRelationshipInference): CharacterRelationshipPreset {
@@ -329,7 +315,6 @@ export async function buildDefaultRelationshipSuggestions(params: {
   params.onStructure?.({ edges: structureEdges, sharedFacts: sharedStructureFacts });
 
   (inference.relationships || []).forEach((raw) => {
-    if (!hasMeaningfulDirectionalInference(raw)) return;
     const confidence = normalizeConfidence(raw.confidence);
     if (confidence < 0.55) return;
     const from = nameMap.get(normalizeName(raw.fromName).toLowerCase());
