@@ -1,4 +1,4 @@
-import { Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material';
+import { Avatar, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, IconButton, Stack, Switch, TextField, Tooltip, Typography, useTheme } from '@mui/material';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useEffect, useRef, useState } from 'react';
 import type { AICharacter } from '../../types/character';
@@ -6,6 +6,7 @@ import type { GroupChat, RoomRelationshipSharedFact } from '../../types/chat';
 import { projectGroupRelationshipGraphs, type GroupRelationshipGraph, type GroupRelationshipGraphEdge } from '../../services/groupRelationshipGraph';
 import { isImageAvatar } from '../../utils/avatar';
 import { scopedStorageKey } from '../../constants/brand';
+import { relationshipAxisDeltaColor, relationshipAxisValueColor, type RelationshipAxisColorKey } from '../../styles/relationshipAxisColor';
 
 interface GroupRelationshipDialogProps {
   open: boolean;
@@ -77,9 +78,10 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
   cardRef: (element: HTMLDivElement | null) => void;
   interactive: boolean;
 }) {
+  const theme = useTheme();
   const axes = [
-    ['亲和', edge.baseline.warmth, edge.adjustment.warmth], ['能力', edge.baseline.competence, edge.adjustment.competence], ['信任', edge.baseline.trust, edge.adjustment.trust],
-    ['威胁', edge.baseline.threat, edge.adjustment.threat], ['在意', edge.baseline.attachment, edge.adjustment.attachment], ['让位', edge.baseline.deference, edge.adjustment.deference],
+    ['warmth', '亲和', edge.baseline.warmth, edge.adjustment.warmth], ['competence', '能力', edge.baseline.competence, edge.adjustment.competence], ['trust', '信任', edge.baseline.trust, edge.adjustment.trust],
+    ['threat', '威胁', edge.baseline.threat, edge.adjustment.threat], ['attachment', '在意', edge.baseline.attachment, edge.adjustment.attachment], ['deference', '让位', edge.baseline.deference, edge.adjustment.deference],
   ] as const;
   const pairKey = pairKeyFor(edge);
   return (
@@ -93,7 +95,10 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
         <Typography variant="body2" sx={{ fontWeight: 700, color: edgeColor(edge) }}>{fromName} → {toName}</Typography>
       </Stack>
       <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.45, mt: 0.65 }}>
-        {axes.map(([label, baseline, adjustment]) => <Typography key={label} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{label} {formatAxisValue(baseline, adjustment)}</Typography>)}
+        {axes.map(([axis, label, baseline, adjustment]) => <Typography key={axis} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>
+          {label} <Box component="span" sx={{ color: relationshipAxisValueColor(axis as RelationshipAxisColorKey, baseline || 0, theme.palette.mode), fontWeight: 700 }}>{formatAxisValue(baseline, 0).split(' ')[0]}</Box>{' '}
+          <Box component="span" sx={{ color: relationshipAxisDeltaColor(axis as RelationshipAxisColorKey, adjustment || 0, theme.palette.mode) }}>({formatAxisValue(0, adjustment).match(/\([^)]*\)/)?.[0] || '(0)'})</Box>
+        </Typography>)}
       </Box>
       {edge.note ? <Typography variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{edge.note}</Typography> : null}
     </Box>

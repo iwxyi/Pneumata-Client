@@ -1,4 +1,4 @@
-import { alpha } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import { Box, Chip, Dialog, DialogContent, DialogTitle, Divider, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import SwapHorizRoundedIcon from '@mui/icons-material/SwapHorizRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
@@ -16,6 +16,7 @@ import { buildPresentedRelationshipLedger } from '../../services/relationshipPre
 import { projectRelationshipPanelData, type RelationshipPanelDiagnosticItem } from '../../services/relationshipPanelProjection';
 import { compactPillChipSx } from '../../styles/interaction';
 import { useSettingsStore } from '../../stores/useSettingsStore';
+import { relationshipAxisDeltaColor, relationshipAxisValueColor } from '../../styles/relationshipAxisColor';
 
 interface RelationshipPanelProps {
   chat: GroupChat;
@@ -24,12 +25,12 @@ interface RelationshipPanelProps {
 }
 
 const METRIC_META = [
-  { key: 'warmth', label: '亲和', color: '#43A047', hint: '表示接纳度、情感温度与靠近倾向。' },
-  { key: 'competence', label: '能力判断', color: '#1E88E5', hint: '表示对对方判断力、能力与专业性的评估。' },
-  { key: 'trust', label: '信任', color: '#8E24AA', hint: '表示对可靠性、可预期性与合作安全感的判断。' },
-  { key: 'threat', label: '威胁感', color: '#E53935', hint: '表示对风险、攻击性与压迫感的知觉。' },
-  { key: 'attachment', label: '在意', color: '#F57C00', hint: '表示惦记、牵挂和把对方放进自己行动考量的程度。' },
-  { key: 'deference', label: '让位', color: '#546E7A', hint: '表示是否会为对方让步、服从或承认其位置；负值表示更不愿让位。' },
+  { key: 'warmth', label: '亲和', hint: '表示接纳度、情感温度与靠近倾向。' },
+  { key: 'competence', label: '能力判断', hint: '表示对对方判断力、能力与专业性的评估。' },
+  { key: 'trust', label: '信任', hint: '表示对可靠性、可预期性与合作安全感的判断。' },
+  { key: 'threat', label: '威胁感', hint: '表示对风险、攻击性与压迫感的知觉。' },
+  { key: 'attachment', label: '在意', hint: '表示惦记、牵挂和把对方放进自己行动考量的程度。' },
+  { key: 'deference', label: '让位', hint: '表示是否会为对方让步、服从或承认其位置；负值表示更不愿让位。' },
 ] as const;
 
 type AxisKey = typeof METRIC_META[number]['key'];
@@ -163,18 +164,18 @@ function formatBaselineValue(value: number) {
   return String(Math.round(value));
 }
 
-function buildAxisLabels(entry: RelationshipLedgerEntry) {
+function buildAxisLabels(entry: RelationshipLedgerEntry, mode: 'light' | 'dark') {
   const normalized = normalizeRelationshipLedgerEntry(entry);
   const baseline = normalized.baseline || normalized.current;
   const adjustment = normalized.adjustment || { warmth: 0, competence: 0, trust: 0, threat: 0, attachment: 0, deference: 0 };
-  const value = (axis: AxisKey) => `${formatBaselineValue(baseline[axis] || 0)} (${formatSignedDelta(adjustment[axis] || 0)})`;
+  const value = (axis: AxisKey) => ({ baseline: formatBaselineValue(baseline[axis] || 0), delta: `(${formatSignedDelta(adjustment[axis] || 0)})` });
   return [
-    { key: 'warmth' as const, label: '亲和', value: value('warmth'), color: '#43A047', x: 56, y: 10, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
-    { key: 'competence' as const, label: '能力', value: value('competence'), color: '#1E88E5', x: 99, y: 30, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
-    { key: 'trust' as const, label: '信任', value: value('trust'), color: '#8E24AA', x: 99, y: 84, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
-    { key: 'threat' as const, label: '威胁', value: value('threat'), color: '#E53935', x: 56, y: 112, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
-    { key: 'attachment' as const, label: '在意', value: value('attachment'), color: '#F57C00', x: 13, y: 84, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
-    { key: 'deference' as const, label: '让位', value: value('deference'), color: '#546E7A', x: 13, y: 30, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
+    { key: 'warmth' as const, label: '亲和', value: value('warmth'), color: relationshipAxisValueColor('warmth', baseline.warmth || 0, mode), deltaColor: relationshipAxisDeltaColor('warmth', adjustment.warmth || 0, mode), x: 56, y: 10, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
+    { key: 'competence' as const, label: '能力', value: value('competence'), color: relationshipAxisValueColor('competence', baseline.competence || 0, mode), deltaColor: relationshipAxisDeltaColor('competence', adjustment.competence || 0, mode), x: 99, y: 30, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
+    { key: 'trust' as const, label: '信任', value: value('trust'), color: relationshipAxisValueColor('trust', baseline.trust || 0, mode), deltaColor: relationshipAxisDeltaColor('trust', adjustment.trust || 0, mode), x: 99, y: 84, anchor: 'start' as const, labelDy: -4, valueDy: 9 },
+    { key: 'threat' as const, label: '威胁', value: value('threat'), color: relationshipAxisValueColor('threat', baseline.threat || 0, mode), deltaColor: relationshipAxisDeltaColor('threat', adjustment.threat || 0, mode), x: 56, y: 112, anchor: 'middle' as const, labelDy: 0, valueDy: 12 },
+    { key: 'attachment' as const, label: '在意', value: value('attachment'), color: relationshipAxisValueColor('attachment', baseline.attachment || 0, mode), deltaColor: relationshipAxisDeltaColor('attachment', adjustment.attachment || 0, mode), x: 13, y: 84, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
+    { key: 'deference' as const, label: '让位', value: value('deference'), color: relationshipAxisValueColor('deference', baseline.deference || 0, mode), deltaColor: relationshipAxisDeltaColor('deference', adjustment.deference || 0, mode), x: 13, y: 30, anchor: 'end' as const, labelDy: -4, valueDy: 9 },
   ];
 }
 
@@ -197,15 +198,16 @@ function AxisReasonDialog({ open, onClose, axisLabel, reasons }: { open: boolean
 }
 
 function RadarAxisLabels({ entry, onOpenAxis }: { entry: RelationshipLedgerEntry; onOpenAxis: (axis: AxisKey) => void }) {
+  const theme = useTheme();
   return (
     <>
-      {buildAxisLabels(entry).map((item) => {
+      {buildAxisLabels(entry, theme.palette.mode).map((item) => {
         const meta = METRIC_META.find((axis) => axis.key === item.key);
         return (
           <Tooltip key={item.key} title={meta?.hint || item.label} arrow>
             <g transform={`translate(${item.x}, ${item.y})`} style={{ cursor: 'pointer' }} onClick={() => onOpenAxis(item.key)}>
               <text textAnchor={item.anchor} dy={item.labelDy} dominantBaseline="middle" fill="rgba(71, 85, 105, 0.92)" fontSize="11" fontWeight="600">{item.label}</text>
-              <text textAnchor={item.anchor} dy={item.valueDy} dominantBaseline="middle" fill={item.color} fontSize="11">{item.value}</text>
+              <text textAnchor={item.anchor} dy={item.valueDy} dominantBaseline="middle" fontSize="11"><tspan fill={item.color}>{item.value.baseline}</tspan><tspan fill={item.deltaColor}> {item.value.delta}</tspan></text>
             </g>
           </Tooltip>
         );
