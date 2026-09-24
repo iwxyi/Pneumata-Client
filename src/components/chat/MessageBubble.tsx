@@ -142,6 +142,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
   const [promptAttachment, setPromptAttachment] = useState<MessageAttachment | null>(null);
   const [promptDialogOpen, setPromptDialogOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
+  const [suppressNativeTouchSelection, setSuppressNativeTouchSelection] = useState(false);
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'success' | 'error' | null>(null);
   const [copyFallback, setCopyFallback] = useState<{ label: string; value: string } | null>(null);
@@ -276,6 +277,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
 
   const closeMenus = () => {
     setMenuPosition(null);
+    setSuppressNativeTouchSelection(false);
   };
 
   const openPromptMenu = (attachment: MessageAttachment, event: React.MouseEvent<HTMLElement>) => {
@@ -322,6 +324,10 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
         pressTimerRef.current = null;
         return;
       }
+      // Chrome's native text-selection gesture starts shortly after a long
+      // press. Open our message menu first and suppress that competing gesture
+      // until the menu is dismissed.
+      setSuppressNativeTouchSelection(true);
       openMenuAt(start.mouseX, start.mouseY);
       touchStartRef.current = null;
       pressTimerRef.current = null;
@@ -539,6 +545,14 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
                 fontSize: 'inherit',
                 lineHeight: 'inherit',
               },
+              ...(suppressNativeTouchSelection ? {
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                '& *': {
+                  userSelect: 'none !important',
+                  WebkitUserSelect: 'none !important',
+                },
+              } : {}),
             }}
           >
             {narrativeParagraphBlocks.length ? <NarrativeParagraphContent blocks={narrativeParagraphBlocks} characters={narrativeCharacters} showDeveloperDetails={developerMode} /> : <PendingTypingDots />}
@@ -629,6 +643,14 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
               '&::selection, & ::selection': {
                 backgroundColor: isUser ? 'color-mix(in srgb, currentColor 34%, transparent)' : theme.palette.selection.main,
               },
+              ...(suppressNativeTouchSelection ? {
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                '& *': {
+                  userSelect: 'none !important',
+                  WebkitUserSelect: 'none !important',
+                },
+              } : {}),
             })}
           >
             {showPendingTypingDots ? <PendingTypingDots /> : isFinalWithdrawn ? (

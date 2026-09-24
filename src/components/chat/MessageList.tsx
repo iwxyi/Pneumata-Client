@@ -677,6 +677,8 @@ export default function MessageList({
   const [prependStabilizing, setPrependStabilizing] = useState(false);
   const [diagramViewerItem, setDiagramViewerItem] = useState<LightboxImageItem | null>(null);
   const [textSelectionActive, setTextSelectionActive] = useState(false);
+  const textSelectionLayoutAnchorRef = useRef<{ index: number; offsetTop: number } | null>(null);
+  const textSelectionLayoutTransitionRef = useRef(false);
   const previousRenderMetricsRef = useRef({
     itemCount: renderItems.length,
     lastItemKey: renderItems.at(-1)?.key ?? null,
@@ -698,6 +700,8 @@ export default function MessageList({
     autoStickToBottom
     && shouldStickToBottomRef.current
     && !isUserPointerHeldRef.current
+    && !textSelectionActive
+    && !textSelectionLayoutTransitionRef.current
     && !tailFollowStartSnapshotRef.current
     && followScrollAnimationRef.current == null
   );
@@ -716,11 +720,55 @@ export default function MessageList({
         && anchor
         && containerRef.current?.contains(anchor),
       );
-      setTextSelectionActive((current) => current === hasMessageSelection ? current : hasMessageSelection);
+      setTextSelectionActive((current) => {
+        if (current === hasMessageSelection) return current;
+        const container = containerRef.current;
+        if (container) {
+          const containerRect = container.getBoundingClientRect();
+          const firstVisibleItem = Array.from(container.querySelectorAll<HTMLElement>('[data-index]'))
+            .find((item) => {
+              const rect = item.getBoundingClientRect();
+              return rect.bottom > containerRect.top && rect.top < containerRect.bottom;
+            });
+          const index = Number(firstVisibleItem?.dataset.index);
+          if (firstVisibleItem && Number.isInteger(index)) {
+            textSelectionLayoutAnchorRef.current = {
+              index,
+              offsetTop: firstVisibleItem.getBoundingClientRect().top - containerRect.top,
+            };
+            textSelectionLayoutTransitionRef.current = true;
+          }
+        }
+        return hasMessageSelection;
+      });
     };
     document.addEventListener('selectionchange', updateTextSelectionState);
     return () => document.removeEventListener('selectionchange', updateTextSelectionState);
   }, []);
+
+  useLayoutEffect(() => {
+    const anchor = textSelectionLayoutAnchorRef.current;
+    textSelectionLayoutAnchorRef.current = null;
+    const container = containerRef.current;
+    if (!anchor || !container) {
+      textSelectionLayoutTransitionRef.current = false;
+      return;
+    }
+    const restoreAnchorOffset = () => {
+      const item = container.querySelector<HTMLElement>(`[data-index="${anchor.index}"]`);
+      if (!item) return;
+      const offsetDelta = item.getBoundingClientRect().top - container.getBoundingClientRect().top - anchor.offsetTop;
+      if (Math.abs(offsetDelta) < 0.1) return;
+      container.scrollTop += offsetDelta;
+      lastScrollTopRef.current = container.scrollTop;
+    };
+    restoreAnchorOffset();
+    const frame = requestAnimationFrame(() => {
+      restoreAnchorOffset();
+      textSelectionLayoutTransitionRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [textSelectionActive]);
 
   const viewerIndex = viewerKey ? chatImageTimeline.findIndex((item) => item.key === viewerKey) : -1;
   const viewerImages = diagramViewerItem ? [diagramViewerItem] : chatImageTimeline;
@@ -925,6 +973,20 @@ export default function MessageList({
   const endUserScrollGesture = useCallback(() => {
     isUserPointerHeldRef.current = false;
   }, []);
+
+  useEffect(() => {
+    // Keep the user's press state accurate even when the pointer is released
+    // outside the list. Capturing the pointer on the list retargets click and
+    // double-click events away from message bubbles and their controls.
+    window.addEventListener('pointerup', endUserScrollGesture);
+    window.addEventListener('pointercancel', endUserScrollGesture);
+    window.addEventListener('blur', endUserScrollGesture);
+    return () => {
+      window.removeEventListener('pointerup', endUserScrollGesture);
+      window.removeEventListener('pointercancel', endUserScrollGesture);
+      window.removeEventListener('blur', endUserScrollGesture);
+    };
+  }, [endUserScrollGesture]);
 
   const recordUserScrollMomentum = useCallback((direction: 'up' | 'down' | null, velocity: number) => {
     if (!direction || velocity <= 0) return;
@@ -1956,12 +2018,8 @@ export default function MessageList({
       onTouchStart={beginUserScrollGesture}
       onTouchEnd={endUserScrollGesture}
       onTouchCancel={endUserScrollGesture}
-      onPointerDown={(event) => {
-        // React portal events bubble through this component tree. Do not
-        // capture pointers that started in a portaled menu or dialog.
-        if (!event.currentTarget.contains(event.target as Node)) return;
+      onPointerDown={() => {
         beginUserScrollGesture();
-        event.currentTarget.setPointerCapture?.(event.pointerId);
       }}
       onPointerUp={endUserScrollGesture}
       onPointerCancel={endUserScrollGesture}
@@ -2116,7 +2174,10 @@ export default function MessageList({
                     width: '100%',
                     minWidth: 0,
                     maxWidth: '100%',
-                    contain: textSelectionActive ? undefined : 'layout paint style',
+                    // Paint containment clips the bubble's shadow at each
+                    // virtual row boundary. Keep layout/style isolation for
+                    // virtualized rows without changing their visual output.
+                    contain: textSelectionActive ? undefined : 'layout style',
                   }}
                 >
                   {renderMessageItem(item)}
