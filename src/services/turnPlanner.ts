@@ -10,7 +10,7 @@ export type TurnLengthBand = 'micro' | 'short' | 'medium' | 'long' | 'extended';
 
 export interface TurnPlan {
   rhythm: TurnRhythm;
-  targetBubbleCount: number;
+  maxBubbleCount: number;
   lengthBand: TurnLengthBand;
   allowExtraMessages: boolean;
   waitSensitive: boolean;
@@ -102,7 +102,7 @@ function chooseLongFormPlan(input: TurnPlanInput, latestLength: number): TurnPla
   const length = latestLength >= 80 || input.surface.kind === 'longform' ? 'extended' : 'long';
   return {
     rhythm: 'full_reply',
-    targetBubbleCount: 1,
+    maxBubbleCount: 1,
     lengthBand: length,
     allowExtraMessages: false,
     waitSensitive: false,
@@ -119,7 +119,7 @@ function chooseAnalysisContinuationPlan(input: TurnPlanInput, latestLength: numb
     const allowExtraMessages = latestIsHuman && latestLength >= 90;
     return {
       rhythm: allowExtraMessages ? 'multi_bubble' : 'full_reply',
-      targetBubbleCount: allowExtraMessages ? 2 : 1,
+      maxBubbleCount: allowExtraMessages ? 2 : 1,
       lengthBand: latestLength >= 160 ? 'long' : 'medium',
       allowExtraMessages,
       waitSensitive: false,
@@ -131,7 +131,7 @@ function chooseAnalysisContinuationPlan(input: TurnPlanInput, latestLength: numb
   if (!latestIsHuman && latestLength >= 120) {
     return {
       rhythm: 'short_reply',
-      targetBubbleCount: 1,
+      maxBubbleCount: 1,
       lengthBand: 'short',
       allowExtraMessages: false,
       waitSensitive: false,
@@ -140,7 +140,7 @@ function chooseAnalysisContinuationPlan(input: TurnPlanInput, latestLength: numb
   }
   return {
     rhythm: input.intent.delivery === 'quick_question' || input.intent.messageShape === 'question_only' ? 'short_reply' : allowExtraMessages ? 'multi_bubble' : 'full_reply',
-    targetBubbleCount: allowExtraMessages ? 2 : 1,
+    maxBubbleCount: allowExtraMessages ? 2 : 1,
     lengthBand: latestLength >= 180 ? 'medium' : 'short',
     allowExtraMessages,
     waitSensitive: false,
@@ -183,7 +183,7 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
   if (latestIsShortOpenHuman) {
     return {
       rhythm: 'defer_or_wait',
-      targetBubbleCount: 1,
+      maxBubbleCount: 1,
       lengthBand: 'micro',
       allowExtraMessages: false,
       waitSensitive: true,
@@ -198,13 +198,13 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
       && ownStats.recentMultiBubbleCount === 0
       && (
         input.chat.type !== 'group'
-        || bucket >= 54
         || input.intent.delivery === 'group_redirect'
         || input.intent.messageShape === 'question_only'
+        || talkativeness >= 58
       );
     return {
       rhythm: canUseExtraMessages ? 'multi_bubble' : 'full_reply',
-      targetBubbleCount: canUseExtraMessages ? 2 : 1,
+      maxBubbleCount: canUseExtraMessages ? 2 : 1,
       lengthBand: latestLength >= 90 ? 'long' : 'medium',
       allowExtraMessages: canUseExtraMessages,
       waitSensitive: false,
@@ -215,7 +215,7 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
   if (!latestIsHuman && input.chat.type === 'group' && latestLength >= 90 && input.richDelivery?.multiBubble.proactivity !== 'high') {
     return {
       rhythm: 'short_reply',
-      targetBubbleCount: 1,
+      maxBubbleCount: 1,
       lengthBand: 'short',
       allowExtraMessages: false,
       waitSensitive: false,
@@ -226,24 +226,23 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
   const canMultiBubble = input.chat.type !== 'group' || talkativeness >= 58 || input.intent.delivery === 'side_remark';
   const shouldMultiBubble = canMultiBubble
     && ownStats.recentMultiBubbleCount === 0
-    && bucket >= 62
     && latestLength >= 10
     && latestLength <= 90;
   if (shouldMultiBubble) {
     return {
       rhythm: 'multi_bubble',
-      targetBubbleCount: bucket >= 88 ? 3 : 2,
+      maxBubbleCount: bucket >= 88 ? 3 : 2,
       lengthBand: bucket >= 82 ? 'medium' : 'short',
       allowExtraMessages: true,
       waitSensitive: false,
-      reasons: [...reasons, 'multi_bubble_spacing'],
+      reasons: [...reasons, 'multi_bubble_context_available'],
     };
   }
 
   if (!latestIsHuman && (input.intent.messageShape === 'fragment' || latestLength <= 12)) {
     return {
       rhythm: 'micro_ack',
-      targetBubbleCount: 1,
+      maxBubbleCount: 1,
       lengthBand: 'micro',
       allowExtraMessages: false,
       waitSensitive: false,
@@ -253,7 +252,7 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
 
   return {
     rhythm: 'short_reply',
-    targetBubbleCount: 1,
+    maxBubbleCount: 1,
     lengthBand: ownStats.clustered && ownStats.averageLength < 80 ? 'short' : lengthBand(Math.max(18, Math.min(88, latestLength + 12))),
     allowExtraMessages: false,
     waitSensitive: false,
@@ -267,48 +266,23 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
   if (!delivery) return plan;
 
   if (delivery.proactivity === 'off') {
-    return { ...plan, rhythm: plan.rhythm === 'multi_bubble' ? 'full_reply' : plan.rhythm, targetBubbleCount: 1, allowExtraMessages: false, reasons: [...plan.reasons, 'delivery:multi_bubble_off'] };
+    return { ...plan, rhythm: plan.rhythm === 'multi_bubble' ? 'full_reply' : plan.rhythm, maxBubbleCount: 1, allowExtraMessages: false, reasons: [...plan.reasons, 'delivery:multi_bubble_off'] };
   }
 
   if (input.surface.kind !== 'chat') return plan;
-  const latest = latestVisible(input.messages);
-  const latestLength = charLength(latest?.content);
-  const ownStats = recentOwnStats(input.messages, input.speaker.id);
-  const bucket = stableBucket([input.chat.id, input.speaker.id, latest?.id || '', latest?.timestamp || input.now || 0, 'rich-delivery'].join('|'));
-  // High is an affordance of casual/companion rooms: nearly every eligible
-  // turn may choose a run of messages, while the model retains the final
-  // semantic decision to keep it as one message or send several.
-  const threshold = delivery.proactivity === 'high' ? 5 : delivery.proactivity === 'medium' ? 62 : 84;
-  const preservesUserRequestedSplit = plan.reasons.some((reason) => reason === 'human_depth_can_split_bubbles' || reason === 'analysis_structured_multi_bubble');
-  const passesDeliveryPolicy = preservesUserRequestedSplit || bucket >= threshold;
-  const cappedCount = Math.max(1, Math.min(plan.targetBubbleCount, delivery.maxBubbles, 5));
-  const permittedCount = delivery.proactivity === 'high' ? Math.min(5, delivery.maxBubbles) : cappedCount;
-  if (plan.allowExtraMessages) {
-    if (!passesDeliveryPolicy) {
-      return {
-        ...plan,
-        rhythm: plan.rhythm === 'multi_bubble' ? 'full_reply' : plan.rhythm,
-        targetBubbleCount: 1,
-        allowExtraMessages: false,
-        reasons: [...plan.reasons, `delivery:${delivery.proactivity}_held_single`],
-      };
-    }
-    return { ...plan, targetBubbleCount: permittedCount, allowExtraMessages: permittedCount > 1, reasons: [...plan.reasons, `delivery:multi_bubble_${delivery.proactivity}`] };
-  }
+  const maxBubbleCount = Math.max(1, Math.min(5, delivery.maxBubbles));
+  if (maxBubbleCount === 1) return plan;
 
-  const canProactivelySplit = (delivery.proactivity === 'high' ? latestLength > 0 : latestLength >= 8)
-    && latestLength <= (delivery.proactivity === 'high' ? 180 : 90)
-    && ownStats.recentMultiBubbleCount === 0
-    && bucket >= threshold
-    && (delivery.proactivity === 'high' || plan.rhythm !== 'defer_or_wait')
-    && plan.rhythm !== 'micro_ack';
-  if (!canProactivelySplit) return plan;
+  // Proactivity is a model-facing tendency, not a local random verdict. The
+  // model sees the live meaning, emotion and timing that decide whether this
+  // particular turn is one send or several; the runtime only supplies the
+  // room's hard ceiling.
   return {
     ...plan,
-    rhythm: 'multi_bubble',
-    targetBubbleCount: Math.min(5, delivery.maxBubbles),
-    allowExtraMessages: delivery.maxBubbles > 1,
-    reasons: [...plan.reasons, `delivery:${delivery.proactivity}_proactive_multi_bubble`],
+    rhythm: plan.allowExtraMessages ? 'multi_bubble' : plan.rhythm,
+    maxBubbleCount,
+    allowExtraMessages: true,
+    reasons: [...plan.reasons, `delivery:${delivery.proactivity}_model_decides`],
   };
 }
 

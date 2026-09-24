@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { Message } from '../types/message';
-import { buildInnerLifePromptBlock, getInnerLifeSpeakerBias, projectInnerLife } from './innerLifeEngine';
+import type { GroupChat } from '../types/chat';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
+import { buildInnerLifeMetadata, buildInnerLifePromptBlock, getInnerLifeSpeakerBias, projectInnerLife } from './innerLifeEngine';
 
 function character(patch: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -38,7 +40,23 @@ function message(patch: Partial<Message>): Message {
   };
 }
 
+function roomWithInteraction(kind: 'challenge' | 'support', actorId: string, targetId: string, createdAt = 2): GroupChat {
+  return {
+    runtimeEventsV2: [{
+      id: 'interaction-1', conversationId: 'c', kind: 'interaction', createdAt,
+      actorIds: [actorId], targetIds: [targetId], summary: 'directed turn',
+      payload: { kind, actorId, targetId, intensity: 5, tone: kind === 'challenge' ? 'annoyed' : 'warm', evidenceText: 'directed turn', confidence: 0.95 },
+    } satisfies RuntimeEventV2],
+  } as GroupChat;
+}
+
 describe('innerLifeEngine', () => {
+  it('keeps suggested rhythm distinct from the messages actually emitted', () => {
+    const projection = projectInnerLife({ character: character(), messages: [message({ content: '小甲，你怎么看？' })], now: 10 });
+    const metadata = buildInnerLifeMetadata(projection, 3);
+    expect(metadata.expressionPlan?.suggestedMessageCount).toBe(projection.expressionPlan.messageCount);
+    expect(metadata.expressionPlan?.messageCount).toBe(3);
+  });
   it('projects answer impulse when the character is addressed', () => {
     const projection = projectInnerLife({
       character: character(),
@@ -125,6 +143,32 @@ describe('innerLifeEngine', () => {
     expect(projection.expressionPlan.allowWithdraw).toBe(true);
   });
 
+  it('carries a sudden emotion into the tone of an answer without making it a permanent trait', () => {
+    const upset = character({
+      emotionalState: { affection: 2, irritation: 68, insecurity: 15, excitement: 0, embarrassment: 4 },
+    });
+    const addressed = projectInnerLife({ character: upset, messages: [message({ content: '小甲，你真的没意见？' })], now: 20 });
+    const unaddressed = projectInnerLife({ character: upset, messages: [message({ content: '这件事之后再说。' })], now: 20 });
+
+    expect(addressed.impulse).toBe('answer');
+    expect(addressed.tone).toBe('defensive');
+    expect(unaddressed.tone).toBe('casual');
+  });
+
+  it('keeps direct pressure from a superior ahead of generic emotional tone', () => {
+    const projection = projectInnerLife({
+      character: character({
+        relationships: [{ characterId: 'b', warmth: 0, trust: 30, competence: 55, threat: 5, deference: 60 }],
+        emotionalState: { affection: 2, irritation: 62, insecurity: 8, excitement: 0, embarrassment: 4 },
+      }),
+      messages: [message({ content: '小甲，你来解释。' })],
+      now: 20,
+    });
+
+    expect(projection.impulse).toBe('answer');
+    expect(projection.tone).toBe('serious');
+  });
+
   it('uses low energy and low room trust to produce a short avoidance plan', () => {
     const projection = projectInnerLife({
       character: character({
@@ -176,7 +220,7 @@ describe('innerLifeEngine', () => {
     expect(projection.expressionPlan.allowWithdraw).toBe(true);
   });
 
-  it('lets a clearly leading moderate emotion change the next social impulse', () => {
+  it('does not assign a global emotion to the latest person without a directed event', () => {
     const projection = projectInnerLife({
       character: character({
         emotionalState: { affection: 4, irritation: 38, insecurity: 9, excitement: 2, embarrassment: 6 },
@@ -186,8 +230,8 @@ describe('innerLifeEngine', () => {
     });
 
     expect(projection.dominantEmotion).toMatchObject({ kind: 'irritation', value: 38 });
-    expect(projection.impulse).toBe('mock');
-    expect(projection.reason).toContain('即时烦躁');
+    expect(projection.impulse).toBe('stay_silent');
+    expect(projection.activeAffect).toBeNull();
   });
 
   it('does not turn relationship intensity into a locally prescribed mocking impulse', () => {
@@ -220,6 +264,7 @@ describe('innerLifeEngine', () => {
           ignoredStreak: 0,
         },
       }),
+      chat: roomWithInteraction('challenge', 'a', 'b', 1),
       messages: [
         message({ id: 'own', senderId: 'a', senderName: '小甲', content: '不是，你这也太离谱了吧', timestamp: 1 }),
         message({ id: 'b1', senderId: 'b', content: '行，当我没说', timestamp: 2 }),
@@ -230,6 +275,35 @@ describe('innerLifeEngine', () => {
     expect(projection.impulse).toBe('repair');
     expect(projection.reason).toContain('找补');
     expect(projection.evidence.join(' / ')).toContain('修复压力');
+  });
+
+  it('keeps a sudden emotional impact attached to its source when a third person interrupts', () => {
+    const chat = roomWithInteraction('challenge', 'b', 'a');
+    const messages = [
+      message({ id: 'b', senderId: 'b', timestamp: 2, content: '你之前做错了。' }),
+      message({ id: 'c', senderId: 'c', timestamp: 3, content: '外面下雨了。' }),
+    ];
+    const projection = projectInnerLife({ chat, character: character({
+      emotionalState: { irritation: 70, affection: 0, insecurity: 10, excitement: 0, embarrassment: 0 },
+    }), messages, now: 4 });
+
+    expect(projection.activeAffect).toMatchObject({ counterpartId: 'b', role: 'received', age: 1 });
+    expect(projection.activeAffect?.pressure).toBeGreaterThan(0.7);
+    expect(projection.impulse).toBe('defend_face');
+  });
+
+  it('releases expressed pressure while retaining directed residue until it fades', () => {
+    const chat = roomWithInteraction('challenge', 'a', 'b');
+    const messages = [message({ id: 'a', senderId: 'a', timestamp: 2, content: '我不同意。' })];
+    const fresh = projectInnerLife({ chat, character: character(), messages, now: 3 });
+    const later = projectInnerLife({ chat, character: character(), messages: [
+      ...messages,
+      ...Array.from({ length: 6 }, (_, index) => message({ id: `m-${index}`, senderId: 'c', timestamp: index + 3, content: '继续讨论。' })),
+    ], now: 10 });
+
+    expect(fresh.activeAffect).toMatchObject({ counterpartId: 'b', role: 'expressed' });
+    expect(fresh.activeAffect?.pressure).toBeLessThan(0.5);
+    expect(later.activeAffect).toBeNull();
   });
 
   it('uses expression feedback memories to tighten assistant-like expression plans', () => {

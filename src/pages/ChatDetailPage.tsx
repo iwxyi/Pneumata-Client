@@ -54,7 +54,7 @@ import { usePaneLayout } from '../components/layout/PaneLayoutContext';
 import type { LocalInterceptionEvent } from '../services/chatEngine';
 import { api, type ChatShareState } from '../services/api';
 import { copyTextToClipboard } from '../utils/clipboard';
-import { getInputCapabilityWarning, getUsablePreferredAIProfile, isAIProfileUsable, resolveAIModelInputCapabilities } from '../types/settings';
+import { getInputCapabilityWarning, getUsablePreferredAIProfile, resolveAIModelInputCapabilities } from '../types/settings';
 import { logDeveloperDiagnostic } from '../services/developerDiagnostics';
 import { isGenerationCancelledError } from '../services/generationCancellation';
 import { getStoryChoiceGateState, resolveStoryReaderRole, sanitizeStoryChoicePrompt } from '../services/storyChoices';
@@ -1355,8 +1355,7 @@ export default function ChatDetailPage() {
     };
     const run = async () => {
       const settings = useSettingsStore.getState();
-      const profile = getUsablePreferredAIProfile(settings.aiProfiles, 'text')
-        || (isAIProfileUsable(settings.api) ? settings.api : null);
+      const profile = getUsablePreferredAIProfile(settings.aiProfiles, 'text');
       if (!profile) {
         await persistState('failed');
         return;

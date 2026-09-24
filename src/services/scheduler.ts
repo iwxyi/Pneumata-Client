@@ -230,9 +230,24 @@ export function resolvePendingReplyContext(characters: AICharacter[], recentMess
   const recentAiMessages = recentMessages.filter((message) => message.type === 'ai' && !message.isDeleted);
   const lastAiMessage = recentAiMessages.at(-1) as (Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null }) | undefined;
   if (!lastAiMessage) return null;
-  const targetIds = (lastAiMessage.primaryAddressedTargetId ? [lastAiMessage.primaryAddressedTargetId] : [])
-    .concat(lastAiMessage.addressedTargetIds || [])
-    .concat(getReplyWorthyInteractionTargetIds(lastAiMessage, characters))
+  const segment = lastAiMessage.metadata?.turnSegment;
+  const possibleTurnMessages = segment && segment.count > 1 && segment.index === segment.count - 1
+    ? recentAiMessages.slice(-segment.count)
+    : [lastAiMessage];
+  const turnMessages = possibleTurnMessages.length === segment?.count
+    && possibleTurnMessages.every((message, index) => (
+      message.senderId === lastAiMessage.senderId
+      && message.metadata?.turnSegment?.index === index
+      && message.metadata?.turnSegment?.count === segment.count
+    ))
+    ? possibleTurnMessages
+    : [lastAiMessage];
+  const targetIds = turnMessages.flatMap((message) => {
+    const candidate = message as Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null };
+    return (candidate.primaryAddressedTargetId ? [candidate.primaryAddressedTargetId] : [])
+      .concat(candidate.addressedTargetIds || [])
+      .concat(getReplyWorthyInteractionTargetIds(message, characters));
+  })
     .filter((targetId, index, array): targetId is string => Boolean(targetId) && array.indexOf(targetId) === index)
     .filter((targetId) => targetId !== lastAiMessage.senderId && characters.some((character) => character.id === targetId));
   if (!targetIds.length) return null;
@@ -395,6 +410,10 @@ export function calculateWeights(
         : 0;
       const conflictBias = getConflictSpeakerBias(char, conflictContext, lastSpeakerId);
       const directorBias = getDirectorIntentSpeakerBias({ character: char, directorIntent, chat, lastSpeakerId });
+      const directorAddressBoost = directorIntent?.source === 'user_message'
+        && directorIntent.targetActorIds.includes(char.id)
+        ? 0.86
+        : 0;
       const guidanceFloorGuardianBias = directorIntent?.source === 'user_message'
         && !forcedUserGuidanceActorIds.length
         && Boolean(directorIntent.userGuidance?.actorIds.length)
@@ -406,6 +425,9 @@ export function calculateWeights(
         : 0;
       const innerLife = projectInnerLife({ chat, character: char, messages: recentMessages, now });
       const innerLifeBias = getInnerLifeSpeakerBias(innerLife);
+      const directedAffectBias = innerLife.activeAffect?.role === 'received'
+        ? innerLife.activeAffect.pressure * 0.48 : 0;
+      const directedAffectPressure = innerLife.activeAffect?.pressure || 0;
       const characterTurnDrive = deriveCharacterTurnDrive({ speaker: char, messages: recentMessages, innerLife });
       const characterDriveBias = getCharacterTurnDriveSpeakerBias(characterTurnDrive);
       const attentionStateBias = attentionStateBiasByActor.get(char.id) || 0;
@@ -444,6 +466,7 @@ export function calculateWeights(
       weight += directorBias.bias;
       weight += guidanceFloorGuardianBias;
       weight += innerLifeBias.bias;
+      weight += directedAffectBias;
       weight += characterDriveBias;
       if (!(directorIntent?.source === 'user_message' && directorIntent.targetActorIds.length)) {
         weight += attentionStateBias;
@@ -474,7 +497,7 @@ export function calculateWeights(
         ].filter((targetId, index, array): targetId is string => Boolean(targetId) && array.indexOf(targetId) === index);
         const directCue = lastAiMessage.content.includes(char.name) || explicitTargets.includes(char.id);
         if (directCue) {
-          directCueBoost = 0.18;
+          directCueBoost = 0.62;
           weight += directCueBoost;
         }
         const conflictReplyBonus = getConflictDirectReplyBonus(char, conflictContext, lastAiMessage.senderId);
@@ -552,10 +575,10 @@ export function calculateWeights(
         idleStaySilent,
         scoreBreakdown: buildSpeakerScoreBreakdown({
           actorId: char.id,
-          addressed: pendingReplyBoost + directCueBoost,
-          topicRelevance: relevance * 0.2 + contentLengthAdjustment,
+          addressed: Math.max(pendingReplyBoost, directCueBoost, directorAddressBoost),
+          topicRelevance: relevance * 0.2 + contentLengthAdjustment + (directorAddressBoost ? 0.24 : 0),
           lineInvolvement: conflictBias + directorBias.bias,
-          emotionalPressure: emotionalMomentum,
+          emotionalPressure: clamp(emotionalMomentum + directedAffectPressure, -0.18, 1),
           innerLifePressure: innerLifeBias.bias,
           relationshipPressure,
           factionPressure: directorIntent?.source === 'faction' ? directorBias.bias : 0,
@@ -567,8 +590,11 @@ export function calculateWeights(
           finalScore,
           reasons: [
             pendingReplyBoost ? 'pending_reply' : '',
+            directorAddressBoost ? 'direct_user_address' : '',
+            directCueBoost ? 'direct_message_address' : '',
             unspokenMemberBias ? 'unspoken_member' : '',
             emotionalReason,
+            directedAffectPressure >= 0.28 ? 'emotion:directed_affect' : '',
             conflictBias ? 'conflict' : '',
             ...directorBias.reasons,
             guidanceFloorGuardianBias ? 'guidance_floor_guardian' : '',
@@ -620,7 +646,11 @@ export function getSpeakerSelectionResult(
   candidates: WeightedCandidate[]
 ) {
   const picked = selectSpeaker(candidates);
-  if (picked) return { speakerId: picked, reason: null, bypassNotice: null };
+  if (picked) {
+    const selected = candidates.find((candidate) => candidate.characterId === picked);
+    const reasons = selected?.scoreBreakdown?.reasons || [];
+    return { speakerId: picked, reason: reasons.length ? reasons.join(', ') : 'weighted_scheduler', bypassNotice: null };
+  }
 
   const now = Date.now();
   const unavailable = characters

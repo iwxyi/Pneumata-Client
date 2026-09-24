@@ -106,8 +106,8 @@ describe('deriveTurnPlan', () => {
       now: 31,
     });
 
-    expect(plan.targetBubbleCount).toBeLessThanOrEqual(5);
-    expect(plan.reasons).toContain('delivery:multi_bubble_high');
+    expect(plan.maxBubbleCount).toBeLessThanOrEqual(5);
+    expect(plan.reasons).toContain('delivery:high_model_decides');
   });
 
   it('prevents proactive splitting when the room policy turns it off', () => {
@@ -122,7 +122,7 @@ describe('deriveTurnPlan', () => {
     });
 
     expect(plan.allowExtraMessages).toBe(false);
-    expect(plan.targetBubbleCount).toBe(1);
+    expect(plan.maxBubbleCount).toBe(1);
     expect(plan.reasons).toContain('delivery:multi_bubble_off');
   });
 
@@ -153,7 +153,7 @@ describe('deriveTurnPlan', () => {
     });
 
     expect(plan.allowExtraMessages).toBe(true);
-    expect(plan.targetBubbleCount).toBeGreaterThan(1);
+    expect(plan.maxBubbleCount).toBeGreaterThan(1);
   });
 
   it('allows planned multi-bubble turns from structural spacing signals', () => {
@@ -171,7 +171,7 @@ describe('deriveTurnPlan', () => {
     expect(['multi_bubble', 'short_reply', 'full_reply']).toContain(plan.rhythm);
     if (plan.rhythm === 'multi_bubble') {
       expect(plan.allowExtraMessages).toBe(true);
-      expect(plan.targetBubbleCount).toBeGreaterThan(1);
+      expect(plan.maxBubbleCount).toBeGreaterThan(1);
     }
   });
 
@@ -186,7 +186,7 @@ describe('deriveTurnPlan', () => {
 
     expect(plan.rhythm).toBe('full_reply');
     expect(plan.allowExtraMessages).toBe(false);
-    expect(plan.targetBubbleCount).toBe(1);
+    expect(plan.maxBubbleCount).toBe(1);
   });
 
   it('does not make analysis-room AI continuations long just because the surface is professional', () => {
@@ -285,7 +285,7 @@ describe('deriveTurnPlan', () => {
 
     expect(plan.rhythm).toBe('multi_bubble');
     expect(plan.allowExtraMessages).toBe(true);
-    expect(plan.targetBubbleCount).toBe(2);
+    expect(plan.maxBubbleCount).toBe(2);
     expect(plan.reasons).toContain('human_depth_can_split_bubbles');
   });
 
@@ -366,7 +366,7 @@ describe('deriveTurnPlan', () => {
   it('does not turn the internal length band into a fixed prompt target', () => {
     const prompt = buildTurnPlanPrompt({
       rhythm: 'short_reply',
-      targetBubbleCount: 1,
+      maxBubbleCount: 1,
       lengthBand: 'medium',
       allowExtraMessages: false,
       waitSensitive: false,
@@ -387,7 +387,7 @@ describe('deriveTurnPlan', () => {
     });
 
     expect(plan.allowExtraMessages).toBe(true);
-    expect(plan.targetBubbleCount).toBe(5);
+    expect(plan.maxBubbleCount).toBe(5);
     expect(plan.reasons.some((reason) => reason.startsWith('delivery:'))).toBe(true);
     const prompt = buildTurnPlanPrompt(plan);
     expect(prompt).toContain('never required');
@@ -397,7 +397,7 @@ describe('deriveTurnPlan', () => {
     expect(prompt).toContain('uneven in length');
   });
 
-  it('gives high, medium, and low delivery policies different proactive thresholds', () => {
+  it('lets the model choose bubble count within each enabled room policy', () => {
     const input = {
       chat: chat({ id: 'room-0', type: 'direct' }), speaker: character(),
       messages: [message({ content: '我今天路过那家店，忽然想起你上次说的话。', timestamp: 42 })],
@@ -408,8 +408,13 @@ describe('deriveTurnPlan', () => {
     const low = deriveTurnPlan({ ...input, richDelivery: { ...highDelivery, multiBubble: { proactivity: 'low', maxBubbles: 2 } } });
 
     expect(high.allowExtraMessages).toBe(true);
-    expect(medium.allowExtraMessages).toBe(false);
-    expect(low.allowExtraMessages).toBe(false);
-    expect(high.reasons.some((reason) => reason.startsWith('delivery:high_'))).toBe(true);
+    expect(medium.allowExtraMessages).toBe(true);
+    expect(low.allowExtraMessages).toBe(true);
+    expect(high.maxBubbleCount).toBe(5);
+    expect(medium.maxBubbleCount).toBe(2);
+    expect(low.maxBubbleCount).toBe(2);
+    expect(high.reasons).toContain('delivery:high_model_decides');
+    expect(medium.reasons).toContain('delivery:medium_model_decides');
+    expect(low.reasons).toContain('delivery:low_model_decides');
   });
 });

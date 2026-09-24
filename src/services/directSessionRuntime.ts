@@ -8,7 +8,7 @@ import type { CompanionshipMomentReflectionEventPayload } from '../types/compani
 import { createDefaultConversationFrameworkPatch, mergeSessionChatPatch } from '../types/sessionEngine';
 import { DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
-import { deriveEmotionalState, derivePersonalityDrift } from './personalityDrift';
+import { decayEmotionalState, getEmotionalBaseline } from './personalityDrift';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import { accumulateCharacterRuntime } from './characterRuntime';
 import { accumulateChatRuntime } from './chatRuntime';
@@ -1284,10 +1284,10 @@ export async function applyAiDirectFeedback(params: {
   const evolution = resolveRuntimeEvolutionConfig(params.chat.runtimeEvolutionIntensity);
   const updatedStarter = starter;
   const updatedTarget = target;
-  const starterDrift = derivePersonalityDrift(starter, params.content, evolution.driftMultiplier);
-  const targetDrift = derivePersonalityDrift(target, params.content, evolution.driftMultiplier * 0.85);
-  const starterEmotion = deriveEmotionalState(starter, params.content, evolution.emotionMultiplier, evolution.emotionDecayBias);
-  const targetEmotion = deriveEmotionalState(target, params.content, evolution.emotionMultiplier * 0.85, evolution.emotionDecayBias);
+  const starterDrift = starter.personalityDrift || {};
+  const targetDrift = target.personalityDrift || {};
+  const starterEmotion = decayEmotionalState(starter.emotionalState || getEmotionalBaseline(), 'speaker');
+  const targetEmotion = decayEmotionalState(target.emotionalState || getEmotionalBaseline(), 'target');
 
   await params.updateCharacter(starterId, {
     relationships: updatedStarter.relationships,

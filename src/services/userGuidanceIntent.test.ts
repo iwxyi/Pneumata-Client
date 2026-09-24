@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
-import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent } from './userGuidanceIntent';
+import { getGuidanceMemoryTargetActorIds, getGuidanceTargetActorIds, parseUserGuidanceIntent } from './userGuidanceIntent';
 
 function character(id: string, name: string): AICharacter {
   return {
@@ -176,6 +176,31 @@ describe('userGuidanceIntent', () => {
     });
   });
 
+  it('treats a name at the start of a later sentence as an explicit address', () => {
+    const intent = parseUserGuidanceIntent('别替他们圆场。闻溪，你刚才确实先问了程野，却完全没问许棠。', [
+      character('wenxi', '闻溪'),
+      character('chengye', '程野'),
+      character('xutang', '许棠'),
+    ]);
+
+    expect(intent).toMatchObject({
+      kind: 'direct_reply',
+      actorIds: ['wenxi'],
+      mentionedActorIds: ['wenxi', 'chengye', 'xutang'],
+      beatType: 'answer',
+    });
+  });
+
+  it('does not turn names mentioned inside a sentence into direct addressees', () => {
+    const intent = parseUserGuidanceIntent('合照里怎么只有闻溪和程野，许棠去哪了？这件事别当成拍漏了就算了。', [
+      character('wenxi', '闻溪'),
+      character('chengye', '程野'),
+      character('xutang', '许棠'),
+    ]);
+
+    expect(intent?.actorIds).toEqual([]);
+  });
+
   it('keeps the leading addressed actor when later text mentions someone else', () => {
     const intent = parseUserGuidanceIntent('安安，你直接说吧，用户到底为什么不再用了？不用先照顾周策的汇报口径。', [
       character('anan', '安安'),
@@ -241,5 +266,26 @@ describe('userGuidanceIntent', () => {
       hasHardConstraints: true,
       maxTurns: 5,
     });
+    expect(getGuidanceTargetActorIds(intent)).toEqual([]);
+  });
+
+  it('does not turn constrained mentions into immediate speaker targets', () => {
+    expect(getGuidanceTargetActorIds({
+      kind: 'topic_shift',
+      rawText: '别替他们圆场。闻溪先回答，程野稍后再说。',
+      actorIds: [],
+      mentionedActorIds: ['wenxi', 'chengye'],
+      hardConstraintActorIds: ['wenxi', 'chengye'],
+      suppressedActorIds: [],
+      deferredActorIds: ['chengye'],
+      hasHardConstraints: true,
+      voiceRequest: false,
+      focusText: '闻溪先回答',
+      beatType: 'answer',
+      pressure: 0.9,
+      maxTurns: 3,
+      minTargetTurns: 1,
+      reason: '用户要求闻溪先回答。',
+    })).toEqual([]);
   });
 });

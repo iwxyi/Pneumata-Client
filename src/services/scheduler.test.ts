@@ -109,8 +109,11 @@ describe('scheduler speaker scoring', () => {
     const a = candidates.find((candidate) => candidate.characterId === 'a');
     const b = candidates.find((candidate) => candidate.characterId === 'b');
     expect(b?.weight).toBeGreaterThan(a?.weight || 0);
+    expect(b?.scoreBreakdown?.addressed).toBeGreaterThanOrEqual(0.86);
+    expect(b?.scoreBreakdown?.topicRelevance).toBeGreaterThan(0);
     expect(b?.scoreBreakdown?.lineInvolvement).toBeGreaterThan(0);
     expect(b?.scoreBreakdown?.reasons).toContain('director:answer:target');
+    expect(b?.scoreBreakdown?.reasons).toContain('direct_user_address');
   });
 
   it('surfaces emotional aftermath as a speaker reason', () => {
@@ -137,7 +140,13 @@ describe('scheduler speaker scoring', () => {
     const candidates = calculateWeights(
       [
         buildCharacter('a', '甲', { behavior: { proactivity: 22, aggressiveness: 20, humorIntensity: 20, empathyLevel: 40, summarizing: 20, offTopic: 5 } }),
-        buildCharacter('b', '乙', { behavior: { proactivity: 70, aggressiveness: 20, humorIntensity: 30, empathyLevel: 60, summarizing: 20, offTopic: 5 } }),
+        buildCharacter('b', '乙', {
+          behavior: { proactivity: 70, aggressiveness: 20, humorIntensity: 30, empathyLevel: 60, summarizing: 20, offTopic: 5 },
+          soulState: {
+            mood: { pleasure: -8, arousal: 18, dominance: 42 }, energy: 48, attention: 44,
+            loneliness: 52, repression: 8, shame: 0, envy: 0, trustInRoom: 48, ignoredStreak: 2,
+          },
+        }),
         buildCharacter('c', '丙', { behavior: { proactivity: 28, aggressiveness: 20, humorIntensity: 20, empathyLevel: 40, summarizing: 20, offTopic: 5 } }),
       ],
       [
@@ -222,7 +231,8 @@ describe('scheduler speaker scoring', () => {
     );
 
     const b = candidates.find((candidate) => candidate.characterId === 'b');
-    expect(b?.scoreBreakdown?.addressed).toBeGreaterThan(0);
+    expect(b?.scoreBreakdown?.addressed).toBeGreaterThanOrEqual(0.62);
+    expect(b?.scoreBreakdown?.reasons).toContain('direct_message_address');
   });
 
   it('treats strong interaction hints as pending replies for the target actor', () => {
@@ -259,6 +269,29 @@ describe('scheduler speaker scoring', () => {
     expect(b?.weight).toBeGreaterThan(c?.weight || 0);
     expect(b?.scoreBreakdown?.reasons).toContain('pending_reply');
     expect(b?.scoreBreakdown?.addressed).toBeGreaterThan(0);
+  });
+
+  it('keeps reply targets attached to the complete multi-bubble turn', () => {
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙'), buildCharacter('c', '丙')];
+    const first = buildMessage({ id: 'm1', senderId: 'a', senderName: '甲', content: '乙，你什么时候知道的？', timestamp: 1 }) as Message & {
+      addressedTargetIds?: string[] | null;
+      primaryAddressedTargetId?: string | null;
+    };
+    first.addressedTargetIds = ['b'];
+    first.primaryAddressedTargetId = 'b';
+    first.metadata = { turnSegment: { index: 0, count: 3 } };
+    const second = buildMessage({ id: 'm2', senderId: 'a', senderName: '甲', content: '谁递的话', timestamp: 2 });
+    second.metadata = { turnSegment: { index: 1, count: 3 } };
+    const third = buildMessage({ id: 'm3', senderId: 'a', senderName: '甲', content: '还是你自己去过？', timestamp: 3 });
+    third.metadata = { turnSegment: { index: 2, count: 3 } };
+
+    const pending = resolvePendingReplyContext(characters, [first, second, third]);
+
+    expect(pending).toMatchObject({
+      primaryTargetId: 'b',
+      sourceSpeakerId: 'a',
+      sourceMessageId: 'm3',
+    });
   });
 
   it('does not force an unspoken member into an ordinary multi-character exchange', () => {

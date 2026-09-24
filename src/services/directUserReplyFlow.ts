@@ -3,7 +3,7 @@ import type { AICharacter } from '../types/character';
 import type { DriverMessageCommitResult, GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
-import { decayEmotionalState, derivePersonalityDrift, getEmotionalBaseline } from './personalityDrift';
+import { decayEmotionalState, getEmotionalBaseline } from './personalityDrift';
 import { resolveRuntimeEvolutionConfig } from './runtimeEvolutionConfig';
 import { updateCharacterLayeredMemories } from './characterLayeredMemory';
 import { accumulateCharacterRuntime } from './characterRuntime';
@@ -124,7 +124,7 @@ export async function runDirectUserReplyFlow(params: {
   };
 
   const evolution = resolveRuntimeEvolutionConfig(params.chat.runtimeEvolutionIntensity);
-  const drift = derivePersonalityDrift(directCharacter, params.content, evolution.driftMultiplier * 0.5);
+  const drift = directCharacter.personalityDrift || {};
   // The user's words are already visible to the generation model. Do not run a
   // second, local keyword interpretation before the reply; model-authored
   // interaction assessment persists the semantic after-effect asynchronously.

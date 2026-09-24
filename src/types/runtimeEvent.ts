@@ -69,6 +69,7 @@ export interface InteractionHintEnvelope {
   intensity?: number;
   confidence?: number;
   reason?: string;
+  evidenceText?: string;
   relationship?: ModelRelationshipAssessment;
 }
 
@@ -99,6 +100,10 @@ export function isInteractionPayloadMeaningful(payload: Pick<InteractionEventPay
 export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | null | undefined, actorId: string, content: string): InteractionEventPayload | null {
   const resolvedTargetId = hint?.targetId || hint?.targetIds?.[0] || null;
   if (!resolvedTargetId || !hint?.kind || hint.kind === 'side_comment') return null;
+  const evidence = typeof hint.evidenceText === 'string' ? hint.evidenceText.trim() : '';
+  // A model-supplied quote is useful only when it is actually part of the visible turn.
+  // Older envelopes without a quote continue to use their visible content as evidence.
+  if (evidence && !content.replace(/\s+/gu, '').includes(evidence.replace(/\s+/gu, ''))) return null;
   const rawIntensity = Number(hint.intensity || 0);
   const rawConfidence = Number(hint.confidence || 0);
   const intensity = Math.max(1, Math.min(5, rawIntensity > 5 ? Math.round(rawIntensity / 20) : rawIntensity));
@@ -125,7 +130,7 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
     tone: hint.tone || 'cold',
     intensity,
     confidence,
-    evidenceText: content.slice(0, 120),
+    evidenceText: (evidence || content).slice(0, 120),
     // A directed social event can create a strong short-lived emotion without
     // changing the long-lived relationship. Keep the event while leaving its
     // relationship assessment absent in that case.

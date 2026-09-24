@@ -48,6 +48,16 @@ describe('generatedMessageSegmenter', () => {
     expect(segments[1]?.metadata?.turnSegment).toEqual({ index: 1, count: 3 });
   });
 
+  it('applies a model-judged incoming impact only to the first committed send', () => {
+    const incomingInteractionHint = {
+      kind: 'challenge' as const, actorId: 'user', targetId: 'char-1', intensity: 4,
+      tone: 'annoyed' as const, evidenceText: '你到底在想什么？', confidence: 0.92,
+    };
+    const segments = splitGeneratedRoundMessage({ ...buildMessage('等一下'), extraMessages: ['你先听我说'], incomingInteractionHint });
+    expect(segments[0].incomingInteractionHint).toEqual(incomingInteractionHint);
+    expect(segments[1].incomingInteractionHint).toBeNull();
+  });
+
   it('uses content as the first bubble and extra messages as later bubbles', () => {
     const message = {
       ...buildMessage('原本应该说这句。', 2),

@@ -1414,7 +1414,7 @@ export default function MessageList({
     cancelProgrammaticScroll();
     const capturedStartTop = options?.startTop;
     if (capturedStartTop != null && Math.abs(container.scrollTop - capturedStartTop) >= 1) {
-      const restored = runScrollWrite(options.intent || 'tailFollow', (scrollContainer) => {
+      const restored = runScrollWrite(options?.intent || 'tailFollow', (scrollContainer) => {
         scrollContainer.scrollTop = capturedStartTop;
       });
       if (!restored) return;

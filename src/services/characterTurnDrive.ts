@@ -49,9 +49,11 @@ function deriveEmotionPressure(params: {
   relationship: AICharacter['relationships'][number] | undefined;
   innerLife: InnerLifeProjection;
   targetName: string;
+  targetActorId?: string;
 }) {
   const emotion = params.innerLife.dominantEmotion;
-  if (!emotion || emotion.value < 18) return null;
+  const affect = params.innerLife.activeAffect;
+  if (!emotion || emotion.value < 18 || !affect || affect.counterpartId !== params.targetActorId) return null;
   const constrained = axis(params.relationship?.deference) >= 30
     || axis(params.speaker.personality.assertiveness) + axis(params.speaker.behavior.aggressiveness) < 85
     || (params.innerLife.state.repression || 0) >= 48;
@@ -191,8 +193,11 @@ export function deriveCharacterTurnDrive(input: {
   const { speaker, innerLife } = input;
   const core = speaker.coreProfile;
   const latest = latestOtherMessage(speaker, input.messages);
-  const relationship = relationshipToTarget(speaker, input.targetActorId, latest);
-  const targetName = input.targetName || latest?.senderName || 'the current person';
+  const resolvedTargetId = input.targetActorId || innerLife.activeAffect?.counterpartId || latest?.senderId;
+  const relationship = relationshipToTarget(speaker, resolvedTargetId, latest);
+  const targetName = input.targetName
+    || (latest && resolvedTargetId === latest.senderId ? latest.senderName : input.counterpart?.name)
+    || 'the current person';
   const sharedRelationshipFacts = (input.sharedRelationshipFacts || []).filter(Boolean).slice(0, 2);
   const evidence: string[] = [];
   const directAddress = Boolean(latest && (latest.content.includes(speaker.name) || (latest as Message & { addressedTargetIds?: string[] }).addressedTargetIds?.includes(speaker.id)));
@@ -204,7 +209,7 @@ export function deriveCharacterTurnDrive(input: {
     directAddress,
     innerLife,
   });
-  const emotionPressure = deriveEmotionPressure({ speaker, relationship, innerLife, targetName });
+  const emotionPressure = deriveEmotionPressure({ speaker, relationship, innerLife, targetName, targetActorId: resolvedTargetId });
   if (directAddress) evidence.push('direct_address');
   if (relationship) evidence.push('relationship_to_current_target');
   if (input.includeRelationshipNote !== false && relationship?.note?.trim()) evidence.push('directional_relationship_note');
@@ -244,7 +249,8 @@ export function deriveCharacterTurnDrive(input: {
       : '';
   const stake = [relationshipStake, identityStake].filter(Boolean).join('; ')
     || 'no invented private stake; only respond to something concrete if there is one';
-  const speakingNecessity: SpeakingNecessity = directAddress || innerLife.pressure >= 0.66 || relationalAction === 'repair' || relationalAction === 'resist'
+  const relationshipDemandsAction = ['protect', 'test', 'answer_upward', 'exercise_authority'].includes(relationalAction);
+  const speakingNecessity: SpeakingNecessity = directAddress || innerLife.pressure >= 0.66 || relationalAction === 'repair' || relationalAction === 'resist' || relationshipDemandsAction
     ? 'strong'
     : innerLife.impulse === 'stay_silent' || relationalAction === 'avoid'
       ? 'let_silence_stand'

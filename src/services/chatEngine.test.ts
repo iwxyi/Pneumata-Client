@@ -1322,6 +1322,8 @@ describe('chatEngine streaming preview', () => {
 
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(message.messageParts).toHaveLength(3);
+    expect(message.metadata?.runtimeDecision?.turnPlan?.actualBubbleCount).toBe(3);
+    expect(message.metadata?.runtimeDecision?.turnPlan?.maxBubbleCount).toBeGreaterThanOrEqual(3);
     expect(message.messageParts?.[1]?.metadata?.attachments?.[0]).toMatchObject({ kind: 'image', status: 'queued' });
     expect(message.messageParts?.[2]?.metadata?.attachments?.[0]).toMatchObject({ kind: 'audio', status: 'queued' });
   });
@@ -3689,6 +3691,39 @@ describe('chatEngine streaming preview', () => {
     expect(selected[0]).toBe('susu');
     expect(completed[0]).toMatchObject({ senderId: 'susu' });
     expect((completed[0] as { metadata?: { runtimeDecision?: { directorIntent?: { userGuidance?: { actorIds?: string[] } } } } }).metadata?.runtimeDecision?.directorIntent?.userGuidance?.actorIds).toEqual(['susu']);
+  });
+
+  it('does not lock a speaker for a broad constraint that only mentions several members', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '我没打算把这件事当成拍漏了。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const members = [buildCharacter('wen', '闻溪'), buildCharacter('tang', '许棠'), buildCharacter('cheng', '程野')];
+    const now = Date.now();
+    const completed: Message[] = [];
+    await runOneRound(
+      buildChat({ memberIds: ['user', ...members.map((member) => member.id)] }),
+      members,
+      [
+        buildUserMessage('合照里怎么只有闻溪和程野，许棠去哪了？这件事别当成拍漏了就算了。', now - 75_000),
+        buildAiMessage('cheng', '程野', '她去拿蛋糕了。', now - 60_000),
+        buildAiMessage('tang', '许棠', '没事，你们那张挺好看的。', now - 45_000),
+        buildAiMessage('wen', '闻溪', '许棠，你是不是生气了。', now - 30_000),
+      ],
+      buildProfiles(),
+      {
+        onSpeakerSelected: () => undefined,
+        onMessageChunk: () => undefined,
+        onMessageComplete: (message) => { completed.push(message as Message); },
+        onError: (error) => { throw error; },
+      },
+    );
+    expect(completed).toHaveLength(1);
+    expect(completed[0].metadata?.runtimeDecision?.speakerSelection?.policy?.source).not.toBe('user_guidance_lock');
+    expect(completed[0].metadata?.runtimeDecision?.directorIntent?.userGuidance?.hasHardConstraints).toBe(true);
   });
 
   it.skip('legacy local media speaker lock is retired', async () => {

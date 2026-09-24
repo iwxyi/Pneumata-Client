@@ -182,7 +182,7 @@ export function applyInteractionEmotions(
       + Math.max(0, relation?.attachment || 0) / 180
       + Math.max(0, relation?.deference || 0) / 220
       + Math.max(0, relation?.threat || 0) / 220;
-    const incoming = role === 'target' ? 1 : 0.62;
+    const incoming = role === 'target' ? 1 : 0.18;
     const spike = (base: number) => Math.round(base * intensity * importance * incoming);
 
     if (interaction.kind === 'challenge' || interaction.kind === 'mock' || interaction.kind === 'dismiss' || interaction.kind === 'pile_on') {

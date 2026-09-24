@@ -116,7 +116,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       recentMessages: [],
       turnPlan: {
         rhythm: 'multi_bubble',
-        targetBubbleCount: 3,
+        maxBubbleCount: 3,
         lengthBand: 'medium',
         allowExtraMessages: true,
         waitSensitive: false,
@@ -164,7 +164,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       speaker: { id: 'speaker', name: '说话人' } as AICharacter,
       characters: [{ id: 'speaker', name: '说话人' } as AICharacter], recentMessages: [],
       richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'off', explicitRequest: true }, audio: { proactivity: 'off', explicitRequest: true }, sticker: { proactivity: 'off', explicitRequest: true } },
-      turnPlan: { rhythm: 'multi_bubble', targetBubbleCount: 2, lengthBand: 'short', allowExtraMessages: true, waitSensitive: false, reasons: ['test'] },
+      turnPlan: { rhythm: 'multi_bubble', maxBubbleCount: 2, lengthBand: 'short', allowExtraMessages: true, waitSensitive: false, reasons: ['test'] },
     });
     expect(contract).toContain('one to 5 consecutive bubbles');
     expect(contract).not.toContain('up to 2 consecutive bubbles');
@@ -247,7 +247,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       recentMessages: [],
       turnPlan: {
         rhythm: 'short_reply',
-        targetBubbleCount: 1,
+        maxBubbleCount: 1,
         lengthBand: 'short',
         allowExtraMessages: false,
         waitSensitive: false,

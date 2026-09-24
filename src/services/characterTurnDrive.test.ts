@@ -93,6 +93,7 @@ describe('characterTurnDrive', () => {
       ...innerLife,
       impulse: 'answer',
       dominantEmotion: { kind: 'irritation', value: 52, lead: 36 },
+      activeAffect: { counterpartId: 'yan', kind: 'challenge', tone: 'annoyed', role: 'received', pressure: 0.8, age: 0 },
       state: { ...innerLife.state, repression: 58 },
     };
     const drive = deriveCharacterTurnDrive({

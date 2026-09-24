@@ -78,8 +78,8 @@ function describeRelationshipState(entry: RelationshipLedgerEntry, characters: A
     entry.current.warmth <= -20 ? '亲和偏低' : entry.current.warmth >= 20 ? '亲和偏高' : '',
     entry.current.threat >= 35 ? '威胁感较强' : entry.current.threat >= 12 ? '有戒备感' : '',
     entry.current.competence <= -20 ? '能力判断偏低' : entry.current.competence >= 20 ? '能力判断偏高' : '',
-    entry.current.attachment >= 30 ? '在意程度很高' : entry.current.attachment <= -25 ? '刻意抽离' : '',
-    entry.current.deference >= 30 ? '明显让位或敬畏' : entry.current.deference <= -25 ? '拒绝让位' : '',
+    (entry.current.attachment || 0) >= 30 ? '在意程度很高' : (entry.current.attachment || 0) <= -25 ? '刻意抽离' : '',
+    (entry.current.deference || 0) >= 30 ? '明显让位或敬畏' : (entry.current.deference || 0) <= -25 ? '拒绝让位' : '',
   ].filter(Boolean);
   return axes.length ? `${actor} 对 ${target}：${axes.slice(0, 2).join('，')}。` : `${actor} 和 ${target} 的互动正在形成新的关系倾向。`;
 }
@@ -107,10 +107,10 @@ function describeRelationshipLineSummary(entry: RelationshipLedgerEntry, charact
 function relationshipNextBeat(entry: RelationshipLedgerEntry, tension: number, characters: AICharacter[]): NarrativeBeatType {
   if (hasRepairImpulse(entry, characters)) return 'defend';
   if (tension > 0.5) return 'challenge';
-  if (entry.current.deference >= 30) return 'answer';
-  if (entry.current.attachment >= 30) return entry.current.trust >= 15 ? 'reveal' : 'defend';
+  if ((entry.current.deference || 0) >= 30) return 'answer';
+  if ((entry.current.attachment || 0) >= 30) return entry.current.trust >= 15 ? 'reveal' : 'defend';
   if (entry.current.trust >= 30 || entry.current.warmth >= 35) return 'reveal';
-  if (entry.current.deference <= -25) return 'challenge';
+  if ((entry.current.deference || 0) <= -25) return 'challenge';
   return 'invite';
 }
 
@@ -122,8 +122,8 @@ function relationshipOpenQuestion(entry: RelationshipLedgerEntry, tension: numbe
 function relationshipPositivePressure(entry: RelationshipLedgerEntry) {
   const current = entry.current;
   return clamp01(Math.max(
-    Math.max(0, current.attachment) / 100,
-    Math.abs(current.deference) / 100,
+    Math.max(0, current.attachment || 0) / 100,
+    Math.abs(current.deference || 0) / 100,
     Math.max(0, current.trust) / 125,
     Math.max(0, current.warmth) / 140,
   ));
@@ -132,9 +132,9 @@ function relationshipPositivePressure(entry: RelationshipLedgerEntry) {
 function relationshipDramaticQuestion(entry: RelationshipLedgerEntry, characters: AICharacter[]) {
   const actor = characterName(entry.actorId, characters);
   const target = characterName(entry.targetId, characters);
-  if (entry.current.deference >= 30) return `${actor}会服从${target}、争取认可，还是在具体代价前保留自己的判断？`;
-  if (entry.current.deference <= -25) return `${actor}会继续拒绝向${target}让位，还是被迫承认对方的权力？`;
-  if (entry.current.attachment >= 30) return `${actor}会保护${target}、暴露偏心，还是因在意而要求更多？`;
+  if ((entry.current.deference || 0) >= 30) return `${actor}会服从${target}、争取认可，还是在具体代价前保留自己的判断？`;
+  if ((entry.current.deference || 0) <= -25) return `${actor}会继续拒绝向${target}让位，还是被迫承认对方的权力？`;
+  if ((entry.current.attachment || 0) >= 30) return `${actor}会保护${target}、暴露偏心，还是因在意而要求更多？`;
   if (entry.current.trust >= 30 || entry.current.warmth >= 35) return `${actor}会把信任变成一次具体托付、袒护或坦白吗？`;
   return '';
 }

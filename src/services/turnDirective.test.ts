@@ -123,7 +123,7 @@ const movePlan: ConversationMovePlan = {
 
 const turnPlan: TurnPlan = {
   rhythm: 'short_reply',
-  targetBubbleCount: 1,
+  maxBubbleCount: 1,
   lengthBand: 'short',
   allowExtraMessages: false,
   waitSensitive: false,

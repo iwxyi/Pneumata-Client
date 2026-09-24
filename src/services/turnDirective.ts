@@ -296,7 +296,9 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
     }),
     socialJob: describeSocialJob(input.conversationMovePlan, input.intent),
     targetName,
-    emotionalUndercurrent: describeEmotion(input.innerLife),
+    emotionalUndercurrent: input.innerLife.activeAffect && input.innerLife.activeAffect.counterpartId === targetActorId
+      ? `${describeEmotion(input.innerLife)} Directed ${input.innerLife.activeAffect.role} ${input.innerLife.activeAffect.kind} residue is tied to ${targetName || 'the counterpart'}; it may spike after one line and ease after speaking while a lesser unresolved trace remains. Their relationship changes only with durable evidence.`
+      : describeEmotion(input.innerLife),
     relationshipEffect: describeRelationship(input, targetName),
     narrativePressure,
     requiredChange: describeRequiredChange(input, Boolean(narrativePressure)),
@@ -317,6 +319,9 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
   const relationshipAction = directive.characterDrive.relationalAction === 'situated'
     ? 'let the target-specific relationship evidence decide the action; do not map one axis to a preset reaction'
     : directive.characterDrive.relationalAction;
+  const affectBeat = directive.emotionalUndercurrent.includes('Directed')
+    ? '\n- Fast-emotion beat: make the first visible beat acknowledge the spike through a choice of wording, interruption, defensiveness, warmth, or a sudden stop. If the speaker expresses it, let the pressure ease somewhat afterward, but leave one specific residue that can affect the next turn; do not resolve it with a polished apology or generic reassurance.'
+    : '';
   return `\n## Turn Directive
 - This is the single behavior decision for this ordinary group-chat turn. Character drive is the primary behavior decision; the social job is only a secondary realization option. Never replace the drive with generic room management.
 - Do not recite the room's agenda, redistribute the same terms, or produce a cleaned-up consensus merely because the social job is to advance the topic. Let this speaker's own stake, blind spot, memory, irritation, affection, uncertainty, or appetite change what they notice and whether they agree.
@@ -334,7 +339,7 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
 - Relationship effect: ${directive.relationshipEffect}.
 - Active dramatic line: ${directive.narrativePressure || 'none stored; use the immediate interpersonal consequence rather than inventing lore'}.
 - Required state change: ${directive.requiredChange}.
-- Inner undercurrent: ${directive.emotionalUndercurrent}.${situationalLine}
+- Inner undercurrent: ${directive.emotionalUndercurrent}.${affectBeat}${situationalLine}
 - Expression shape: ${directive.expressionShape}.${userLine}
 - Forbidden drift: ${directive.forbiddenDrift.join('; ')}.`;
 }

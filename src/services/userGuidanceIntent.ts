@@ -209,6 +209,20 @@ function startsWithMentionedActor(text: string, mentioned: Array<{ character: AI
     .map((item) => item.character.id);
 }
 
+function explicitlyAddressedActors(text: string, mentioned: Array<{ character: AICharacter; index: number; alias?: string }>) {
+  const addressSeparators = new Set([',', '，', ':', '：', '!', '！', '?', '？']);
+  const sentenceBoundaries = new Set(['.', '。', '!', '！', '?', '？', ';', '；', '\n']);
+  return mentioned
+    .filter((item) => {
+      const alias = item.alias || item.character.name;
+      const before = text.slice(0, item.index).trimEnd().at(-1);
+      const after = text.slice(item.index + alias.length).trimStart().at(0);
+      const startsAddressClause = item.index === 0 || (before ? sentenceBoundaries.has(before) : true);
+      return startsAddressClause && Boolean(after && addressSeparators.has(after));
+    })
+    .map((item) => item.character.id);
+}
+
 function mentionedActorsBeforeFirstAction(text: string, mentioned: Array<{ character: AICharacter; index: number }>) {
   const actionMatch = /(帮|替|给|发|画|拍|写|说|讲|回答|回应|回复|解释|评价|吐槽|问|出题|总结|分析|展开)/i.exec(text);
   if (!actionMatch) return [];
@@ -242,11 +256,14 @@ export function parseUserGuidanceIntent(text: string, characters: AICharacter[])
   const hardConstraintActorIds = hasHardConstraints ? mentionedActorIds : [];
   const collectiveActorIds = !imageRequest && isCollectiveActorRequest(rawText) ? allActorIds(characters) : [];
   const groupSubjectQuestion = !collectiveActorIds.length && mentionedActorIds.length > 0 && isGroupQuestionAboutSubject(rawText);
+  const explicitlyAddressedActorIds = explicitlyAddressedActors(rawText, sortByNamePosition(rawText, characters));
   const actorIds = collectiveActorIds.length
     ? collectiveActorIds
     : groupSubjectQuestion
       ? []
-      : resolveActionActors(rawText, characters, imageRequest);
+      : explicitlyAddressedActorIds.length
+        ? unique(explicitlyAddressedActorIds)
+        : resolveActionActors(rawText, characters, imageRequest);
   const mentionedByPosition = sortByNamePosition(rawText, characters);
   const suppressedActorIds = namesAfterNegatedDirectivePrefix(rawText, mentionedByPosition)
     .filter((id) => !actorIds.includes(id));
@@ -325,6 +342,9 @@ export function parseUserGuidanceIntent(text: string, characters: AICharacter[])
 export function getGuidanceTargetActorIds(guidance: UserGuidanceIntent | null | undefined) {
   if (!guidance) return [];
   if (guidance.actorIds.length) return guidance.actorIds;
+  // A persistent constraint can be about a character without asking that
+  // character to speak. Explicit addressees have already been resolved into
+  // actorIds; keep ordinary mentions in the guidance context only.
   if (guidance.hasHardConstraints) return [];
   if (guidance.kind === 'media_request') return guidance.mentionedActorIds;
   return guidance.mentionedActorIds;

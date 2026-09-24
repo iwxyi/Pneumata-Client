@@ -11,7 +11,7 @@ import {
   resolveEffectiveRelationshipAxes,
 } from './relationshipLedger';
 import type { ConflictFocusPayload, ConflictFocusState, ConflictRuntimeState, RuntimeEventV2 } from '../types/runtimeEvent';
-import { applyInteractionEmotions, decayEmotionalState, deriveEmotionalState, derivePersonalityDrift, getEmotionalBaseline, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
+import { applyInteractionEmotions, decayEmotionalState, getEmotionalBaseline, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
 import { accumulateChatRuntime } from './chatRuntime';
 import { accumulateCharacterRuntime } from './characterRuntime';
 import { createDefaultConflictAxes, evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
@@ -465,15 +465,12 @@ export function buildRelationshipTransition(params: {
 
   if (isCharacterAuthoredMessage && speaker && targetEntries.length) {
     const summary = truncateWithEllipsis(params.message.content, 48);
-    const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
-    // Interaction hints are the model's social reading of the turn. They are
-    // the primary source for fast emotion; text heuristics only provide the
-    // quiet decay fallback when no directed event was judged.
+    const speakerDrift = speaker.personalityDrift || {};
     const speakerEmotion = applyInteractionEmotions(
       speaker,
       targetEntries.map(({ hint }) => hint),
       'speaker',
-      speaker.emotionalState || deriveEmotionalState(speaker, '', config.emotionMultiplier, config.emotionDecayBias),
+      speaker.emotionalState || getEmotionalBaseline(),
     );
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: nextEventTimestamp() }] : [];
@@ -533,7 +530,7 @@ export function buildRelationshipTransition(params: {
         target,
         hints,
         'target',
-        target.emotionalState || deriveEmotionalState(target, '', config.emotionMultiplier * 0.85, config.emotionDecayBias),
+        target.emotionalState || getEmotionalBaseline(),
       );
       targetEmotionById.set(target.id, targetEmotion);
       const projectedTargetSoul = projectInnerLife({
@@ -678,7 +675,7 @@ export function buildRelationshipTransition(params: {
     const targetEmotionLines = getRuntimeAffectEventEmotionLines(
       targetGroups.map(({ target }) => ({
         target,
-        emotion: targetEmotionById.get(target.id) || target.emotionalState || deriveEmotionalState(target, '', config.emotionMultiplier * 0.85, config.emotionDecayBias),
+        emotion: targetEmotionById.get(target.id) || target.emotionalState || getEmotionalBaseline(),
         name: target.name,
       })),
       'zh',
@@ -698,7 +695,7 @@ export function buildRelationshipTransition(params: {
   }
 
   if (isCharacterAuthoredMessage && speaker && !targetEntries.length) {
-    const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier * 0.75);
+    const speakerDrift = speaker.personalityDrift || {};
     // No directed model hint means there is no justified semantic stimulus.
     // Speaking still releases fast affect, but local word matching must not
     // invent irritation, affection, or embarrassment.

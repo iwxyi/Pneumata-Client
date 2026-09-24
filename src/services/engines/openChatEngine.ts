@@ -14,6 +14,8 @@ import type {
 import { normalizeSocialEventHints } from '../../types/runtimeEvent';
 import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../../types/chat';
 import { buildChatPatch, buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from '../chatRuntimeTransitionBuilder';
+import { applyInteractionEmotions, getEmotionalBaseline } from '../personalityDrift';
+import { projectInnerLife } from '../innerLifeEngine';
 import { canApplyRelationshipInteraction, getRelationshipLedgerEntry, inferRelationshipDelta, reduceRelationshipLedger, summarizeRelationshipDelta } from '../relationshipLedger';
 import { calculateRoomShift } from '../roomStateSynthesizer';
 import { resolveRuntimeEvolutionConfig } from '../runtimeEvolutionConfig';
@@ -58,6 +60,8 @@ function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: {
 
 type OpenChatCommittedMessage = Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & {
   interactionHint?: InteractionEventPayload | null;
+  interactionHints?: InteractionEventPayload[] | null;
+  incomingInteractionHint?: InteractionEventPayload | null;
   socialEventHints?: SocialEventHintEnvelope[] | null;
   conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null;
 };
@@ -2383,6 +2387,8 @@ async function onMessageCommitted(params: {
     ? {
         ...params.message,
         interactionHint: null,
+        interactionHints: null,
+        incomingInteractionHint: null,
         socialEventHints: null,
         conflictFocus: null,
       }
@@ -2422,6 +2428,19 @@ async function onMessageCommitted(params: {
     recentMessages: params.recentMessages,
     apiConfig: params.apiConfig,
   });
+  const incoming = publicMessage.type === 'ai' && publicMessage.incomingInteractionHint?.targetId === publicMessage.senderId
+    && publicMessage.incomingInteractionHint.actorId !== publicMessage.senderId
+    ? publicMessage.incomingInteractionHint : null;
+  const incomingActor = incoming && params.recentMessages?.findLast((message) =>
+    !message.isDeleted && message.senderId === incoming.actorId && (message.type === 'user' || message.type === 'god'));
+  const incomingEvent = incoming && incomingActor ? createRuntimeEventV2({
+    conversationId: params.conversation.id,
+    kind: 'interaction',
+    summary: `${incomingActor.senderName} → ${params.characters.find((item) => item.id === incoming.targetId)?.name || '成员'} · ${incoming.evidenceText}`,
+    actorIds: [incoming.actorId],
+    targetIds: [incoming.targetId as string],
+    payload: { ...incoming, relationship: undefined },
+  }) : null;
   const mergedWorldState = {
     ...nextWorldState,
     structuredRoomState,
@@ -2498,7 +2517,7 @@ async function onMessageCommitted(params: {
         });
       })()
     : null;
-  const nextRuntimeEventsV2 = [...runtimeEventsV2, ...withdrawalRuntimeEventsV2].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
+  const nextRuntimeEventsV2 = [...runtimeEventsV2, ...(incomingEvent ? [incomingEvent] : []), ...withdrawalRuntimeEventsV2].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
   const runtimeEventsWithRuleEval = worldInfluenceRuleEvalEvent
     ? mergeCompactedRuntimeEvents(nextRuntimeEventsV2, [], [worldInfluenceRuleEvalEvent]).slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS)
     : nextRuntimeEventsV2;
@@ -2510,10 +2529,27 @@ async function onMessageCommitted(params: {
   };
   delete chatPatch.runtimeEventsV2;
   delete chatPatch.relationshipLedger;
+  const incomingTargetId = incomingEvent && incoming?.targetId ? incoming.targetId : null;
+  const characterPatches = incomingTargetId && !relationshipTransition.characterPatches.some((entry) => entry.characterId === incomingTargetId)
+    ? [...relationshipTransition.characterPatches, { characterId: incomingTargetId, patch: {} }]
+    : relationshipTransition.characterPatches;
   return {
     chatPatch,
     chatRuntimeDelta: Object.values(chatRuntimeDelta).some(Boolean) ? chatRuntimeDelta : undefined,
-    characterPatches: relationshipTransition.characterPatches,
+    characterPatches: characterPatches.map((entry) => {
+      if (!incoming || !incomingTargetId || entry.characterId !== incomingTargetId) return entry;
+      const speaker = params.characters.find((item) => item.id === entry.characterId);
+      if (!speaker) return entry;
+      const spike = applyInteractionEmotions(speaker, [incoming], 'target', speaker.emotionalState || getEmotionalBaseline());
+      const outgoing = (publicMessage.interactionHints?.length ? publicMessage.interactionHints : publicMessage.interactionHint ? [publicMessage.interactionHint] : []);
+      const emotionalState = applyInteractionEmotions(speaker, outgoing, 'speaker', spike);
+      const soulState = projectInnerLife({
+        chat: { ...params.conversation, runtimeEventsV2: runtimeEventsWithRuleEval },
+        character: { ...speaker, ...entry.patch, emotionalState },
+        messages: params.recentMessages || [],
+      }).state;
+      return { ...entry, patch: { ...entry.patch, emotionalState, soulState } };
+    }),
     runtimeEvents: localDistillationEvent ? [...commitRuntimeEvents, localDistillationEvent] : commitRuntimeEvents,
   };
 }

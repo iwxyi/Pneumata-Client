@@ -124,6 +124,28 @@ function readAppliedRuntimeEvents(chat: ReturnType<typeof buildChat>, result: Dr
 }
 
 describe('openChatEngine.onMessageCommitted', () => {
+  it('records a user-directed spike and partial release without changing the slow relationship', async () => {
+    const chat = buildChat();
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const incomingInteractionHint = {
+      kind: 'dismiss' as const, actorId: 'user', targetId: 'a', intensity: 5,
+      tone: 'annoyed' as const, evidenceText: '甲，你根本不配管这件事。', confidence: 0.95,
+    };
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: { type: 'ai', senderId: 'a', content: '你凭什么这么说？', incomingInteractionHint },
+      recentMessages: [{ id: 'human-1', chatId: chat.id, type: 'user', senderId: 'user', senderName: '我', content: incomingInteractionHint.evidenceText, emotion: 0, timestamp: 1, isDeleted: false }],
+    });
+    const emotion = result.characterPatches.find((entry) => entry.characterId === 'a')?.patch.emotionalState;
+    expect(emotion?.irritation).toBeGreaterThan(35);
+    expect(emotion?.irritation).toBeLessThan(55);
+    expect(result.characterPatches.find((entry) => entry.characterId === 'a')?.patch.relationships).toBeUndefined();
+    const events = readAppliedRuntimeEvents(chat, result);
+    expect(events.some((event) => event.kind === 'interaction' && event.actorIds.includes('user') && event.targetIds?.includes('a'))).toBe(true);
+    expect(events.some((event) => event.kind === 'relationship_delta' && event.actorIds.includes('user'))).toBe(false);
+  });
+
   it('produces structured runtime events for message, interaction, room shift, and memory', async () => {
     const chat = buildChat();
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];

@@ -354,6 +354,7 @@ export interface MessageMetadata {
       };
       expressionPlan?: {
         length?: string;
+        suggestedMessageCount?: number;
         messageCount?: number;
         typoLevel?: number;
         delayMs?: number;
@@ -369,7 +370,8 @@ export interface MessageMetadata {
     };
     turnPlan?: {
       rhythm: 'micro_ack' | 'short_reply' | 'full_reply' | 'multi_bubble' | 'defer_or_wait';
-      targetBubbleCount: number;
+      maxBubbleCount: number;
+      actualBubbleCount?: number;
       lengthBand: 'micro' | 'short' | 'medium' | 'long' | 'extended';
       allowExtraMessages: boolean;
       waitSensitive: boolean;

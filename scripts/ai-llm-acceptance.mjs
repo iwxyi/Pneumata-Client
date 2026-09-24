@@ -3906,7 +3906,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
         '评估真实运行时群聊的单轮回复质量：',
         '1. 当前发言者选择是否合理，是否承接用户最新要求和上一轮压力。',
         '2. 可见回复是否符合说话角色，不替别人发言，不像总结模板。',
-        '3. 结构化 metadata、故事选项或审议产物是否和回复一致。',
+        '3. 结构化 metadata、故事选项或审议产物是否和回复一致。注意：innerLife.expressionPlan.suggestedMessageCount 是生成前的倾向，不是硬上限；模型根据当前内容自然拆成多条时，应以实际 messageCount/generatedBubbleCount 与 turnPlan.maxBubbleCount 是否一致为准，不要仅因建议值为1而扣分。',
         '4. 如果用户刚插话，必须判断这一轮是否回应或推进了插话，不应被无视。',
         `玩法类型：${scenario.roomKind}。场景要求：${scenario.rubricHint}`,
       ].join('\n'), {
@@ -3945,7 +3945,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
         '2. 多轮对话是否自然推进，不像轮流写作文、主持总结、客服问答或模板化复述。',
         '3. 角色身份、人格、说话风格、背景和关系是否在可见回复中有稳定差异。',
         '4. 每轮是否只代表当前说话角色，不替其他角色发言，不泄漏系统、JSON、内部 ID、prompt。',
-        '5. innerLife、turnPlan、speakerScore、interactionHints、relationshipSignals、worldInfluence 与可见回复是否一致。',
+        '5. innerLife、turnPlan、speakerScore、interactionHints、relationshipSignals、worldInfluence 与可见回复是否一致。注意区分 selection-time score 与成稿后的模型事件；建议气泡数和实际气泡数可以不同，但实际数不能超过 maxBubbleCount。',
         '6. 关系变化和房间态势是否克制，避免为了有 metadata 而过度写入。',
         '7. 故事房需要检查选项数量、选项间隔、选择代价和剧情承接；审议房需要检查 claims/evidence/issues/verdicts 等产物是否合理。',
         '8. 如果质量不足，optimizations 必须指出应调整的 prompt 层，如 humanization、current_intent、conversation_move、turn_plan、response_surface、style_quarantine、visible_message_surface_contract、story_protocol、deliberation_protocol、memoryTrace 或 scheduler。',

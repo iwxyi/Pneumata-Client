@@ -25,12 +25,12 @@ interface RelationshipPanelProps {
 }
 
 const METRIC_META = [
-  { key: 'warmth', label: '亲和', hint: '表示接纳度、情感温度与靠近倾向。' },
-  { key: 'competence', label: '能力判断', hint: '表示对对方判断力、能力与专业性的评估。' },
-  { key: 'trust', label: '信任', hint: '表示对可靠性、可预期性与合作安全感的判断。' },
-  { key: 'threat', label: '威胁感', hint: '表示对风险、攻击性与压迫感的知觉。' },
-  { key: 'attachment', label: '在意', hint: '表示惦记、牵挂和把对方放进自己行动考量的程度。' },
-  { key: 'deference', label: '让位', hint: '表示是否会为对方让步、服从或承认其位置；负值表示更不愿让位。' },
+  { key: 'warmth', label: '亲和', hint: '表示接纳度、情感温度与靠近倾向。', color: '#22a06b' },
+  { key: 'competence', label: '能力判断', hint: '表示对对方判断力、能力与专业性的评估。', color: '#3b82f6' },
+  { key: 'trust', label: '信任', hint: '表示对可靠性、可预期性与合作安全感的判断。', color: '#14b8a6' },
+  { key: 'threat', label: '威胁感', hint: '表示对风险、攻击性与压迫感的知觉。', color: '#ef4444' },
+  { key: 'attachment', label: '在意', hint: '表示惦记、牵挂和把对方放进自己行动考量的程度。', color: '#ec4899' },
+  { key: 'deference', label: '让位', hint: '表示是否会为对方让步、服从或承认其位置；负值表示更不愿让位。', color: '#f59e0b' },
 ] as const;
 
 type AxisKey = typeof METRIC_META[number]['key'];

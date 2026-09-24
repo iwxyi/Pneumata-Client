@@ -7,7 +7,7 @@ import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionGe
 import type { MemoryItem } from './memoryTypes';
 import { getPreferredAIProfile, inferTextInputCapabilities, isAIProfileUsable } from '../types/settings';
 import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
-import { normalizeInteractionHintCollection, normalizeSocialEventHints } from '../types/runtimeEvent';
+import { normalizeInteractionHintCollection, normalizeInteractionHintPayload, normalizeSocialEventHints } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildPromptAssemblyWithContext, buildChatMessages, buildPromptMemoryTrace, buildPromptCharacterMindTrace, type PromptAssemblyWithContext, type PromptCharacterMindTrace, type PromptMemoryTrace } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
@@ -61,6 +61,7 @@ export interface GeneratedRoundMessage extends Omit<Message, 'id' | 'timestamp' 
   messageParts?: Array<{ content: string; metadata?: MessageMetadata }> | null;
   interactionHint?: InteractionEventPayload | null;
   interactionHints?: InteractionEventPayload[] | null;
+  incomingInteractionHint?: InteractionEventPayload | null;
   addressedTargetIds?: string[] | null;
   primaryAddressedTargetId?: string | null;
   socialEventHints?: SocialEventHintEnvelope[] | null;
@@ -1710,8 +1711,12 @@ function buildUnifiedGroupPresencePrompt(innerLife: InnerLifeProjection, richDel
     : richDelivery?.multiBubble.proactivity === 'medium'
       ? 'A second send is available when it changes the timing or social feel.'
       : 'Keep separate sends for a real change of timing or social feel.';
+  const directedAffect = innerLife.activeAffect
+    ? `Directed emotional residue: ${innerLife.activeAffect.role} ${innerLife.activeAffect.kind}, pressure ${innerLife.activeAffect.pressure.toFixed(2)}. The turn directive identifies the counterpart. Do not transfer this feeling to whoever merely spoke last; after expression it may ease without disappearing.`
+    : 'No current person-specific emotional residue is evidenced; do not invent one from generic mood.';
   return `\n## Live Presence
 - Inner impulse: ${innerLife.impulse}; tone: ${innerLife.tone}. Let it affect what this person notices, leaves unsaid, resists, or blurts out. Never explain the state itself.
+- ${directedAffect}
 - Do not polish awkwardness, face-saving, irritation, affection, uncertainty, or withdrawal into a correct group conclusion.
 - ${bubblePolicy} One bubble may still contain multiple paragraphs; do not split a sentence just because it ends.
 - This is still chat even when the subject is grave. Terminal punctuation is part of its timing: by default, a short send may end without a full stop when it is a mutter, a held thought, a reaction, or a follow-up. Use a full stop only when the speaker is deliberately landing a thought. Do not make every bubble in one run a polished sentence with the same closing mark. Only a genuinely requested document, report, or formal deliverable needs document-like closing punctuation.
@@ -2049,16 +2054,21 @@ function reconcileSelectedInnerLife(
   if (projection.impulse !== 'stay_silent') return projection;
   if (!speakerScore) return projection;
   const floorGuardian = speakerScore.reasons.includes('guidance_floor_guardian');
-  const reason = floorGuardian
-    ? '调度最终选择本角色护住当前发言权，需要轻量维持场面而不是接管结论。'
-    : '调度最终选择了本角色发言，需要用轻量方式接住当前话题。';
+  const affect = projection.activeAffect;
+  const reason = affect
+    ? affect.role === 'received'
+      ? `调度最终选择后，刚才的${affect.kind}仍压在心口，不能像没听见一样过去。`
+      : `调度最终选择后，刚才递出去的${affect.kind}还没落地，想看对方怎么接。`
+    : floorGuardian
+      ? '需要护住当前发言权，先维持自己的位置，不替房间宣布结论。'
+      : '调度最终选择后，话题正碰到自己的位置，不能只让别人替自己说完。';
   return {
     ...projection,
     impulse: 'answer',
     tone: projection.tone,
     reason,
     pressure: Math.max(projection.pressure, 0.42),
-    evidence: Array.from(new Set([...projection.evidence, floorGuardian ? '调度选择本轮护住发言权' : '调度选择本轮需要发言'])).slice(0, 5),
+    evidence: Array.from(new Set([...projection.evidence, affect ? '定向情绪余波要求留下可见反应' : floorGuardian ? '调度选择本轮护住发言权' : '调度选择本轮需要发言'])).slice(0, 5),
     state: {
       ...projection.state,
       lastImpulse: 'answer',
@@ -2076,16 +2086,21 @@ function reconcileSelectedInnerLife(
 function reconcileSelectedSpeakerScore(
   speakerScore: SpeakerScoreBreakdown | null | undefined,
   innerLife: InnerLifeProjection,
+  pendingReplyContext?: ReturnType<typeof resolvePendingReplyContext> | null,
 ): SpeakerScoreBreakdown | null | undefined {
   if (!speakerScore) return speakerScore;
-  if (!speakerScore.reasons.includes('inner:stay_silent')) return speakerScore;
-  if (innerLife.impulse === 'stay_silent') return speakerScore;
+  const isPendingTarget = Boolean(pendingReplyContext?.targetIds.includes(speakerScore.actorId));
+  const revisedImpulse = speakerScore.reasons.includes('inner:stay_silent') && innerLife.impulse !== 'stay_silent';
+  if (!isPendingTarget && !revisedImpulse) return speakerScore;
   const reasons = speakerScore.reasons
-    .filter((reason) => reason !== 'inner:stay_silent')
-    .concat('inner:answer_after_scheduler_selection');
+    .filter((reason) => !revisedImpulse || reason !== 'inner:stay_silent');
+  if (revisedImpulse) reasons.push('inner:answer_after_scheduler_selection');
+  if (isPendingTarget) reasons.push('pending_reply');
   return {
     ...speakerScore,
-    innerLifePressure: Math.max(speakerScore.innerLifePressure, 0.08),
+    addressed: isPendingTarget ? Math.max(speakerScore.addressed, 0.62) : speakerScore.addressed,
+    topicRelevance: isPendingTarget ? Math.max(speakerScore.topicRelevance, 0.12) : speakerScore.topicRelevance,
+    innerLifePressure: revisedImpulse ? Math.max(speakerScore.innerLifePressure, 0.08) : speakerScore.innerLifePressure,
     reasons: Array.from(new Set(reasons)),
   };
 }
@@ -2581,6 +2596,7 @@ function buildRuntimeDecisionMetadata(params: {
   innerLife?: InnerLifeProjection | null;
   surface?: ResponseSurface | null;
   turnPlan?: TurnPlan | null;
+  actualBubbleCount?: number;
   personaActivation?: PersonaActivation | null;
   intentionalRepeat?: boolean;
   memoryTrace?: PromptMemoryTrace | null;
@@ -2667,7 +2683,7 @@ function buildRuntimeDecisionMetadata(params: {
       repetitionPenalty: Number(params.speakerScore.repetitionPenalty.toFixed(3)),
       reasons: params.speakerScore.reasons,
     } : undefined,
-    innerLife: params.innerLife ? buildInnerLifeMetadata(params.innerLife) : undefined,
+    innerLife: params.innerLife ? buildInnerLifeMetadata(params.innerLife, params.actualBubbleCount) : undefined,
     responseSurface: params.surface ? {
       kind: params.surface.kind,
       allowMarkdown: params.surface.allowMarkdown,
@@ -2677,7 +2693,8 @@ function buildRuntimeDecisionMetadata(params: {
     } : undefined,
     turnPlan: params.turnPlan ? {
       rhythm: params.turnPlan.rhythm,
-      targetBubbleCount: params.turnPlan.targetBubbleCount,
+      maxBubbleCount: params.turnPlan.maxBubbleCount,
+      actualBubbleCount: params.actualBubbleCount,
       lengthBand: params.turnPlan.lengthBand,
       allowExtraMessages: params.turnPlan.allowExtraMessages,
       waitSensitive: params.turnPlan.waitSensitive,
@@ -3131,10 +3148,15 @@ async function generateWithPrompt(params: {
     : '';
   const messageParts = isStoryReader || !Array.isArray(parsedEnvelope?.messages)
     ? null
-    : parsedEnvelope.messages
-      .filter((part): part is { content: string; mediaDecision?: MediaGenerationDecision | null } => Boolean(part && typeof part.content === 'string' && part.content.trim()))
-      .slice(0, 5)
-      .map((part) => ({ content: part.content.trim(), mediaDecision: part.mediaDecision || null }));
+    : (() => {
+      const parts = parsedEnvelope.messages
+        .filter((part): part is { content: string; mediaDecision?: MediaGenerationDecision | null } => Boolean(part && typeof part.content === 'string' && part.content.trim()));
+      const limit = Math.max(1, Math.min(5, params.turnPlan?.maxBubbleCount ?? 1));
+      return parts.slice(0, limit).map((part, index) => ({
+        content: index === limit - 1 ? parts.slice(index).map((item) => item.content.trim()).join('\n') : part.content.trim(),
+        mediaDecision: part.mediaDecision || null,
+      }));
+    })();
   const rawContent = storyEventContent || (messageParts?.[0]?.content || (parsedEnvelope ? parsedEnvelope.content : isLikelyInlineEnvelopeResponse(response) ? '' : response));
   const rawNarrativeText = typeof parsedEnvelope?.narrativeText === 'string' ? parsedEnvelope.narrativeText : '';
   const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, Boolean(parsedEnvelope?.intentionalRepeat), params.surface);
@@ -3611,9 +3633,15 @@ function buildCompletedMessage(params: {
   messageParts?: Array<{ content: string; metadata?: MessageMetadata }> | null;
   emotion: number;
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
+  previousVisibleMessage?: Message | null;
   metadata?: MessageMetadata;
 }) {
   const interactionHints = normalizeInteractionHintCollection(params.parsedEnvelope?.interactionHints || null, params.speakerId, params.fullResponse);
+  const previousHuman = params.previousVisibleMessage && (params.previousVisibleMessage.type === 'user' || params.previousVisibleMessage.type === 'god')
+    ? params.previousVisibleMessage : null;
+  const incomingInteractionHint = previousHuman && params.parsedEnvelope?.incomingImpact
+    ? normalizeInteractionHintPayload({ ...params.parsedEnvelope.incomingImpact, targetId: params.speakerId, relationship: undefined }, previousHuman.senderId, previousHuman.content)
+    : null;
   const inferredAddressedTargets = inferAddressedTargetsFromContent(params.finalResponse, params.speakerId, params.characters);
   const envelopeTargetIds = params.parsedEnvelope?.addressedTargets?.targetIds || [];
   const addressedTargetIds = Array.from(new Set([...envelopeTargetIds, ...inferredAddressedTargets]));
@@ -3633,6 +3661,7 @@ function buildCompletedMessage(params: {
     emotion: params.emotion,
     interactionHint: interactionHints[0] || null,
     interactionHints,
+    incomingInteractionHint,
     addressedTargetIds: addressedTargetIds.length ? addressedTargetIds : null,
     primaryAddressedTargetId,
     socialEventHints: params.parsedEnvelope?.socialEventHints || null,
@@ -3721,8 +3750,10 @@ function resolveUserGuidanceLockedSpeaker(chatMembers: AICharacter[], directorIn
   const guidance = directorIntent?.source === 'user_message' ? directorIntent.userGuidance : null;
   const targetIds = directorIntent?.targetActorIds || [];
   if (!targetIds.length) return null;
-  if (!guidance?.actorIds.length) return null;
-  if (guidance.kind !== 'direct_reply' && guidance.kind !== 'media_request') return null;
+  if (!guidance) return null;
+  const shouldLock = guidance.actorIds.length > 0
+    && (guidance.kind === 'direct_reply' || guidance.kind === 'media_request');
+  if (!shouldLock) return null;
   for (const actorId of targetIds) {
     const speaker = chatMembers.find((member) => member.id === actorId);
     if (speaker) return speaker;
@@ -3812,7 +3843,13 @@ export async function generateSpeakerMessage(params: {
     projectInnerLife({ chat: params.chat, character: params.speaker, messages: activeMessages }),
     params.speakerScore,
   );
-  const reconciledSpeakerScore = reconcileSelectedSpeakerScore(params.speakerScore, innerLife);
+  const reconciledSpeakerScore = reconcileSelectedSpeakerScore(params.speakerScore, innerLife, params.pendingReplyContext);
+  const effectiveSpeakerSelection = params.speakerSelection && reconciledSpeakerScore
+    ? {
+      ...params.speakerSelection,
+      reason: reconciledSpeakerScore.reasons.join(', ') || params.speakerSelection.reason,
+    }
+    : params.speakerSelection;
   const typingDelayMs = await waitForInnerLifeTypingDelay(innerLife, params.chat, params.delay);
   if (typingDelayMs > 0) {
     logDeveloperDiagnostic('chat-run:typing-delay', {
@@ -3834,6 +3871,14 @@ export async function generateSpeakerMessage(params: {
     if (intent.messageShape === 'fragment') {
       intent.messageShape = 'single_sentence';
     }
+  }
+  const directedAffectTarget = innerLife.activeAffect?.role === 'received'
+    && innerLife.activeAffect.pressure >= 0.42
+    && !params.pendingReplyContext?.targetIds.includes(params.speaker.id)
+    && activeMessages.at(-1)?.type === 'ai'
+    ? innerLife.activeAffect.counterpartId : null;
+  if (directedAffectTarget && effectiveMembers.some((member) => member.id === directedAffectTarget)) {
+    intent.target = directedAffectTarget;
   }
 
   const characterMap = new Map(effectiveMembers.map((character) => [character.id, character]));
@@ -3867,12 +3912,15 @@ export async function generateSpeakerMessage(params: {
     speaker: params.speaker,
     messages: activeMessages,
   });
-  const conversationMovePlan = planConversationMove({
+  const plannedConversationMove = planConversationMove({
     chat: params.chat,
     speaker: params.speaker,
     messages: activeMessages,
     speakerScore: reconciledSpeakerScore,
   });
+  const conversationMovePlan = directedAffectTarget && effectiveMembers.some((member) => member.id === directedAffectTarget)
+    ? { ...plannedConversationMove, targetActorId: directedAffectTarget, reason: 'directed_emotional_residue' }
+    : plannedConversationMove;
   const runtimeBundleWithMovePlan = {
     ...runtimeBundle,
     trace: {
@@ -3970,14 +4018,14 @@ export async function generateSpeakerMessage(params: {
     { id: 'engine_prefix', layer: 'core', priority: -100, content: promptPrefix },
     { id: 'speaker_identity', layer: 'core', priority: 0, content: speakerSystemPrompt },
     buildPromptPlayModeBlock(promptPlayMode),
-    { id: 'humanization', layer: 'character', priority: 20, content: buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance) },
+    { id: 'humanization', layer: 'character', priority: 20, content: usesUnifiedGroupTurn ? '' : buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance) },
     { id: 'inner_life', layer: 'character', priority: 30, content: usesUnifiedGroupTurn ? buildUnifiedGroupPresencePrompt(innerLife, richDelivery) : buildInnerLifePromptBlock(innerLife) },
     { id: 'pending_reply', layer: 'task', priority: 10, content: pendingReplyPrompt },
     { id: 'user_guidance', layer: 'task', priority: 20, content: buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities, priorGuidanceReplies) },
     { id: 'room_floor_state', layer: 'task', priority: 25, content: buildGuidanceFloorPrompt(guidanceFloorState) },
     { id: 'world_event_context', layer: 'scene', priority: 20, content: buildWorldEventContextPrompt({ chat: params.chat, speaker: params.speaker, members: effectiveMembers }) },
     { id: 'world_influence', layer: 'scene', priority: 30, content: worldInfluenceSnapshot.prompt },
-    { id: 'current_intent', layer: 'task', priority: 30, content: buildCurrentIntentPrompt({ directorIntent: effectiveDirectorIntent, intent }) },
+    { id: 'current_intent', layer: 'task', priority: 30, content: usesUnifiedGroupTurn ? '' : buildCurrentIntentPrompt({ directorIntent: effectiveDirectorIntent, intent }) },
     { id: 'private_turn_priority', layer: 'task', priority: 35, content: buildPrivateTurnPriorityPrompt(params.chat) },
     { id: 'engine_constraints', layer: 'task', priority: 40, content: additionalConstraints },
     { id: 'analysis_room_contract', layer: 'task', priority: 45, content: buildAnalysisRoomContractPrompt(params.chat) },
@@ -3985,10 +4033,10 @@ export async function generateSpeakerMessage(params: {
     { id: 'expression_feedback', layer: 'runtime', priority: 20, content: buildExpressionFeedbackPrompt(expressionFeedbackTrace) },
     { id: 'turn_directive', layer: 'task', priority: 48, content: buildTurnDirectivePrompt(unifiedTurnDirective) },
     { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: usesUnifiedGroupTurn ? '' : buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
-    { id: 'conversation_move', layer: 'task', priority: 50, content: buildConversationMovePrompt(conversationMovePlan, params.chat) },
-    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan }) },
-    { id: 'turn_length_variety', layer: 'style', priority: 30, content: buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
-    { id: 'turn_format_variety', layer: 'style', priority: 40, content: buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
+    { id: 'conversation_move', layer: 'task', priority: 50, content: usesUnifiedGroupTurn ? '' : buildConversationMovePrompt(conversationMovePlan, params.chat) },
+    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: usesUnifiedGroupTurn ? '' : buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan }) },
+    { id: 'turn_length_variety', layer: 'style', priority: 30, content: usesUnifiedGroupTurn ? '' : buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
+    { id: 'turn_format_variety', layer: 'style', priority: 40, content: usesUnifiedGroupTurn ? '' : buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
     { id: 'turn_plan', layer: 'runtime', priority: 30, content: usesUnifiedGroupTurn ? '' : buildTurnPlanPrompt(turnPlan) },
     { id: 'runtime_role_constraint', layer: 'runtime', priority: 40, content: buildRuntimeRoleConstraintPrompt(runtimeBundleWithMovePlan) },
     { id: 'response_surface', layer: 'style', priority: 50, content: buildResponseSurfacePrompt(responseSurface) },
@@ -4144,11 +4192,12 @@ export async function generateSpeakerMessage(params: {
   const runtimeDecisionMetadata = buildRuntimeDecisionMetadata({
     directorIntent: effectiveDirectorIntent,
     narrativeLines: params.narrativeLines,
-    speakerSelection: params.speakerSelection,
+    speakerSelection: effectiveSpeakerSelection,
     speakerScore: reconciledSpeakerScore,
     innerLife,
     surface: responseSurface,
     turnPlan,
+    actualBubbleCount: generated.messageParts?.length || Math.max(1, 1 + (generated.extraMessages?.length || 0)),
     personaActivation,
     intentionalRepeat: Boolean(generated.parsedEnvelope?.intentionalRepeat),
     memoryTrace,
@@ -4231,8 +4280,9 @@ export async function generateSpeakerMessage(params: {
     messageParts,
     emotion: getEmotion(params.speaker.id),
     parsedEnvelope: generated.parsedEnvelope,
-	    metadata: baseMetadata,
-	  });
+    previousVisibleMessage: activeMessages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event').at(-1) || null,
+    metadata: baseMetadata,
+  });
   const visibleMessage = maybeAutoWithdrawMessage(completedMessage, { language: 'zh' });
   if (visibleMessage.metadata?.withdrawal?.withdrawn) {
     const withdrawnMessage = { ...visibleMessage };
@@ -4511,12 +4561,12 @@ export const runOneRound = async (
         throw error;
       }
       activeSpeaker = rotated;
+      const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
       speakerSelection = {
         speakerId: activeSpeaker.id,
-        reason: null,
+        reason: rotatedCandidate?.scoreBreakdown?.reasons.join(', ') || 'fallback_after_empty_generation',
         bypassNotice: 'fallback_after_empty_generation',
       };
-      const rotatedCandidate = candidates.find((candidate) => candidate.characterId === activeSpeaker.id);
       callbacks.onSpeakerSelected(activeSpeaker.id, activeSpeaker);
       const rotatedHydrateStartedAt = nowMs();
       const hydratedRotated = await callbacks.ensureSpeakerDetail?.(activeSpeaker.id, activeSpeaker);
