@@ -666,6 +666,7 @@ export interface ConversationInitializationState {
   memberFingerprint: string;
   attemptedAt?: number;
   completedAt?: number;
+  forceRelationshipRefresh?: boolean;
 }
 
 export interface OpenChatModeState {

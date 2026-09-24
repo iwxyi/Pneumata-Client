@@ -1296,7 +1296,7 @@ export default function ChatDetailPage() {
     void updateChat(chat.id, {
       modeState: {
         ...chat.modeState,
-        initialization: createConversationInitializationState('running', requirement.fingerprint),
+        initialization: createConversationInitializationState('running', requirement.fingerprint, Date.now(), true),
       },
     });
   }, [characters, chat, updateChat]);
@@ -1363,6 +1363,7 @@ export default function ChatDetailPage() {
       try {
         const current = useChatStore.getState().chats.find((item) => item.id === id);
         if (!current || cancelled || activeChatIdRef.current !== id) return;
+        const forceRelationshipRefresh = current.modeState.initialization?.forceRelationshipRefresh === true;
         const membersForInitialization = getInitializationMembers(current, useCharacterStore.getState().characters);
         await initializeDefaultRelationshipsForCreatedCharacters({
           config: profile,
@@ -1370,11 +1371,25 @@ export default function ChatDetailPage() {
           allCharacters: membersForInitialization,
           language: isZh ? 'zh' : 'en',
           updateCharacters: useCharacterStore.getState().updateCharacters,
+          force: forceRelationshipRefresh,
+          replaceWithinCharacterIds: membersForInitialization.map((member) => member.id),
           updateRelationshipStructure: async ({ edges, sharedFacts }) => {
             const latest = useChatStore.getState().chats.find((item) => item.id === id);
             if (cancelled || controller.signal.aborted || activeChatIdRef.current !== id || !latest) return;
             const currentRequirement = getConversationInitializationRequirement(latest, useCharacterStore.getState().characters);
             if (currentRequirement.fingerprint !== fingerprint) return;
+            const force = latest.modeState.initialization?.forceRelationshipRefresh === true;
+            if (force) {
+              await updateChat(id, {
+                relationshipStructure: {
+                  version: 1,
+                  edges,
+                  sharedFacts,
+                  updatedAt: Date.now(),
+                },
+              });
+              return;
+            }
             const existing = latest.relationshipStructure?.edges || [];
             const existingKeys = new Set(existing.map((edge) => `${edge.fromId}->${edge.toId}:${edge.kind}`));
             const additions = edges.filter((edge) => !existingKeys.has(`${edge.fromId}->${edge.toId}:${edge.kind}`));

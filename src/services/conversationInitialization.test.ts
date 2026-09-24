@@ -69,6 +69,14 @@ describe('conversation initialization lifecycle', () => {
     });
   });
 
+  it('persists an explicit force-refresh marker while initialization is running', () => {
+    const fingerprint = buildConversationMemberFingerprint(group(), [character('a'), character('b')]);
+    const state = createConversationInitializationState('running', fingerprint, 123, true);
+    expect(state.forceRelationshipRefresh).toBe(true);
+    const completed = createConversationInitializationState('completed', fingerprint, 456);
+    expect(completed.forceRelationshipRefresh).toBeUndefined();
+  });
+
   it('treats an interrupted running marker as pending on the next entry', () => {
     const members = [character('a'), character('b')];
     const fingerprint = buildConversationMemberFingerprint(group(), members);

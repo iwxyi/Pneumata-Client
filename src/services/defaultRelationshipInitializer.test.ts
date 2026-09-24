@@ -84,6 +84,31 @@ describe('defaultRelationshipInitializer', () => {
     expect(patches.find((patch) => patch.id === 'new')).toBeUndefined();
   });
 
+  it('force refresh replaces in-room relationships while preserving outside relationships', async () => {
+    const created = character('new', '新角色', [{ characterId: 'old', warmth: -20, competence: 0, trust: -10, threat: 15, note: '旧关系', updatedAt: 2 }]);
+    const old = character('old', '旧角色', [
+      { characterId: 'new', warmth: -30, competence: 0, trust: -20, threat: 20, note: '旧关系', updatedAt: 2 },
+      { characterId: 'side', warmth: 12, competence: 5, trust: 8, threat: 0, note: '群外关系', updatedAt: 2 },
+    ]);
+    const side = character('side', '旁观者');
+    const patches = await buildDefaultRelationshipPatches({
+      config: { id: 'p', name: 'Text', type: 'text', provider: 'openai', apiKey: 'k', baseUrl: '', model: 'm' },
+      createdCharacters: [created, old],
+      allCharacters: [created, old, side],
+      language: 'zh',
+      force: true,
+      replaceWithinCharacterIds: ['new', 'old'],
+    });
+
+    expect(patches.find((patch) => patch.id === 'new')?.updates.relationships).toEqual([
+      expect.objectContaining({ characterId: 'old', warmth: 42, trust: 24 }),
+    ]);
+    expect(patches.find((patch) => patch.id === 'old')?.updates.relationships).toEqual([
+      expect.objectContaining({ characterId: 'side', warmth: 12 }),
+      expect.objectContaining({ characterId: 'new', competence: 30 }),
+    ]);
+  });
+
   it('can restrict inference to newly created characters only', async () => {
     const created = character('new', '新角色');
     const old = character('old', '旧角色');

@@ -269,6 +269,8 @@ export async function buildDefaultRelationshipPatches(params: {
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
+  force?: boolean;
+  replaceWithinCharacterIds?: string[];
 }): Promise<DefaultRelationshipPatch[]> {
   const now = resolveNow(params.now);
   const suggestions = await buildDefaultRelationshipSuggestions({ ...params, now });
@@ -277,6 +279,8 @@ export async function buildDefaultRelationshipPatches(params: {
     allCharacters: params.allCharacters,
     language: params.language,
     now,
+    force: params.force,
+    replaceWithinCharacterIds: params.replaceWithinCharacterIds,
   });
 }
 
@@ -288,6 +292,8 @@ export async function buildDefaultRelationshipSuggestions(params: {
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
+  force?: boolean;
+  replaceWithinCharacterIds?: string[];
   onStructure?: (structure: { edges: RoomRelationshipStructureEdge[]; sharedFacts: RoomRelationshipSharedFact[] }) => void;
 }): Promise<DefaultRelationshipSuggestion[]> {
   const now = resolveNow(params.now);
@@ -320,11 +326,15 @@ export async function buildDefaultRelationshipSuggestions(params: {
     const from = nameMap.get(normalizeName(raw.fromName).toLowerCase());
     const to = nameMap.get(normalizeName(raw.toName).toLowerCase());
     if (!from || !to || from.id === to.id) return;
+    if (params.force && params.replaceWithinCharacterIds?.length) {
+      const replaceIds = new Set(params.replaceWithinCharacterIds);
+      if (!replaceIds.has(from.id) || !replaceIds.has(to.id)) return;
+    }
     if (!createdIds.has(from.id) && !createdIds.has(to.id)) return;
     if ((scope === 'created_only' || scope === 'selected_members') && (!createdIds.has(from.id) || !createdIds.has(to.id))) return;
 
     const existing = from.relationships.find((relation) => relation.characterId === to.id);
-    if (hasExistingDefaultRelationship(existing)) return;
+    if (!params.force && hasExistingDefaultRelationship(existing)) return;
 
     const preset = { ...buildRelationshipPreset(to.id, raw), updatedAt: now };
     const baseId = `${from.id}->${to.id}`;
@@ -353,12 +363,16 @@ export async function buildDefaultRelationshipInitialization(params: {
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
+  force?: boolean;
+  replaceWithinCharacterIds?: string[];
 }): Promise<DefaultRelationshipInitializationResult> {
   let structureEdges: RoomRelationshipStructureEdge[] = [];
   let sharedStructureFacts: RoomRelationshipSharedFact[] = [];
   const suggestions = await buildDefaultRelationshipSuggestions({
     ...params,
     onStructure: (structure) => { structureEdges = structure.edges; sharedStructureFacts = structure.sharedFacts; },
+    force: params.force,
+    replaceWithinCharacterIds: params.replaceWithinCharacterIds,
   });
   return {
     patches: buildDefaultRelationshipPatchesFromSuggestions({
@@ -366,6 +380,8 @@ export async function buildDefaultRelationshipInitialization(params: {
       allCharacters: params.allCharacters,
       language: params.language,
       now: params.now,
+      force: params.force,
+      replaceWithinCharacterIds: params.replaceWithinCharacterIds,
     }),
     structureEdges,
     sharedStructureFacts,
@@ -377,6 +393,8 @@ export function buildDefaultRelationshipPatchesFromSuggestions(params: {
   allCharacters: AICharacter[];
   language: 'zh' | 'en';
   now?: number;
+  force?: boolean;
+  replaceWithinCharacterIds?: string[];
 }): DefaultRelationshipPatch[] {
   return planDefaultRelationshipPatchesFromSuggestions(params).patches;
 }
@@ -386,11 +404,24 @@ export function planDefaultRelationshipPatchesFromSuggestions(params: {
   allCharacters: AICharacter[];
   language: 'zh' | 'en';
   now?: number;
+  force?: boolean;
+  replaceWithinCharacterIds?: string[];
 }): DefaultRelationshipPatchPlan {
   const now = resolveNow(params.now);
   const characterById = new Map(params.allCharacters.map((character) => [character.id, character]));
   const patchesById = new Map<string, DefaultRelationshipPatch>();
   const results: DefaultRelationshipSuggestionResult[] = [];
+
+  if (params.force && params.replaceWithinCharacterIds?.length) {
+    const replaceIds = new Set(params.replaceWithinCharacterIds);
+    params.allCharacters.forEach((character) => {
+      if (!replaceIds.has(character.id)) return;
+      const relationships = character.relationships.filter((relation) => !replaceIds.has(relation.characterId));
+      if (relationships.length !== character.relationships.length) {
+        patchesById.set(character.id, { id: character.id, updates: { relationships } });
+      }
+    });
+  }
 
   params.suggestions.forEach((suggestion) => {
     const from = characterById.get(suggestion.fromId);
@@ -409,7 +440,7 @@ export function planDefaultRelationshipPatchesFromSuggestions(params: {
       ? { ...from, ...currentPatch.updates, relationships: currentPatch.updates.relationships || from.relationships }
       : from;
     const existing = source.relationships.find((relation) => relation.characterId === to.id);
-    if (hasExistingDefaultRelationship(existing)) {
+    if (!params.force && hasExistingDefaultRelationship(existing)) {
       results.push({ suggestionId: suggestion.id, status: 'skipped', reason: 'protected_existing_relationship' });
       return;
     }
@@ -444,6 +475,8 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
   scope?: DefaultRelationshipScope;
   now?: number;
   signal?: AbortSignal;
+  force?: boolean;
+  replaceWithinCharacterIds?: string[];
   updateRelationshipStructure?: (structure: { edges: RoomRelationshipStructureEdge[]; sharedFacts: RoomRelationshipSharedFact[] }) => Promise<void>;
 }) {
   if (!params.config) return [];
@@ -455,9 +488,11 @@ export async function initializeDefaultRelationshipsForCreatedCharacters(params:
     scope: params.scope,
     now: params.now,
     signal: params.signal,
+    force: params.force,
+    replaceWithinCharacterIds: params.replaceWithinCharacterIds,
   });
   if (result.patches.length) await params.updateCharacters(result.patches);
-  if ((result.structureEdges.length || result.sharedStructureFacts.length) && params.updateRelationshipStructure) {
+  if (params.updateRelationshipStructure && (params.force || result.structureEdges.length || result.sharedStructureFacts.length)) {
     await params.updateRelationshipStructure({ edges: result.structureEdges, sharedFacts: result.sharedStructureFacts });
   }
   return result.patches;

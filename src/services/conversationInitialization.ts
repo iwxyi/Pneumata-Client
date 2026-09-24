@@ -53,6 +53,7 @@ export function createConversationInitializationState(
   status: ConversationInitializationState['status'],
   memberFingerprint: string,
   now = Date.now(),
+  forceRelationshipRefresh = false,
 ): ConversationInitializationState {
   return {
     version: CONVERSATION_INITIALIZATION_VERSION,
@@ -60,6 +61,7 @@ export function createConversationInitializationState(
     memberFingerprint,
     attemptedAt: status === 'completed' ? undefined : now,
     completedAt: status === 'completed' ? now : undefined,
+    forceRelationshipRefresh: forceRelationshipRefresh || undefined,
   };
 }
 
