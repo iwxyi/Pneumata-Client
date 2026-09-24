@@ -139,6 +139,11 @@ describe('openChatEngine.onMessageCommitted', () => {
         tone: 'annoyed' as const,
         evidenceText: '乙，你刚才那个说法不对，我不同意。',
         confidence: 0.92,
+        relationship: {
+          delta: { warmth: -2, competence: -1, trust: -2, threat: 1, attachment: 0, deference: 0 },
+          labels: ['质疑'],
+          stance: '对乙的判断更不信任',
+        },
       },
       socialEventHints: [{
         eventKind: 'pair_private_thread' as const,
@@ -172,6 +177,39 @@ describe('openChatEngine.onMessageCommitted', () => {
     expect(kinds).toContain('room_shift');
     expect(kinds).toContain('memory_candidate');
     expect(kinds).toContain('event_candidate');
+  });
+
+  it('persists every model-judged target instead of dropping secondary interactions', async () => {
+    const chat = buildChat({ memberIds: ['a', 'b', 'c', 'user'] });
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙'), buildCharacter('c', '丙')];
+    const hints = [
+      {
+        kind: 'challenge' as const, actorId: 'a', targetId: 'b', intensity: 4, tone: 'annoyed' as const, evidenceText: '乙，这事你别推。', confidence: 0.94,
+        relationship: { delta: { warmth: -1, competence: -1, trust: -2, threat: 1, attachment: 0, deference: 0 }, labels: ['追责'], stance: '不满乙推卸责任' },
+      },
+      {
+        kind: 'defend' as const, actorId: 'a', targetId: 'c', intensity: 4, tone: 'warm' as const, evidenceText: '丙已经替你扛过一次。', confidence: 0.93,
+        relationship: { delta: { warmth: 2, competence: 1, trust: 2, threat: 0, attachment: 1, deference: 0 }, labels: ['袒护'], stance: '更愿意保护丙' },
+      },
+    ];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      message: {
+        type: 'ai', senderId: 'a', content: '乙，这事你别推。丙已经替你扛过一次。',
+        interactionHint: hints[0], interactionHints: hints,
+      },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+    const nextChat = applyResultToChat(chat, result);
+
+    expect(nextChat.relationshipLedger?.some((entry) => entry.actorId === 'a' && entry.targetId === 'b')).toBe(true);
+    expect(nextChat.relationshipLedger?.some((entry) => entry.actorId === 'a' && entry.targetId === 'c')).toBe(true);
+    const interactionTargets = (nextChat.runtimeEventsV2 || [])
+      .filter((event) => event.kind === 'interaction')
+      .flatMap((event) => event.targetIds || []);
+    expect(interactionTargets).toEqual(expect.arrayContaining(['b', 'c']));
   });
 
   it('normalizes non-array social event hints during commit', async () => {
@@ -2914,6 +2952,11 @@ describe('openChatEngine.onMessageCommitted', () => {
             tone: 'annoyed',
             evidenceText: `乙，你第 ${index + 1} 次这个说法我还是不同意。`,
             confidence: 0.92,
+            relationship: {
+              delta: { warmth: -1, competence: -1, trust: -2, threat: 1, attachment: 0, deference: 0 },
+              labels: ['累积质疑'],
+              stance: '对乙的重复判断持续不信任',
+            },
           },
         },
         previousAiMessage: null,

@@ -445,6 +445,26 @@ describe('characterMindProjection', () => {
     expect(block).not.toContain('score');
   });
 
+  it('projects moderate and conflicting fast emotions into actionable inner pressure', () => {
+    const speaker = character({
+      emotionalState: { irritation: 44, affection: 38, insecurity: 31, excitement: 8, embarrassment: 18 },
+    });
+    const projection = buildCharacterMindProjection({
+      chat: chat('group'),
+      character: speaker,
+      characters: [speaker, character({ id: 'char-b', name: '阿远' })],
+      messages: [message('你刚才那句什么意思？', 'char-b')],
+      now: 2000,
+    });
+
+    expect(projection.currentState.emotionalUndercurrent).toEqual(expect.arrayContaining([
+      expect.stringContaining('明显烦躁'),
+      expect.stringContaining('明显亲近'),
+      expect.stringContaining('轻微戒备'),
+      expect.stringContaining('亲近与恼火或戒备同时存在'),
+    ]));
+  });
+
   it('defaults model-facing blocks to public-safe continuity without raw private facts or transcript text', () => {
     const speaker = character({
       relationships: [{ characterId: 'char-b', warmth: 72, competence: 10, trust: 86, threat: 0, note: '共同秘密是雨夜便利店。' }],

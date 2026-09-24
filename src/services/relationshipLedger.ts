@@ -324,54 +324,8 @@ export function inferRelationshipDelta(interaction: InteractionEventPayload): Re
       spikeType: Math.max(Math.abs(delta.warmth), Math.abs(delta.competence), Math.abs(delta.trust), Math.abs(delta.threat)) >= 5 ? 'turning_point' : 'normal',
     };
   }
-  // Compatibility for historical runtime events created before the model
-  // relationship contract. Fresh generation paths reject missing assessments.
-  if (interaction.kind === 'support' || interaction.kind === 'defend') {
-    const warmth = interaction.intensity + (interaction.tone === 'warm' ? 1 : 0);
-    const trust = interaction.intensity + (interaction.confidence >= 0.92 ? 1 : 0);
-    const competence = interaction.kind === 'defend' ? 1 + (interaction.tone === 'excited' ? 1 : 0) : (interaction.tone === 'warm' ? 1 : 0);
-    const delta = { warmth, competence, trust, threat: 0 };
-    return {
-      actorId: interaction.actorId,
-      targetId: interaction.targetId,
-      delta,
-      reason: interaction.kind,
-      axisReasons: buildAxisReasons(interaction, delta),
-      spikeType: interaction.intensity >= 5 ? 'bonding' : 'normal',
-    };
-  }
-  if (interaction.kind === 'challenge' || interaction.kind === 'probe') {
-    const delta = {
-      warmth: interaction.kind === 'probe' ? 0 : (interaction.tone === 'annoyed' ? -1 : 0),
-      threat: interaction.intensity + (interaction.tone === 'cold' ? 1 : 0),
-      competence: interaction.kind === 'probe' ? 0 : (interaction.tone === 'excited' ? 2 : 1),
-      trust: interaction.kind === 'probe' ? -(1 + (interaction.confidence >= 0.92 ? 1 : 0)) : -1,
-    };
-    return {
-      actorId: interaction.actorId,
-      targetId: interaction.targetId,
-      delta,
-      reason: interaction.kind,
-      axisReasons: buildAxisReasons(interaction, delta),
-      spikeType: interaction.intensity >= 5 ? 'turning_point' : 'normal',
-    };
-  }
-  if (interaction.kind === 'mock' || interaction.kind === 'dismiss' || interaction.kind === 'pile_on') {
-    const delta = {
-      warmth: -(interaction.intensity + (interaction.tone === 'sarcastic' ? 1 : 0)),
-      competence: interaction.kind === 'dismiss' ? -1 : 0,
-      trust: -(interaction.intensity + (interaction.kind === 'pile_on' ? 1 : 0)),
-      threat: interaction.intensity + (interaction.kind === 'mock' || interaction.kind === 'dismiss' ? 1 : 0),
-    };
-    return {
-      actorId: interaction.actorId,
-      targetId: interaction.targetId,
-      delta,
-      reason: interaction.kind,
-      axisReasons: buildAxisReasons(interaction, delta),
-      spikeType: interaction.intensity >= 5 ? 'rupture' : 'normal',
-    };
-  }
+  // Immediate social impact and long-lived relationship change are separate.
+  // Only the model-authored relationship assessment may move the six axes.
   return null;
 }
 

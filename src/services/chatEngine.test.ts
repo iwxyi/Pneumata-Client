@@ -574,6 +574,56 @@ describe('chatEngine streaming preview', () => {
     expect(message.content).toContain('每个实例单独分支');
   });
 
+  it('carries current emotion and asymmetric authority into the final ordinary-group prompt', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '属下记得。只是这回若还按旧例查，恐怕又要漏掉门里那个人。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const subordinate = buildCharacter('niu-tou', '牛头', {
+      background: '幽都夜巡差役，重实证，也在意自己是否只被当成跑腿。',
+      speakingStyle: '粗直具体，被反复差遣时会抱怨。',
+      emotionalState: { irritation: 46, affection: 18, insecurity: 34, excitement: 20, embarrassment: 16 },
+      relationships: [{ characterId: 'yan-jun', warmth: 8, competence: 72, trust: 48, threat: 28, attachment: 12, deference: 76, note: '敬畏阎君的裁决权，也怕当众答错后被追问。' }],
+      coreProfile: {
+        coreDesire: '让人看见跑腿不是没脑子的活。',
+        coreFear: '出了力还要独自背锅。',
+        valuePriority: ['实证', '担当', '体面'],
+        interactionHabits: ['对阎君服从，但在意是否由对方承担后果'],
+        sensitivities: ['被当成只有腿没有脑子'],
+      },
+    });
+    const superior = buildCharacter('yan-jun', '阎君', {
+      relationships: [{ characterId: 'niu-tou', warmth: 12, competence: 58, trust: 50, threat: 4, attachment: 10, deference: -62, note: '把牛头视为可用但需要约束的下属。' }],
+    });
+    const chat = buildChat({
+      memberIds: ['niu-tou', 'yan-jun'],
+      relationshipStructure: {
+        updatedAt: 1,
+        sharedFacts: [{ id: 'authority', memberIds: ['niu-tou', 'yan-jun'], kind: 'authority', statement: '阎君统辖幽都，牛头受其差遣并负责夜巡。', confidence: 0.98, evidence: '角色设定', updatedAt: 1 }],
+      },
+    });
+
+    await generateSpeakerMessage({
+      chat,
+      speaker: subordinate,
+      characters: [subordinate, superior],
+      messages: [buildAiMessage('yan-jun', '阎君', '西巷又出了纰漏。牛头，你怎么交代？', 1)],
+      apiConfig: buildProfiles(),
+    });
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+
+    expect(prompt).toContain('明显烦躁');
+    expect(prompt).toContain('轻微戒备');
+    expect(prompt).toContain('阎君统辖幽都，牛头受其差遣并负责夜巡');
+    expect(prompt).toContain('Relationship action: answer_upward');
+    expect(prompt).toContain('Required state change:');
+    expect(prompt).not.toContain('## Current speaking intent');
+    expect(prompt.match(/## Turn Directive/g)).toHaveLength(1);
+  });
+
   it('removes leaked runtime field names from generated visible content', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({

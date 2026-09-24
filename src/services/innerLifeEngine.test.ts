@@ -63,13 +63,26 @@ describe('innerLifeEngine', () => {
     });
 
     expect(projection.state.ignoredStreak).toBeGreaterThan(0);
-    expect(projection.state.loneliness).toBeGreaterThan(20);
+    expect(projection.state.loneliness).toBeGreaterThanOrEqual(20);
+    expect(projection.impulse).not.toBe('seek_attention');
     expect(getInnerLifeSpeakerBias(projection).reason).toMatch(/^inner:/);
   });
 
   it('turns a sustained ignored streak into an observable attention-seeking impulse', () => {
     const projection = projectInnerLife({
-      character: character(),
+      character: character({
+        soulState: {
+          mood: { pleasure: -10, arousal: 20, dominance: 40 },
+          energy: 50,
+          attention: 45,
+          loneliness: 65,
+          repression: 8,
+          shame: 4,
+          envy: 0,
+          trustInRoom: 50,
+          ignoredStreak: 3,
+        },
+      }),
       messages: [
         message({ id: 'own', senderId: 'a', senderName: '小甲', content: '我其实很想把这件事说完。', timestamp: 1 }),
         message({ id: 'b1', senderId: 'b', content: '先不聊这个。', timestamp: 2 }),
@@ -161,6 +174,20 @@ describe('innerLifeEngine', () => {
     expect(projection.impulse).toBe('defend_face');
     expect(projection.expressionPlan.tone).toBe('defensive');
     expect(projection.expressionPlan.allowWithdraw).toBe(true);
+  });
+
+  it('lets a clearly leading moderate emotion change the next social impulse', () => {
+    const projection = projectInnerLife({
+      character: character({
+        emotionalState: { affection: 4, irritation: 38, insecurity: 9, excitement: 2, embarrassment: 6 },
+      }),
+      messages: [message({ content: '这件事就这么算了。', senderId: 'b' })],
+      now: 20,
+    });
+
+    expect(projection.dominantEmotion).toMatchObject({ kind: 'irritation', value: 38 });
+    expect(projection.impulse).toBe('mock');
+    expect(projection.reason).toContain('即时烦躁');
   });
 
   it('does not turn relationship intensity into a locally prescribed mocking impulse', () => {

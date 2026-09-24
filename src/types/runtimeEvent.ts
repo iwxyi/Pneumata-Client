@@ -118,9 +118,6 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
     }
     : undefined;
   const normalizedRelationship = relationship && Object.values(relationship.delta).some((value) => value !== 0) ? relationship : undefined;
-  // Fresh model output without a relationship assessment is not allowed to
-  // manufacture a relationship delta from its conversational action label.
-  if (!normalizedRelationship) return null;
   return {
     actorId,
     targetId: resolvedTargetId,
@@ -129,6 +126,9 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
     intensity,
     confidence,
     evidenceText: content.slice(0, 120),
+    // A directed social event can create a strong short-lived emotion without
+    // changing the long-lived relationship. Keep the event while leaving its
+    // relationship assessment absent in that case.
     relationship: normalizedRelationship,
   };
 }

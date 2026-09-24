@@ -3951,6 +3951,7 @@ export async function generateSpeakerMessage(params: {
     turnPlan,
     runtimeBundle: runtimeBundleWithMovePlan,
     userGuidance,
+    narrativeLines: params.narrativeLines,
   });
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const promptPlayMode = resolvePromptPlayMode(params.chat);

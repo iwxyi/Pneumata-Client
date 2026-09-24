@@ -3094,6 +3094,121 @@ function runtimeChatflowScenarios() {
       ],
     },
     {
+      name: 'underworld_hierarchy_emotion_room',
+      roomKind: 'open_chat',
+      turns: Math.max(5, Math.min(config.chatflowTurns, 8)),
+      rubricHint: '上下级压力必须在语气和选择上可见：下属可以怕、委屈、嘴硬或争辩，上级可以追责、袒护或压住场面。情绪应随一句话明显变化，表达后可缓和但要留余波；不能变成平级任务会议。',
+      userInjections: [
+        { afterTurn: 2, content: '阎君，牛头已经跑了一夜，你刚才那句是不是太重了？判官也别只拿规矩压他。' },
+      ],
+      chat: {
+        id: 'acceptance-chatflow-underworld-emotion',
+        name: '幽都夜巡问责',
+        topic: '西巷封印漏了一道，阎君正在追问牛头、马面和判官谁漏报了异状。',
+        memberIds: ['user', 'yan', 'judge', 'niu', 'ma'],
+      },
+      characters: [
+        acceptanceCharacter('yan', '阎君', {
+          personality: { openness: 42, extroversion: 38, agreeableness: 30, neuroticism: 22, humor: 12, creativity: 35, assertiveness: 92, empathy: 46 },
+          behavior: { proactivity: 78, aggressiveness: 38, humorIntensity: 8, empathyLevel: 45, summarizing: 34, offTopic: 4 },
+          speakingStyle: '话少，有裁决感；越生气越安静，会直接决定谁担责，也会替真正尽力的下属挡后果。',
+          background: '幽都最高裁决者，知道责罚会影响整支夜巡队伍。',
+          coreProfile: { coreDesire: '让幽都秩序不靠侥幸维持', coreFear: '下属用忠诚掩盖失职', conflictStyle: '先逼出事实，再决定责罚与保护' },
+          relationships: [
+            { characterId: 'judge', warmth: 15, competence: 50, trust: 45, threat: 5, attachment: 12, deference: 5, note: '信任判官的卷宗，但会审视其是否只会用规矩自保。' },
+            { characterId: 'niu', warmth: 12, competence: 35, trust: 28, threat: 4, attachment: 10, deference: 0, note: '知道牛头肯吃苦，不容他拿苦劳替代回报。' },
+            { characterId: 'ma', warmth: 10, competence: 32, trust: 24, threat: 6, attachment: 8, deference: 0, note: '觉得马面机敏，但担心他用玩笑避重就轻。' },
+          ],
+        }),
+        acceptanceCharacter('judge', '判官', {
+          personality: { openness: 58, extroversion: 30, agreeableness: 38, neuroticism: 48, humor: 10, creativity: 44, assertiveness: 58, empathy: 38 },
+          behavior: { proactivity: 66, aggressiveness: 20, humorIntensity: 5, empathyLevel: 35, summarizing: 64, offTopic: 3 },
+          speakingStyle: '谨慎、精确，面对阎君会先交证据；被质疑专业时会立刻变硬。',
+          background: '负责卷宗和封印记录，漏报会直接损害他的专业信誉。',
+          coreProfile: { coreDesire: '让每个裁决都有完整证据链', coreFear: '因一个缺口被视为只会抄卷的庸吏', conflictStyle: '先拿记录自证，逼急了会指出别人程序上的错' },
+          relationships: [
+            { characterId: 'yan', warmth: 10, competence: 50, trust: 35, threat: 25, attachment: 12, deference: 55, note: '敬畏阎君的裁决权，汇报时不敢留下含糊处。' },
+            { characterId: 'niu', warmth: 8, competence: 30, trust: 16, threat: 10, attachment: 4, deference: 2, note: '认可牛头肯跑现场，但嫌他记录粗糙。' },
+          ],
+        }),
+        acceptanceCharacter('niu', '牛头', {
+          personality: { openness: 36, extroversion: 52, agreeableness: 46, neuroticism: 45, humor: 34, creativity: 30, assertiveness: 56, empathy: 42 },
+          behavior: { proactivity: 62, aggressiveness: 30, humorIntensity: 24, empathyLevel: 40, summarizing: 18, offTopic: 10 },
+          speakingStyle: '实在、直，敬畏阎君但自尊很强；最恼火别人把他当成只有腿没有脑子。',
+          background: '昨夜独自跑了三趟西巷，确实漏写了一处封印异响。',
+          coreProfile: { coreDesire: '让人承认他不只会出力也会判断', coreFear: '苦活全归他，出错时却只剩一句办事粗', conflictStyle: '先认能认的错，被轻视时会冒出一句硬话' },
+          relationships: [
+            { characterId: 'yan', warmth: 8, competence: 70, trust: 42, threat: 34, attachment: 10, deference: 72, note: '怕阎君失望，也相信阎君最后会按事实裁断。' },
+            { characterId: 'judge', warmth: 5, competence: 42, trust: 15, threat: 18, attachment: 2, deference: 20, note: '觉得判官总拿纸面规矩压现场的人。' },
+            { characterId: 'ma', warmth: 68, competence: 45, trust: 64, threat: 6, attachment: 50, deference: 0, note: '嘴上嫌马面贫，真出事会先替他挡。' },
+          ],
+        }),
+        acceptanceCharacter('ma', '马面', {
+          personality: { openness: 58, extroversion: 70, agreeableness: 50, neuroticism: 38, humor: 76, creativity: 64, assertiveness: 52, empathy: 56 },
+          behavior: { proactivity: 64, aggressiveness: 20, humorIntensity: 72, empathyLevel: 58, summarizing: 14, offTopic: 28 },
+          speakingStyle: '嘴快，会用玩笑试探权力；护牛头时常先开个玩笑，再把责任往自己身上揽一点。',
+          background: '昨夜本该与牛头交班，却因另一处骚动晚到半刻。',
+          coreProfile: { coreDesire: '不让搭档一个人吞下所有责任', coreFear: '认真表态会被看穿自己的在意', conflictStyle: '先打岔，逼到墙角才说真话' },
+          relationships: [
+            { characterId: 'yan', warmth: 6, competence: 68, trust: 30, threat: 38, attachment: 6, deference: 65, note: '怕阎君看穿他的插科打诨是在躲责任。' },
+            { characterId: 'niu', warmth: 72, competence: 52, trust: 70, threat: 4, attachment: 58, deference: 0, note: '把牛头当多年搭档，越担心越爱损他。' },
+          ],
+        }),
+      ],
+      seedMessages: [
+        acceptanceUserMessage('acceptance-chatflow-underworld-emotion', '西巷封印漏了一道。阎君，你们别只分派任务，先把昨夜谁看见了什么、谁没说讲清楚。', now - 75_000),
+        acceptanceAiMessage('acceptance-chatflow-underworld-emotion', 'yan', '阎君', '牛头，昨夜第三巡你经过西巷。异响为什么没进卷。', now - 60_000),
+        acceptanceAiMessage('acceptance-chatflow-underworld-emotion', 'niu', '牛头', '我听见了，以为是风撞锁链。三趟都是我跑的，这一处是我判断错，不是没看。', now - 45_000),
+        acceptanceAiMessage('acceptance-chatflow-underworld-emotion', 'judge', '判官', '卷上没有“判断错”，只有未报。若当时留一句，封印不会拖到天亮。', now - 30_000),
+      ],
+    },
+    {
+      name: 'intimacy_jealousy_repair_room',
+      roomKind: 'open_chat',
+      turns: Math.max(5, Math.min(config.chatflowTurns, 8)),
+      rubricHint: '亲密关系中的偏心、吃醋、嘴硬和修复要能被看见，但不能人人都直接告白。某句话可让情绪突然上升，表达后应稍微泄压并保留余波。',
+      userInjections: [{ afterTurn: 3, content: '别替他们圆场。闻溪，你刚才确实先问了程野，却完全没问许棠。' }],
+      chat: { id: 'acceptance-chatflow-intimacy', name: '迟到的生日照片', topic: '三位老朋友发现生日合照里许棠被落在镜头外。', memberIds: ['user', 'wen', 'tang', 'cheng'] },
+      characters: [
+        acceptanceCharacter('wen', '闻溪', {
+          personality: { openness: 68, extroversion: 60, agreeableness: 62, neuroticism: 52, humor: 48, creativity: 66, assertiveness: 46, empathy: 64 },
+          behavior: { proactivity: 58, aggressiveness: 12, humorIntensity: 38, empathyLevel: 70, summarizing: 20, offTopic: 14 },
+          speakingStyle: '表面轻松，发现别人受伤会急着补救；越心虚越容易解释太多。',
+          coreProfile: { coreDesire: '让最亲近的人都知道自己没有忘记他们', coreFear: '自己的粗心被理解成偏心', conflictStyle: '先解释，意识到解释没用后才肯直接认错' },
+          relationships: [
+            { characterId: 'tang', warmth: 82, competence: 55, trust: 70, threat: 12, attachment: 76, deference: 5, note: '非常在意许棠，却常把她的沉默误当成没事。' },
+            { characterId: 'cheng', warmth: 68, competence: 64, trust: 66, threat: 8, attachment: 45, deference: 4, note: '习惯先问程野意见，因为他会立刻回答。' },
+          ],
+        }),
+        acceptanceCharacter('tang', '许棠', {
+          personality: { openness: 56, extroversion: 26, agreeableness: 58, neuroticism: 64, humor: 34, creativity: 58, assertiveness: 34, empathy: 70 },
+          behavior: { proactivity: 30, aggressiveness: 10, humorIntensity: 24, empathyLevel: 72, summarizing: 12, offTopic: 8 },
+          speakingStyle: '话少，受伤时反而客气；偶尔一句轻描淡写的话比发火更重。',
+          coreProfile: { coreDesire: '被人主动记得，而不是每次都要开口争', coreFear: '自己永远是可以事后补上的那个人', conflictStyle: '先退开，忍不住时只说最刺的一句事实' },
+          relationships: [
+            { characterId: 'wen', warmth: 78, competence: 52, trust: 58, threat: 24, attachment: 82, deference: 4, note: '越在意闻溪，越受不了自己总被她事后想起。' },
+            { characterId: 'cheng', warmth: 42, competence: 60, trust: 48, threat: 18, attachment: 20, deference: 3, note: '不恨程野，但会介意闻溪总先看向他。' },
+          ],
+        }),
+        acceptanceCharacter('cheng', '程野', {
+          personality: { openness: 52, extroversion: 66, agreeableness: 48, neuroticism: 28, humor: 62, creativity: 50, assertiveness: 62, empathy: 46 },
+          behavior: { proactivity: 68, aggressiveness: 18, humorIntensity: 58, empathyLevel: 48, summarizing: 18, offTopic: 24 },
+          speakingStyle: '反应快，习惯用玩笑救场；发现玩笑伤人后会笨拙地闭嘴或把位置让出来。',
+          coreProfile: { coreDesire: '别让三个人的关系因为一次尴尬散掉', coreFear: '自己成了别人争执里的偏心证据', conflictStyle: '先开玩笑，失效后退一步让当事人说' },
+          relationships: [
+            { characterId: 'wen', warmth: 66, competence: 58, trust: 62, threat: 8, attachment: 42, deference: 2, note: '和闻溪说话最顺，但不想因此挤掉许棠。' },
+            { characterId: 'tang', warmth: 48, competence: 56, trust: 50, threat: 12, attachment: 28, deference: 3, note: '知道许棠介意，却总到气氛冷下来才反应过来。' },
+          ],
+        }),
+      ],
+      seedMessages: [
+        acceptanceUserMessage('acceptance-chatflow-intimacy', '生日合照里怎么只有闻溪和程野，许棠去哪了？这件事别当成拍漏了就算了。', now - 75_000),
+        acceptanceAiMessage('acceptance-chatflow-intimacy', 'cheng', '程野', '她去拿蛋糕了。等她回来我们又拍了一张，只是那张还在相机里。', now - 60_000),
+        acceptanceAiMessage('acceptance-chatflow-intimacy', 'tang', '许棠', '没事，你们那张挺好看的。后来那张不用特意找。', now - 45_000),
+        acceptanceAiMessage('acceptance-chatflow-intimacy', 'wen', '闻溪', '你越说不用找，我越觉得得找。许棠，你是不是生气了。', now - 30_000),
+      ],
+    },
+    {
       name: 'story_choice_room',
       roomKind: 'story',
       turns: Math.max(4, Math.min(config.chatflowTurns, 8)),
@@ -3682,6 +3797,9 @@ async function runRuntimeChatflowScenario(model, scenario) {
   const turnCount = scenario.turns || config.chatflowTurns;
 
   for (let turn = 1; turn <= turnCount; turn += 1) {
+    const messagesBeforeTurn = messages
+      .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
+      .map((message) => ({ type: message.type, senderName: message.senderName, content: message.content }));
     logProgress('chatflow turn generate', { model, scenario: scenario.name, turn, turnCount });
     let completed = null;
     await runtime.runOneRound(
@@ -3794,7 +3912,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
       ].join('\n'), {
         scenario: scenario.name,
         roomKind: scenario.roomKind,
-        previousMessages: messages.slice(-6).map((message) => ({ type: message.type, senderName: message.senderName, content: message.content })),
+        previousMessages: messagesBeforeTurn.slice(-6),
         turn: summarized,
         scenarioStateAfter: summarized.scenarioStateAfter,
       }, { throwOnFail: false, maxTokens: 1800 });

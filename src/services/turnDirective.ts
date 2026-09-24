@@ -6,6 +6,7 @@ import type { ChatStyleProfile } from './styleProfileRegistry';
 import type { SpeakIntent } from './intentEngine';
 import type { InnerLifeProjection } from './innerLifeEngine';
 import type { ConversationMovePlan } from './conversationMovePlanner';
+import type { NarrativeLineProjection } from './narrativeProjection';
 import type { TurnPlan } from './turnPlanner';
 import type { UserGuidanceIntent } from './userGuidanceIntent';
 import { deriveCharacterTurnDrive, type CharacterTurnDrive } from './characterTurnDrive';
@@ -18,6 +19,8 @@ export interface TurnDirective {
   targetName?: string;
   emotionalUndercurrent: string;
   relationshipEffect: string;
+  narrativePressure?: string;
+  requiredChange: string;
   expressionShape: string;
   userConstraint?: string;
   situationalConstraints: string[];
@@ -36,6 +39,7 @@ export interface BuildTurnDirectiveInput {
   turnPlan: TurnPlan;
   runtimeBundle?: SessionGenerationRuntimeBundle | null;
   userGuidance?: UserGuidanceIntent | null;
+  narrativeLines?: NarrativeLineProjection[];
 }
 
 function latestVisible(messages: Message[]) {
@@ -168,6 +172,29 @@ function describeRelationship(input: BuildTurnDirectiveInput, targetName?: strin
   return `treat ${fallback} ${target} as a weak surface fallback only. The current Character Mind relationship continuity and relational consequence are more specific evidence: let them decide what this speaker risks, permits, withholds, protects, tests, resents, or needs from this person. Do not reduce a close, unequal, competitive, indebted, wounded, desired, feared, or professional relationship to that scalar, friendly teamwork, or neutral professionalism`;
 }
 
+function describeNarrativePressure(input: BuildTurnDirectiveInput, targetActorId?: string) {
+  const relevant = (input.narrativeLines || [])
+    .filter((line) => line.participantIds.includes(input.speaker.id))
+    .sort((left, right) => {
+      const leftTargets = targetActorId && left.participantIds.includes(targetActorId) ? 1 : 0;
+      const rightTargets = targetActorId && right.participantIds.includes(targetActorId) ? 1 : 0;
+      return rightTargets - leftTargets || right.salience - left.salience;
+    })[0];
+  if (!relevant) return undefined;
+  const open = relevant.openQuestions[0] ? ` Unresolved dramatic question: ${relevant.openQuestions[0]}` : '';
+  return `${relevant.type} line "${relevant.title}": ${relevant.summary}.${open}`;
+}
+
+function describeRequiredChange(input: BuildTurnDirectiveInput, hasNarrativePressure: boolean) {
+  const recentAi = input.messages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-5);
+  const repeatedPracticalAdvance = recentAi.length >= 4
+    && recentAi.every((message) => message.content.length >= 24);
+  if (hasNarrativePressure || repeatedPracticalAdvance) {
+    return 'make one observable state change: shift who has leverage, expose a preference or vulnerability, impose or accept a cost, deepen or strain a bond, force a choice, or make the prior plan emotionally harder to carry out. Advancing the task with one more fact or assignment is not enough';
+  }
+  return 'leave a visible residue in stance, attention, permission, trust, face, obligation, or choice; a small change is enough, but pure topic continuation is not';
+}
+
 function describeExpression(input: BuildTurnDirectiveInput) {
   const latest = latestVisible(input.messages);
   const latestFromHuman = latest?.type === 'user' || latest?.type === 'god';
@@ -243,6 +270,7 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
       .filter((fact) => fact.memberIds.includes(input.speaker.id) && fact.memberIds.includes(targetActorId))
       .map((fact) => fact.statement)
     : [];
+  const narrativePressure = describeNarrativePressure(input, targetActorId);
   const forbiddenDrift = [
     'do not use recent transcript wording as a template',
     'do not turn agreement into a paraphrase, a meeting recap, or a newly invented condition just to prove the turn contributes; agreement may simply reveal attitude, relationship, relief, reluctance, or a decision to let the point rest',
@@ -258,17 +286,20 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
     roomStyle: normalizeRoomStyle(input.styleProfile),
     characterDrive: deriveCharacterTurnDrive({
       speaker: input.speaker,
+      counterpart: input.members.find((member) => member.id === targetActorId),
       messages: input.messages,
       innerLife: input.innerLife,
       targetActorId,
       targetName,
       sharedRelationshipFacts,
-      includeRelationshipNote: false,
+      includeRelationshipNote: true,
     }),
     socialJob: describeSocialJob(input.conversationMovePlan, input.intent),
     targetName,
     emotionalUndercurrent: describeEmotion(input.innerLife),
     relationshipEffect: describeRelationship(input, targetName),
+    narrativePressure,
+    requiredChange: describeRequiredChange(input, Boolean(narrativePressure)),
     expressionShape: describeExpression(input),
     userConstraint: describeUserConstraint(input.userGuidance),
     situationalConstraints: describeSituationalConstraints(input),
@@ -292,11 +323,17 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
 - A believable reply may leave part of the proposal untouched, seize on one word, object to the framing, make an aside, concede reluctantly, ask for something personal, or stop after a small reaction. It does not need to carry every prior condition forward.
 - Room style: ${directive.roomStyle}.${targetLine}
 - Personal stake: ${directive.characterDrive.stake}.
+- Felt reaction now: ${directive.characterDrive.feltReaction}.
+- Immediate want: ${directive.characterDrive.immediateWant}.
+- Immediate social risk: ${directive.characterDrive.immediateRisk}.
 - Relationship action: ${relationshipAction}.
+- Observable relationship move: ${directive.characterDrive.observableMove}.
 - Attention lens: ${directive.characterDrive.attentionLens}.
 - Speaking necessity: ${directive.characterDrive.speakingNecessity}; a turn marked let_silence_stand may be brief, partial, or omitted when the runtime allows it.
 - Social job: ${directive.socialJob}.
 - Relationship effect: ${directive.relationshipEffect}.
+- Active dramatic line: ${directive.narrativePressure || 'none stored; use the immediate interpersonal consequence rather than inventing lore'}.
+- Required state change: ${directive.requiredChange}.
 - Inner undercurrent: ${directive.emotionalUndercurrent}.${situationalLine}
 - Expression shape: ${directive.expressionShape}.${userLine}
 - Forbidden drift: ${directive.forbiddenDrift.join('; ')}.`;

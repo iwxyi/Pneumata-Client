@@ -1,9 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
+import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 
 describe('parseInlineInteractionEnvelope story events', () => {
+  it('keeps immediate social effects even when no relationship delta is warranted', () => {
+    const hints = normalizeInteractionHintCollection({
+      primary: { targetId: 'target', kind: 'probe', tone: 'cold', intensity: 4, confidence: 0.93, relationship: undefined },
+      secondary: [],
+    }, 'speaker', '你为什么不敢看我？');
+
+    expect(hints).toHaveLength(1);
+    expect(hints[0]).toMatchObject({ actorId: 'speaker', targetId: 'target', kind: 'probe', intensity: 4 });
+    expect(hints[0].relationship).toBeUndefined();
+  });
+
   it('keeps social outing participant states from inline diagnostics', () => {
     const parsed = parseInlineInteractionEnvelope(JSON.stringify({
       content: '周末一起去吃火锅吧。',

@@ -11,7 +11,7 @@ import {
   resolveEffectiveRelationshipAxes,
 } from './relationshipLedger';
 import type { ConflictFocusPayload, ConflictFocusState, ConflictRuntimeState, RuntimeEventV2 } from '../types/runtimeEvent';
-import { deriveEmotionalState, derivePersonalityDrift, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
+import { applyInteractionEmotions, decayEmotionalState, deriveEmotionalState, derivePersonalityDrift, getEmotionalBaseline, getRuntimeAffectEventDriftLine, getRuntimeAffectEventEmotionLines } from './personalityDrift';
 import { accumulateChatRuntime } from './chatRuntime';
 import { accumulateCharacterRuntime } from './characterRuntime';
 import { createDefaultConflictAxes, evolveConflictAxes, summarizeConflictAxes } from './conflictAxisEngine';
@@ -456,11 +456,25 @@ export function buildRelationshipTransition(params: {
     .map((hint) => ({ hint, target: params.characters.find((item) => item.id === hint.targetId) }))
     .filter((item): item is { hint: NonNullable<typeof uniqueHints[number]>; target: AICharacter } => Boolean(item.target));
   const targetEntries = hintedTargets;
+  const targetGroups = Array.from(hintedTargets.reduce((groups, entry) => {
+    const current = groups.get(entry.target.id);
+    if (current) current.hints.push(entry.hint);
+    else groups.set(entry.target.id, { target: entry.target, hints: [entry.hint] });
+    return groups;
+  }, new Map<string, { target: AICharacter; hints: Array<NonNullable<typeof uniqueHints[number]>> }>()).values());
 
   if (isCharacterAuthoredMessage && speaker && targetEntries.length) {
     const summary = truncateWithEllipsis(params.message.content, 48);
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier);
-    const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
+    // Interaction hints are the model's social reading of the turn. They are
+    // the primary source for fast emotion; text heuristics only provide the
+    // quiet decay fallback when no directed event was judged.
+    const speakerEmotion = applyInteractionEmotions(
+      speaker,
+      targetEntries.map(({ hint }) => hint),
+      'speaker',
+      speaker.emotionalState || deriveEmotionalState(speaker, '', config.emotionMultiplier, config.emotionDecayBias),
+    );
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: nextEventTimestamp() }] : [];
 
@@ -513,25 +527,27 @@ export function buildRelationshipTransition(params: {
 
     const relationshipLines: string[] = [];
 
-    for (const { target, hint } of targetEntries) {
-      const reciprocalDelta = inferRelationshipDelta(hint)?.delta;
-      if (!reciprocalDelta) continue;
-      const updatedTarget = updateCharacterRelationshipFromDelta(target, speaker.id, reciprocalDelta, config.reciprocalRelationshipMultiplier);
-      const targetEmotion = deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias);
+    const targetEmotionById = new Map<string, ReturnType<typeof applyInteractionEmotions>>();
+    for (const { target, hints } of targetGroups) {
+      const targetEmotion = applyInteractionEmotions(
+        target,
+        hints,
+        'target',
+        target.emotionalState || deriveEmotionalState(target, '', config.emotionMultiplier * 0.85, config.emotionDecayBias),
+      );
+      targetEmotionById.set(target.id, targetEmotion);
       const projectedTargetSoul = projectInnerLife({
         chat: params.conversation,
-        character: { ...target, relationships: updatedTarget.relationships, emotionalState: targetEmotion },
+        character: { ...target, emotionalState: targetEmotion },
         messages: params.recentMessages || [],
       }).state;
       const targetLayeredResult = maybeDistillCharacterLayeredMemories({
         ...target,
-        relationships: updatedTarget.relationships,
         emotionalState: targetEmotion,
         soulState: projectedTargetSoul,
       }, updateCharacterLayeredMemories({
         character: {
           ...target,
-          relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
           soulState: projectedTargetSoul,
         },
@@ -544,7 +560,6 @@ export function buildRelationshipTransition(params: {
       characterPatches.push({
         characterId: target.id,
         patch: {
-          relationships: updatedTarget.relationships,
           emotionalState: targetEmotion,
           soulState: projectedTargetSoul,
           layeredMemories: targetLayeredResult.layeredMemories,
@@ -557,7 +572,9 @@ export function buildRelationshipTransition(params: {
       if (targetLayeredResult.debugInfo) {
         runtimeEvents.push(createMemoryDistillationRuntimeEvent(localizeDistillationEventInfo(targetLayeredResult.debugInfo, distillationParticipants)));
       }
+    }
 
+    for (const { target, hint } of targetEntries) {
       const relationshipDelta = inferRelationshipDelta(hint);
       if (!relationshipDelta) continue;
       if (!canApplyRelationshipInteraction(hint, relationshipDelta)) continue;
@@ -659,8 +676,12 @@ export function buildRelationshipTransition(params: {
     }
 
     const targetEmotionLines = getRuntimeAffectEventEmotionLines(
-      targetEntries.map(({ target }) => ({ target, emotion: deriveEmotionalState(target, params.message.content, config.emotionMultiplier * 0.85, config.emotionDecayBias), name: target.name })),
-      'zh'
+      targetGroups.map(({ target }) => ({
+        target,
+        emotion: targetEmotionById.get(target.id) || target.emotionalState || deriveEmotionalState(target, '', config.emotionMultiplier * 0.85, config.emotionDecayBias),
+        name: target.name,
+      })),
+      'zh',
     );
 
     if (targetEmotionLines.length) {
@@ -678,7 +699,10 @@ export function buildRelationshipTransition(params: {
 
   if (isCharacterAuthoredMessage && speaker && !targetEntries.length) {
     const speakerDrift = derivePersonalityDrift(speaker, params.message.content, config.driftMultiplier * 0.75);
-    const speakerEmotion = deriveEmotionalState(speaker, params.message.content, config.emotionMultiplier, config.emotionDecayBias);
+    // No directed model hint means there is no justified semantic stimulus.
+    // Speaking still releases fast affect, but local word matching must not
+    // invent irritation, affection, or embarrassment.
+    const speakerEmotion = decayEmotionalState(speaker.emotionalState || getEmotionalBaseline(), 'speaker');
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const projectedSpeakerSoul = projectInnerLife({
       chat: params.conversation,

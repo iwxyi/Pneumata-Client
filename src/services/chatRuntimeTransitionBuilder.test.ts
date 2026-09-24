@@ -92,6 +92,85 @@ function buildRelationshipMemory(id: string, ownerId: string, subjectIds: string
 }
 
 describe('buildRelationshipTransition', () => {
+  it('applies a fast target emotion without inventing a lasting relationship delta', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '你根本不配管这件事。',
+        interactionHint: {
+          kind: 'dismiss', actorId: 'char-a', targetId: 'char-b', intensity: 5, tone: 'sarcastic', evidenceText: '你根本不配管这件事。', confidence: 0.96,
+        },
+      },
+      previousAiMessage: null,
+    });
+
+    const targetPatch = result.characterPatches.find((patch) => patch.characterId === 'char-b')?.patch;
+    expect(targetPatch?.emotionalState?.irritation).toBeGreaterThanOrEqual(30);
+    expect(targetPatch?.emotionalState?.embarrassment).toBeGreaterThanOrEqual(20);
+    expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(false);
+  });
+
+  it('merges several same-target interaction hints into one target patch and decays only once', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+    target.emotionalState = { irritation: 40, affection: 0, insecurity: 10, excitement: 0, embarrassment: 0 };
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '你别装没听见。还有，这件事轮不到你替我决定。',
+        interactionHints: [
+          { kind: 'probe', actorId: 'char-a', targetId: 'char-b', intensity: 3, tone: 'annoyed', evidenceText: '你别装没听见。', confidence: 0.92 },
+          { kind: 'challenge', actorId: 'char-a', targetId: 'char-b', intensity: 4, tone: 'defensive', evidenceText: '轮不到你替我决定。', confidence: 0.95 },
+        ],
+      },
+      previousAiMessage: null,
+    });
+
+    const targetPatches = result.characterPatches.filter((patch) => patch.characterId === 'char-b');
+    expect(targetPatches).toHaveLength(1);
+    expect(targetPatches[0]?.patch.emotionalState?.irritation).toBeGreaterThan(40);
+    expect(targetPatches[0]?.patch.emotionalState?.insecurity).toBeGreaterThan(10);
+  });
+
+  it('keeps a model-authored relationship delta directional while still affecting target emotion', () => {
+    const chat = buildChat();
+    const speaker = buildCharacter('char-a', '甲');
+    const target = buildCharacter('char-b', '乙');
+
+    const result = buildRelationshipTransition({
+      conversation: chat,
+      characters: [speaker, target],
+      message: {
+        type: 'ai',
+        senderId: 'char-a',
+        content: '这一次我信你的判断。',
+        interactionHint: {
+          kind: 'support', actorId: 'char-a', targetId: 'char-b', intensity: 3, tone: 'warm', evidenceText: '这一次我信你的判断。', confidence: 0.94,
+          relationship: { delta: { warmth: 2, competence: 3, trust: 4, threat: 0, attachment: 0, deference: 0 }, labels: ['认可'], stance: '更愿意托付判断' },
+        },
+      },
+      previousAiMessage: null,
+    });
+
+    const speakerPatch = result.characterPatches.find((patch) => patch.characterId === 'char-a')?.patch;
+    const targetPatch = result.characterPatches.find((patch) => patch.characterId === 'char-b')?.patch;
+    expect(speakerPatch?.relationships?.find((item) => item.characterId === 'char-b')?.trust).toBe(4);
+    expect(targetPatch?.relationships).toBeUndefined();
+    expect(targetPatch?.emotionalState?.affection).toBeGreaterThan(0);
+  });
+
   it('emits localized character memory distillation events when local distillation is triggered', () => {
     const chat = buildChat();
     const speaker = buildCharacter('char-a', '甲', [
@@ -349,7 +428,7 @@ describe('buildRelationshipTransition', () => {
     expect(speakerPatch?.soulState?.lastImpulse).toBeTruthy();
     expect(speakerPatch?.emotionalState).toBeTruthy();
     expect(targetPatch?.soulState?.lastImpulse).toBeTruthy();
-    expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(true);
+    expect(result.runtimeEvents.some((event) => event.eventType === 'group_relationship_shift')).toBe(false);
   });
 
   it('does not emit relationship shift event when interaction confidence is below gate', () => {

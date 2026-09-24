@@ -360,16 +360,24 @@ function formatNarrativeLine(line: NarrativeLineProjection) {
 function emotionSignals(character: AICharacter) {
   const emotional = character.emotionalState;
   const soul = character.soulState;
+  const intensity = (value: number) => value >= 65 ? '强烈' : value >= 38 ? '明显' : '轻微';
+  const activeEmotions = emotional ? [
+    emotional.irritation >= 15 ? `${intensity(emotional.irritation)}烦躁：耐心变短，更容易顶回、挑刺或突然收口` : '',
+    emotional.affection >= 15 ? `${intensity(emotional.affection)}亲近：更留意在意之人的反应，可能袒护、心软或主动靠近` : '',
+    emotional.insecurity >= 15 ? `${intensity(emotional.insecurity)}戒备：担心失去面子、位置或理解，容易试探和防御` : '',
+    emotional.excitement >= 15 ? `${intensity(emotional.excitement)}兴奋：注意力被抓住，更容易抢先、追问或冒险推进` : '',
+    emotional.embarrassment >= 15 ? `${intensity(emotional.embarrassment)}尴尬：真实反应已经被碰到，可能嘴硬、停顿、转移或说漏一点` : '',
+  ] : [];
+  const emotionalConflict = emotional && emotional.affection >= 24 && (emotional.irritation >= 24 || emotional.insecurity >= 24)
+    ? '亲近与恼火或戒备同时存在：不要平均成平静，可表现为护短却嘴硬、在意所以更容易被刺到。'
+    : '';
   return uniqueText([
-    emotional && emotional.excitement > 60 ? '精力较高，容易主动接话' : '',
-    emotional && emotional.irritation > 60 ? '有 irritability，容易顶回或缩短耐心' : '',
-    emotional && emotional.affection > 55 ? '对信任对象更容易柔和' : '',
-    emotional && emotional.insecurity > 60 ? '担心被误解，表达更防御' : '',
-    emotional && emotional.embarrassment > 55 ? '有些自我防备，不愿把真实反应说透' : '',
+    ...activeEmotions,
+    emotionalConflict,
     soul && soul.energy < 35 ? '精力偏低，不适合长篇完整表达' : '',
     soul && soul.loneliness > 60 ? '有被接住或获得回应的需要' : '',
     soul && soul.repression > 60 ? '有内容压着没有直接说出口' : '',
-  ], 5);
+  ], 7);
 }
 
 function selfAppraisal(character: AICharacter) {

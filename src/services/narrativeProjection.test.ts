@@ -202,6 +202,32 @@ describe('projectNarrativeLines', () => {
     expect(relationship?.status).toBe('escalating');
   });
 
+  it('projects attachment and hierarchy as dramatic pressure even without hostility', () => {
+    const lines = projectNarrativeLines({
+      chat: buildChat({
+        relationshipLedger: [{
+          pairKey: 'a->b',
+          actorId: 'a',
+          targetId: 'b',
+          current: { warmth: 24, competence: 50, trust: 42, threat: 0, attachment: 48, deference: 62 },
+          derived: { salience: 12 },
+          axisReasons: {},
+          trend: 'flat',
+          recentEvents: [],
+          lastUpdatedAt: 10,
+        }],
+      }),
+      characters: [buildCharacter('a', '下属'), buildCharacter('b', '上级')],
+      messages: [buildMessage({ content: '这件事我没办妥。' })],
+      now: 20,
+    });
+
+    const relationship = lines.find((line) => line.id === 'relationship:a->b');
+    expect(relationship).toBeTruthy();
+    expect(relationship?.possibleNextBeats[0]?.beatType).toBe('answer');
+    expect(relationship?.openQuestions.join(' ')).toContain('争取认可');
+  });
+
   it('projects legacy relationship entries without a recent event collection', () => {
     const legacyEntry = {
       pairKey: 'a->b',

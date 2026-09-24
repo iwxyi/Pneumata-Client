@@ -24,7 +24,7 @@ describe('characterTurnDrive', () => {
     const suspicious = deriveCharacterTurnDrive({ speaker: character('liu', { coreProfile: { coreFear: '好听的承诺最后又变成空话', perceptionBiases: ['听见含糊的安排就想先看人心'] }, relationships: [{ characterId: 'zhang', warmth: 8, trust: 4, competence: 18, threat: 16 }] }), messages: [message], innerLife });
     const detached = deriveCharacterTurnDrive({ speaker: character('li', { coreProfile: { values: ['不拿别人的焦灼当自己的差事'], sensitivities: ['讨厌被推去替大家收场'] } }), messages: [message], innerLife });
 
-    expect(protective.relationalAction).toBe('situated');
+    expect(protective.relationalAction).toBe('protect');
     expect(protective.attentionLens).toContain('最后是谁吃亏');
     expect(suspicious.relationalAction).toBe('situated');
     expect(suspicious.attentionLens).toContain('含糊的安排');
@@ -55,9 +55,57 @@ describe('characterTurnDrive', () => {
       sharedRelationshipFacts: ['阎君统辖幽都，牛头受其差遣并负责夜巡。'],
     });
 
-    expect(drive.relationalAction).toBe('situated');
+    expect(drive.relationalAction).toBe('answer_upward');
     expect(drive.stake).toContain('敬畏阎君的裁决权');
     expect(drive.stake).toContain('阎君统辖幽都');
     expect(drive.evidence).toContain('shared_relationship_structure');
+  });
+
+  it('makes authority visible from the superior side without losing it to a generic impulse', () => {
+    const subordinate = character('niu', {
+      relationships: [{ characterId: 'yan', warmth: 8, competence: 40, trust: 25, threat: 18, attachment: 5, deference: 60 }],
+    });
+    const superior = character('yan', {
+      relationships: [{ characterId: 'niu', warmth: 5, competence: 30, trust: 18, threat: 2, attachment: 8, deference: 0 }],
+    });
+    const showOffLife = { ...innerLife, impulse: 'show_off' as const, pressure: 0.72 };
+    const drive = deriveCharacterTurnDrive({
+      speaker: superior,
+      counterpart: subordinate,
+      messages: [{ id: 'm', chatId: 'c', senderId: subordinate.id, senderName: '牛头', type: 'ai', content: '这趟差事我没办妥。', timestamp: 1, isDeleted: false }],
+      innerLife: showOffLife,
+      targetActorId: subordinate.id,
+      targetName: '牛头',
+    });
+
+    expect(drive.relationalAction).toBe('exercise_authority');
+    expect(drive.observableMove).toContain('hierarchy');
+  });
+
+  it('lets fast irritation leak through hierarchy as controlled resistance', () => {
+    const superior = character('yan');
+    const subordinate = character('niu', {
+      personality: { openness: 50, extroversion: 35, agreeableness: 45, neuroticism: 55, humor: 30, creativity: 40, assertiveness: 38, empathy: 45 },
+      behavior: { proactivity: 45, aggressiveness: 30, humorIntensity: 30, empathyLevel: 45, summarizing: 20, offTopic: 10 },
+      relationships: [{ characterId: 'yan', warmth: 4, competence: 60, trust: 30, threat: 25, attachment: 4, deference: 70 }],
+    });
+    const irritatedLife: InnerLifeProjection = {
+      ...innerLife,
+      impulse: 'answer',
+      dominantEmotion: { kind: 'irritation', value: 52, lead: 36 },
+      state: { ...innerLife.state, repression: 58 },
+    };
+    const drive = deriveCharacterTurnDrive({
+      speaker: subordinate,
+      counterpart: superior,
+      messages: [{ id: 'm', chatId: 'c', senderId: 'yan', senderName: '阎君', type: 'ai', content: '再去查一遍。', timestamp: 1, isDeleted: false }],
+      innerLife: irritatedLife,
+      targetActorId: 'yan',
+      targetName: '阎君',
+    });
+
+    expect(drive.relationalAction).toBe('answer_upward');
+    expect(drive.feltReaction).toContain('irritation');
+    expect(drive.observableMove).toContain('controlled edge');
   });
 });

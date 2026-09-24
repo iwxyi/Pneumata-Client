@@ -1,4 +1,5 @@
 import type { AICharacter, PersonalityParams, EmotionalState } from '../types/character';
+import type { InteractionEventPayload } from '../types/runtimeEvent';
 
 export const DRIFT_DISPLAY_AXES = ['assertiveness', 'empathy', 'openness', 'humor', 'neuroticism'] as const;
 export const EMOTION_DISPLAY_AXES = ['irritation', 'affection', 'insecurity', 'excitement', 'embarrassment'] as const;
@@ -99,6 +100,17 @@ export function getEmotionalBaseline(): EmotionalState {
   return { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
 }
 
+/** Releases fast affect without inventing any semantic reaction from text. */
+export function decayEmotionalState(current: EmotionalState, role: 'speaker' | 'target' = 'speaker'): EmotionalState {
+  return {
+    irritation: Math.max(0, current.irritation - (role === 'speaker' ? 8 : 4)),
+    affection: Math.max(0, current.affection - 2),
+    insecurity: Math.max(0, current.insecurity - (role === 'speaker' ? 6 : 3)),
+    excitement: Math.max(0, current.excitement - (role === 'speaker' ? 7 : 4)),
+    embarrassment: Math.max(0, current.embarrassment - (role === 'speaker' ? 7 : 3)),
+  };
+}
+
 export function derivePersonalityDrift(character: AICharacter, messageContent: string, multiplier: number = 1) {
   const text = messageContent.toLowerCase();
   const current = character.personalityDrift || {};
@@ -146,6 +158,70 @@ export function deriveEmotionalState(character: AICharacter, messageContent: str
     excitement: clampPercent(current.excitement + ((signal.excitementCount >= 2 || signal.playfulCount >= 2 || (signal.hasQuestion && signal.hasExclamation && !signal.isLightRemark)) ? scaleGain(Math.min(9, 3 + signal.excitementCount + signal.playfulCount)) : -scaleDecay(4))),
     embarrassment: clampPercent(current.embarrassment + (signal.embarrassmentCount > 0 ? scaleGain(Math.min(9, 4 + signal.embarrassmentCount)) : -scaleDecay(3))),
   };
+}
+
+/**
+ * Applies the model-judged social event as a fast emotional reaction. Unlike
+ * relationship deltas, these values may jump on one line and decay quickly.
+ */
+export function applyInteractionEmotions(
+  character: AICharacter,
+  interactions: InteractionEventPayload[],
+  role: 'speaker' | 'target',
+  current: EmotionalState = character.emotionalState || getEmotionalBaseline(),
+): EmotionalState {
+  const next = decayEmotionalState(current, role);
+
+  for (const interaction of interactions) {
+    const intensity = Math.max(1, Math.min(5, interaction.intensity || 1));
+    const counterpartId = role === 'target' ? interaction.actorId : interaction.targetId;
+    const relation = counterpartId
+      ? character.relationships.find((item) => item.characterId === counterpartId)
+      : undefined;
+    const importance = 1
+      + Math.max(0, relation?.attachment || 0) / 180
+      + Math.max(0, relation?.deference || 0) / 220
+      + Math.max(0, relation?.threat || 0) / 220;
+    const incoming = role === 'target' ? 1 : 0.62;
+    const spike = (base: number) => Math.round(base * intensity * importance * incoming);
+
+    if (interaction.kind === 'challenge' || interaction.kind === 'mock' || interaction.kind === 'dismiss' || interaction.kind === 'pile_on') {
+      next.irritation += spike(interaction.kind === 'dismiss' ? 8 : 6);
+      next.insecurity += spike(interaction.kind === 'pile_on' ? 7 : 4);
+      if (role === 'target') next.embarrassment += spike(interaction.kind === 'mock' || interaction.kind === 'dismiss' ? 5 : 3);
+    }
+    if (interaction.kind === 'support' || interaction.kind === 'defend') {
+      next.affection += spike(interaction.kind === 'defend' ? 7 : 5);
+      next.excitement += spike(3);
+      if (role === 'target' && (relation?.attachment || 0) >= 20) next.embarrassment += spike(2);
+    }
+    if (interaction.kind === 'probe') {
+      next.insecurity += spike(4);
+      next.excitement += spike(2);
+    }
+    if (interaction.kind === 'evade' || interaction.kind === 'redirect') next.irritation += spike(3);
+    if (interaction.tone === 'annoyed' || interaction.tone === 'sarcastic') next.irritation += spike(3);
+    if (interaction.tone === 'defensive') next.insecurity += spike(3);
+    if (interaction.tone === 'warm') next.affection += spike(3);
+    if (interaction.tone === 'excited') next.excitement += spike(4);
+  }
+
+  return {
+    irritation: clampPercent(next.irritation),
+    affection: clampPercent(next.affection),
+    insecurity: clampPercent(next.insecurity),
+    excitement: clampPercent(next.excitement),
+    embarrassment: clampPercent(next.embarrassment),
+  };
+}
+
+export function applyInteractionEmotion(
+  character: AICharacter,
+  interaction: InteractionEventPayload,
+  role: 'speaker' | 'target',
+  current: EmotionalState = character.emotionalState || getEmotionalBaseline(),
+): EmotionalState {
+  return applyInteractionEmotions(character, [interaction], role, current);
 }
 
 export function applyDriftToBehavior(character: AICharacter) {

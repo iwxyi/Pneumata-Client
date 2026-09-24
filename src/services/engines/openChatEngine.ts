@@ -14,7 +14,7 @@ import type {
 import { normalizeSocialEventHints } from '../../types/runtimeEvent';
 import { DEFAULT_OPEN_CHAT_MODE_CONFIG, DEFAULT_OPEN_CHAT_MODE_STATE } from '../../types/chat';
 import { buildChatPatch, buildNextWorldState, buildRelationshipTransition, buildWorldRuntimeEvents } from '../chatRuntimeTransitionBuilder';
-import { getRelationshipLedgerEntry, inferRelationshipDelta, reduceRelationshipLedger, summarizeRelationshipDelta } from '../relationshipLedger';
+import { canApplyRelationshipInteraction, getRelationshipLedgerEntry, inferRelationshipDelta, reduceRelationshipLedger, summarizeRelationshipDelta } from '../relationshipLedger';
 import { calculateRoomShift } from '../roomStateSynthesizer';
 import { resolveRuntimeEvolutionConfig } from '../runtimeEvolutionConfig';
 import type { APIConfig } from '../../types/settings';
@@ -154,7 +154,7 @@ function createRuntimeEventV2(params: {
 
 async function resolveInteraction(params: {
   conversation: GroupChat;
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; interactionHints?: InteractionEventPayload[] | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
   characters: AICharacter[];
   recentMessages?: Message[];
   apiConfig?: APIConfig;
@@ -1822,7 +1822,7 @@ function buildMomentArtifactEventsAndOuting(params: {
 
 async function buildStructuredRuntime(params: {
   conversation: GroupChat;
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: InteractionEventPayload | null; interactionHints?: InteractionEventPayload[] | null; socialEventHints?: SocialEventHintEnvelope[] | null; conflictFocus?: import('../../types/runtimeEvent').ConflictFocusPayload | null };
   characters: AICharacter[];
   recentMessages?: Message[];
   apiConfig?: APIConfig;
@@ -1993,6 +1993,29 @@ async function buildStructuredRuntime(params: {
     };
   }
 
+  // Keep every model-judged directed interaction in the structured runtime.
+  // The primary interaction drives the room shift below; secondary targets
+  // still need their own emotional/relationship evidence and must not vanish
+  // merely because the visible reply mentions more than one person.
+  const allInteractions = (enrichedMessage.interactionHints?.length
+    ? enrichedMessage.interactionHints
+    : interaction ? [interaction] : [])
+    .filter((item, index, items) => item?.targetId && items.findIndex((candidate) => candidate.targetId === item.targetId && candidate.kind === item.kind) === index);
+  const secondaryInteractionEvents = allInteractions
+    .filter((item) => item !== interaction)
+    .map((item) => {
+      const secondaryActorName = params.characters.find((character) => character.id === item.actorId)?.name || item.actorId;
+      const secondaryTargetName = params.characters.find((character) => character.id === item.targetId)?.name || item.targetId || '';
+      return createRuntimeEventV2({
+        conversationId: params.conversation.id,
+        kind: 'interaction',
+        summary: `${secondaryActorName} → ${secondaryTargetName} · ${item.evidenceText}`,
+        actorIds: [item.actorId],
+        targetIds: item.targetId ? [item.targetId] : undefined,
+        payload: item,
+      });
+    });
+
   const actorName = params.characters.find((item) => item.id === interaction.actorId)?.name || interaction.actorId;
   const targetName = interaction.targetId ? (params.characters.find((item) => item.id === interaction.targetId)?.name || interaction.targetId) : null;
 
@@ -2005,11 +2028,31 @@ async function buildStructuredRuntime(params: {
     payload: interaction,
   });
 
-  const relationshipLedger = reduceRelationshipLedger(
+  let relationshipLedger = reduceRelationshipLedger(
     params.conversation.relationshipLedger || [],
     interaction,
     interactionEvent,
   );
+
+  const secondaryRelationshipEvents = allInteractions
+    .filter((item) => item !== interaction)
+    .map((item) => {
+      const delta = inferRelationshipDelta(item);
+      if (!delta || !canApplyRelationshipInteraction(item, delta)) return null;
+      const actorLabel = params.characters.find((character) => character.id === item.actorId)?.name || item.actorId;
+      const targetLabel = item.targetId ? (params.characters.find((character) => character.id === item.targetId)?.name || item.targetId) : '';
+      const event = createRuntimeEventV2({
+        conversationId: params.conversation.id,
+        kind: 'relationship_delta',
+        summary: `${actorLabel}→${targetLabel} · ${item.evidenceText}`,
+        actorIds: [item.actorId],
+        targetIds: item.targetId ? [item.targetId] : undefined,
+        payload: delta,
+      });
+      relationshipLedger = reduceRelationshipLedger(relationshipLedger, item, event);
+      return event;
+    })
+    .filter((event): event is RuntimeEventV2 => Boolean(event));
 
   const { nextState: structuredRoomState, shift: roomShift } = calculateRoomShift(
     params.conversation.worldState.structuredRoomState || null,
@@ -2061,7 +2104,8 @@ async function buildStructuredRuntime(params: {
     socialEventCandidates: socialEventCandidateEvents,
     characters: params.characters,
   });
-  const memoryCandidateEvents = [interactionEvent, roomShiftEvent]
+  const allInteractionEvents = [interactionEvent, ...secondaryInteractionEvents];
+  const memoryCandidateEvents = [...allInteractionEvents, roomShiftEvent]
     .map(buildMemoryCandidateFromStructuredEvent)
     .filter(Boolean) as RuntimeEventV2[];
   const actorIsChatMember = params.conversation.memberIds.includes(interaction.actorId);
@@ -2090,6 +2134,29 @@ async function buildStructuredRuntime(params: {
         },
       })
     : null;
+  const secondaryAttentionEvents = allInteractions
+    .filter((item) => item !== interaction)
+    .filter((item) => Boolean(
+      item.targetId
+      && item.actorId !== item.targetId
+      && params.conversation.memberIds.includes(item.actorId)
+      && params.conversation.memberIds.includes(item.targetId)
+      && item.confidence >= 0.72,
+    ))
+    .map((item) => createRuntimeEventV2({
+      conversationId: params.conversation.id,
+      kind: 'attention_candidate',
+      summary: `${item.actorId} 对 ${item.targetId} 形成关注候选`,
+      actorIds: [item.actorId],
+      targetIds: [item.targetId as string],
+      visibility: 'derived_public',
+      payload: {
+        source: item.targetId === 'user' ? 'ai_response_to_user' : 'ai_response_to_member',
+        reason: item.evidenceText,
+        confidence: Math.max(0.72, item.confidence),
+        targetIds: [item.targetId as string],
+      },
+    }));
 
   return {
     interaction,
@@ -2105,7 +2172,12 @@ async function buildStructuredRuntime(params: {
         memoryCandidateEvents,
         momentArtifactEvents,
         artifactEvent,
-      }).concat(socialEventCandidateSelection.suppressedEvents),
+      }).concat(
+        secondaryInteractionEvents,
+        secondaryRelationshipEvents,
+        secondaryAttentionEvents,
+        socialEventCandidateSelection.suppressedEvents,
+      ),
     ),
     relationshipLedger,
     structuredRoomState,
