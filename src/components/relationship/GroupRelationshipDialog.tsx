@@ -92,8 +92,10 @@ function DirectionDetail({ edge, fromName, toName, active, onActiveChange, cardR
       <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
         <Typography variant="body2" sx={{ fontWeight: 700, color: edgeColor(edge) }}>{fromName} → {toName}</Typography>
       </Stack>
-      <Stack direction="row" spacing={0.7} useFlexGap sx={{ flexWrap: 'wrap', mt: 0.65 }}>{axes.map(([label, baseline, adjustment]) => <Typography key={label} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{label} {formatAxisValue(baseline, adjustment)}</Typography>)}</Stack>
-      <Typography variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{edge.note || '暂无明确说明'}</Typography>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 0.45, mt: 0.65 }}>
+        {axes.map(([label, baseline, adjustment]) => <Typography key={label} variant="caption" sx={{ color: 'text.secondary', whiteSpace: 'nowrap' }}>{label} {formatAxisValue(baseline, adjustment)}</Typography>)}
+      </Box>
+      {edge.note ? <Typography variant="caption" sx={{ display: 'block', mt: 0.55, color: 'text.secondary', overflowWrap: 'anywhere' }}>{edge.note}</Typography> : null}
     </Box>
   );
 }
@@ -178,7 +180,7 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
   return (
     <Box>
       <Typography variant="body2" sx={{ fontWeight: 700 }}>群体关系</Typography>
-      <Stack spacing={0.7} sx={{ mt: 0.75 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7, mt: 0.75 }}>
         {Array.from(visibleFacts.reduce((groups, fact) => {
           const memberIds = Array.from(new Set(fact.memberIds)).sort();
           const key = memberIds.join('|');
@@ -195,18 +197,20 @@ function GroupRelationshipFacts({ facts, members, highlightedPairs, onHighlighte
           const kinds = Array.from(new Set(group.facts.flatMap((fact) => fact.kinds?.length ? fact.kinds : [fact.kind])));
           const summaryFact = [...group.facts].sort((left, right) => right.statement.length - left.statement.length)[0];
           return <Box key={groupKey} onMouseEnter={showAll ? () => onHighlightedPairsChange(factPairs) : undefined} onMouseLeave={showAll ? () => onHighlightedPairsChange([]) : undefined} sx={{ minWidth: 0, p: 0.9, borderRadius: 1, border: '1px solid', borderColor: active ? 'primary.main' : 'divider', bgcolor: active ? 'action.selected' : 'background.paper', boxShadow: active ? 1 : 'none', cursor: showAll ? 'pointer' : 'default', transition: 'background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease' }}>
-            <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-              <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>{names.join('、')}</Typography>
+            <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+              <Stack direction="row" spacing={0.55} useFlexGap sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                <Typography variant="caption" color="text.secondary">{names.join('、')}</Typography>
                 {kinds.map((kind) => <Chip key={kind} size="small" label={STRUCTURE_LABELS[kind]} variant="outlined" />)}
               </Stack>
               {onUpdateSharedFacts ? <Tooltip title="编辑关系"><IconButton size="small" onClick={(event) => { event.stopPropagation(); setSaveError(''); setEditingFacts(group.facts); setDraft(summaryFact.statement); }}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip> : null}
             </Stack>
-            <Typography variant="body2" sx={{ mt: 0.55, overflowWrap: 'anywhere' }}>{summaryFact.statement}</Typography>
-            {summaryFact.evidence ? <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.35, overflowWrap: 'anywhere' }}>{summaryFact.evidence}</Typography> : null}
+            <Box sx={{ minWidth: 0, mt: 0.55 }}>
+              <Typography variant="body2">{summaryFact.statement}</Typography>
+              {summaryFact.evidence ? <Typography variant="caption" color="text.secondary">{summaryFact.evidence}</Typography> : null}
+            </Box>
           </Box>;
         })}
-      </Stack>
+      </Box>
       <Dialog open={Boolean(editingFacts)} onClose={() => { if (!saving) setEditingFacts(null); }} maxWidth="sm" fullWidth>
         <DialogTitle>编辑群体关系</DialogTitle>
         <DialogContent>
@@ -247,7 +251,7 @@ function RelationshipCards({ graph, highlightedPairs, onHighlightedPairsChange, 
   if (!edges.length) return null;
   return <Box>
     <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.75 }}>单向关系</Typography>
-    <Stack spacing={0.7}>{edges.map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(edge.key, element)} interactive={showAll} />)}</Stack>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 0.7 }}>{edges.map((edge) => <DirectionDetail key={edge.key} edge={edge} fromName={graph.nodes.find((node) => node.id === edge.fromId)?.name || '成员'} toName={graph.nodes.find((node) => node.id === edge.toId)?.name || '成员'} active={highlightedPairs.includes(pairKeyFor(edge))} onActiveChange={onHighlightedPairsChange} cardRef={(element) => registerCard(edge.key, element)} interactive={showAll} />)}</Box>
   </Box>;
 }
 
