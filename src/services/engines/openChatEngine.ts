@@ -2337,6 +2337,12 @@ function buildStructuredSummary(interaction: InteractionEventPayload | null, cha
     probe: '进行了追问',
     pile_on: '加入围攻',
     redirect: '试图转移话题',
+    apologize: '作出道歉',
+    concede: '作出让步',
+    take_responsibility: '承担责任',
+    include: '主动纳入对方',
+    exclude: '将对方排除在外',
+    boundary: '划出边界',
     side_comment: '插入侧面评论',
   };
   return target ? `${actor}${kindLabelMap[interaction.kind]}，对象是 ${target}` : `${actor}${kindLabelMap[interaction.kind]}`;

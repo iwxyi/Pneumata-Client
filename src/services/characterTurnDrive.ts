@@ -155,6 +155,15 @@ function deriveRelationalAppraisal(params: {
       observableMove: 'concede something specific, rely on the other person for one decision, or reveal where their judgment changes the speaker\'s next act',
     };
   }
+  if (innerLife.impulse === 'take_control') {
+    return {
+      action: 'exercise_authority' as const,
+      feltReaction: `the exchange creates a responsibility gap that ${speaker.name} does not want left open`,
+      immediateWant: 'take control of what happens next without turning the turn into generic management language',
+      immediateRisk: 'flattening people into tasks or using authority to avoid the emotional consequence',
+      observableMove: 'make one situated ruling, demand, permission, protection, or boundary that changes another person\'s options',
+    };
+  }
   if (innerLife.impulse === 'show_off' || axis(speaker.personality.assertiveness) >= 72) {
     return {
       action: 'seek_recognition' as const,
@@ -226,6 +235,7 @@ export function deriveCharacterTurnDrive(input: {
     if (innerLife.impulse === 'repair') relationalAction = 'repair';
     else if (innerLife.impulse === 'mock' || innerLife.impulse === 'defend_face') relationalAction = 'resist';
     else if (innerLife.impulse === 'comfort') relationalAction = 'approach';
+    else if (innerLife.impulse === 'take_control') relationalAction = 'exercise_authority';
     else if (innerLife.impulse === 'show_off') relationalAction = 'compete';
     else if (!relationship && !sharedRelationshipFacts.length && (innerLife.impulse === 'avoid' || innerLife.impulse === 'withdraw' || innerLife.impulse === 'stay_silent')) relationalAction = 'avoid';
   }

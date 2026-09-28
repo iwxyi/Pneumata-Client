@@ -151,6 +151,7 @@ function describeEmotion(innerLife: InnerLifeProjection) {
   const impulseMap: Record<string, string> = {
     answer: 'answer because addressed',
     show_off: 'wants a little room authority',
+    take_control: 'wants to take control of the room, assign consequence, or draw a boundary',
     defend_face: 'saving face',
     seek_attention: 'wants to be noticed without saying so',
     comfort: 'protective warmth',

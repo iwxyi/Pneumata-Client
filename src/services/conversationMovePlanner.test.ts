@@ -257,6 +257,27 @@ describe('conversationMovePlanner', () => {
     expect(['name_tradeoff', 'counterexample', 'add_boundary_condition']).toContain(plan.moveType);
   });
 
+  it('answers a direct question before applying unspoken-member break-in rotation', () => {
+    const plan = planConversationMove({
+      chat: chat('conversation'),
+      speaker: character({ id: 'a', name: '小甲' }),
+      messages: [
+        message('m1', 'b', '小甲，那天你到底是什么感觉？'),
+      ],
+      speakerScore: {
+        actorId: 'a', addressed: 0.62, topicRelevance: 0, lineInvolvement: 0,
+        emotionalPressure: 0.6, innerLifePressure: 0.2, relationshipPressure: 0.1,
+        factionPressure: 0, personalityDrive: 0.4, knowledgeAccess: 0, novelty: 0,
+        silencePressure: 0.4, cooldownPenalty: 0, repetitionPenalty: 0, finalScore: 0.8,
+        reasons: ['unspoken_member', 'direct_message_address', 'inner:defend_face'],
+      },
+    });
+
+    expect(plan.moveType).toBe('answer_unresolved_question');
+    expect(plan.reason).toBe('unresolved_question');
+    expect(plan.targetMessageId).toBe('m1');
+  });
+
   it('renders a casual echo-loop prompt that stops manufacturing new substance', () => {
     const prompt = buildConversationMovePrompt({
       speakerId: 'a',

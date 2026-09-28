@@ -209,6 +209,22 @@ export function planConversationMove(params: {
   const isUnspokenBreakIn = scoreReasons.includes('unspoken_member');
   const selectedDespiteSilence = scoreReasons.includes('inner:stay_silent');
 
+  // A direct unresolved question creates a stronger conversational obligation
+  // than rotation pressure. Treating the selected addressee as a generic
+  // break-in is what allowed evasive hand-backs such as "you talk, I'm listening".
+  if (unresolvedQuestion) {
+    return {
+      speakerId: params.speaker.id,
+      targetMessageId: unresolvedQuestion.id,
+      targetActorId: unresolvedQuestion.senderId,
+      targetClaimText: unresolvedQuestion.content.slice(0, 120),
+      moveType: 'answer_unresolved_question',
+      socialPosture: chooseSocialPosture(params.speaker, unresolvedQuestion.senderId),
+      reason: 'unresolved_question',
+      confidence: 0.86,
+    };
+  }
+
   if (!analysis && isUnspokenBreakIn) {
     const target = priorDroppedPoint || latest || undefined;
     const assertive = (params.speaker.behavior?.aggressiveness || 0) >= 55;
@@ -226,19 +242,6 @@ export function planConversationMove(params: {
       socialPosture: chooseSocialPosture(params.speaker, target?.senderId),
       reason: selectedDespiteSilence ? 'break_in_selected_despite_silence' : 'unspoken_member_break_in',
       confidence: selectedDespiteSilence ? 0.82 : 0.78,
-    };
-  }
-
-  if (unresolvedQuestion) {
-    return {
-      speakerId: params.speaker.id,
-      targetMessageId: unresolvedQuestion.id,
-      targetActorId: unresolvedQuestion.senderId,
-      targetClaimText: unresolvedQuestion.content.slice(0, 120),
-      moveType: 'answer_unresolved_question',
-      socialPosture: chooseSocialPosture(params.speaker, unresolvedQuestion.senderId),
-      reason: 'unresolved_question',
-      confidence: 0.86,
     };
   }
 

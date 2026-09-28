@@ -2051,11 +2051,15 @@ function reconcileSelectedInnerLife(
   projection: InnerLifeProjection,
   speakerScore: SpeakerScoreBreakdown | null | undefined,
 ): InnerLifeProjection {
-  if (projection.impulse !== 'stay_silent') return projection;
   if (!speakerScore) return projection;
   const floorGuardian = speakerScore.reasons.includes('guidance_floor_guardian');
+  const selectedAgainstWithdrawal = ['stay_silent', 'avoid', 'withdraw'].includes(projection.impulse)
+    && (speakerScore.addressed >= 0.62 || floorGuardian || speakerScore.reasons.includes('user_guidance_lock'));
+  if (projection.impulse !== 'stay_silent' && !selectedAgainstWithdrawal) return projection;
   const affect = projection.activeAffect;
-  const reason = affect
+  const reason = selectedAgainstWithdrawal
+    ? '原本想回避或收住，但明确指向已经落到自己身上；这一轮必须留下可见回应，仍可保留迟疑、防守或简短。'
+    : affect
     ? affect.role === 'received'
       ? `调度最终选择后，刚才的${affect.kind}仍压在心口，不能像没听见一样过去。`
       : `调度最终选择后，刚才递出去的${affect.kind}还没落地，想看对方怎么接。`
@@ -2065,10 +2069,13 @@ function reconcileSelectedInnerLife(
   return {
     ...projection,
     impulse: 'answer',
-    tone: projection.tone,
+    tone: selectedAgainstWithdrawal && (
+      speakerScore.reasons.includes('emotion:tension')
+      || (affect?.role === 'received' && ['challenge', 'mock', 'dismiss', 'pile_on', 'probe', 'exclude', 'boundary'].includes(affect.kind))
+    ) ? 'defensive' : projection.tone,
     reason,
     pressure: Math.max(projection.pressure, 0.42),
-    evidence: Array.from(new Set([...projection.evidence, affect ? '定向情绪余波要求留下可见反应' : floorGuardian ? '调度选择本轮护住发言权' : '调度选择本轮需要发言'])).slice(0, 5),
+    evidence: Array.from(new Set([...projection.evidence, selectedAgainstWithdrawal ? '明确指向使回避冲动转为带保留的回应' : affect ? '定向情绪余波要求留下可见反应' : floorGuardian ? '调度选择本轮护住发言权' : '调度选择本轮需要发言'])).slice(0, 5),
     state: {
       ...projection.state,
       lastImpulse: 'answer',
@@ -2090,10 +2097,11 @@ function reconcileSelectedSpeakerScore(
 ): SpeakerScoreBreakdown | null | undefined {
   if (!speakerScore) return speakerScore;
   const isPendingTarget = Boolean(pendingReplyContext?.targetIds.includes(speakerScore.actorId));
-  const revisedImpulse = speakerScore.reasons.includes('inner:stay_silent') && innerLife.impulse !== 'stay_silent';
+  const originalInnerReason = speakerScore.reasons.find((reason) => reason.startsWith('inner:'));
+  const revisedImpulse = Boolean(originalInnerReason && originalInnerReason !== `inner:${innerLife.impulse}`);
   if (!isPendingTarget && !revisedImpulse) return speakerScore;
   const reasons = speakerScore.reasons
-    .filter((reason) => !revisedImpulse || reason !== 'inner:stay_silent');
+    .filter((reason) => !revisedImpulse || reason !== originalInnerReason);
   if (revisedImpulse) reasons.push('inner:answer_after_scheduler_selection');
   if (isPendingTarget) reasons.push('pending_reply');
   return {

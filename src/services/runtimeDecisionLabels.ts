@@ -9,6 +9,7 @@ const INNER_IMPULSE_ZH: Record<LabelVariant, Record<string, string>> = {
   compact: {
     answer: '回应',
     show_off: '证明自己',
+    take_control: '接管场面',
     defend_face: '维护面子',
     seek_attention: '想被看见',
     comfort: '安慰',
@@ -23,6 +24,7 @@ const INNER_IMPULSE_ZH: Record<LabelVariant, Record<string, string>> = {
   member: {
     answer: '想回应',
     show_off: '想证明自己',
+    take_control: '想接管场面',
     defend_face: '在维护面子',
     seek_attention: '想被看见',
     comfort: '想接住别人',
@@ -37,6 +39,7 @@ const INNER_IMPULSE_ZH: Record<LabelVariant, Record<string, string>> = {
   insight: {
     answer: '回应',
     show_off: '表现',
+    take_control: '接管场面',
     defend_face: '护住面子',
     seek_attention: '想被看见',
     comfort: '接住对方',
@@ -54,6 +57,7 @@ const INNER_IMPULSE_EN: Record<LabelVariant, Record<string, string>> = {
   compact: {
     answer: 'Answer',
     show_off: 'Prove self',
+    take_control: 'Take control',
     defend_face: 'Save face',
     seek_attention: 'Seek notice',
     comfort: 'Comfort',
@@ -68,6 +72,7 @@ const INNER_IMPULSE_EN: Record<LabelVariant, Record<string, string>> = {
   member: {
     answer: 'Wants to answer',
     show_off: 'Wants to prove themself',
+    take_control: 'Wants to take control',
     defend_face: 'Defending face',
     seek_attention: 'Wants notice',
     comfort: 'Wants to catch someone',
@@ -82,6 +87,7 @@ const INNER_IMPULSE_EN: Record<LabelVariant, Record<string, string>> = {
   insight: {
     answer: 'Answer',
     show_off: 'Show',
+    take_control: 'Take control',
     defend_face: 'Save face',
     seek_attention: 'Seeking notice',
     comfort: 'Comfort',

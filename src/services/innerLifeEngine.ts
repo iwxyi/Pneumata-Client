@@ -130,6 +130,15 @@ function latestOwnMessage(character: AICharacter, messages: Message[]) {
   return messages.filter((message) => !message.isDeleted && message.type === 'ai' && message.senderId === character.id).at(-1) || null;
 }
 
+function latestUnansweredAddress(character: AICharacter, messages: Message[]) {
+  const visible = messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event');
+  const lastOwnIndex = visible.findLastIndex((message) => message.type === 'ai' && message.senderId === character.id);
+  return visible
+    .slice(lastOwnIndex + 1)
+    .filter((message) => message.senderId !== character.id && isAddressed(character, message))
+    .at(-1) || null;
+}
+
 function projectDirectedAffect(chat: GroupChat | null | undefined, characterId: string, messages: Message[]): InnerLifeProjection['activeAffect'] {
   const visible = messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event');
   const latest = visible.at(-1);
@@ -196,13 +205,13 @@ function chooseImpulse(params: {
   if (addressed) return { impulse: 'answer', reason: '被点名或被直接接话，需要先回应。', pressure: 0.86 };
   if (activeAffect && activeAffect.pressure >= 0.28) {
     const { kind, role, pressure } = activeAffect;
-    if (role === 'received' && ['challenge', 'mock', 'dismiss', 'pile_on', 'probe'].includes(kind)) {
+    if (role === 'received' && ['challenge', 'mock', 'dismiss', 'pile_on', 'probe', 'exclude', 'boundary'].includes(kind)) {
       return { impulse: 'defend_face', reason: '刚才针对自己的话仍有余波，是否反击、解释或沉默取决于关系和角色习惯。', pressure: Math.max(0.56, pressure) };
     }
-    if (role === 'received' && ['support', 'defend'].includes(kind)) {
+    if (role === 'received' && ['support', 'defend', 'apologize', 'concede', 'take_responsibility', 'include'].includes(kind)) {
       return { impulse: 'answer', reason: '刚被人偏袒或支持，对方的举动仍牵动注意力。', pressure: Math.max(0.52, pressure) };
     }
-    if (role === 'expressed' && ['challenge', 'mock', 'dismiss', 'pile_on'].includes(kind) && pressure >= 0.28) {
+    if (role === 'expressed' && ['challenge', 'mock', 'dismiss', 'pile_on', 'exclude', 'boundary'].includes(kind) && pressure >= 0.28) {
       return { impulse: 'repair', reason: '自己的锋芒刚表达出去，余波还在；是否找补取决于性格，不等于必须道歉。', pressure };
     }
   }
@@ -214,6 +223,9 @@ function chooseImpulse(params: {
   if (state.loneliness >= 62 && character.behavior.proactivity >= 45) return { impulse: 'seek_attention', reason: '最近发言没有被接住，想确认自己仍被看见。', pressure: 0.58 };
   if (state.shame >= 58 || state.repression >= 64) return { impulse: 'defend_face', reason: '面子风险和压抑感较高，容易嘴硬或找补。', pressure: 0.62 };
   if (state.energy < 28 || state.trustInRoom < 26) return { impulse: 'avoid', reason: '当前能量或房间安全感偏低，更倾向短句回避。', pressure: 0.42 };
+  if (character.behavior.proactivity >= 72 && character.personality.assertiveness >= 75 && character.personality.humor < 30) {
+    return { impulse: 'take_control', reason: '主动性和支配感都高，当前更想接管场面、划清责任或作出裁断，而不是证明自己。', pressure: 0.54 };
+  }
   if (character.behavior.proactivity >= 72) return { impulse: 'show_off', reason: '主动性较高，想争取解释权或表现自己。', pressure: 0.46 };
   return { impulse: 'stay_silent', reason: '没有强触发，内在动机暂时不足。', pressure: 0.24 };
 }
@@ -226,7 +238,7 @@ function buildExpressionPlan(impulse: InnerImpulse, state: CharacterSoulState, c
   const exposedEmotion = (addressed || (activeAffect?.pressure || 0) >= 0.28)
     && emotion && emotion.value >= 45 && emotion.lead >= 12 ? emotion.kind : null;
   const feedback = buildExpressionFeedbackBias(character);
-  const baseLength: InnerLifeLength = impulse === 'answer' ? 'short' : impulse === 'show_off' ? 'normal' : state.energy < 30 || impulse === 'avoid' ? 'micro' : 'short';
+  const baseLength: InnerLifeLength = impulse === 'answer' || impulse === 'take_control' ? 'short' : impulse === 'show_off' ? 'normal' : state.energy < 30 || impulse === 'avoid' ? 'micro' : 'short';
   const length = feedback.shorter || feedback.lessAssistant ? shortenLength(baseLength, feedback.strongShorter) : baseLength;
   const baseMessageCount = impulse === 'show_off' && character.speechProfile?.sentenceLengthBias !== 'long' ? 2 : 1;
   return {
@@ -234,14 +246,16 @@ function buildExpressionPlan(impulse: InnerImpulse, state: CharacterSoulState, c
     // A character may speak colloquially while still sounding guarded or
     // authoritative; flattening that to `casual` is what made interrogations
     // and power-difference scenes read emotionally blank in the trace.
-    tone: activeAffect && activeAffect.pressure >= 0.5 && ['challenge', 'mock', 'dismiss', 'pile_on'].includes(activeAffect.kind)
+    tone: activeAffect && activeAffect.pressure >= 0.5 && ['challenge', 'mock', 'dismiss', 'pile_on', 'exclude', 'boundary'].includes(activeAffect.kind)
       ? 'defensive'
-      : activeAffect && activeAffect.pressure >= 0.5 && ['support', 'defend'].includes(activeAffect.kind)
+      : activeAffect && activeAffect.pressure >= 0.5 && ['support', 'defend', 'apologize', 'concede', 'take_responsibility', 'include'].includes(activeAffect.kind)
         ? 'vulnerable'
-        : defensive
+      : defensive
       ? (impulse === 'mock' ? 'teasing' : 'defensive')
       : authorityPressure
         ? 'serious'
+        : impulse === 'take_control'
+          ? 'serious'
         : exposedEmotion === 'irritation' || exposedEmotion === 'insecurity'
           ? 'defensive'
           : exposedEmotion === 'embarrassment' || exposedEmotion === 'affection'
@@ -271,10 +285,12 @@ export function projectInnerLife(params: {
   const previous = params.character.soulState || createDefaultSoulState(params.character);
   const lastMessage = latestOtherMessage(params.character, params.messages);
   const lastOwnMessage = latestOwnMessage(params.character, params.messages);
+  const unansweredAddress = latestUnansweredAddress(params.character, params.messages);
+  const socialTriggerMessage = unansweredAddress || lastMessage;
   const activeAffect = projectDirectedAffect(params.chat, params.character.id, params.messages);
-  const addressed = isAddressed(params.character, lastMessage);
-  const relationship = lastMessage
-    ? params.character.relationships.find((item) => item.characterId === lastMessage.senderId)
+  const addressed = Boolean(unansweredAddress) || isAddressed(params.character, lastMessage);
+  const relationship = socialTriggerMessage
+    ? params.character.relationships.find((item) => item.characterId === socialTriggerMessage.senderId)
     : undefined;
   const ignoredStreak = countIgnoredTurns(params.character, params.messages);
   const topicAttention = inferTopicAttention(params.character, lastMessage);
@@ -298,13 +314,19 @@ export function projectInnerLife(params: {
     updatedAt: now,
   };
   const repairPressure = lastOwnMessage && lastMessage && activeAffect?.role === 'expressed'
-    && ['challenge', 'mock', 'dismiss', 'pile_on'].includes(activeAffect.kind)
+    && ['challenge', 'mock', 'dismiss', 'pile_on', 'exclude', 'boundary'].includes(activeAffect.kind)
     ? Math.round(activeAffect.pressure * 55) : 0;
   const impulse = chooseImpulse({ character: params.character, state, addressed, repairPressure, lastMessage, relationship, activeAffect });
+  const directHumanPressure = addressed
+    && (socialTriggerMessage?.type === 'user' || socialTriggerMessage?.type === 'god')
+    && (socialTriggerMessage.content.length >= 12 || /[?？!！]/u.test(socialTriggerMessage.content));
   const expressionPlan = buildExpressionPlan(impulse.impulse, state, params.character, relationship, addressed, activeAffect);
+  if (directHumanPressure && expressionPlan.tone === 'casual') {
+    expressionPlan.tone = 'serious';
+  }
   const dominantEmotion = resolveDominantEmotion(params.character);
   const evidence = [
-    addressed ? '最近消息直接提到或指向该角色' : '',
+    unansweredAddress ? '上次发言后仍有一条直接提到或指向该角色的消息尚未回应' : addressed ? '最近消息直接提到或指向该角色' : '',
     ignoredStreak ? `最近 ${ignoredStreak} 轮未被明显接住` : '',
     impulse.impulse === 'repair' ? '前一次模型判定的尖锐表达留下关系修复压力' : '',
     activeAffect ? `定向情绪余波：${activeAffect.role} ${activeAffect.kind}，强度 ${activeAffect.pressure.toFixed(2)}` : '',
@@ -312,6 +334,7 @@ export function projectInnerLife(params: {
     state.repression >= 56 ? '压抑值偏高' : '',
     addressed && (relationship?.deference || 0) >= 30 ? '当前对象的评价权会放大即时压力' : '',
     addressed && ((relationship?.threat || 0) >= 24 || (relationship?.trust || 0) <= -18) ? '当前对象触发防守或不信任' : '',
+    directHumanPressure ? '用户的直接点名带来即时回应压力' : '',
     buildExpressionFeedbackBias(params.character).hasAny ? '存在用户表达反馈记忆' : '',
   ].filter(Boolean);
   return {
@@ -336,6 +359,7 @@ export function getInnerLifeSpeakerBias(projection: InnerLifeProjection) {
   const impulseBias: Record<InnerImpulse, number> = {
     answer: 0.34,
     show_off: 0.14,
+    take_control: 0.2,
     defend_face: 0.22,
     seek_attention: 0.18,
     comfort: 0.14,

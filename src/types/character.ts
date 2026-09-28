@@ -179,6 +179,7 @@ export interface EmotionalState {
 export type InnerImpulse =
   | 'answer'
   | 'show_off'
+  | 'take_control'
   | 'defend_face'
   | 'seek_attention'
   | 'comfort'

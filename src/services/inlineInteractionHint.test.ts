@@ -7,13 +7,22 @@ import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from '
 describe('parseInlineInteractionEnvelope story events', () => {
   it('keeps immediate social effects even when no relationship delta is warranted', () => {
     const hints = normalizeInteractionHintCollection({
-      primary: { targetId: 'target', kind: 'probe', tone: 'cold', intensity: 4, confidence: 0.93, relationship: undefined },
+      primary: { targetId: 'target', kind: 'probe', tone: 'cold', intensity: 4, confidence: 0.93, evidenceText: '为什么不敢看我', relationship: undefined },
       secondary: [],
     }, 'speaker', '你为什么不敢看我？');
 
     expect(hints).toHaveLength(1);
     expect(hints[0]).toMatchObject({ actorId: 'speaker', targetId: 'target', kind: 'probe', intensity: 4 });
     expect(hints[0].relationship).toBeUndefined();
+  });
+
+  it('drops an interaction hint without a verifiable visible quote', () => {
+    const hints = normalizeInteractionHintCollection({
+      primary: { targetId: 'target', kind: 'support', tone: 'warm', intensity: 3, confidence: 0.9 },
+      secondary: [],
+    }, 'speaker', '把话写清楚，别只留两个字。');
+
+    expect(hints).toEqual([]);
   });
 
   it('keeps social outing participant states from inline diagnostics', () => {

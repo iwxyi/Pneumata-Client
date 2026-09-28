@@ -69,6 +69,63 @@ describe('innerLifeEngine', () => {
     expect(projection.evidence.join(' / ')).toContain('直接提到');
   });
 
+  it('does not leave a pressured direct human address as casual inner tone', () => {
+    const projection = projectInnerLife({
+      character: character(),
+      messages: [message({ type: 'user', senderId: 'user', senderName: '我', content: '小甲，你现在就解释清楚。' })],
+      now: 10,
+    });
+
+    expect(projection.tone).toBe('serious');
+    expect(projection.evidence.join(' / ')).toContain('即时回应压力');
+  });
+
+  it('keeps an unanswered human address active when a later room message intervenes', () => {
+    const projection = projectInnerLife({
+      character: character(),
+      messages: [
+        message({ id: 'own', senderId: 'a', senderName: '小甲', content: '我先听着', timestamp: 1 }),
+        message({ id: 'user', type: 'user', senderId: 'user', senderName: '我', content: '小甲，你别躲，解释清楚。', timestamp: 2 }),
+        message({ id: 'other', senderId: 'b', senderName: '小乙', content: '我也想听。', timestamp: 3 }),
+      ],
+      now: 10,
+    });
+
+    expect(projection.impulse).toBe('answer');
+    expect(projection.tone).toBe('serious');
+    expect(projection.evidence.join(' / ')).toContain('尚未回应');
+  });
+
+  it('clears an earlier address after the character has answered', () => {
+    const projection = projectInnerLife({
+      character: character({ behavior: { proactivity: 20, aggressiveness: 35, humorIntensity: 45, empathyLevel: 55, summarizing: 30, offTopic: 20 } }),
+      messages: [
+        message({ id: 'user', type: 'user', senderId: 'user', senderName: '我', content: '小甲，你解释清楚。', timestamp: 1 }),
+        message({ id: 'own', senderId: 'a', senderName: '小甲', content: '我已经说完了。', timestamp: 2 }),
+        message({ id: 'other', senderId: 'b', senderName: '小乙', content: '那先这样。', timestamp: 3 }),
+      ],
+      now: 10,
+    });
+
+    expect(projection.evidence.join(' / ')).not.toContain('尚未回应');
+    expect(projection.tone).toBe('casual');
+  });
+
+  it('maps proactive low-humor authority to taking control instead of showing off', () => {
+    const projection = projectInnerLife({
+      character: character({
+        personality: { openness: 42, extroversion: 38, agreeableness: 30, neuroticism: 22, humor: 12, creativity: 35, assertiveness: 92, empathy: 46 },
+        behavior: { proactivity: 78, aggressiveness: 38, humorIntensity: 8, empathyLevel: 45, summarizing: 34, offTopic: 4 },
+      }),
+      messages: [message({ senderId: 'b', senderName: '小乙', content: '卷上只记了未报。' })],
+      now: 10,
+    });
+
+    expect(projection.impulse).toBe('take_control');
+    expect(projection.tone).toBe('serious');
+    expect(projection.reason).toContain('接管场面');
+  });
+
   it('raises attention-seeking pressure after ignored turns', () => {
     const projection = projectInnerLife({
       character: character(),
