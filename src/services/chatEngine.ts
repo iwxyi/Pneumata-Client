@@ -1265,6 +1265,7 @@ function buildNaturalChatSurfaceContract(messages: Message[], surface: ResponseS
   return `\n## Natural Chat Surface Contract
 - This contract controls surface shape only. It must not override a focused job, handoff, direct answer, or decision/recommendation required above.
 - This is live chat, not an essay, speech, report, script page, or narrator prose.
+- Speak from inside the conversation. Never mention a turn, round, speaker order, selection, prompt, or that someone should "take the floor" as system mechanics; express yielding, interrupting, waiting, or refusing in the character's own situation.
 - Reply to one live point instead of recapping the whole debate or making a personal manifesto.
 - Heat may make a reply sharper or slightly longer, but it should not force every next speaker to write longer.${lengthLine}${nameAddressingLine}
 ${roleActionLine}
@@ -3650,9 +3651,8 @@ function buildCompletedMessage(params: {
   const incomingInteractionHint = previousHuman && params.parsedEnvelope?.incomingImpact
     ? normalizeInteractionHintPayload({ ...params.parsedEnvelope.incomingImpact, targetId: params.speakerId, relationship: undefined }, previousHuman.senderId, previousHuman.content)
     : null;
-  const inferredAddressedTargets = inferAddressedTargetsFromContent(params.finalResponse, params.speakerId, params.characters);
   const envelopeTargetIds = params.parsedEnvelope?.addressedTargets?.targetIds || [];
-  const addressedTargetIds = Array.from(new Set([...envelopeTargetIds, ...inferredAddressedTargets]));
+  const addressedTargetIds = Array.from(new Set(envelopeTargetIds));
   const primaryAddressedTargetId = params.parsedEnvelope?.addressedTargets?.primaryTargetId
     || params.parsedEnvelope?.addressedTargets?.targetIds?.[0]
     || addressedTargetIds[0]
@@ -3675,36 +3675,6 @@ function buildCompletedMessage(params: {
     socialEventHints: params.parsedEnvelope?.socialEventHints || null,
     conflictFocus: params.parsedEnvelope?.conflictFocus || null,
   };
-}
-
-function buildAddressNameVariants(name: string) {
-  const compact = name.replace(/\s+/g, '');
-  if (!compact) return [];
-  const variants = new Set<string>([compact]);
-  if (/^[\p{Script=Han}]{3,}$/u.test(compact)) {
-    variants.add(compact.slice(-2));
-    const titlePrefix = compact.match(/^(御厨|顾问|老师|医生|律师|将军|先生|小姐|老板|店长|经理)/u)?.[1];
-    if (titlePrefix) variants.add(titlePrefix);
-  }
-  return Array.from(variants).filter((item) => item.length >= 2);
-}
-
-function inferAddressedTargetsFromContent(content: string, speakerId: string, characters: AICharacter[]) {
-  const variantOwners = new Map<string, string[]>();
-  characters
-    .filter((character) => character.id !== speakerId && character.name)
-    .forEach((character) => {
-      buildAddressNameVariants(character.name).forEach((variant) => {
-        variantOwners.set(variant, [...(variantOwners.get(variant) || []), character.id]);
-      });
-    });
-  const targets: string[] = [];
-  variantOwners.forEach((ownerIds, variant) => {
-    if (ownerIds.length !== 1) return;
-    if (!content.includes(variant)) return;
-    targets.push(ownerIds[0]);
-  });
-  return Array.from(new Set(targets));
 }
 
 function updateAllEmotions(chatMembers: AICharacter[], speakerId: string, msgEmotion: number, emotion: number) {
@@ -3848,7 +3818,13 @@ export async function generateSpeakerMessage(params: {
     scenarioId: params.chat.sessionKind?.scenarioId,
   });
   const innerLife = reconcileSelectedInnerLife(
-    projectInnerLife({ chat: params.chat, character: params.speaker, messages: activeMessages }),
+    projectInnerLife({
+      chat: params.chat,
+      character: params.speaker,
+      messages: activeMessages,
+      explicitUserAddressed: effectiveDirectorIntent?.source === 'user_message'
+        && effectiveDirectorIntent.targetActorIds.includes(params.speaker.id),
+    }),
     params.speakerScore,
   );
   const reconciledSpeakerScore = reconcileSelectedSpeakerScore(params.speakerScore, innerLife, params.pendingReplyContext);

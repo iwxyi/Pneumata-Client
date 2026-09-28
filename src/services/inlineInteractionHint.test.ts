@@ -146,6 +146,29 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('A bubble may contain one or more paragraphs');
   });
 
+  it('distinguishes reply targets from members who are only mentioned or affected', () => {
+    const contract = buildInlineInteractionContract({
+      chat: {
+        id: 'chat-1',
+        type: 'group',
+        memberIds: ['speaker', 'mentioned', 'answerer'],
+        runtimeEventsV2: [],
+      } as unknown as GroupChat,
+      speaker: { id: 'speaker', name: '闻溪' } as AICharacter,
+      characters: [
+        { id: 'speaker', name: '闻溪' } as AICharacter,
+        { id: 'mentioned', name: '程野' } as AICharacter,
+        { id: 'answerer', name: '许棠' } as AICharacter,
+      ],
+      recentMessages: [],
+    });
+
+    expect(contract).toContain('"addressedTargets":null');
+    expect(contract).toContain('addressedTargets tracks reply debt');
+    expect(contract).toContain('not every person mentioned or emotionally affected');
+    expect(contract).toContain('merely affected by the line is not addressed');
+  });
+
   it('exposes room delivery policy without turning it into a media quota', () => {
     const contract = buildInlineInteractionContract({
       chat: { id: 'chat-1', type: 'direct', memberIds: ['speaker'], runtimeEventsV2: [] } as unknown as GroupChat,

@@ -322,6 +322,8 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
     : directive.characterDrive.relationalAction;
   const affectBeat = directive.emotionalUndercurrent.includes('Directed')
     ? '\n- Fast-emotion beat: make the first visible beat acknowledge the spike through a choice of wording, interruption, defensiveness, warmth, or a sudden stop. If the speaker expresses it, let the pressure ease somewhat afterward, but leave one specific residue that can affect the next turn; do not resolve it with a polished apology or generic reassurance.'
+    : directive.emotionalUndercurrent.startsWith('visible:')
+      ? '\n- Fast-emotion beat: let the opening beat visibly carry this pressure before facts, repair, or logistics take over. If the turn softens, make that change of footing perceptible instead of beginning at the already-calm conclusion.'
     : '';
   return `\n## Turn Directive
 - This is the single behavior decision for this ordinary group-chat turn. Character drive is the primary behavior decision; the social job is only a secondary realization option. Never replace the drive with generic room management.

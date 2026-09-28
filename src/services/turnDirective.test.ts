@@ -187,6 +187,22 @@ describe('turnDirective', () => {
     expect(prompt).toContain('friendly teamwork');
   });
 
+  it('keeps a visible emotional spike in the opening beat even without a directed runtime event', () => {
+    const directive = buildTurnDirective({
+      chat: chat(),
+      speaker: character('rui', '瑞瑞'),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message()],
+      styleProfile: 'casual_room',
+      intent,
+      innerLife: { ...innerLife, impulse: 'defend_face', tone: 'defensive', pressure: 0.86 },
+      conversationMovePlan: movePlan,
+      turnPlan,
+    });
+
+    expect(buildTurnDirectivePrompt(directive)).toContain('opening beat visibly carry this pressure');
+  });
+
   it('keeps user guidance above AI-to-AI room momentum', () => {
     const directive = buildTurnDirective({
       chat: chat(),

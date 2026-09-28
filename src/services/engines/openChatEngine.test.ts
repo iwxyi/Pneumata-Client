@@ -232,6 +232,9 @@ describe('openChatEngine.onMessageCommitted', () => {
       .filter((event) => event.kind === 'interaction')
       .flatMap((event) => event.targetIds || []);
     expect(interactionTargets).toEqual(expect.arrayContaining(['b', 'c']));
+    expect(nextChat.worldState.structuredRoomState?.conflictPairs).toContainEqual(['a', 'b']);
+    expect(nextChat.worldState.structuredRoomState?.alliances).toContainEqual(['a', 'c']);
+    expect(nextChat.worldState.structuredRoomState?.cohesion).toBe(0);
   });
 
   it('normalizes non-array social event hints during commit', async () => {

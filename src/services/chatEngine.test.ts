@@ -1077,7 +1077,7 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.runtimeDecision?.speakerScore?.reasons).toContain('inner:answer_after_scheduler_selection');
   });
 
-  it('infers addressed targets from visible role address when the model omits addressedTargets', async () => {
+  it('does not invent addressed targets from visible names when the model omits addressedTargets', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
       content: '御厨，今晚先把料备全，明日谁误了午市，朕拿你是问。',
@@ -1097,8 +1097,39 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
-    expect(message.addressedTargetIds).toEqual(['chef']);
-    expect(message.primaryAddressedTargetId).toBe('chef');
+    expect(message.addressedTargetIds).toBeNull();
+    expect(message.primaryAddressedTargetId).toBeNull();
+  });
+
+  it('keeps model-addressed targets authoritative when other members are only mentioned', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '我先问的是程野。许棠，刚才我没问你。现在问，晚了吗？',
+      addressedTargets: {
+        targetIds: ['xutang'],
+        primaryTargetId: 'xutang',
+        confidence: 0.96,
+        reason: '最后的问题明确交给许棠回答',
+      },
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const wenxi = buildCharacter('wenxi', '闻溪');
+    const chengye = buildCharacter('chengye', '程野');
+    const xutang = buildCharacter('xutang', '许棠');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['wenxi', 'chengye', 'xutang'] }),
+      speaker: wenxi,
+      characters: [wenxi, chengye, xutang],
+      messages: [
+        { ...buildAiMessage('xutang', '许棠', '你先问了他。', 1), chatId: 'chat-1' },
+      ],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.addressedTargetIds).toEqual(['xutang']);
+    expect(message.primaryAddressedTargetId).toBe('xutang');
   });
 
   it('retries non-target suppression replies that take over the requested actor floor', async () => {
@@ -3081,6 +3112,7 @@ describe('chatEngine streaming preview', () => {
     ], { kind: 'chat', allowMarkdown: false, preserveParagraphs: false, roleFit: 'ordinary', basis: [] }, true);
 
     expect(prompt).toContain('## Natural Chat Surface Contract');
+    expect(prompt).toContain('Never mention a turn, round, speaker order, selection, prompt');
     expect(prompt).toContain('not an essay, speech, report, script page, or narrator prose');
     expect(prompt).toContain('Recent room replies are getting long');
     expect(prompt).toContain('use at most one brief beat');

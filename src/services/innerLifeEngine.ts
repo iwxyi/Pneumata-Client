@@ -171,8 +171,7 @@ function projectDirectedAffect(chat: GroupChat | null | undefined, characterId: 
 function isAddressed(character: AICharacter, message: Message | null) {
   if (!message) return false;
   const candidate = message as Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null };
-  return message.content.includes(character.name)
-    || candidate.primaryAddressedTargetId === character.id
+  return candidate.primaryAddressedTargetId === character.id
     || Boolean(candidate.addressedTargetIds?.includes(character.id));
 }
 
@@ -187,11 +186,10 @@ function chooseImpulse(params: {
   state: CharacterSoulState;
   addressed: boolean;
   repairPressure: number;
-  lastMessage: Message | null;
   relationship?: AICharacter['relationships'][number];
   activeAffect?: InnerLifeProjection['activeAffect'];
 }): { impulse: InnerImpulse; reason: string; pressure: number } {
-  const { character, state, addressed, repairPressure, lastMessage, relationship, activeAffect } = params;
+  const { character, state, addressed, repairPressure, relationship, activeAffect } = params;
   const deference = relationship?.deference || 0;
   const threat = relationship?.threat || 0;
   const trust = relationship?.trust || 0;
@@ -230,7 +228,7 @@ function chooseImpulse(params: {
   return { impulse: 'stay_silent', reason: '没有强触发，内在动机暂时不足。', pressure: 0.24 };
 }
 
-function buildExpressionPlan(impulse: InnerImpulse, state: CharacterSoulState, character: AICharacter, relationship?: AICharacter['relationships'][number], addressed = false, activeAffect?: InnerLifeProjection['activeAffect']): InnerLifeExpressionPlan {
+function buildExpressionPlan(impulse: InnerImpulse, impulsePressure: number, state: CharacterSoulState, character: AICharacter, relationship?: AICharacter['relationships'][number], addressed = false, activeAffect?: InnerLifeProjection['activeAffect']): InnerLifeExpressionPlan {
   const defensive = impulse === 'defend_face' || impulse === 'mock' || (addressed && ((relationship?.threat || 0) >= 24 || (relationship?.trust || 0) <= -18));
   const vulnerable = impulse === 'comfort' || impulse === 'repair' || (state.loneliness >= 70 && impulse === 'seek_attention');
   const authorityPressure = addressed && (relationship?.deference || 0) >= 30;
@@ -256,12 +254,16 @@ function buildExpressionPlan(impulse: InnerImpulse, state: CharacterSoulState, c
         ? 'serious'
         : impulse === 'take_control'
           ? 'serious'
+        : addressed && ((relationship?.attachment || 0) >= 25 || (relationship?.warmth || 0) >= 30)
+          ? 'vulnerable'
         : exposedEmotion === 'irritation' || exposedEmotion === 'insecurity'
           ? 'defensive'
           : exposedEmotion === 'embarrassment' || exposedEmotion === 'affection'
             ? 'vulnerable'
         : vulnerable
           ? 'vulnerable'
+          : impulsePressure >= 0.75
+            ? 'serious'
           : state.energy < 30
             ? 'tired'
             : feedback.lessFormal || feedback.lessAssistant
@@ -280,6 +282,7 @@ export function projectInnerLife(params: {
   character: AICharacter;
   messages: Message[];
   now?: number;
+  explicitUserAddressed?: boolean;
 }): InnerLifeProjection {
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const previous = params.character.soulState || createDefaultSoulState(params.character);
@@ -288,7 +291,7 @@ export function projectInnerLife(params: {
   const unansweredAddress = latestUnansweredAddress(params.character, params.messages);
   const socialTriggerMessage = unansweredAddress || lastMessage;
   const activeAffect = projectDirectedAffect(params.chat, params.character.id, params.messages);
-  const addressed = Boolean(unansweredAddress) || isAddressed(params.character, lastMessage);
+  const addressed = Boolean(params.explicitUserAddressed) || Boolean(unansweredAddress) || isAddressed(params.character, lastMessage);
   const relationship = socialTriggerMessage
     ? params.character.relationships.find((item) => item.characterId === socialTriggerMessage.senderId)
     : undefined;
@@ -316,11 +319,11 @@ export function projectInnerLife(params: {
   const repairPressure = lastOwnMessage && lastMessage && activeAffect?.role === 'expressed'
     && ['challenge', 'mock', 'dismiss', 'pile_on', 'exclude', 'boundary'].includes(activeAffect.kind)
     ? Math.round(activeAffect.pressure * 55) : 0;
-  const impulse = chooseImpulse({ character: params.character, state, addressed, repairPressure, lastMessage, relationship, activeAffect });
-  const directHumanPressure = addressed
+  const impulse = chooseImpulse({ character: params.character, state, addressed, repairPressure, relationship, activeAffect });
+  const directHumanPressure = Boolean(params.explicitUserAddressed) || (addressed
     && (socialTriggerMessage?.type === 'user' || socialTriggerMessage?.type === 'god')
-    && (socialTriggerMessage.content.length >= 12 || /[?？!！]/u.test(socialTriggerMessage.content));
-  const expressionPlan = buildExpressionPlan(impulse.impulse, state, params.character, relationship, addressed, activeAffect);
+    && (socialTriggerMessage.content.length >= 12 || /[?？!！]/u.test(socialTriggerMessage.content)));
+  const expressionPlan = buildExpressionPlan(impulse.impulse, impulse.pressure, state, params.character, relationship, addressed, activeAffect);
   if (directHumanPressure && expressionPlan.tone === 'casual') {
     expressionPlan.tone = 'serious';
   }

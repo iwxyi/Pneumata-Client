@@ -209,7 +209,11 @@ export function deriveCharacterTurnDrive(input: {
     || 'the current person';
   const sharedRelationshipFacts = (input.sharedRelationshipFacts || []).filter(Boolean).slice(0, 2);
   const evidence: string[] = [];
-  const directAddress = Boolean(latest && (latest.content.includes(speaker.name) || (latest as Message & { addressedTargetIds?: string[] }).addressedTargetIds?.includes(speaker.id)));
+  const addressedMessage = latest as (Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null }) | null;
+  const directAddress = Boolean(addressedMessage && (
+    addressedMessage.primaryAddressedTargetId === speaker.id
+    || addressedMessage.addressedTargetIds?.includes(speaker.id)
+  ));
   const appraisal = deriveRelationalAppraisal({
     speaker,
     counterpart: input.counterpart,

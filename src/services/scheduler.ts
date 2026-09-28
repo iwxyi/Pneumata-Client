@@ -423,7 +423,14 @@ export function calculateWeights(
         && !deferredUserGuidanceActorIds.includes(char.id)
         ? 0.32
         : 0;
-      const innerLife = projectInnerLife({ chat, character: char, messages: recentMessages, now });
+      const innerLife = projectInnerLife({
+        chat,
+        character: char,
+        messages: recentMessages,
+        now,
+        explicitUserAddressed: directorIntent?.source === 'user_message'
+          && directorIntent.targetActorIds.includes(char.id),
+      });
       const innerLifeBias = getInnerLifeSpeakerBias(innerLife);
       const directedAffectBias = innerLife.activeAffect?.role === 'received'
         ? innerLife.activeAffect.pressure * 0.48 : 0;
@@ -495,7 +502,7 @@ export function calculateWeights(
           ...(addressedMessage.addressedTargetIds || []),
           ...getReplyWorthyInteractionTargetIds(lastAiMessage, characters),
         ].filter((targetId, index, array): targetId is string => Boolean(targetId) && array.indexOf(targetId) === index);
-        const directCue = lastAiMessage.content.includes(char.name) || explicitTargets.includes(char.id);
+        const directCue = explicitTargets.includes(char.id);
         if (directCue) {
           directCueBoost = 0.62;
           weight += directCueBoost;

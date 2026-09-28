@@ -2060,7 +2060,7 @@ async function buildStructuredRuntime(params: {
 
   const { nextState: structuredRoomState, shift: roomShift } = calculateRoomShift(
     params.conversation.worldState.structuredRoomState || null,
-    interaction,
+    allInteractions,
   );
 
   const relationshipDelta = inferRelationshipDelta(interaction);

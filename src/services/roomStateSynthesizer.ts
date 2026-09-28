@@ -42,38 +42,180 @@ function relaxTopicDrift(value: number) {
   return Math.max(0, value - Math.max(1, Math.round(value * 0.12)));
 }
 
+function pairKey(pair: [string, string]) {
+  return [...pair].sort().join('<->');
+}
+
+function normalizePairs(list: Array<[string, string]>) {
+  const byKey = new Map<string, [string, string]>();
+  list.forEach((pair) => byKey.set(pairKey(pair), [...pair].sort() as [string, string]));
+  return [...byKey.values()].slice(-6);
+}
+
 function pushUniquePair(list: Array<[string, string]>, pair: [string, string]) {
-  const key = pair.join('->');
-  const next = [...list.filter((item) => item.join('->') !== key), pair];
+  const key = pairKey(pair);
+  const normalizedPair = [...pair].sort() as [string, string];
+  const next = [...list.filter((item) => pairKey(item) !== key), normalizedPair];
   return next.slice(-6);
 }
 
-export function calculateRoomShift(current: RoomStateSnapshotV2 | null, interaction: InteractionEventPayload): { nextState: RoomStateSnapshotV2; shift: RoomShiftPayload } {
-  const base = current ? { ...current, cohesion: normalizeCohesion(current.cohesion) } : createBaseRoomState();
-  const conflict = interaction.kind === 'challenge' || interaction.kind === 'mock' || interaction.kind === 'dismiss' || interaction.kind === 'pile_on';
-  const support = interaction.kind === 'support' || interaction.kind === 'defend';
+function removePairs(list: Array<[string, string]>, interactions: InteractionEventPayload[]) {
+  const keys = new Set(interactions
+    .filter((item) => item.targetId)
+    .map((item) => pairKey([item.actorId, item.targetId as string])));
+  return list.filter((pair) => !keys.has(pairKey(pair)));
+}
+
+type RoomDelta = Required<NonNullable<RoomShiftPayload['delta']>>;
+
+function scale(intensity: number, multiplier: number) {
+  return Math.round(Math.max(1, Math.min(5, intensity)) * multiplier);
+}
+
+function calculateInteractionDelta(interaction: InteractionEventPayload): RoomDelta {
+  const intensity = Math.max(1, Math.min(5, interaction.intensity));
+  let delta: RoomDelta;
+
+  switch (interaction.kind) {
+    case 'challenge':
+      delta = { heat: scale(intensity, 3), cohesion: -scale(intensity, 1.25), topicDrift: -2 };
+      break;
+    case 'mock':
+    case 'dismiss':
+      delta = { heat: scale(intensity, 3.5), cohesion: -scale(intensity, 1.5), topicDrift: 0 };
+      break;
+    case 'pile_on':
+      delta = { heat: scale(intensity, 4), cohesion: -scale(intensity, 2), topicDrift: 0 };
+      break;
+    case 'exclude':
+      delta = { heat: scale(intensity, 3), cohesion: -scale(intensity, 2), topicDrift: 0 };
+      break;
+    case 'boundary':
+      delta = { heat: scale(intensity, 1.5), cohesion: -scale(intensity, 0.75), topicDrift: 0 };
+      break;
+    case 'probe':
+      delta = { heat: scale(intensity, 0.75), cohesion: intensity >= 4 ? -1 : 0, topicDrift: -1 };
+      break;
+    case 'evade':
+      delta = { heat: scale(intensity, 0.75), cohesion: -scale(intensity, 0.5), topicDrift: 2 };
+      break;
+    case 'support':
+    case 'include':
+      delta = { heat: 0, cohesion: scale(intensity, 1.25), topicDrift: -2 };
+      break;
+    case 'defend':
+      delta = { heat: scale(intensity, 0.75), cohesion: scale(intensity, 1.25), topicDrift: -2 };
+      break;
+    case 'apologize':
+    case 'take_responsibility':
+      delta = { heat: -scale(intensity, 2), cohesion: scale(intensity, 1.5), topicDrift: -2 };
+      break;
+    case 'concede':
+      delta = { heat: -scale(intensity, 1.25), cohesion: scale(intensity, 1), topicDrift: -2 };
+      break;
+    case 'redirect':
+      delta = { heat: -scale(intensity, 0.5), cohesion: 0, topicDrift: 6 };
+      break;
+    case 'side_comment':
+      delta = { heat: 0, cohesion: 0, topicDrift: 10 };
+      break;
+  }
+
+  if (interaction.tone === 'annoyed') {
+    delta.heat += Math.ceil(intensity / 2);
+    delta.cohesion -= 1;
+  } else if (interaction.tone === 'sarcastic') {
+    delta.heat += intensity;
+    delta.cohesion -= 1;
+  } else if (interaction.tone === 'warm') {
+    delta.heat -= 1;
+    delta.cohesion += 1;
+  } else if (interaction.tone === 'excited') {
+    delta.heat += 1;
+  }
+
+  return delta;
+}
+
+function isConflictInteraction(interaction: InteractionEventPayload) {
+  return interaction.kind === 'challenge'
+    || interaction.kind === 'mock'
+    || interaction.kind === 'dismiss'
+    || interaction.kind === 'pile_on'
+    || interaction.kind === 'exclude'
+    || interaction.kind === 'boundary';
+}
+
+function isAllianceInteraction(interaction: InteractionEventPayload) {
+  return interaction.kind === 'support'
+    || interaction.kind === 'defend'
+    || interaction.kind === 'include'
+    || interaction.kind === 'apologize'
+    || interaction.kind === 'take_responsibility';
+}
+
+export function calculateRoomShift(current: RoomStateSnapshotV2 | null, input: InteractionEventPayload | InteractionEventPayload[]): { nextState: RoomStateSnapshotV2; shift: RoomShiftPayload } {
+  const interactions = Array.isArray(input) ? input : [input];
+  const interaction = interactions[0];
+  const base = current
+    ? {
+        ...current,
+        cohesion: normalizeCohesion(current.cohesion),
+        alliances: normalizePairs(current.alliances || []),
+        conflictPairs: normalizePairs(current.conflictPairs || []),
+      }
+    : createBaseRoomState();
   const cooledBase = {
     ...base,
     heat: coolHeat(base.heat),
     cohesion: relaxCohesion(base.cohesion),
     topicDrift: relaxTopicDrift(base.topicDrift),
   };
-  const delta = {
-    heat: conflict ? interaction.intensity * 4 : support ? 1 : 2,
-    cohesion: support ? 3 : conflict ? -4 : 0,
-    topicDrift: interaction.kind === 'side_comment' ? 10 : interaction.kind === 'support' || interaction.kind === 'defend' || interaction.kind === 'challenge' ? -2 : 0,
-  };
+  const delta = interactions
+    .map(calculateInteractionDelta)
+    .reduce<RoomDelta>((total, item) => ({
+      heat: total.heat + item.heat,
+      cohesion: total.cohesion + item.cohesion,
+      topicDrift: total.topicDrift + item.topicDrift,
+    }), { heat: 0, cohesion: 0, topicDrift: 0 });
+  const conflictInteractions = interactions.filter(isConflictInteraction);
+  const allianceInteractions = interactions.filter(isAllianceInteraction);
+  const repairInteractions = interactions.filter((item) => item.kind === 'apologize'
+    || item.kind === 'concede'
+    || item.kind === 'take_responsibility'
+    || item.kind === 'include');
+  const allianceBreakingInteractions = interactions.filter((item) => item.kind === 'mock'
+    || item.kind === 'dismiss'
+    || item.kind === 'pile_on'
+    || item.kind === 'exclude');
+  const pileOn = interactions.find((item) => item.kind === 'pile_on' && item.targetId);
   const dominantThread = interaction.targetId ? [interaction.actorId, interaction.targetId] as [string, string] : base.dominantThread;
+  const alliances = allianceInteractions.reduce(
+    (list, item) => item.targetId ? pushUniquePair(list, [item.actorId, item.targetId]) : list,
+    removePairs(base.alliances, allianceBreakingInteractions),
+  );
+  const conflictPairs = conflictInteractions.reduce(
+    (list, item) => item.targetId ? pushUniquePair(list, [item.actorId, item.targetId]) : list,
+    removePairs(base.conflictPairs, repairInteractions),
+  );
+  const newlySilencedActors = conflictInteractions
+    .filter((item) => item.targetId && (item.kind === 'dismiss' || item.kind === 'pile_on' || item.kind === 'exclude'))
+    .map((item) => item.targetId as string);
+  const releasedActors = new Set(interactions
+    .filter((item) => item.targetId && (isAllianceInteraction(item) || item.kind === 'concede'))
+    .map((item) => item.targetId as string));
   const nextState: RoomStateSnapshotV2 = {
     ...base,
     heat: clamp(cooledBase.heat + delta.heat),
     cohesion: clampSigned(cooledBase.cohesion + delta.cohesion),
     topicDrift: clamp(cooledBase.topicDrift + delta.topicDrift),
     dominantThread,
-    alliances: support && interaction.targetId ? pushUniquePair(base.alliances, [interaction.actorId, interaction.targetId] as [string, string]) : base.alliances,
-    conflictPairs: conflict && interaction.targetId ? pushUniquePair(base.conflictPairs, [interaction.actorId, interaction.targetId] as [string, string]) : base.conflictPairs,
-    pileOnTarget: interaction.kind === 'pile_on' ? interaction.targetId || null : (conflict && interaction.targetId === base.pileOnTarget ? interaction.targetId : base.pileOnTarget),
-    silencedActors: interaction.targetId && conflict ? Array.from(new Set([...base.silencedActors, interaction.targetId])).slice(-6) : base.silencedActors.filter((actorId) => actorId !== interaction.actorId).slice(-6),
+    alliances,
+    conflictPairs,
+    pileOnTarget: pileOn?.targetId || (conflictInteractions.some((item) => item.targetId === base.pileOnTarget) ? base.pileOnTarget : null),
+    silencedActors: newlySilencedActors.length
+      ? Array.from(new Set([...base.silencedActors.filter((actorId) => !releasedActors.has(actorId)), ...newlySilencedActors])).slice(-6)
+      : base.silencedActors.filter((actorId) => !releasedActors.has(actorId) && !interactions.some((item) => item.actorId === actorId)).slice(-6),
   };
 
   return {

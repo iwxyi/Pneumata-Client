@@ -40,6 +40,14 @@ function message(patch: Partial<Message>): Message {
   };
 }
 
+function addressedMessage(patch: Partial<Message>): Message {
+  return {
+    ...message(patch),
+    addressedTargetIds: ['a'],
+    primaryAddressedTargetId: 'a',
+  };
+}
+
 function roomWithInteraction(kind: 'challenge' | 'support', actorId: string, targetId: string, createdAt = 2): GroupChat {
   return {
     runtimeEventsV2: [{
@@ -60,7 +68,7 @@ describe('innerLifeEngine', () => {
   it('projects answer impulse when the character is addressed', () => {
     const projection = projectInnerLife({
       character: character(),
-      messages: [message({ content: '小甲，你怎么看这个蛋糕？' })],
+      messages: [addressedMessage({ content: '小甲，你怎么看这个蛋糕？' })],
       now: 10,
     });
 
@@ -73,6 +81,7 @@ describe('innerLifeEngine', () => {
     const projection = projectInnerLife({
       character: character(),
       messages: [message({ type: 'user', senderId: 'user', senderName: '我', content: '小甲，你现在就解释清楚。' })],
+      explicitUserAddressed: true,
       now: 10,
     });
 
@@ -80,12 +89,53 @@ describe('innerLifeEngine', () => {
     expect(projection.evidence.join(' / ')).toContain('即时回应压力');
   });
 
+  it('does not treat a narrative mention as a direct address', () => {
+    const projection = projectInnerLife({
+      character: character({ behavior: { proactivity: 20, aggressiveness: 20, humorIntensity: 20, empathyLevel: 30, summarizing: 20, offTopic: 5 } }),
+      messages: [message({
+        type: 'user',
+        senderId: 'user',
+        senderName: '我',
+        content: '闻溪刚才先问了小甲，却完全没问许棠。',
+      })],
+      now: 10,
+    });
+
+    expect(projection.impulse).not.toBe('answer');
+    expect(projection.evidence.join(' / ')).not.toContain('直接点名');
+  });
+
+  it('does not flatten a high-pressure answer to another character into casual tone', () => {
+    const projection = projectInnerLife({
+      character: character(),
+      messages: [addressedMessage({ senderId: 'b', senderName: '小乙', content: '小甲，这件事你现在给我一个交代。' })],
+      now: 10,
+    });
+
+    expect(projection.impulse).toBe('answer');
+    expect(projection.pressure).toBeGreaterThan(0.8);
+    expect(projection.tone).toBe('serious');
+  });
+
+  it('lets pressure from a close relationship expose vulnerability instead of generic seriousness', () => {
+    const projection = projectInnerLife({
+      character: character({
+        relationships: [{ characterId: 'b', warmth: 72, trust: 60, competence: 40, threat: 8, attachment: 68, deference: 0 }],
+      }),
+      messages: [addressedMessage({ senderId: 'b', senderName: '小乙', content: '小甲，你是真的不在意我怎么想吗？' })],
+      now: 10,
+    });
+
+    expect(projection.impulse).toBe('answer');
+    expect(projection.tone).toBe('vulnerable');
+  });
+
   it('keeps an unanswered human address active when a later room message intervenes', () => {
     const projection = projectInnerLife({
       character: character(),
       messages: [
         message({ id: 'own', senderId: 'a', senderName: '小甲', content: '我先听着', timestamp: 1 }),
-        message({ id: 'user', type: 'user', senderId: 'user', senderName: '我', content: '小甲，你别躲，解释清楚。', timestamp: 2 }),
+        addressedMessage({ id: 'user', type: 'user', senderId: 'user', senderName: '我', content: '小甲，你别躲，解释清楚。', timestamp: 2 }),
         message({ id: 'other', senderId: 'b', senderName: '小乙', content: '我也想听。', timestamp: 3 }),
       ],
       now: 10,
@@ -191,7 +241,7 @@ describe('innerLifeEngine', () => {
           ignoredStreak: 4,
         },
       }),
-      messages: [message({ content: '小甲，你必须回答这个问题。', senderId: 'b' })],
+      messages: [addressedMessage({ content: '小甲，你必须回答这个问题。', senderId: 'b' })],
       now: 20,
     });
 
@@ -204,7 +254,7 @@ describe('innerLifeEngine', () => {
     const upset = character({
       emotionalState: { affection: 2, irritation: 68, insecurity: 15, excitement: 0, embarrassment: 4 },
     });
-    const addressed = projectInnerLife({ character: upset, messages: [message({ content: '小甲，你真的没意见？' })], now: 20 });
+    const addressed = projectInnerLife({ character: upset, messages: [addressedMessage({ content: '小甲，你真的没意见？' })], now: 20 });
     const unaddressed = projectInnerLife({ character: upset, messages: [message({ content: '这件事之后再说。' })], now: 20 });
 
     expect(addressed.impulse).toBe('answer');
@@ -218,7 +268,7 @@ describe('innerLifeEngine', () => {
         relationships: [{ characterId: 'b', warmth: 0, trust: 30, competence: 55, threat: 5, deference: 60 }],
         emotionalState: { affection: 2, irritation: 62, insecurity: 8, excitement: 0, embarrassment: 4 },
       }),
-      messages: [message({ content: '小甲，你来解释。' })],
+      messages: [addressedMessage({ content: '小甲，你来解释。' })],
       now: 20,
     });
 

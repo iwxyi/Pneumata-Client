@@ -16,11 +16,19 @@ function buildInteraction(overrides: Partial<InteractionEventPayload> = {}): Int
 }
 
 describe('roomStateSynthesizer', () => {
-  it('tracks dominant thread and silenced actors for conflict', () => {
+  it('tracks the dominant thread without treating every challenge as silencing', () => {
     const { nextState } = calculateRoomShift(null, buildInteraction());
     expect(nextState.dominantThread).toEqual(['a', 'b']);
-    expect(nextState.silencedActors).toContain('b');
+    expect(nextState.silencedActors).not.toContain('b');
     expect(nextState.conflictPairs).toContainEqual(['a', 'b']);
+  });
+
+  it('reserves silenced actors for explicit dismissal, exclusion, or pile-on', () => {
+    const dismissed = calculateRoomShift(null, buildInteraction({ kind: 'dismiss' })).nextState;
+    expect(dismissed.silencedActors).toContain('b');
+
+    const included = calculateRoomShift(dismissed, buildInteraction({ actorId: 'c', kind: 'include', tone: 'warm' })).nextState;
+    expect(included.silencedActors).not.toContain('b');
   });
 
   it('tracks alliances for supportive interactions', () => {
@@ -61,5 +69,64 @@ describe('roomStateSynthesizer', () => {
   it('supports negative cohesion for divisive room states', () => {
     const { nextState } = calculateRoomShift(null, buildInteraction({ kind: 'challenge' }));
     expect(nextState.cohesion).toBeLessThan(0);
+  });
+
+  it('cools the room and restores cohesion after an apology', () => {
+    const { nextState, shift } = calculateRoomShift({
+      heat: 42,
+      cohesion: -12,
+      topicDrift: 0,
+      dominantThread: ['a', 'b'],
+      alliances: [],
+      conflictPairs: [['a', 'b']],
+      pileOnTarget: null,
+      silencedActors: [],
+    }, buildInteraction({ kind: 'apologize', tone: 'warm', intensity: 4 }));
+
+    expect(nextState.heat).toBeLessThan(42);
+    expect(nextState.cohesion).toBeGreaterThan(-12);
+    expect(shift.delta?.heat).toBeLessThan(0);
+    expect(shift.delta?.cohesion).toBeGreaterThan(0);
+  });
+
+  it('treats exclusion and boundaries as distinct room pressure', () => {
+    const excluded = calculateRoomShift(null, buildInteraction({ kind: 'exclude', intensity: 4, tone: 'cold' }));
+    const bounded = calculateRoomShift(null, buildInteraction({ kind: 'boundary', intensity: 4, tone: 'defensive' }));
+
+    expect(excluded.nextState.heat).toBeGreaterThan(bounded.nextState.heat);
+    expect(excluded.nextState.cohesion).toBeLessThan(bounded.nextState.cohesion);
+    expect(excluded.nextState.conflictPairs).toContainEqual(['a', 'b']);
+  });
+
+  it('aggregates every directed interaction in one visible reply while cooling only once', () => {
+    const { nextState, shift } = calculateRoomShift(null, [
+      buildInteraction({ targetId: 'b', kind: 'boundary', intensity: 4, tone: 'defensive' }),
+      buildInteraction({ targetId: 'c', kind: 'take_responsibility', intensity: 3, tone: 'warm' }),
+    ]);
+
+    expect(nextState.conflictPairs).toContainEqual(['a', 'b']);
+    expect(nextState.alliances).toContainEqual(['a', 'c']);
+    expect(shift.delta?.heat).toBeLessThanOrEqual(0);
+    expect(shift.delta?.cohesion).toBeGreaterThan(0);
+  });
+
+  it('deduplicates reciprocal room pairs and lets repair clear stale conflict', () => {
+    const challenged = calculateRoomShift({
+      heat: 20,
+      cohesion: -8,
+      topicDrift: 0,
+      dominantThread: ['b', 'a'],
+      alliances: [['b', 'a'], ['a', 'b']],
+      conflictPairs: [['b', 'a'], ['a', 'b']],
+      pileOnTarget: null,
+      silencedActors: [],
+    }, buildInteraction({ actorId: 'b', targetId: 'a', kind: 'challenge' })).nextState;
+
+    expect(challenged.alliances).toEqual([['a', 'b']]);
+    expect(challenged.conflictPairs).toEqual([['a', 'b']]);
+
+    const repaired = calculateRoomShift(challenged, buildInteraction({ kind: 'apologize', tone: 'warm' })).nextState;
+    expect(repaired.conflictPairs).toEqual([]);
+    expect(repaired.alliances).toEqual([['a', 'b']]);
   });
 });

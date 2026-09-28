@@ -3106,6 +3106,16 @@ function runtimeChatflowScenarios() {
         name: '幽都夜巡问责',
         topic: '西巷封印漏了一道，阎君正在追问牛头、马面和判官谁漏报了异状。',
         memberIds: ['user', 'yan', 'judge', 'niu', 'ma'],
+        initialRoomState: {
+          heat: 28,
+          cohesion: -10,
+          topicDrift: 0,
+          dominantThread: ['yan', 'niu'],
+          alliances: [],
+          conflictPairs: [['yan', 'niu'], ['judge', 'niu']],
+          pileOnTarget: null,
+          silencedActors: [],
+        },
       },
       characters: [
         acceptanceCharacter('yan', '阎君', {
@@ -3168,7 +3178,22 @@ function runtimeChatflowScenarios() {
       turns: Math.max(5, Math.min(config.chatflowTurns, 8)),
       rubricHint: '亲密关系中的偏心、吃醋、嘴硬和修复要能被看见，但不能人人都直接告白。某句话可让情绪突然上升，表达后应稍微泄压并保留余波。',
       userInjections: [{ afterTurn: 3, content: '别替他们圆场。闻溪，你刚才确实先问了程野，却完全没问许棠。' }],
-      chat: { id: 'acceptance-chatflow-intimacy', name: '迟到的生日照片', topic: '三位老朋友发现生日合照里许棠被落在镜头外。', memberIds: ['user', 'wen', 'tang', 'cheng'] },
+      chat: {
+        id: 'acceptance-chatflow-intimacy',
+        name: '迟到的生日照片',
+        topic: '三位老朋友发现生日合照里许棠被落在镜头外。',
+        memberIds: ['user', 'wen', 'tang', 'cheng'],
+        initialRoomState: {
+          heat: 24,
+          cohesion: -8,
+          topicDrift: 0,
+          dominantThread: ['wen', 'tang'],
+          alliances: [],
+          conflictPairs: [['wen', 'tang']],
+          pileOnTarget: null,
+          silencedActors: [],
+        },
+      },
       characters: [
         acceptanceCharacter('wen', '闻溪', {
           personality: { openness: 68, extroversion: 60, agreeableness: 62, neuroticism: 52, humor: 48, creativity: 66, assertiveness: 46, empathy: 64 },
@@ -3320,12 +3345,18 @@ function summarizeRuntimeTurn(message) {
     content: message.content,
     generatedBubbleCount: message.generatedBubbleCount || 1,
     persistedBubbleCount: message.persistedBubbleCount || 1,
+    addressedTargetIds: message.addressedTargetIds || [],
+    primaryAddressedTargetId: message.primaryAddressedTargetId || null,
     interactionHints: message.interactionHints || message.interactionHint ? (message.interactionHints || [message.interactionHint]).filter(Boolean) : [],
     socialEventHints: message.socialEventHints || [],
-    relationshipSignals: runtimeDecision.runtimeBundle?.relationshipDeltas
+    relationshipSignals: message.committedRelationshipSignals
+      ?.length ? message.committedRelationshipSignals
+      : runtimeDecision.runtimeBundle?.relationshipDeltas
       || runtimeDecision.runtimeBundle?.diagnostics?.relationshipDeltas
       || message.metadata?.deliberationArtifacts?.verdicts
       || [],
+    roomStateAfter: message.roomStateAfter || null,
+    roomShiftSignals: message.committedRoomShiftSignals || [],
     speakerSelection: runtimeDecision.speakerSelection || null,
     speakerScore: runtimeDecision.speakerScore || null,
     innerLife: runtimeDecision.innerLife || null,
@@ -3390,6 +3421,12 @@ function createRuntimeChat(runtime, scenario) {
     updatedAt: Date.now(),
     lastMessageAt: Date.now(),
     topicSeed: scenario.chat.topic,
+    ...(scenario.chat.initialRoomState ? {
+      worldState: {
+        ...draft.worldState,
+        structuredRoomState: scenario.chat.initialRoomState,
+      },
+    } : {}),
   });
 }
 
@@ -3704,6 +3741,10 @@ function buildChatflowReportTables(runs, judgeCalibration = null) {
         turn.turn,
         turn.senderName,
         `${turn.generatedBubbleCount}/${turn.persistedBubbleCount}`,
+        [turn.primaryAddressedTargetName, ...(turn.addressedTargetNames || []).filter((name) => name !== turn.primaryAddressedTargetName)].filter(Boolean).join('、'),
+        turn.roomStateAfter
+          ? `${turn.roomStateAfter.heat}/${turn.roomStateAfter.cohesion}/${turn.roomStateAfter.topicDrift}`
+          : '',
         turnReview?.score ?? '',
         turnReview?.review?.pass === false ? '否' : '是',
         turn.content,
@@ -3763,7 +3804,7 @@ function buildChatflowReportTables(runs, judgeCalibration = null) {
     ),
     userInputs: buildMarkdownTable(['场景', '插入时机', '用户消息'], inputRows.length ? inputRows : [['-', '-', '-']]),
     turns: buildMarkdownTable(
-      ['场景', '轮次', '发言者', '生成/落库气泡', '单轮分', '通过', '回复内容', '故事选项', '审议产物 C/E/I/V', '单轮问题', '单轮优化'],
+      ['场景', '轮次', '发言者', '生成/落库气泡', '回应目标', '房间态势 H/C/D', '单轮分', '通过', '回复内容', '故事选项', '审议产物 C/E/I/V', '单轮问题', '单轮优化'],
       turnRows,
     ),
     reviews: buildMarkdownTable(
@@ -3884,6 +3925,22 @@ async function runRuntimeChatflowScenario(model, scenario) {
     }
     const logicalTurnMessages = persistedBuffer.length ? persistedBuffer : [persisted];
     const primaryPersisted = logicalTurnMessages[0] || persisted;
+    const committedRelationshipSignals = Array.from(new Map(commit.results
+      .flatMap((item) => item.transition?.chatRuntimeDelta?.runtimeEventsV2?.upserts || [])
+      .filter((event) => event.kind === 'relationship_delta')
+      .map((event) => [event.id, {
+        actorIds: event.actorIds || [],
+        targetIds: event.targetIds || [],
+        summary: event.summary,
+        delta: event.payload?.delta || event.payload || null,
+      }])).values());
+    const committedRoomShiftSignals = Array.from(new Map(commit.results
+      .flatMap((item) => item.transition?.chatRuntimeDelta?.runtimeEventsV2?.upserts || [])
+      .filter((event) => event.kind === 'room_shift')
+      .map((event) => [event.id, {
+        summary: event.summary,
+        delta: event.payload?.delta || null,
+      }])).values());
     const summarized = summarizeRuntimeTurn({
       ...primaryPersisted,
       content: logicalTurnMessages.map((item) => item.content).filter(Boolean).join('\n'),
@@ -3894,7 +3951,14 @@ async function runRuntimeChatflowScenario(model, scenario) {
       storyEvents: primaryPersisted.metadata?.storyEvents || [],
       storyChoices: primaryPersisted.metadata?.storyChoices || [],
       deliberationArtifacts: primaryPersisted.metadata?.deliberationArtifacts || null,
+      committedRelationshipSignals,
+      committedRoomShiftSignals,
+      roomStateAfter: chat.worldState?.structuredRoomState || null,
     });
+    summarized.addressedTargetNames = summarized.addressedTargetIds
+      .map((targetId) => characters.find((character) => character.id === targetId)?.name)
+      .filter(Boolean);
+    summarized.primaryAddressedTargetName = characters.find((character) => character.id === summarized.primaryAddressedTargetId)?.name || null;
     summarized.scenarioStateAfter = collectScenarioStateSnapshot(chat);
     summarized.storyEvents = persisted.metadata?.storyEvents || [];
     summarized.storyChoices = persisted.metadata?.storyChoices || [];

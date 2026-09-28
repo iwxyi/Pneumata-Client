@@ -1075,9 +1075,9 @@ function resolvePromptTarget(chat: GroupChat, messages: Message[], characters: M
     addressedMessage.primaryAddressedTargetId,
     ...(addressedMessage.addressedTargetIds || []),
   ].filter(Boolean);
-  const explicitlyAddressed = addressedTargetIds.includes(speaker.id) || latestAi.content.includes(speaker.name);
+  const explicitlyAddressed = addressedTargetIds.includes(speaker.id);
   const recentTarget = characters.get(latestAi.senderId);
-  return recentTarget ? { target: recentTarget, reason: explicitlyAddressed ? (addressedTargetIds.includes(speaker.id) ? '来自上一条消息的明确指向' : '来自上一条消息点名') : '来自上一条消息的最近发言者' } : undefined;
+  return recentTarget ? { target: recentTarget, reason: explicitlyAddressed ? '来自上一条消息的明确指向' : '来自上一条消息的最近发言者' } : undefined;
 }
 
 function getAuthoredRelationshipSnapshot(character: AICharacter, target: AICharacter | undefined) {
