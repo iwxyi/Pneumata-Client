@@ -377,7 +377,11 @@ export function planConversationMove(params: {
   };
 }
 
-export function buildConversationMovePrompt(plan: ConversationMovePlan | null | undefined, chat: GroupChat) {
+export function buildConversationMovePrompt(
+  plan: ConversationMovePlan | null | undefined,
+  chat: GroupChat,
+  targetName?: string | null,
+) {
   if (!plan) return '';
   const analysis = isAnalysisRoom(chat);
   const moveLabels: Record<ConversationMoveType, string> = {
@@ -396,7 +400,9 @@ export function buildConversationMovePrompt(plan: ConversationMovePlan | null | 
     ask_evidence: 'ask what evidence or condition would make the claim hold',
     name_tradeoff: 'name a tradeoff the room has not made explicit',
   };
-  const targetLine = plan.targetClaimText ? '\n- Thread focus: engage the selected prior thread from the transcript without copying its wording.' : '';
+  const targetLine = plan.targetClaimText
+    ? `\n- Thread focus: engage the selected prior thread from the transcript without copying its wording.${targetName ? ` The thread is associated with ${targetName}; address them directly only when the social moment calls for it.` : ''}`
+    : '';
   const analysisLine = analysis
     ? '\n- In analysis rooms, warmth is interpersonal tone only. It does not mean viewpoint agreement.'
     : '\n- In casual rooms, keep the move natural and conversational rather than meeting-like. You may ignore part of the previous line, react to the gist, admit a term is outside your lane, or switch to a nearby everyday angle.';

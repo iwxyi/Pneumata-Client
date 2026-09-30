@@ -15,6 +15,8 @@ export interface TurnPlan {
   allowExtraMessages: boolean;
   waitSensitive: boolean;
   reasons: string[];
+  /** Semantic recipients selected by the conversation move planner. */
+  targetIds?: string[];
 }
 
 interface TurnPlanSurface {

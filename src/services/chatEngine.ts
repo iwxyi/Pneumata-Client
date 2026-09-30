@@ -4059,10 +4059,21 @@ export async function generateSpeakerMessage(params: {
     enabled: isDeveloperModeEnabled(),
   });
   const pendingReplyPrompt = params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId
-    ? `\nPending reply expectation:
-- You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.
-- Give that address some priority, but do not over-answer by default.
-- If the address is a casual aside, technical metaphor, or broad riff, you may respond to the gist, say the term is not your lane, ask a small clarification, or answer briefly before moving on.`
+    ? (() => {
+      const sourceMessage = params.pendingReplyContext?.sourceMessageId
+        ? activeMessages.find((message) => message.id === params.pendingReplyContext?.sourceMessageId)
+        : null;
+      const sourceName = characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId;
+      const sourceQuote = sourceMessage?.content.trim().slice(0, 240) || null;
+      const targetNames = params.pendingReplyContext.targetIds
+        .map((targetId) => characterMap.get(targetId)?.name)
+        .filter(Boolean);
+      return `\nPending reply expectation (structured social context):
+- ${sourceName} left an explicit reply expectation${targetNames.length > 1 ? ` for ${targetNames.join('、')}` : ''}; you are one of the unresolved recipients.
+- Source turn: ${sourceQuote ? `「${sourceQuote}」` : 'the addressed turn is in the recent transcript'}
+- Treat this as a live social obligation, not a command to repeat the source wording. Answer the part that actually reaches you, in your own stance and relationship voice; you may resist, misunderstand, answer briefly, or ask for clarification.
+- If you answer this obligation, return addressedTargets for the person(s) you genuinely expect to answer next. Use null when your visible reply leaves no one with a reply debt.`;
+    })()
     : '';
   const mediaProfiles = resolveMediaProfiles(params.apiConfig, params.profiles);
   const mediaCapabilities = buildMediaCapabilities(params.chat, params.speaker, mediaProfiles);
@@ -4077,6 +4088,16 @@ export async function generateSpeakerMessage(params: {
     surface: responseSurface,
     richDelivery,
   });
+  const finalTargetIds = conversationMovePlan.targetActorId
+    ? [conversationMovePlan.targetActorId]
+    : runtimeBundleWithMovePlan.turnPlan?.targetIds || [];
+  const finalTurnPlan: TurnPlan = {
+    ...turnPlan,
+    // The conversation move is the semantic owner of the target. Keep the
+    // message-format plan separate, but make the same target visible to the
+    // output contract so the model cannot receive two competing plans.
+    targetIds: finalTargetIds,
+  };
   const personaActivation = resolvePersonaActivation({ chat: params.chat, speaker: params.speaker, messages: activeMessages });
   const expressionFeedbackTrace = collectExpressionFeedbackTrace(params.speaker, innerLife);
   const promptAssembly = resolveSessionEngineKey(params.chat) === 'open_chat'
@@ -4118,7 +4139,7 @@ export async function generateSpeakerMessage(params: {
     intent,
     innerLife,
     conversationMovePlan,
-    turnPlan,
+    turnPlan: finalTurnPlan,
     runtimeBundle: runtimeBundleWithMovePlan,
     userGuidance,
     narrativeLines: params.narrativeLines,
@@ -4157,11 +4178,11 @@ export async function generateSpeakerMessage(params: {
     { id: 'expression_feedback', layer: 'runtime', priority: 20, content: buildExpressionFeedbackPrompt(expressionFeedbackTrace) },
     { id: 'turn_directive', layer: 'task', priority: 48, content: buildTurnDirectivePrompt(unifiedTurnDirective) },
     { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
-    { id: 'conversation_move', layer: 'task', priority: 50, content: buildConversationMovePrompt(conversationMovePlan, params.chat) },
-    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan }) },
+    { id: 'conversation_move', layer: 'task', priority: 50, content: buildConversationMovePrompt(conversationMovePlan, params.chat, conversationMovePlan.targetActorId ? characterMap.get(conversationMovePlan.targetActorId)?.name : null) },
+    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan: finalTurnPlan }) },
     { id: 'turn_length_variety', layer: 'style', priority: 30, content: buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
     { id: 'turn_format_variety', layer: 'style', priority: 40, content: buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
-    { id: 'turn_plan', layer: 'runtime', priority: 30, content: buildTurnPlanPrompt(turnPlan) },
+    { id: 'turn_plan', layer: 'runtime', priority: 30, content: buildTurnPlanPrompt(finalTurnPlan) },
     { id: 'runtime_role_constraint', layer: 'runtime', priority: 40, content: buildRuntimeRoleConstraintPrompt(runtimeBundleWithMovePlan) },
     { id: 'response_surface', layer: 'style', priority: 50, content: buildResponseSurfacePrompt(responseSurface) },
     { id: 'style_quarantine', layer: 'style', priority: 60, content: buildStyleQuarantinePrompt(responseSurface) },
@@ -4169,7 +4190,7 @@ export async function generateSpeakerMessage(params: {
     { id: 'focused_situational_job_contract', layer: 'output', priority: 5, content: buildFocusedSituationalJobContract(activeMessages, params.speaker, responseSurface) },
     { id: 'natural_chat_surface_contract', layer: 'output', priority: 7, content: buildNaturalChatSurfaceContract(activeMessages, responseSurface, showRoleActions) },
     { id: 'generation_constraints', layer: 'output', priority: 10, content: buildGenerationConstraints(params.chat, activeMessages, params.speaker.id, responseSurface) },
-    { id: 'inline_interaction_contract', layer: 'output', priority: 20, content: buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan, mediaCapabilities, richDelivery, mediaRequested: Boolean(userGuidance?.mediaRequest), webSearchEnabled }) },
+    { id: 'inline_interaction_contract', layer: 'output', priority: 20, content: buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan: finalTurnPlan, mediaCapabilities, richDelivery, mediaRequested: Boolean(userGuidance?.mediaRequest), webSearchEnabled }) },
     { id: 'engine_suffix', layer: 'suffix', priority: 100, content: promptSuffix },
   ];
   const baseSystemPrompt = isStoryReader
@@ -4224,7 +4245,7 @@ export async function generateSpeakerMessage(params: {
     activeMessages,
     showRoleActions,
     surface: responseSurface,
-    turnPlan,
+    turnPlan: finalTurnPlan,
     conversationMovePlan,
     guidance: userGuidance,
     mediaCapabilities,
