@@ -67,11 +67,12 @@ function getQuestionIntentWeight(character: AICharacter) {
 
 function shouldUseQuestionMove(character: AICharacter, recentText: string, recentTargetId?: string) {
   const pressure = getRecentConversationPressure(recentText);
-  const questionLike = isQuestionLike(recentText);
   const emotional = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
   const relationWeight = recentTargetId ? getRelationshipWeight(character, recentTargetId) : 0;
   const weight = getQuestionIntentWeight(character);
-  if (questionLike && mentionsTarget(recentText)) return true;
+  // The target resolver and director provide semantic targeting. Do not infer it
+  // again from message wording here; that made unrelated rooms react to keywords.
+  if (recentTargetId && (emotional.irritation >= 38 || relationWeight <= -0.25)) return true;
   if (emotional.excitement >= 72 && character.behavior.humorIntensity >= 64) return true;
   if (emotional.irritation >= 68 || relationWeight <= -0.42) return true;
   if (pressure < -0.1 && weight >= 48) return true;
@@ -79,20 +80,20 @@ function shouldUseQuestionMove(character: AICharacter, recentText: string, recen
   return weight >= 66;
 }
 
-function chooseQuestionDelivery(character: AICharacter, recentText: string) {
+function chooseQuestionDelivery(character: AICharacter) {
   const emotional = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
-  if (emotional.irritation >= 68 || /不是|凭什么|怎么就|你这|离谱/i.test(recentText)) return 'sharp_followup' as const;
+  if (emotional.irritation >= 68) return 'sharp_followup' as const;
   if (character.behavior.summarizing >= 68 || character.behavior.proactivity >= 68) return 'group_redirect' as const;
   if (character.behavior.humorIntensity >= 68 || emotional.excitement >= 70) return 'side_remark' as const;
   return 'quick_question' as const;
 }
 
-function chooseQuestionStance(character: AICharacter, recentText: string, recentTargetId?: string) {
+function chooseQuestionStance(character: AICharacter, recentTargetId?: string) {
   const emotional = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
   const relationWeight = recentTargetId ? getRelationshipWeight(character, recentTargetId) : 0;
   if (emotional.irritation >= 68 || relationWeight <= -0.42) return 'challenge' as const;
   if (character.behavior.humorIntensity >= 70 && emotional.excitement >= 62) return 'side_comment' as const;
-  if (character.behavior.summarizing >= 68 || /扯远|先别|重点|所以/i.test(recentText)) return 'change_subject' as const;
+  if (character.behavior.summarizing >= 68) return 'change_subject' as const;
   return 'probe' as const;
 }
 
@@ -111,8 +112,8 @@ function withExplicitShape(intent: Omit<SpeakIntent, 'messageShape'>, messageSha
 }
 
 function buildQuestionIntent(character: AICharacter, recentTargetId?: string, recentText: string = ''): SpeakIntent {
-  const stance = chooseQuestionStance(character, recentText, recentTargetId);
-  const delivery = chooseQuestionDelivery(character, recentText);
+  const stance = chooseQuestionStance(character, recentTargetId);
+  const delivery = chooseQuestionDelivery(character);
   const emotional = character.emotionalState || { irritation: 0, affection: 0, insecurity: 0, excitement: 0, embarrassment: 0 };
   return withExplicitShape({
     shouldSpeak: true,
@@ -272,16 +273,6 @@ function maybePromoteToQuestionIntent(character: AICharacter, base: SpeakIntent,
   if (base.stance === 'summarize' && character.behavior.summarizing >= 78) return adaptBaseIntent(character, base);
   return adaptQuestionIntent(character, buildQuestionIntent(character, recentTargetId, recentText));
 }
-
-
-function isQuestionLike(text: string) {
-  return /[?？]|吗|咋|怎么|凭什么|为什么|要不|是不是/.test(text);
-}
-
-function mentionsTarget(text: string) {
-  return /你|你这|他说|她说|这句|这话|这点|这个|刚才|不是吧|等等|所以|可问题是|我认|朕认|我接|我站|同意|赞同/i.test(text);
-}
-
 export function describeIntentForPrompt(intent: SpeakIntent) {
   return `reason=${intent.reason}; target=${intent.target}; stance=${intent.stance}; tone=${intent.emotionalTone}; delivery=${intent.delivery}; shape=${intent.messageShape}`;
 }
@@ -391,10 +382,10 @@ export function deriveSpeakIntentFromContext(character: AICharacter, recentTarge
   if (directedIntent) return adaptBaseIntent(character, directedIntent);
   const base = deriveSpeakIntent(character, recentTargetId, options);
   const pressure = getRecentConversationPressure(recentText);
-  if (recentTargetId && mentionsTarget(recentText) && base.stance === 'challenge') {
-    return adaptQuestionIntent(character, withMessageShape({ ...base, stance: isQuestionLike(recentText) ? 'challenge' : 'probe', delivery: 'quick_question' }));
+  if (recentTargetId && base.stance === 'challenge') {
+    return adaptQuestionIntent(character, withMessageShape({ ...base, stance: 'challenge', delivery: 'quick_question' }));
   }
-  if (recentTargetId && mentionsTarget(recentText) && base.stance === 'support') {
+  if (recentTargetId && base.stance === 'support') {
     return adaptBaseIntent(character, withMessageShape({
       ...base,
       stance: character.behavior.summarizing >= 62 ? 'summarize' : 'probe',
