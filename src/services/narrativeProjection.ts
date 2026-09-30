@@ -281,6 +281,7 @@ function buildRelationshipLines(chat: GroupChat, characters: AICharacter[], now:
       const semantic = entry.derived?.semantic;
       const actor = characterName(entry.actorId, characters);
       const target = characterName(entry.targetId, characters);
+      const recentEvents = Array.isArray(entry.recentEvents) ? entry.recentEvents : [];
       const salience = clamp01((entry.derived?.salience || 0) / 100 * 0.34 + tension * 0.3 + positivePressure * 0.28 + momentum * 0.16);
       const summary = describeRelationshipLineSummary(entry, characters);
       const nextBeat = relationshipNextBeat(entry, tension, characters);
@@ -296,7 +297,7 @@ function buildRelationshipLines(chat: GroupChat, characters: AICharacter[], now:
         tension,
         momentum,
         salience,
-        sourceEventIds: entry.recentEvents.map((event) => event.id),
+        sourceEventIds: recentEvents.map((event) => event.id),
         lastTouchedAt: entry.lastUpdatedAt || now,
         openQuestions: [
           relationshipOpenQuestion(entry, tension, characters),

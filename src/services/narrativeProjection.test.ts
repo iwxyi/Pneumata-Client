@@ -202,6 +202,28 @@ describe('projectNarrativeLines', () => {
     expect(relationship?.status).toBe('escalating');
   });
 
+  it('does not crash when a legacy relationship entry has a non-array recentEvents field', () => {
+    const lines = projectNarrativeLines({
+      chat: buildChat({
+        relationshipLedger: [{
+          pairKey: 'a->b',
+          actorId: 'a',
+          targetId: 'b',
+          current: { warmth: -30, competence: 0, trust: -25, threat: 45 },
+          derived: { salience: 90 },
+          axisReasons: {},
+          trend: 'volatile',
+          recentEvents: { legacy: true } as never,
+          lastUpdatedAt: 10,
+        }],
+      }),
+      messages: [buildMessage({ content: '继续。' })],
+      now: 20,
+    });
+    expect(lines.some((line) => line.id === 'relationship:a->b')).toBe(true);
+    expect(lines.find((line) => line.id === 'relationship:a->b')?.sourceEventIds).toEqual([]);
+  });
+
   it('projects attachment and hierarchy as dramatic pressure even without hostility', () => {
     const lines = projectNarrativeLines({
       chat: buildChat({
