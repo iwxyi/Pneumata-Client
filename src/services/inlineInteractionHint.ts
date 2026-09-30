@@ -481,7 +481,7 @@ export function buildInlineInteractionContract(params: {
    ${storyBeatPlan?.choicePolicy === 'forbid' ? '' : `- {"type":"choice_point","choices":[{"label":"具体行动主体做具体动作","prompt":"选择后要推进的具体后果","intent":"选择的戏剧功能","risk":"可能付出的代价","reward":"可能获得的信息或关系推进"}]}`}
    - {"type":"chapter_update","title":"4-10 Chinese characters, concrete and memorable","summary":"optional short recap","status":"active or completed","startNewChapter":false}
 3. narration carries action, movement, consequences, inner pressure, scene changes, clue reveals, and time jumps. Narration renders as正文段落.
-4. speech is optional. Use it only for words actually spoken aloud by a character; every speech event must include either a valid actorId or an exact actorName.
+4. speech is optional. Use it only for words actually spoken aloud by a character; every speech event must include either a valid actorId or an exact actorName. Never use actorId="narrator" or actorName="旁白" for a character's line; narrator is reserved for narration.
 5. A whole turn may contain only narration. This is valid when the beat needs setting, consequence, or pressure more than dialogue.
 6. Speech text must be chat-like. A common speech event is 1-3 sentences, but scene and character pressure decide the actual size: it can be terse, interrupted, or more developed when needed. No camera direction, omniscient analysis, private inner monologue, or describing the whole room's reaction.
 7. Do not let one character inherit another character's private object, gesture, memory, clothing detail, wording, or sensory detail unless that detail was explicitly spoken aloud or publicly visible.
