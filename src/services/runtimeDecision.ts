@@ -212,11 +212,20 @@ export function projectRuntimePressure(params: {
   pendingReplyContext?: PendingReplyLike | null;
   now?: number;
 }): RuntimePressureProjection {
-  if (!shouldUseFreeSpeechRuntimeDecision(params.chat)) {
-    return { narrativeLines: [], primaryLine: null, directorIntent: null };
-  }
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const activeMessages = params.messages.filter((message) => !message.isDeleted);
+  // Fixed-turn and non-group sessions still need to honor an explicitly
+  // assessed user request. They do not get free-speech narrative pressure or
+  // autonomous conflict projection, but dropping the guidance here means the
+  // scheduler cannot select the requested character at all.
+  if (!shouldUseFreeSpeechRuntimeDecision(params.chat)) {
+    const latestHumanGuidance = resolveLatestActiveUserGuidance(params.characters, activeMessages, now);
+    return {
+      narrativeLines: [],
+      primaryLine: null,
+      directorIntent: latestHumanGuidance.intent,
+    };
+  }
   const narrativeLines = projectNarrativeLines({
     chat: params.chat,
     characters: params.characters,

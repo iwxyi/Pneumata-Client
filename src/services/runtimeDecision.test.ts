@@ -4,7 +4,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
-import { projectRuntimePressure, shouldUseFreeSpeechRuntimeDecision } from './runtimeDecision';
+import { projectRuntimePressure, resolveLatestActiveUserGuidance, shouldUseFreeSpeechRuntimeDecision } from './runtimeDecision';
 
 function buildChat(patch: Partial<GroupChat> = {}): GroupChat {
   return {
@@ -120,6 +120,44 @@ describe('runtimeDecision', () => {
       messages: [buildMessage({ content: '甲，你来。' })],
     });
     expect(projection).toEqual({ narrativeLines: [], primaryLine: null, directorIntent: null });
+  });
+
+  it('keeps an assessed user target available in fixed-turn sessions', () => {
+    const chat = buildChat({ scenarioState: { currentTurnActorId: 'a', turnOrder: ['a', 'b'] } });
+    const messages = [buildMessage({
+      content: '乙先回答。',
+      metadata: {
+        runtimeDecision: {
+          directorIntent: {
+            source: 'user_message',
+            beatType: 'answer',
+            targetActorIds: ['b'],
+            pressure: 0.9,
+            reason: '用户明确指定乙先回答。',
+            userGuidance: {
+              kind: 'direct_reply',
+              rawText: '乙先回答。',
+              actorIds: ['b'],
+              mentionedActorIds: ['b'],
+              focusText: '先回答',
+              beatType: 'answer',
+              pressure: 0.9,
+              maxTurns: 1,
+              reason: '用户明确指定乙先回答。',
+            },
+          },
+        },
+      },
+    })];
+    expect(resolveLatestActiveUserGuidance([buildCharacter('a', '甲'), buildCharacter('b', '乙')], messages, 20).intent?.targetActorIds).toEqual(['b']);
+    const projection = projectRuntimePressure({
+      chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      messages,
+      now: 20,
+    });
+    expect(projection.directorIntent?.targetActorIds).toEqual(['b']);
+    expect(projection.directorIntent?.userGuidance?.kind).toBe('direct_reply');
   });
 
   it('lets the latest director intervention override projected pressure', () => {
