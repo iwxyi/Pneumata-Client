@@ -6,7 +6,7 @@ import type { MediaGenerationDecision, MessageAttachment, MessageMetadata, Narra
 import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionGenerationRuntimeBundle } from '../types/sessionEngine';
 import type { MemoryItem } from './memoryTypes';
 import { getPreferredAIProfile, inferTextInputCapabilities, isAIProfileUsable } from '../types/settings';
-import type { ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
+import type { AddressedTargetHintEnvelope, ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeInteractionHintCollection, normalizeInteractionHintPayload, normalizeSocialEventHints } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildPromptAssemblyWithContext, buildChatMessages, buildPromptMemoryTrace, buildPromptCharacterMindTrace, type PromptAssemblyWithContext, type PromptCharacterMindTrace, type PromptMemoryTrace } from './promptBuilder';
@@ -75,6 +75,31 @@ type SpeakerSelectionState = {
   bypassNotice?: string | null;
   policy?: Record<string, unknown>;
 } | null;
+
+type ReconciledAddressedTargets = {
+  targetIds: string[];
+  primaryTargetId: string | null;
+};
+
+/**
+ * Keep the model's reply-debt signal as the sole semantic source, while
+ * making the same validated value available to message metadata and runtime
+ * turn parameters. This intentionally does not infer targets from prose or
+ * interaction effects: those are different model-authored channels.
+ */
+function reconcileAddressedTargets(
+  envelope: AddressedTargetHintEnvelope | null | undefined,
+  validTargetIds: ReadonlySet<string>,
+): ReconciledAddressedTargets {
+  const targetIds = Array.from(new Set((envelope?.targetIds || []).filter((id): id is string => (
+    typeof id === 'string' && id.trim().length > 0 && validTargetIds.has(id)
+  ))));
+  const primaryTargetId = typeof envelope?.primaryTargetId === 'string'
+    && targetIds.includes(envelope.primaryTargetId)
+    ? envelope.primaryTargetId
+    : targetIds[0] || null;
+  return { targetIds, primaryTargetId };
+}
 
 export type LocalInterceptionKind =
   | 'guidance_retry'
@@ -895,6 +920,26 @@ function validateStoryReaderGeneration(params: {
 }) {
   const storyEvents = params.storyEvents || [];
   const visibleEvents = storyEvents.filter((event) => event.type === 'narration' || event.type === 'speech');
+  const invalidSpeechActors = storyEvents
+    .filter((event) => event.type === 'speech')
+    .filter((event) => {
+      const actorId = event.characterId?.trim() || '';
+      const actorName = event.speakerName?.trim() || '';
+      if (!actorId && !actorName) return true;
+      // A bare narrator speech is kept backward-compatible as narration by
+      // the projection layer. The protocol error is specifically narrator
+      // impersonating a named character, which is what makes roles disappear.
+      if ((actorId === 'narrator' && actorName) || actorName === '旁白' || actorName.toLowerCase() === 'narrator') return true;
+      return (actorId === 'narrator' && Boolean(actorName))
+        || (actorName === '旁白' || actorName.toLowerCase() === 'narrator');
+    });
+  if (invalidSpeechActors.length) {
+    return {
+      code: 'story_speech_actor_invalid',
+      message: '故事房的 speech 事件必须指向可解析的真实角色；旁白只能使用 narration。',
+      details: { invalidSpeechCount: invalidSpeechActors.length },
+    };
+  }
   const parsed = params.parsedEnvelope as (ReturnType<typeof parseInlineInteractionEnvelope> & {
     narrativeBlocks?: unknown;
     narrativeText?: unknown;
@@ -971,6 +1016,8 @@ function toModelSafeStoryProtocolReason(issue: NonNullable<ReturnType<typeof val
       return 'visible story text was placed in an old top-level body container instead of storyEvents';
     case 'story_events_missing':
       return 'the response did not include a visible storyEvents narration or speech event';
+    case 'story_speech_actor_invalid':
+      return 'a story speech event used narrator or an unknown actor; use narration for the narrator and a valid character id for speech';
     case 'story_choice_required':
       return 'the current decision beat requires storyEvents.choice_point with 2-4 choices valid for the reader role';
     case 'story_continuity_invalid':
@@ -3660,6 +3707,7 @@ function buildCompletedMessage(params: {
   messageParts?: Array<{ content: string; metadata?: MessageMetadata }> | null;
   emotion: number;
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
+  addressedTargets?: ReconciledAddressedTargets;
   previousVisibleMessage?: Message | null;
   metadata?: MessageMetadata;
 }) {
@@ -3669,12 +3717,8 @@ function buildCompletedMessage(params: {
   const incomingInteractionHint = previousHuman && params.parsedEnvelope?.incomingImpact
     ? normalizeInteractionHintPayload({ ...params.parsedEnvelope.incomingImpact, targetId: params.speakerId, relationship: undefined }, previousHuman.senderId, previousHuman.content)
     : null;
-  const envelopeTargetIds = params.parsedEnvelope?.addressedTargets?.targetIds || [];
-  const addressedTargetIds = Array.from(new Set(envelopeTargetIds));
-  const primaryAddressedTargetId = params.parsedEnvelope?.addressedTargets?.primaryTargetId
-    || params.parsedEnvelope?.addressedTargets?.targetIds?.[0]
-    || addressedTargetIds[0]
-    || null;
+  const addressedTargetIds = params.addressedTargets?.targetIds || [];
+  const primaryAddressedTargetId = params.addressedTargets?.primaryTargetId || null;
   return {
     chatId: params.chat.id,
     type: 'ai' as const,
@@ -4208,6 +4252,11 @@ export async function generateSpeakerMessage(params: {
     throw new EmptyGeneratedResponseError(params.speaker.name, { localInterceptionReported: true, reason: 'empty_content' });
   }
 
+  const addressedTargets = reconcileAddressedTargets(
+    generated.parsedEnvelope?.addressedTargets,
+    new Set(params.chat.memberIds.filter((memberId) => memberId !== params.speaker.id)),
+  );
+
   const msgEmotion = analyzeEmotion(generatedStoryResponse);
   updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
   const modelMediaDecision = generated.parsedEnvelope?.mediaDecision;
@@ -4288,12 +4337,11 @@ export async function generateSpeakerMessage(params: {
     worldInfluence: worldInfluenceSnapshot,
     runtimeBundle: runtimeBundleWithDiagnostics,
   });
-  const addressedTargets = generated.parsedEnvelope?.addressedTargets;
   const turnParameters = finishTurnParameters({
     captured: capturedTurnParameters,
     members: effectiveMembers,
-    addressedTargetIds: addressedTargets?.targetIds,
-    primaryAddressedTargetId: addressedTargets?.primaryTargetId,
+    addressedTargetIds: addressedTargets.targetIds,
+    primaryAddressedTargetId: addressedTargets.primaryTargetId,
     bubbleCount: generated.messageParts?.length || Math.max(1, 1 + (generated.extraMessages?.length || 0)),
   });
   if (structuredOutputTrace.policyHits.includes('structured_output:no_json_envelope')
@@ -4375,6 +4423,7 @@ export async function generateSpeakerMessage(params: {
     messageParts,
     emotion: getEmotion(params.speaker.id),
     parsedEnvelope: generated.parsedEnvelope,
+    addressedTargets,
     previousVisibleMessage: activeMessages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event').at(-1) || null,
     metadata: baseMetadata,
   });

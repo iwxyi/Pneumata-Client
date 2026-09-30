@@ -1188,6 +1188,36 @@ describe('chatEngine streaming preview', () => {
     expect(message.primaryAddressedTargetId).toBe('xutang');
   });
 
+  it('uses one validated addressed-target result for message metadata and turn parameters', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '程野，这件事你先说。',
+      addressedTargets: {
+        targetIds: ['chengye', 'not-a-member', 'chengye'],
+        primaryTargetId: 'not-a-member',
+        confidence: 0.9,
+        reason: '把话交给程野',
+      },
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const wenxi = buildCharacter('wenxi', '闻溪', {
+      memory: { longTerm: [], shortTermSummary: '', secrets: [], obsessions: [], tabooTopics: [], userMemories: [] },
+    });
+    const chengye = buildCharacter('chengye', '程野');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['wenxi', 'chengye'] }),
+      speaker: wenxi,
+      characters: [wenxi, chengye],
+      messages: [],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.addressedTargetIds).toEqual(['chengye']);
+    expect(message.primaryAddressedTargetId).toBe('chengye');
+  });
+
   it('allows a third-party floor guardian without pretending local text checks can judge its semantics', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
