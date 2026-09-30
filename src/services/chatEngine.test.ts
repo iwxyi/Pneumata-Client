@@ -1309,6 +1309,7 @@ describe('chatEngine streaming preview', () => {
     generateResponseMock
       .mockResolvedValueOnce(JSON.stringify({
         content: '（听完房东大姐那句“门不锁”，我把手边那张画到一半的草稿翻过来，沉默了几秒才抬头。）我觉得今晚这里像一盏灯。',
+        deliberationArtifacts: { claims: [{ text: '今晚这里像一盏灯。', reason: '回应审议主题', confidence: 0.7 }] },
         interactionHints: null,
         socialEventHints: null,
         conflictFocus: null,
@@ -1339,13 +1340,14 @@ describe('chatEngine streaming preview', () => {
       attempt: 1,
     }));
     expect(message.content).toContain('（听完房东大姐');
-    expect(message.metadata?.deliberationArtifacts).toBeFalsy();
+    expect(message.metadata?.deliberationArtifacts?.claims?.[0]?.text).toContain('今晚这里像一盏灯');
   });
 
   it('keeps and reports non-story drafts that include another character speaking inside one content field', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValueOnce(JSON.stringify({
       content: '这个结论我先放这儿：弱连接比合租更可行。资深北漂程序员: 我补一句，这个版本能跑就行。',
+      deliberationArtifacts: { claims: [{ text: '弱连接比合租更可行', reason: '提出判断', confidence: 0.7 }] },
       interactionHints: null,
       socialEventHints: null,
       conflictFocus: null,
@@ -2648,7 +2650,7 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('## Inner Life');
   });
 
-  it('keeps deliberative analysis replies that omit deliberation artifacts and reports the missing panel data once', async () => {
+  it('retries deliberative analysis replies that omit deliberation artifacts', async () => {
     generateResponseMock.mockReset();
     generateResponseMock
       .mockResolvedValueOnce(JSON.stringify({
@@ -2686,19 +2688,20 @@ describe('chatEngine streaming preview', () => {
       onLocalInterception,
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('Deliberation Artifact Retry');
     expect(onLocalInterception).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'analysis_artifacts_missing',
-      reason: '本轮回复做了审议动作，但模型没有返回结构化审议产物；消息已保留，面板不会新增审议产物。',
+      reason: '本轮回复做了审议动作，但模型没有返回结构化审议产物。',
     }));
     expect(message.content).toContain('半公共空间');
-    expect(message.metadata?.deliberationArtifacts).toBeFalsy();
+    expect(message.metadata?.deliberationArtifacts?.verdicts?.[0]?.text).toContain('半公共空间');
   });
 
   it('keeps analysis replies even when deliberation artifacts are absent', async () => {
     generateResponseMock.mockReset();
     const onChunk = vi.fn();
-    generateResponseMock.mockImplementationOnce(async (_api, _prompt, _messages, onRawChunk?: (chunk: string) => void) => {
+    generateResponseMock.mockImplementation(async (_api, _prompt, _messages, onRawChunk?: (chunk: string) => void) => {
       onRawChunk?.('{"content":"第一稿缺少结构化产物，但现在应该保留。"');
       return JSON.stringify({
         content: '第一稿缺少结构化产物，但现在应该保留。',
@@ -2727,9 +2730,9 @@ describe('chatEngine streaming preview', () => {
       onLocalInterception,
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(generateResponseMock).toHaveBeenCalledTimes(3);
     expect(generateResponseMock.mock.calls[0]?.[3]).toBeUndefined();
-    expect(onChunk).not.toHaveBeenCalled();
+    expect(onChunk).toHaveBeenCalled();
     expect(message.content).toContain('第一稿缺少结构化产物');
     expect(onLocalInterception).toHaveBeenCalledWith(expect.objectContaining({
       kind: 'analysis_artifacts_missing',
@@ -2800,9 +2803,20 @@ describe('chatEngine streaming preview', () => {
     generateResponseMock.mockReset();
     const onChunk = vi.fn();
     const onLocalInterception = vi.fn();
-    generateResponseMock.mockImplementationOnce(async (_api, _prompt, _messages, onRawChunk?: (chunk: string) => void) => {
-      onRawChunk?.('{"content":"设计师这个区分可以继续拆：被动热闹依赖低警惕边界，主动连接依赖明确邀请。"');
-      return '          ';
+    let blankAttempt = true;
+    generateResponseMock.mockImplementation(async (_api, _prompt, _messages, onRawChunk?: (chunk: string) => void) => {
+      if (blankAttempt) {
+        blankAttempt = false;
+        onRawChunk?.('{"content":"设计师这个区分可以继续拆：被动热闹依赖低警惕边界，主动连接依赖明确邀请。","deliberationArtifacts":{"claims":[{"text":"主动连接依赖明确邀请","reason":"拆分审议判断","confidence":0.7}]}}');
+        return '          ';
+      }
+      return JSON.stringify({
+        content: '设计师这个区分可以继续拆：被动热闹依赖低警惕边界，主动连接依赖明确邀请。',
+        deliberationArtifacts: { claims: [{ text: '主动连接依赖明确邀请', reason: '拆分审议判断', confidence: 0.7 }] },
+        interactionHints: null,
+        socialEventHints: null,
+        conflictFocus: null,
+      });
     });
     const analyst = buildCharacter('analyst', '资深北漂程序员');
     const designer = buildCharacter('designer', '刚毕业的设计师');
@@ -2834,7 +2848,7 @@ describe('chatEngine streaming preview', () => {
       onLocalInterception,
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
     expect(generateResponseMock.mock.calls[0]?.[0]).toMatchObject({
       provider: 'deepseek',
       model: 'deepseek-v4-flash',

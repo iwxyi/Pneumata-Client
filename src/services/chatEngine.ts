@@ -856,6 +856,10 @@ function buildSurfaceEchoRetryPrompt(basePrompt: string, priorAttempt: string, r
 - Return a fresh valid JSON object only.`;
 }
 
+function buildDeliberationArtifactRetryPrompt(basePrompt: string, moveType: string | undefined) {
+  return `${basePrompt}\n\n## Deliberation Artifact Retry\n- This is a structured analysis-room turn, and the planned move is ${moveType || 'deliberative'}.\n- Your previous draft had visible text but omitted the required deliberationArtifacts object. Retry the same turn; keep the visible reply natural, and return one complete JSON object containing content plus deliberationArtifacts.\n- The artifacts must represent the work actually done in the visible reply. Include at least one non-empty claims, evidence, issues, verdicts, or summary field when the move supports it; do not invent evidence that was not discussed.\n- Do not explain this protocol or mention the retry to the participants.`;
+}
+
 function buildStoryProtocolPrompt(basePrompt: string) {
   return `${basePrompt}
 
@@ -3565,7 +3569,7 @@ async function generateNonDuplicateResponse(params: {
         conversationMovePlan,
       }) : null;
       if (conversationMovePlan && analysisProtocolTrace && !analysisProtocolTrace.present && analysisProtocolTrace.expectedByMove) {
-        const reason = '本轮回复做了审议动作，但模型没有返回结构化审议产物；消息已保留，面板不会新增审议产物。';
+        const reason = '本轮回复做了审议动作，但模型没有返回结构化审议产物。';
         logDeveloperDiagnostic('chat-run:analysis-artifacts-missing', {
           chatId: params.chat.id,
           speakerId: params.speaker.id,
@@ -3583,6 +3587,10 @@ async function generateNonDuplicateResponse(params: {
           draft: evaluationResponse,
           reason,
         });
+        if (attempt < 2) {
+          prompt = buildDeliberationArtifactRetryPrompt(params.systemPrompt, conversationMovePlan.moveType);
+          continue;
+        }
       } else if (conversationMovePlan && analysisProtocolTrace?.present) {
         const counts = countDeliberationArtifacts(generated.parsedEnvelope?.deliberationArtifacts);
         const reason = `本轮回复返回了结构化审议产物：主张 ${counts.claims}、证据 ${counts.evidence}、质询 ${counts.issues}、裁决 ${counts.verdicts}、总结 ${counts.summaries}；消息提交后会写入审议面板。`;
