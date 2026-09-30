@@ -1188,6 +1188,40 @@ describe('chatEngine streaming preview', () => {
     expect(message.primaryAddressedTargetId).toBe('xutang');
   });
 
+  it('uses an explicit reply-worthy interaction target when addressedTargets is omitted', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '博远，别把这件事一笑带过。你先说清楚。',
+      addressedTargets: null,
+      interactionHints: {
+        primary: {
+          targetId: 'boyuan',
+          kind: 'challenge',
+          tone: 'annoyed',
+          intensity: 3,
+          confidence: 0.9,
+          evidenceText: '别把这件事一笑带过',
+          reason: '明确要求博远回应',
+        },
+        secondary: [],
+      },
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mira = buildCharacter('mira', '米拉');
+    const boyuan = buildCharacter('boyuan', '博远');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['mira', 'boyuan'] }),
+      speaker: mira,
+      characters: [mira, boyuan],
+      messages: [],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.addressedTargetIds).toEqual(['boyuan']);
+    expect(message.primaryAddressedTargetId).toBe('boyuan');
+  });
+
   it('uses one validated addressed-target result for message metadata and turn parameters', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({

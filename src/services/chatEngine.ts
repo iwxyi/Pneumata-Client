@@ -7,7 +7,7 @@ import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionGe
 import type { MemoryItem } from './memoryTypes';
 import { getPreferredAIProfile, inferTextInputCapabilities, isAIProfileUsable } from '../types/settings';
 import type { AddressedTargetHintEnvelope, ConflictFocusPayload, InteractionEventPayload, SocialEventHintEnvelope } from '../types/runtimeEvent';
-import { normalizeInteractionHintCollection, normalizeInteractionHintPayload, normalizeSocialEventHints } from '../types/runtimeEvent';
+import { isReplyWorthyInteractionKind, normalizeInteractionHintCollection, normalizeInteractionHintPayload, normalizeSocialEventHints } from '../types/runtimeEvent';
 import { generateResponse } from './aiClient';
 import { buildSystemPromptWithContext, buildPromptAssemblyWithContext, buildChatMessages, buildPromptMemoryTrace, buildPromptCharacterMindTrace, type PromptAssemblyWithContext, type PromptCharacterMindTrace, type PromptMemoryTrace } from './promptBuilder';
 import { buildEngineAwarePrompt } from './promptContextAssembler';
@@ -90,10 +90,17 @@ type ReconciledAddressedTargets = {
 function reconcileAddressedTargets(
   envelope: AddressedTargetHintEnvelope | null | undefined,
   validTargetIds: ReadonlySet<string>,
+  interactionHints: InteractionEventPayload[] = [],
 ): ReconciledAddressedTargets {
-  const targetIds = Array.from(new Set((envelope?.targetIds || []).filter((id): id is string => (
+  const explicitTargetIds = Array.from(new Set((envelope?.targetIds || []).filter((id): id is string => (
     typeof id === 'string' && id.trim().length > 0 && validTargetIds.has(id)
   ))));
+  const targetIds = explicitTargetIds.length
+    ? explicitTargetIds
+    : Array.from(new Set(interactionHints
+      .filter((hint) => isReplyWorthyInteractionKind(hint.kind))
+      .map((hint) => hint.targetId)
+      .filter((id): id is string => typeof id === 'string' && validTargetIds.has(id))));
   const primaryTargetId = typeof envelope?.primaryTargetId === 'string'
     && targetIds.includes(envelope.primaryTargetId)
     ? envelope.primaryTargetId
@@ -4284,6 +4291,7 @@ export async function generateSpeakerMessage(params: {
   const addressedTargets = reconcileAddressedTargets(
     generated.parsedEnvelope?.addressedTargets,
     new Set(params.chat.memberIds.filter((memberId) => memberId !== params.speaker.id)),
+    normalizeInteractionHintCollection(generated.parsedEnvelope?.interactionHints || null, params.speaker.id, generated.fullResponse || generated.rawResponse || ''),
   );
 
   const msgEmotion = analyzeEmotion(generatedStoryResponse);

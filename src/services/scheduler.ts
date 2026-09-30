@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import { isReplyWorthyInteractionKind } from '../types/runtimeEvent';
 import { extractKeywords, calculateTopicRelevance } from './topicExtractor';
 import { getRelationshipWeight } from './relationshipEngine';
 import { applyDriftToBehavior } from './personalityDrift';
@@ -187,8 +188,6 @@ type ReplyWorthyInteractionHint = {
   kind?: string | null;
 };
 
-const REPLY_WORTHY_INTERACTION_KINDS = new Set(['challenge', 'probe', 'mock', 'dismiss', 'boundary', 'apologize']);
-
 function getReplyWorthyInteractionTargetIds(message: Message, characters: AICharacter[]) {
   const candidate = message as Message & {
     interactionHint?: ReplyWorthyInteractionHint | null;
@@ -199,7 +198,7 @@ function getReplyWorthyInteractionTargetIds(message: Message, characters: AIChar
     ...(Array.isArray(candidate.interactionHints) ? candidate.interactionHints : []),
   ].filter((hint): hint is ReplyWorthyInteractionHint => Boolean(hint));
   return hints
-    .filter((hint) => REPLY_WORTHY_INTERACTION_KINDS.has(String(hint.kind || '')))
+    .filter((hint) => isReplyWorthyInteractionKind(hint.kind))
     .map((hint) => hint.targetId)
     .filter((targetId, index, array): targetId is string => Boolean(targetId) && array.indexOf(targetId) === index)
     .filter((targetId) => targetId !== message.senderId && characters.some((character) => character.id === targetId));

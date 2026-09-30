@@ -43,6 +43,16 @@ export type InteractionKind =
   | 'boundary'
   | 'side_comment';
 
+/**
+ * These interaction kinds create a plausible reply obligation in a live
+ * conversation. This is a structured model signal, not a text/keyword guess.
+ */
+const REPLY_WORTHY_INTERACTION_KINDS: ReadonlySet<string> = new Set(['challenge', 'probe', 'mock', 'dismiss', 'boundary', 'apologize']);
+
+export function isReplyWorthyInteractionKind(kind: InteractionKind | string | null | undefined) {
+  return REPLY_WORTHY_INTERACTION_KINDS.has(String(kind || ''));
+}
+
 export interface ModelRelationshipAssessment {
   delta: {
     warmth: number;
