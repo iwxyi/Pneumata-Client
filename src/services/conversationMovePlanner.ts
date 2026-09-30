@@ -4,6 +4,7 @@ import type { Message } from '../types/message';
 import { getRelationshipWeight } from './relationshipEngine';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
 import type { SpeakerScoreBreakdown } from './speakerScoring';
+import type { PendingReplyContext } from './scheduler';
 
 export type ConversationMoveType =
   | 'react_lightly'
@@ -47,27 +48,6 @@ function isAnalysisRoom(chat: GroupChat) {
   return resolveSessionFamilyKey(chat) === 'analysis';
 }
 
-function isQuestionLike(text: string) {
-  return /[?？]|吗|么|为什么|怎么|如何|能不能|会不会|是不是|怎么办|凭什么|难道/.test(text);
-}
-
-function isOpenQuestion(text: string) {
-  return isQuestionLike(text) && !/(哈哈|笑死|不是吧)$/.test(text.trim());
-}
-
-function isExplicitlyAddressedToSpeaker(text: string, speaker: AICharacter) {
-  const names = [speaker.name, speaker.id].filter(Boolean);
-  return names.some((name) => text.includes(name));
-}
-
-function isAgreementOpener(text: string) {
-  return /^(这句|这话|这点|这个|他说得|说得|讲得|我认|朕认|我也认|我也接|我接|我站|我同意|同意|赞同|确实|没错|不错|不差|对[，,。 ]|嗯|是这个理|有道理|补得对|说到点子上|稳当|能用|说得好|说得在理|太准|太真实|就是|.*起得好|.*有画面感)/.test(text.trim());
-}
-
-function hasCounterMove(text: string) {
-  return /(但|不过|可|只是|问题是|先别|未必|不对|不该|不能|凭什么|反过来|前提是|除非|代价|风险|漏洞|误区|我不认|朕不认|不见得|未必如此|倒要问)/.test(text);
-}
-
 function normalizeTopicPhrase(text: string) {
   const quoted = text.match(/[“"]([^”"]{2,16})[”"]/);
   if (quoted?.[1]) return quoted[1];
@@ -79,31 +59,15 @@ function normalizeTopicPhrase(text: string) {
   return compact.at(-1) || '';
 }
 
-function findUnresolvedQuestion(messages: Message[], speaker: AICharacter, chat: GroupChat) {
-  const recent = visibleMessages(messages).slice(-8);
-  const isGroup = chat.type === 'group';
-  for (let index = recent.length - 1; index >= 0; index -= 1) {
-    const message = recent[index];
-    if (message.senderId === speaker.id) continue;
-    if (!isOpenQuestion(message.content)) continue;
-    if (isGroup && message.type === 'ai' && !isExplicitlyAddressedToSpeaker(message.content, speaker)) continue;
-    const later = recent.slice(index + 1);
-    const answered = later.some((item) => item.type === 'ai' && item.senderId !== message.senderId && item.content.length >= 24 && !isAgreementOpener(item.content));
-    if (!answered) return message;
-  }
-  return null;
-}
-
 function findPriorDroppedPoint(messages: Message[], latestId?: string) {
   const recent = visibleMessages(messages).slice(-10, -2);
   const candidates = recent
     .filter((message) => message.id !== latestId && message.content.length >= 36)
-    .filter((message) => isOpenQuestion(message.content) || /但|不过|反过来|问题|成本|边界|风险|前提|如果|怎么办/.test(message.content));
+    .filter((message) => Boolean(
+      message.metadata?.turnParameters?.plan?.target
+      || message.metadata?.deliberationArtifacts?.issues?.length,
+    ));
   return candidates.at(-1) || null;
-}
-
-function agreementEchoCount(messages: Message[]) {
-  return recentAiMessages(messages).slice(-6).filter((message) => isAgreementOpener(message.content) && !hasCounterMove(message.content)).length;
 }
 
 function repeatedPhraseCount(messages: Message[]) {
@@ -191,17 +155,48 @@ function chooseDefaultMove(chat: GroupChat, speaker: AICharacter, latest: Messag
   return latest?.type === 'user' ? 'add_personal_angle' : 'react_lightly';
 }
 
+function stableBucket(value: string) {
+  let hash = 2166136261;
+  for (const char of value) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash >>> 0) % 100;
+}
+
+/**
+ * A casual group turn is not automatically a reply to the immediately
+ * preceding speaker. Pick an older live thread on some turns so the room can
+ * braid voices instead of producing a chain of acknowledgement echoes.
+ * Explicit/pending turns are resolved before this helper is consulted.
+ */
+function chooseAmbientThread(messages: Message[], speaker: AICharacter) {
+  const visible = visibleMessages(messages);
+  const recentAi = visible.filter((message) => message.type === 'ai');
+  if (recentAi.length < 5) return null;
+  const latest = visible.at(-1);
+  if (!latest || latest.type !== 'ai') return null;
+  const candidates = recentAi
+    .slice(0, -1)
+    .filter((message) => message.senderId !== speaker.id)
+    .slice(-5);
+  if (!candidates.length) return null;
+  // Keep the choice irregular but reproducible for the same transcript.
+  if (stableBucket(`${speaker.id}|${latest.id}|${recentAi.length}`) >= 38) return null;
+  const index = stableBucket(`${latest.id}|${speaker.id}|thread`) % candidates.length;
+  return candidates[index] || null;
+}
+
 export function planConversationMove(params: {
   chat: GroupChat;
   speaker: AICharacter;
   messages: Message[];
   speakerScore?: SpeakerScoreBreakdown | null;
+  pendingReplyContext?: PendingReplyContext | null;
 }): ConversationMovePlan {
   const messages = visibleMessages(params.messages);
   const latest = messages.at(-1) || null;
   const analysis = isAnalysisRoom(params.chat);
-  const unresolvedQuestion = analysis ? null : findUnresolvedQuestion(messages, params.speaker, params.chat);
-  const echoCount = analysis ? 0 : agreementEchoCount(messages);
   const repeatedCount = analysis ? 0 : repeatedPhraseCount(messages);
   const priorDroppedPoint = analysis ? null : findPriorDroppedPoint(messages, latest?.id);
   const deliberationArtifacts = analysis ? summarizeRecentDeliberationArtifacts(messages) : null;
@@ -209,19 +204,19 @@ export function planConversationMove(params: {
   const isUnspokenBreakIn = scoreReasons.includes('unspoken_member');
   const selectedDespiteSilence = scoreReasons.includes('inner:stay_silent');
 
-  // A direct unresolved question creates a stronger conversational obligation
-  // than rotation pressure. Treating the selected addressee as a generic
-  // break-in is what allowed evasive hand-backs such as "you talk, I'm listening".
-  if (unresolvedQuestion) {
+  const pendingReply = params.pendingReplyContext?.targetIds.includes(params.speaker.id)
+    ? messages.find((message) => message.id === params.pendingReplyContext?.sourceMessageId)
+    : null;
+  if (pendingReply) {
     return {
       speakerId: params.speaker.id,
-      targetMessageId: unresolvedQuestion.id,
-      targetActorId: unresolvedQuestion.senderId,
-      targetClaimText: unresolvedQuestion.content.slice(0, 120),
+      targetMessageId: pendingReply.id,
+      targetActorId: pendingReply.senderId,
+      targetClaimText: pendingReply.content.slice(0, 120),
       moveType: 'answer_unresolved_question',
-      socialPosture: chooseSocialPosture(params.speaker, unresolvedQuestion.senderId),
-      reason: 'unresolved_question',
-      confidence: 0.86,
+      socialPosture: chooseSocialPosture(params.speaker, pendingReply.senderId),
+      reason: 'pending_direct_address',
+      confidence: params.pendingReplyContext?.strength === 'strong' ? 0.96 : 0.82,
     };
   }
 
@@ -234,7 +229,7 @@ export function planConversationMove(params: {
       targetMessageId: target?.id,
       targetActorId: target?.senderId,
       targetClaimText: target?.content.slice(0, 120),
-      moveType: echoCount >= 2 || assertive
+      moveType: repeatedCount >= 3 || assertive
         ? 'counterexample'
         : proactive
           ? 'name_tradeoff'
@@ -311,32 +306,50 @@ export function planConversationMove(params: {
     }
   }
 
-  if (analysis && (echoCount >= 2 || repeatedCount >= 3)) {
+  if (analysis && repeatedCount >= 3) {
     const target = latest || priorDroppedPoint || undefined;
     return {
       speakerId: params.speaker.id,
       targetMessageId: target?.id,
       targetActorId: target?.senderId,
       targetClaimText: target?.content.slice(0, 120),
-      moveType: repeatedCount >= 3 ? 'add_boundary_condition' : 'ask_evidence',
+      moveType: 'add_boundary_condition',
       socialPosture: chooseSocialPosture(params.speaker, target?.senderId),
-      reason: repeatedCount >= 3 ? 'repeated_topic_phrase' : 'agreement_echo',
+      reason: 'repeated_topic_phrase',
       confidence: 0.74,
     };
   }
 
-  if (!analysis && echoCount >= 3) {
+  if (!analysis && repeatedCount >= 3) {
     const target = priorDroppedPoint || latest || undefined;
     return {
       speakerId: params.speaker.id,
       targetMessageId: target?.id,
       targetActorId: target?.senderId,
       targetClaimText: target?.content.slice(0, 120),
-      moveType: repeatedCount >= 3 ? 'shift_topic_softly' : 'react_lightly',
+      moveType: 'shift_topic_softly',
       socialPosture: chooseSocialPosture(params.speaker, target?.senderId),
-      reason: 'chat_echo_loop',
+      reason: 'repeated_topic_phrase',
       confidence: 0.78,
     };
+  }
+
+  if (!analysis && params.chat.type === 'group' && repeatedCount < 2) {
+    const ambientThread = chooseAmbientThread(messages, params.speaker);
+    if (ambientThread) {
+      return {
+        speakerId: params.speaker.id,
+        targetMessageId: ambientThread.id,
+        targetActorId: ambientThread.senderId,
+        targetClaimText: ambientThread.content.slice(0, 120),
+        moveType: (params.speaker.behavior?.proactivity || 0) >= 58
+          ? 'add_personal_angle'
+          : 'bring_back_prior_point',
+        socialPosture: chooseSocialPosture(params.speaker, ambientThread.senderId),
+        reason: 'ambient_thread_braid',
+        confidence: 0.61,
+      };
+    }
   }
 
   if (priorDroppedPoint && analysis) {

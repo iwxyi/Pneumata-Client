@@ -145,6 +145,10 @@ function memory(overrides: Partial<MemoryItem> = {}): MemoryItem {
     createdAt: 1,
     updatedAt: 1,
     archivedAt: 10,
+    subjectOwner: 'target',
+    privacyRisk: 0.55,
+    visibility: 'pair_private',
+    validity: 'active',
     ...overrides,
   };
 }
@@ -254,10 +258,10 @@ describe('buildSystemPromptWithContext', () => {
     });
     const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [], new Map([[character.id, character]]));
 
-    expect(prompt).toContain('A person has more than one source of reaction');
-    expect(prompt).toContain('ordinary life, taste, fatigue, appetite, money, habits, relationships, or ignorance');
-    expect(prompt).toContain('Do not manufacture a profession-shaped example');
-    expect(prompt).toContain('Even when the topic overlaps your job or expertise');
+    expect(prompt).toContain('## Character Grounding');
+    expect(prompt).toContain('These are causes of attention and judgment');
+    expect(prompt).toContain('not facts that every reply must mention');
+    expect(prompt).not.toContain('## Persona Activation');
   });
 
   it('injects core desire and fear as private deeper motivation instead of loose profile data', () => {
@@ -274,13 +278,12 @@ describe('buildSystemPromptWithContext', () => {
 
     const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [], new Map([[character.id, character]]));
 
-    expect(prompt).toContain('## Deeper Motivation');
-    expect(prompt).toContain('Core desire: 想被当作真正可靠的人');
-    expect(prompt).toContain('Core fear: 害怕别人发现自己其实经常没有把握');
-    expect(prompt).toContain('Social mask: 先开玩笑');
-    expect(prompt).toContain('Values: 可靠, 体面');
-    expect(prompt).toContain('Interaction habits: 先试探对方是否愿意认真听');
-    expect(prompt).toContain('Use this profile as private context');
+    expect(prompt).toContain('## Core Character Continuity');
+    expect(prompt).toContain('Desires: 想被当作真正可靠的人');
+    expect(prompt).toContain('Fears and sensitivities: 害怕别人发现自己其实经常没有把握');
+    expect(prompt).toContain('Stable self: 穿搭博主 / 先开玩笑');
+    expect(prompt).toContain('Voice and habits: 轻快 / 先试探对方是否愿意认真听');
+    expect(prompt).toContain('This projection is inner context, not a checklist');
   });
 
   it('lets the ordinary group turn directive own broad natural-chat length guidance', () => {
@@ -312,7 +315,7 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('Do not force tenderness or agreement');
     expect(prompt).toContain('Poetry, reassurance, a farewell, or silence can all be right');
     expect(prompt).toContain('actual closeness, avoidance, refusal, uncertainty, or decision to end the exchange');
-    expect(prompt).toContain('second independent bubble');
+    expect(prompt).not.toContain('second independent bubble');
   });
 
   it('projects AI private thread counterpart turns as named user-side context', () => {
@@ -424,7 +427,7 @@ describe('buildSystemPromptWithContext', () => {
     expect(trace.targetReason).toBe('来自上一条消息的明确指向');
   });
 
-  it('turns a current relationship ledger into mind continuity and recall cues', () => {
+  it('turns a current relationship ledger into stance without exposing semantic evidence as a recall cue', () => {
     const speaker = buildCharacter({ id: 'char-a', name: '喜羊羊' });
     const target = buildCharacter({ id: 'char-b', name: '灰太狼' });
     const chat = {
@@ -460,7 +463,7 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('## Character Mind Projection');
     expect(prompt).toContain('Stance toward 灰太狼');
     expect(prompt).toContain('更容易靠近、维护或给对方留余地');
-    expect(prompt).toContain('互相信任：会替对方留余地');
+    expect(prompt).not.toContain('互相信任：会替对方留余地');
   });
 
   it('does not render legacy influence state as a separate visible prompt block', () => {
@@ -811,7 +814,7 @@ describe('buildSystemPromptWithContext', () => {
       character,
       directChat,
       0,
-      [buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '你还记得阿远吗？' })],
+        [buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '你还记得阿远吗？', metadata: { runtimeDecision: { directorIntent: { source: 'user_message', beatType: 'answer', targetActorIds: ['char-b'], userGuidance: { kind: 'direct_reply', rawText: '你还记得阿远吗？', actorIds: ['char-a'], mentionedActorIds: ['char-b'], focusText: '阿远', beatType: 'answer', pressure: 0.7, maxTurns: 1 } } } } })],
       new Map([
         [character.id, character],
         ['char-b', buildCharacter({ id: 'char-b', name: '阿远' })],
@@ -820,7 +823,7 @@ describe('buildSystemPromptWithContext', () => {
     const trace = buildPromptMemoryTrace(
       character,
       directChat,
-      [buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '你还记得阿远吗？' })],
+      [buildMessage({ type: 'user', senderId: 'user', senderName: '用户', content: '你还记得阿远吗？', metadata: { runtimeDecision: { directorIntent: { source: 'user_message', beatType: 'answer', targetActorIds: ['char-b'], userGuidance: { kind: 'direct_reply', rawText: '你还记得阿远吗？', actorIds: ['char-a'], mentionedActorIds: ['char-b'], focusText: '阿远', beatType: 'answer', pressure: 0.7, maxTurns: 1 } } } } })],
       new Map([
         [character.id, character],
         ['char-b', buildCharacter({ id: 'char-b', name: '阿远' })],
@@ -1143,6 +1146,8 @@ describe('buildSystemPromptWithContext', () => {
           evidenceText: '阿远没有公开追问。',
           updatedAt: 50,
           recency: 0.9,
+          privacyRisk: 0.05,
+          visibility: 'public_safe',
         }),
       ],
     });
@@ -1578,7 +1583,7 @@ describe('buildSystemPromptWithContext', () => {
     const chat = { ...buildChat(), memberIds: ['char-a', 'char-b', 'char-c'] };
     const trace = buildPromptMemoryTrace(speaker, chat, [
       buildMessage({ id: 'ai-latest', senderId: 'char-b', senderName: '阿远', content: '继续刚才那个梗。', timestamp: 2 }),
-      buildMessage({ id: 'user-guidance', type: 'god', senderId: 'user', senderName: '开发者', content: '苏苏说说你怎么看林北', timestamp: 3 }),
+      buildMessage({ id: 'user-guidance', type: 'god', senderId: 'user', senderName: '开发者', content: '苏苏说说你怎么看林北', timestamp: 3, metadata: { runtimeDecision: { directorIntent: { source: 'user_message', beatType: 'answer', targetActorIds: ['char-a'], userGuidance: { kind: 'direct_reply', rawText: '苏苏说说你怎么看林北', actorIds: ['char-a'], mentionedActorIds: ['char-c'], focusText: '你怎么看林北', beatType: 'answer', pressure: 0.7, maxTurns: 1 } } } } }),
     ], new Map([
       [speaker.id, speaker],
       [latestSpeaker.id, latestSpeaker],
@@ -1691,7 +1696,7 @@ describe('buildSystemPromptWithContext', () => {
     const chat = { ...buildChat(), memberIds: ['char-a', 'char-b', 'char-c'] };
     const trace = buildPromptMemoryTrace(sender, chat, [
       buildMessage({ id: 'ai-latest', senderId: 'char-b', senderName: '懒羊羊', content: '我想继续聊零食。', timestamp: 2 }),
-      buildMessage({ id: 'user-image', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 3 }),
+      buildMessage({ id: 'user-image', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 3, metadata: { runtimeDecision: { directorIntent: { source: 'user_message', beatType: 'answer', targetActorIds: ['char-a'], userGuidance: { kind: 'media_request', rawText: '美羊羊发个灰太狼证件照的图片', actorIds: ['char-a'], mentionedActorIds: ['char-c'], focusText: '灰太狼证件照', beatType: 'answer', pressure: 0.9, maxTurns: 1, mediaRequest: { kind: 'image', subjectActorIds: ['char-c'], subjectText: '灰太狼', actionText: '发证件照' } } } } } }),
     ], new Map([
       [sender.id, sender],
       [latestSpeaker.id, latestSpeaker],
@@ -1699,7 +1704,7 @@ describe('buildSystemPromptWithContext', () => {
     ]));
     const prompt = buildSystemPromptWithContext(sender, chat, 0, [
       buildMessage({ id: 'ai-latest', senderId: 'char-b', senderName: '懒羊羊', content: '我想继续聊零食。', timestamp: 2 }),
-      buildMessage({ id: 'user-image', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 3 }),
+      buildMessage({ id: 'user-image', type: 'god', senderId: 'user', senderName: '开发者', content: '美羊羊发个灰太狼证件照的图片', timestamp: 3, metadata: { runtimeDecision: { directorIntent: { source: 'user_message', beatType: 'answer', targetActorIds: ['char-a'], userGuidance: { kind: 'media_request', rawText: '美羊羊发个灰太狼证件照的图片', actorIds: ['char-a'], mentionedActorIds: ['char-c'], focusText: '灰太狼证件照', beatType: 'answer', pressure: 0.9, maxTurns: 1, mediaRequest: { kind: 'image', subjectActorIds: ['char-c'], subjectText: '灰太狼', actionText: '发证件照' } } } } } }),
     ], new Map([
       [sender.id, sender],
       [latestSpeaker.id, latestSpeaker],
@@ -1735,6 +1740,8 @@ describe('buildSystemPromptWithContext', () => {
         salience: 0.95,
         confidence: 0.92,
         recency: 0.9,
+        privacyRisk: 0.05,
+        visibility: 'public_safe',
       })],
     });
     const target = buildCharacter({ id: leakyTargetId, name: '灰太狼' });

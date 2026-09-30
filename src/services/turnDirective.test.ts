@@ -163,9 +163,9 @@ describe('turnDirective', () => {
     expect(directive?.relationshipEffect).toContain('relational consequence');
     expect(directive?.situationalConstraints).toEqual([]);
     const prompt = buildTurnDirectivePrompt(directive);
-    expect(prompt).toContain('Character drive is the primary behavior decision');
-    expect(prompt).toContain('Attention target for interpretation only: 陈越');
-    expect(prompt).toContain('not an instruction to visibly address them by name');
+    expect(prompt).toContain('Read the exchange from inside this person');
+    expect(prompt).toContain('live attention is on 陈越');
+    expect(prompt).toContain('only if saying it performs a real social action');
     expect(prompt).not.toContain('Active target: 陈越');
   });
 
@@ -245,8 +245,40 @@ describe('turnDirective', () => {
 
     expect(prompt).toContain('不让朋友在众人面前被当成可牺牲的那一个');
     expect(prompt).toContain('先看谁在替别人吞下代价');
-    expect(prompt).toContain('Relationship action: protect');
-    expect(prompt).toContain('Character drive is the primary behavior decision');
+    expect(prompt).toContain('Relationship pull: protect');
+    expect(prompt).toContain('Personal meaning:');
+  });
+
+  it('turns shared history into subjective meaning instead of a required-move checklist', () => {
+    const directive = buildTurnDirective({
+      chat: chat(),
+      speaker: character('rui', '瑞瑞', {
+        speakingStyle: '真正担心时会先挖苦一句。',
+        coreProfile: { coreDesire: '确认朋友没在硬撑', coreFear: '把关心说得太肉麻' },
+        relationships: [{
+          characterId: 'chen',
+          warmth: 72,
+          trust: 68,
+          attachment: 55,
+          note: '记得陈越上次嘴上说没事，后来一个人在楼下坐到天亮。',
+        }],
+      }),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message({ content: '没事，你们先睡吧。' })],
+      styleProfile: 'casual_room',
+      intent,
+      innerLife,
+      conversationMovePlan: movePlan,
+      turnPlan,
+    });
+    const prompt = buildTurnDirectivePrompt(directive);
+
+    expect(prompt).toContain('一个人在楼下坐到天亮');
+    expect(prompt).toContain('what this moment means to this person');
+    expect(prompt).toContain('what they would rather not say');
+    expect(prompt).toContain('one available move, not an obligation');
+    expect(prompt).not.toContain('make it visible as');
+    expect(prompt).not.toContain('Required state change:');
   });
 
   it('keeps user decision pressure ahead of AI-to-AI logistics', () => {
@@ -351,9 +383,9 @@ describe('turnDirective', () => {
     expect(prompt).not.toContain('impulse:');
     expect(prompt).not.toContain('pressure:');
     expect(prompt).not.toContain('policyHits');
-    expect(prompt).toContain('do not sprawl');
-    expect(prompt).toContain('clean correct statement');
-    expect(prompt).toContain('performance of depth');
+    expect(prompt).toContain('Keep only essential constraints');
+    expect(prompt).toContain('expose internal fields');
+    expect(prompt).toContain('not automatically the only target');
   });
 
   it('folds long-run and name-addressing drift into situational constraints', () => {

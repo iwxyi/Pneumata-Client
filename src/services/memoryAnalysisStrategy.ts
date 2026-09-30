@@ -1,4 +1,4 @@
-import type { MemoryCandidate, MemoryDecision, MemoryItem, MemorySourceType, MemorySubjectOwner, MemoryValidity, MemoryVisibility } from './memoryTypes';
+import type { MemoryCandidate, MemoryDecision, MemoryItem, MemorySharedPhraseDescriptor, MemorySourceType, MemorySubjectOwner, MemoryValidity, MemoryVisibility } from './memoryTypes';
 
 export const LLM_MEMORY_ANALYSIS_VERSION = 'llm-v2';
 export const LLM_MEMORY_ANALYSIS_TRACKED_SOURCE_EVENT_LIMIT = 32;
@@ -42,6 +42,7 @@ export interface LlmAnalyzedMemoryItem {
   validity?: MemoryValidity;
   semanticTags?: string[];
   associations?: string[];
+  sharedPhrase?: MemorySharedPhraseDescriptor;
 }
 
 export interface LlmMemoryAnalysisResult {
@@ -147,8 +148,18 @@ function defaultPrivacyRisk(visibility: MemoryVisibility, kind: MemoryCandidate[
   return Math.min(1, base + kindRisk);
 }
 
-function isContractPlaceholderText(value: string) {
-  return /(<[^>]+>|客观角度|关系角度|情绪后效|群体发展|角色主观角度|角色对某人的长期印象|角色成长|事情如何发展|局势如何变化|某人对某人|如何变化|这段经历留下|可展示的长期记忆结论)/.test(value);
+function normalizeSharedPhrase(value: unknown): MemorySharedPhraseDescriptor | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const raw = value as Record<string, unknown>;
+  const text = typeof raw.text === 'string' ? raw.text.trim() : '';
+  const kinds: MemorySharedPhraseDescriptor['kind'][] = ['pet_name', 'inside_joke', 'promise_line', 'comfort_line', 'confession_line', 'secret_code', 'other'];
+  const visibilities: MemorySharedPhraseDescriptor['visibility'][] = ['private', 'between_actors', 'public_hint'];
+  if (!text || !kinds.includes(raw.kind as MemorySharedPhraseDescriptor['kind']) || !visibilities.includes(raw.visibility as MemorySharedPhraseDescriptor['visibility'])) return undefined;
+  return {
+    text: text.slice(0, 96),
+    kind: raw.kind as MemorySharedPhraseDescriptor['kind'],
+    visibility: raw.visibility as MemorySharedPhraseDescriptor['visibility'],
+  };
 }
 
 function normalizeAnalyzedItem(item: Record<string, unknown>, lens?: MemoryExperienceLens): LlmAnalyzedMemoryItem {
@@ -163,7 +174,7 @@ function normalizeAnalyzedItem(item: Record<string, unknown>, lens?: MemoryExper
     text,
     confidence: typeof item.confidence === 'number' ? item.confidence : 0.78,
     lens: normalizeLens(item.lens) || lens,
-    decision: isContractPlaceholderText(text) ? 'ignore' : normalizeDecision(item.decision),
+    decision: normalizeDecision(item.decision),
     subjectOwner: normalizeSubjectOwner(item.subjectOwner) || defaultSubjectOwner(scope, lens),
     sourceType: normalizeSourceType(item.sourceType) || 'distilled',
     privacyRisk: normalizePrivacyRisk(item.privacyRisk) ?? defaultPrivacyRisk(visibility, kind),
@@ -171,6 +182,7 @@ function normalizeAnalyzedItem(item: Record<string, unknown>, lens?: MemoryExper
     validity: normalizeValidity(item.validity) || 'active',
     semanticTags: normalizeStringList(item.semanticTags),
     associations: normalizeStringList(item.associations, 12),
+    sharedPhrase: normalizeSharedPhrase(item.sharedPhrase),
   };
 }
 

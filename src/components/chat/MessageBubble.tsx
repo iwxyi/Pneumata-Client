@@ -7,6 +7,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
 import InsightsIcon from '@mui/icons-material/Insights';
+import TuneIcon from '@mui/icons-material/Tune';
 import RateReviewIcon from '@mui/icons-material/RateReview';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { Message, MessageAttachment } from '../../types/message';
@@ -18,6 +19,7 @@ import { rememberFailedAvatarUrl, resolveSafeAvatarSrc } from '../../utils/avata
 import { formatTimestamp } from '../../utils/format';
 import { MessageContent, NarrativeParagraphContent, PendingTypingDots } from './ChatMessageContent';
 import { VoicePlaybackBar } from './VoicePlaybackBar';
+import MessageParametersDialog from './MessageParametersDialog';
 import DebugChip from '../common/DebugChip';
 import AppSnackbar from '../common/AppSnackbar';
 import { CopyTextDialog } from '../common/CopyTextDialog';
@@ -141,6 +143,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
   const [viewerOpen, setViewerOpen] = useState(false);
   const [promptAttachment, setPromptAttachment] = useState<MessageAttachment | null>(null);
   const [promptDialogOpen, setPromptDialogOpen] = useState(false);
+  const [parametersDialogOpen, setParametersDialogOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const [suppressNativeTouchSelection, setSuppressNativeTouchSelection] = useState(false);
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
@@ -766,6 +769,10 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
           <ListItemIcon sx={{ minWidth: 32 }}><ContentCopyIcon fontSize="small" /></ListItemIcon>
           复制
         </MenuItem>
+        {developerMode && message.type === 'ai' && !pending ? <MenuItem onClick={() => { closeMenus(); setParametersDialogOpen(true); }}>
+          <ListItemIcon sx={{ minWidth: 32 }}><TuneIcon fontSize="small" /></ListItemIcon>
+          查看参数
+        </MenuItem> : null}
         {promptAttachment?.promptText ? (
           <MenuItem onClick={() => { closeMenus(); setPromptDialogOpen(true); }}>
             <ListItemIcon sx={{ minWidth: 32 }}><InsightsIcon fontSize="small" /></ListItemIcon>
@@ -830,6 +837,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
           </MenuItem>
         ) : null}
       </Menu>
+      {developerMode && parametersDialogOpen ? <MessageParametersDialog message={message} open onClose={() => setParametersDialogOpen(false)} /> : null}
       <Dialog open={promptDialogOpen && Boolean(promptAttachment)} onClose={closePromptDialog} maxWidth="sm" fullWidth>
         <DialogTitle>图片提示词</DialogTitle>
         <DialogContent sx={{ pt: 0.5 }}>

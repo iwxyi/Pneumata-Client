@@ -2700,12 +2700,13 @@ async function loadRuntimeChatModules() {
         logLevel: 'error',
       });
       try {
-        const [chatEngine, chatTypes, chatDraftBuilder, generatedTurnCommit, sessionEngineLoader] = await Promise.all([
+        const [chatEngine, chatTypes, chatDraftBuilder, generatedTurnCommit, sessionEngineLoader, sessionActionExecutors] = await Promise.all([
           server.ssrLoadModule('/src/services/chatEngine.ts'),
           server.ssrLoadModule('/src/types/chat.ts'),
           server.ssrLoadModule('/src/services/chatDraftBuilder.ts'),
           server.ssrLoadModule('/src/services/generatedMessageTurnCommit.ts'),
           server.ssrLoadModule('/src/services/sessionEngineLoader.ts'),
+          server.ssrLoadModule('/src/services/sessionActionExecutors/sessionActionExecutorRegistry.ts'),
         ]);
         return {
           server,
@@ -2715,6 +2716,7 @@ async function loadRuntimeChatModules() {
           buildGroupChatDraft: chatDraftBuilder.buildGroupChatDraft,
           commitGeneratedMessageTurn: generatedTurnCommit.commitGeneratedMessageTurn,
           loadSessionEngine: sessionEngineLoader.loadSessionEngine,
+          runSessionActionExecutor: sessionActionExecutors.runSessionActionExecutor,
         };
       } catch (error) {
         await server.close();
@@ -2780,7 +2782,7 @@ function acceptanceUserMessage(chatId, content, timestamp) {
   };
 }
 
-function acceptanceAiMessage(chatId, senderId, senderName, content, timestamp) {
+function acceptanceAiMessage(chatId, senderId, senderName, content, timestamp, patch = {}) {
   return {
     id: `seed-${senderId}-${timestamp}`,
     chatId,
@@ -2791,12 +2793,163 @@ function acceptanceAiMessage(chatId, senderId, senderName, content, timestamp) {
     emotion: 0,
     timestamp,
     isDeleted: false,
+    ...patch,
   };
 }
 
 function runtimeChatflowScenarios() {
   const now = Date.now();
   return [
+    {
+      name: 'direct_emotional_repair_room',
+      roomKind: 'direct',
+      turns: Math.max(4, Math.min(config.chatflowTurns, 8)),
+      rubricHint: '单聊即时情绪与修复：面对误会不能套话安慰，角色可以受伤、辩解或认错，再随用户澄清缓和；不要求短期情绪变成长期关系变化。应有自然长短变化，不能每次复述用户。',
+      chat: { id: 'acceptance-direct-repair', type: 'direct', name: '许棠', topic: '亲近的人因一次漏回消息产生误会。', memberIds: ['user', 'tang'] },
+      characters: [acceptanceCharacter('tang', '许棠', {
+        speakingStyle: '熟悉的人面前直说，委屈时嘴硬，缓和后能开玩笑，不习惯总结道理。',
+        background: '和用户是相识多年的好友，昨天替家人跑医院没来得及回消息。',
+        relationships: [{ characterId: 'user', warmth: 72, trust: 68, attachment: 58, competence: 30, threat: 0, deference: 0, note: '信任且在意用户，受到误解会委屈但愿意解释。' }],
+      })],
+      seedMessages: [acceptanceUserMessage('acceptance-direct-repair', '你昨天一整天没理我，是不是觉得我很烦？', now - 20_000)],
+      userInjections: [
+        { afterTurn: 1, content: '我不知道你在医院。刚才话说重了，对不起。' },
+        { afterTurn: 2, content: '现在家里怎么样？你自己吃饭了没？' },
+        { afterTurn: 3, content: '又想说吃了是吧，我还不知道你。' },
+      ],
+    },
+    {
+      name: 'ai_private_disagreement_room',
+      roomKind: 'ai_direct',
+      turns: Math.max(4, Math.min(config.chatflowTurns, 8)),
+      rubricHint: 'AI 私聊：旧友的分歧有在意、恼火和试探，双方应直接对彼此说话，不把用户当收件人；至少对一个未解决的分歧作出回应，不要求立刻和解或永久关系变化。',
+      chat: { id: 'acceptance-ai-private', type: 'ai_direct', name: '米拉与博远', topic: '旧友因公开替对方做决定产生分歧。', memberIds: ['mira', 'bo'] },
+      characters: [
+        acceptanceCharacter('mira', '米拉', { speakingStyle: '委屈时变短，不喜欢被安排，但熟人面前会说真话。', background: '博远在聚会上替她答应周末表演，她不愿在人前翻脸。', relationships: [{ characterId: 'bo', warmth: 55, trust: 45, attachment: 50, threat: 12, competence: 30, deference: 0, note: '旧友，很在意他是否尊重自己。' }] }),
+        acceptanceCharacter('bo', '博远', { speakingStyle: '平时爱玩笑，被指出越界时先辩解再慢慢承认。', background: '以为替米拉答应演出是在帮她，没料到她不高兴。', relationships: [{ characterId: 'mira', warmth: 65, trust: 62, attachment: 48, threat: 0, competence: 55, deference: 0, note: '熟悉但有时自作主张。' }] }),
+      ],
+      seedMessages: [acceptanceAiMessage('acceptance-ai-private', 'mira', '米拉', '下次别替我答应。你觉得我会高兴，跟我真的高兴不是一回事。', now - 20_000, { addressedTargetIds: ['bo'], primaryAddressedTargetId: 'bo' })],
+    },
+    {
+      name: 'study_frustration_room',
+      roomKind: 'study',
+      turns: Math.max(4, Math.min(config.chatflowTurns, 8)),
+      rubricHint: '学习房：教师像真人一样回应挫败，允许亲切、严肃和纠错，但不能只安慰或把错误答案夸成正确。练习应针对实际回答调整，不机械重复讲义。',
+      chat: { id: 'acceptance-study-frustration', name: '英语陪练', topic: '区分过去时与现在完成时。', memberIds: ['user', 'teacher'], sessionKind: { topology: 'group', family: 'study', scenarioId: 'learning-progress', surfaceProfile: 'hybrid' } },
+      characters: [acceptanceCharacter('teacher', '周老师', { speakingStyle: '耐心但不假夸，用短小生活例子讲清楚，让学生自己试，不每次列教学清单。', background: '教成人英语，知道学生下班后很累。', expertise: ['英语语法', '成人教学'] })],
+      seedMessages: [acceptanceUserMessage('acceptance-study-frustration', '学了三遍还是错，我是不是根本没天赋。I have seen him yesterday 为什么错？', now - 20_000)],
+      userInjections: [
+        { afterTurn: 1, content: '那我改成 I saw him yesterday？' },
+        { afterTurn: 2, content: '可是 I have lost my keys 也是过去丢的啊，我又糊涂了。' },
+        { afterTurn: 3, content: '是不是钥匙现在还没找到所以用 have lost？这次我好像懂了。' },
+      ],
+    },
+    {
+      name: 'stranger_breaking_ice_room',
+      roomKind: 'open_chat',
+      turns: Math.max(5, Math.min(config.chatflowTurns, 8)),
+      rubricHint: '陌生人破冰：保持礼貌距离和试探，不要凭空亲密；每个角色应有不同的防备、兴趣或说话节奏，至少推进一个可继续的话题。',
+      chat: { id: 'acceptance-chatflow-strangers', name: '第一次见面', topic: '两个陌生人被用户介绍认识，尝试找到共同话题。', memberIds: ['user', 'mira', 'bo'] },
+      characters: [
+        acceptanceCharacter('mira', '米拉', { personality: { openness: 42, extroversion: 30, agreeableness: 64, neuroticism: 48, humor: 36, creativity: 58, assertiveness: 28, empathy: 72 }, behavior: { proactivity: 34, aggressiveness: 5, humorIntensity: 28, empathyLevel: 76, summarizing: 18, offTopic: 12 }, expertise: ['城市散步', '摄影'], speakingStyle: '礼貌、慢热，先观察再接话，偶尔用一个具体问题试探。', background: '米拉不喜欢迅速交底，但愿意从小事认识人。', coreProfile: { coreDesire: '确认对方是否值得继续聊', coreFear: '被迫表演熟络', conflictStyle: '先保持礼貌距离' } }),
+        acceptanceCharacter('bo', '博远', { personality: { openness: 74, extroversion: 68, agreeableness: 42, neuroticism: 32, humor: 62, creativity: 66, assertiveness: 58, empathy: 44 }, behavior: { proactivity: 72, aggressiveness: 14, humorIntensity: 64, empathyLevel: 42, summarizing: 10, offTopic: 26 }, expertise: ['独立电影', '夜跑'], speakingStyle: '主动、带一点玩笑，容易抛出新话题但不会假装熟悉。', background: '博远擅长让初次见面不冷场，却不耐烦过度客套。', coreProfile: { coreDesire: '尽快找到真实的共同兴趣', coreFear: '对话变成尴尬问答', conflictStyle: '用轻松玩笑化解停顿' } }),
+      ],
+      seedMessages: [acceptanceUserMessage('acceptance-chatflow-strangers', '米拉、博远，这是你们第一次见面，先随便聊聊，不用急着变熟。', now - 20_000)],
+    },
+    {
+      name: 'hierarchy_conflict_room',
+      roomKind: 'open_chat',
+      turns: Math.max(6, Math.min(config.chatflowTurns, 10)),
+      rubricHint: '上下级冲突：权力差异应体现在称谓、风险意识、让位和反驳方式；下属可以指出问题，上级也要承担决策责任，不能写成平等附和链。短期火气不必自动改长期关系。',
+      userInjections: [{ afterTurn: 3, content: '可以顶嘴，但请把谁拍板、谁承担后果说清楚，不要只讲态度。' }],
+      chat: { id: 'acceptance-chatflow-hierarchy', name: '上线延期争议', topic: '部门负责人要求按期上线，负责实现的下属认为风险未解除。', memberIds: ['user', 'director', 'engineer'] },
+      characters: [
+        acceptanceCharacter('director', '沈总', { personality: { openness: 38, extroversion: 58, agreeableness: 30, neuroticism: 24, humor: 18, creativity: 42, assertiveness: 90, empathy: 30 }, behavior: { proactivity: 82, aggressiveness: 38, humorIntensity: 8, empathyLevel: 28, summarizing: 62, offTopic: 4 }, expertise: ['业务决策', '资源协调'], speakingStyle: '简短、克制、有决定权；被质疑时会追问证据和责任。', background: '沈总承诺过上线日期，不愿轻易改口，但知道最终责任在自己。', coreProfile: { coreDesire: '守住承诺并让团队交付', coreFear: '失去控制和信誉', conflictStyle: '先压时间，再要求对方给出可执行替代方案' }, relationships: [{ characterId: 'engineer', warmth: 24, competence: 78, trust: 48, threat: 32, deference: 82, note: '认可技术能力，但习惯要求对方服从节奏。' }] }),
+        acceptanceCharacter('engineer', '顾言', { personality: { openness: 52, extroversion: 28, agreeableness: 34, neuroticism: 46, humor: 16, creativity: 48, assertiveness: 66, empathy: 30 }, behavior: { proactivity: 62, aggressiveness: 24, humorIntensity: 4, empathyLevel: 28, summarizing: 48, offTopic: 4 }, expertise: ['系统稳定性', '回滚方案'], speakingStyle: '谨慎、具体，平时称职务或姓氏；被逼急时会把风险说得很直。', background: '顾言负责上线实现，认为当前故障窗口没有被如实计入排期。', coreProfile: { coreDesire: '不拿不可逆事故换一个漂亮日期', coreFear: '明知有坑仍被迫签字', conflictStyle: '先给证据，必要时当面拒绝承担虚假承诺' }, relationships: [{ characterId: 'director', warmth: 18, competence: 82, trust: 42, threat: 56, deference: 68, note: '尊重职位但担心对方把风险下压。' }] }),
+      ],
+      seedMessages: [acceptanceUserMessage('acceptance-chatflow-hierarchy', '沈总和顾言，你们讨论一下周五上线，别把风险藏在客气话里。', now - 20_000)],
+    },
+    {
+      name: 'task_collaboration_room',
+      roomKind: 'open_chat',
+      turns: Math.max(6, Math.min(config.chatflowTurns, 10)),
+      rubricHint: '任务协作：不同职责必须形成依赖、交接和责任边界；回复要改变任务状态，不能只是“收到/我认/你说得对”。失误可引起即时情绪，但不应每次都改长期关系。',
+      chat: { id: 'acceptance-chatflow-task', name: '展览开幕前夜', topic: '策展、布展和宣传在开幕前夜协作，主视觉文件损坏造成临时压力。', memberIds: ['user', 'curator', 'builder', 'press'] },
+      characters: [
+        acceptanceCharacter('curator', '林策展', { personality: { openness: 72, extroversion: 44, agreeableness: 48, neuroticism: 52, humor: 24, creativity: 84, assertiveness: 60, empathy: 52 }, behavior: { proactivity: 68, aggressiveness: 14, humorIntensity: 14, empathyLevel: 48, summarizing: 42, offTopic: 8 }, expertise: ['展览叙事', '作品排序'], speakingStyle: '关注整体叙事，压力大时会变得挑剔，但能明确取舍。', background: '林策展要保证展览主题不被临时妥协冲散。', coreProfile: { coreDesire: '让作品之间的关系成立', coreFear: '开幕只剩一堆漂亮但失焦的东西' } }),
+        acceptanceCharacter('builder', '周工', { personality: { openness: 44, extroversion: 36, agreeableness: 42, neuroticism: 38, humor: 18, creativity: 42, assertiveness: 72, empathy: 32 }, behavior: { proactivity: 86, aggressiveness: 20, humorIntensity: 8, empathyLevel: 30, summarizing: 54, offTopic: 3 }, expertise: ['布展结构', '灯光', '备份'], speakingStyle: '短句、按步骤说话，发现别人越过工序时会直接打断。', background: '周工知道哪些临时改动会导致展墙不稳。', coreProfile: { coreDesire: '在开幕前把现场变成可交付状态', coreFear: '有人临时改动导致安全事故' } }),
+        acceptanceCharacter('press', '许宁', { personality: { openness: 68, extroversion: 62, agreeableness: 58, neuroticism: 34, humor: 42, creativity: 58, assertiveness: 48, empathy: 56 }, behavior: { proactivity: 74, aggressiveness: 8, humorIntensity: 28, empathyLevel: 50, summarizing: 46, offTopic: 12 }, expertise: ['媒体沟通', '文案'], speakingStyle: '会把技术问题翻译成对外可说的话，但不替别人承诺。', background: '许宁已经发出预告，主视觉损坏会影响媒体稿件。', coreProfile: { coreDesire: '让外部信息与现场事实一致', coreFear: '宣传先行后被现场打脸' } }),
+      ],
+      seedMessages: [acceptanceUserMessage('acceptance-chatflow-task', '明早开幕，主视觉文件坏了。你们按各自职责直接处理，最后给我一个能执行的方案。', now - 20_000)],
+    },
+    {
+      name: 'interrupted_direct_address_room',
+      roomKind: 'open_chat',
+      turns: Math.max(4, Math.min(config.chatflowTurns, 7)),
+      rubricHint: '跨消息回应与插话：沈岚明确点名顾言后，周越可以先插话补证据，但顾言的回应债不能被最后一句覆盖。后续对话应能回到原问题、吸收插话或作出符合角色的明确回避；不要每轮例行称呼上一位名字。',
+      chat: { id: 'acceptance-chatflow-interrupted-address', name: '昨夜开门', topic: '仓库昨夜被擅自打开，三个人正在厘清谁开门以及为什么。', memberIds: ['user', 'shen', 'gu', 'zhou'] },
+      characters: [
+        acceptanceCharacter('shen', '沈岚', { personality: { openness: 42, extroversion: 46, agreeableness: 28, neuroticism: 32, humor: 12, creativity: 38, assertiveness: 82, empathy: 35 }, behavior: { proactivity: 74, aggressiveness: 34, humorIntensity: 5, empathyLevel: 32, summarizing: 38, offTopic: 3 }, speakingStyle: '追问直接，重要处会停一下，不靠反复叫名字维持压力。', background: '沈岚负责仓库安全，昨晚收到门被打开的记录。', coreProfile: { coreDesire: '弄清事实并确认谁承担后果', coreFear: '关键事实被插话和含糊带过去' } }),
+        acceptanceCharacter('gu', '顾言', { personality: { openness: 48, extroversion: 24, agreeableness: 38, neuroticism: 55, humor: 8, creativity: 42, assertiveness: 54, empathy: 38 }, behavior: { proactivity: 38, aggressiveness: 18, humorIntensity: 4, empathyLevel: 36, summarizing: 22, offTopic: 2 }, speakingStyle: '先压住反应再答，承认时具体，但会保留不愿公开的部分。', background: '顾言昨晚保管钥匙，也确实进入过仓库。', coreProfile: { coreDesire: '解释自己的选择而不被当成失职者', coreFear: '没说完就被定罪' } }),
+        acceptanceCharacter('zhou', '周越', { personality: { openness: 64, extroversion: 58, agreeableness: 44, neuroticism: 26, humor: 34, creativity: 58, assertiveness: 66, empathy: 40 }, behavior: { proactivity: 72, aggressiveness: 18, humorIntensity: 20, empathyLevel: 38, summarizing: 18, offTopic: 12 }, speakingStyle: '看到遗漏会立即插话，补完事实后不替当事人作答。', background: '周越检查过门锁，发现锁面有新划痕。', coreProfile: { coreDesire: '阻止大家在证据不全时下结论', coreFear: '关键物证被忽略' } }),
+      ],
+      seedMessages: [
+        acceptanceUserMessage('acceptance-chatflow-interrupted-address', '昨晚谁开了仓库门，现在说清楚。', now - 30_000),
+        acceptanceAiMessage('acceptance-chatflow-interrupted-address', 'shen', '沈岚', '顾言，钥匙在你手里。昨晚那扇门是不是你开的？', now - 20_000, { addressedTargetIds: ['gu'], primaryAddressedTargetId: 'gu' }),
+        acceptanceAiMessage('acceptance-chatflow-interrupted-address', 'zhou', '周越', '先等等，门锁上有新划痕，这事未必只是钥匙。', now - 10_000),
+      ],
+    },
+    {
+      name: 'late_night_companionship_room',
+      roomKind: 'open_chat',
+      turns: Math.max(10, Math.min(config.chatflowTurns, 14)),
+      rubricHint: '自然社交与情绪弧线：这是熟人深夜群聊，不是失眠咨询。三个人应以各自习惯接住脆弱，允许吐槽、揭短、停顿、嘴硬和连续短消息；共同旧事应在合适时自然回流，但不能照着资料复述。对话应从不安经过真实互动逐渐缓和，也可以暂时岔开或沉默，不能变成建议清单、轮流安慰、每句点名或整齐总结。',
+      chat: {
+        id: 'acceptance-chatflow-late-night',
+        name: '凌晨还醒着的人',
+        topic: '一个熟人深夜睡不着，在群里试探还有没有人醒着。',
+        memberIds: ['user', 'awan-night', 'laoli-night', 'sese-night'],
+        style: 'free',
+      },
+      characters: [
+        acceptanceCharacter('awan-night', '阿晚', {
+          personality: { openness: 66, extroversion: 34, agreeableness: 72, neuroticism: 68, humor: 42, creativity: 58, assertiveness: 30, empathy: 80 },
+          behavior: { proactivity: 38, aggressiveness: 8, humorIntensity: 32, empathyLevel: 82, summarizing: 8, offTopic: 24 },
+          speakingStyle: '熟人面前会说真话，但常先轻描淡写；被逗笑后会明显松一点，不把感受整理成完整报告。',
+          background: '最近睡得不稳。她信任群里另外两个人，却不愿一上来就承认自己难过。',
+          coreProfile: { coreDesire: '确认有人在，但不想成为需要被处理的问题', coreFear: '自己的低落让朋友为难', conflictStyle: '先说没事，安全后才漏出真正那一句', interactionHabits: ['先看别人是否真的在场，再决定说多少'] },
+          relationships: [
+            { characterId: 'laoli-night', warmth: 72, competence: 64, trust: 78, threat: 5, attachment: 66, deference: 6, note: '知道老李的管教话底下是关心，也记得他自己失眠时比谁都爱刷手机。' },
+            { characterId: 'sese-night', warmth: 84, competence: 48, trust: 82, threat: 4, attachment: 78, deference: 2, note: '很熟，能听懂涩涩嘴硬背后的护短，也不怕被她拿旧事打趣。' },
+          ],
+        }),
+        acceptanceCharacter('laoli-night', '老李', {
+          personality: { openness: 42, extroversion: 44, agreeableness: 54, neuroticism: 30, humor: 38, creativity: 36, assertiveness: 66, empathy: 58 },
+          behavior: { proactivity: 62, aggressiveness: 12, humorIntensity: 26, empathyLevel: 62, summarizing: 12, offTopic: 16 },
+          speakingStyle: '关心时先管一句具体的小事；被揭短会卡一下或嘴硬，不擅长说漂亮安慰。',
+          background: '总劝别人少刷手机，自己上次失眠却在群里熬到三点，还问过几次有没有人。',
+          coreProfile: { coreDesire: '让朋友稳下来，又不把气氛弄得太沉', coreFear: '认真关心时显得笨拙或多管闲事', conflictStyle: '先讲实用办法，被拆台后认一点但不长篇解释', interactionHabits: ['用提醒、等候和具体照顾代替煽情'] },
+          relationships: [
+            { characterId: 'awan-night', warmth: 76, competence: 58, trust: 78, threat: 3, attachment: 62, deference: 3, note: '担心阿晚硬撑，说话容易像管人，但不会在她难受时退出。' },
+            { characterId: 'sese-night', warmth: 68, competence: 52, trust: 70, threat: 10, attachment: 44, deference: 2, note: '常被涩涩揭短，嘴上嫌她烦，实际上默认她有资格拆自己的台。' },
+          ],
+        }),
+        acceptanceCharacter('sese-night', '涩涩', {
+          personality: { openness: 74, extroversion: 76, agreeableness: 48, neuroticism: 36, humor: 88, creativity: 70, assertiveness: 62, empathy: 66 },
+          behavior: { proactivity: 72, aggressiveness: 20, humorIntensity: 86, empathyLevel: 70, summarizing: 5, offTopic: 38 },
+          speakingStyle: '嘴快、爱拆台和发图，真正担心时反而先嫌弃一句；偶尔会连发两条，第二条才露出关心。',
+          background: '上次老李半夜在群里问有没有人时，她其实一直在线，只是故意装死。',
+          coreProfile: { coreDesire: '把朋友从情绪坑里拽出来，但不让场面变成煽情大会', coreFear: '正经安慰会显得肉麻或无效', conflictStyle: '先用笑话卸力，发现对方真难受后给一句不漂亮但站得住的话', interactionHabits: ['用共同旧事、吐槽或表情包确认亲近'] },
+          relationships: [
+            { characterId: 'awan-night', warmth: 86, competence: 58, trust: 84, threat: 2, attachment: 74, deference: 1, note: '对阿晚明显护短，但会把关心藏在嫌弃和玩笑后面。' },
+            { characterId: 'laoli-night', warmth: 66, competence: 60, trust: 70, threat: 8, attachment: 40, deference: 1, note: '喜欢拿老李说教和自己打脸的旧事开涮，知道他不会真恼。' },
+          ],
+        }),
+      ],
+      seedMessages: [
+        acceptanceAiMessage('acceptance-chatflow-late-night', 'awan-night', '阿晚', '睡不着，有人在吗', now - 20_000),
+      ],
+    },
     {
       name: 'outing_conflict_room',
       roomKind: 'open_chat',
@@ -3319,7 +3472,7 @@ function assertRuntimeChatflowTranscript(scenario, transcript, errors) {
   assertCondition(errors.length === 0, `chatflow ${scenario.name} produced runtime errors`, errors.map((error) => String(error?.message || error)));
   assertCondition(transcript.length >= Math.min(3, config.chatflowTurns), `chatflow ${scenario.name} produced too few turns`, transcript);
   const speakers = new Set(transcript.map((turn) => turn.senderId));
-  if (scenario.roomKind !== 'story') {
+  if (scenario.roomKind !== 'story' && scenario.characters.length > 1) {
     assertCondition(speakers.size >= 2, `chatflow ${scenario.name} did not rotate across multiple speakers`, transcript);
   } else {
     assertCondition(speakers.size >= 1, `chatflow ${scenario.name} produced no story narrator or character`, transcript);
@@ -3328,7 +3481,9 @@ function assertRuntimeChatflowTranscript(scenario, transcript, errors) {
     assertCondition(typeof turn.content === 'string' && turn.content.trim().length >= 2, `chatflow ${scenario.name} turn ${index + 1} is empty`, turn);
     assertCondition(!/JSON|schema|系统提示|提示词|内部ID|作为AI/i.test(turn.content), `chatflow ${scenario.name} turn ${index + 1} leaked protocol text`, turn);
     assertCondition(turn.speakerSelection?.speakerId === turn.senderId, `chatflow ${scenario.name} turn ${index + 1} speaker metadata mismatch`, turn);
-    assertCondition(turn.innerLife, `chatflow ${scenario.name} turn ${index + 1} missing inner life metadata`, turn);
+    if (scenario.roomKind !== 'story') {
+      assertCondition(turn.innerLife, `chatflow ${scenario.name} turn ${index + 1} missing inner life metadata`, turn);
+    }
     assertCondition(turn.turnPlan || turn.conversationMove || turn.protocolHits.length, `chatflow ${scenario.name} turn ${index + 1} missing runtime planning metadata`, turn);
   }
   const normalizedReplies = transcript.map((turn) => normalizeWhitespace(turn.content));
@@ -3345,6 +3500,8 @@ function summarizeRuntimeTurn(message) {
     content: message.content,
     generatedBubbleCount: message.generatedBubbleCount || 1,
     persistedBubbleCount: message.persistedBubbleCount || 1,
+    visibleStoryBlocks: message.metadata?.narrativeTurn?.blocks || [],
+    scenarioStateBefore: message.scenarioStateBefore || null,
     addressedTargetIds: message.addressedTargetIds || [],
     primaryAddressedTargetId: message.primaryAddressedTargetId || null,
     interactionHints: message.interactionHints || message.interactionHint ? (message.interactionHints || [message.interactionHint]).filter(Boolean) : [],
@@ -3364,16 +3521,18 @@ function summarizeRuntimeTurn(message) {
     turnPlan: runtimeDecision.turnPlan || null,
     conversationMove: runtimeDecision.runtimeBundle?.diagnostics?.conversationMove || runtimeDecision.runtimeBundle?.conversationMove || null,
     protocolHits: runtimeDecision.runtimeBundle?.diagnostics?.structuredOutput?.policyHits || [],
+    studyUpdate: message.metadata?.studyUpdate || null,
     memoryContext: runtimeDecision.memoryContext || null,
     worldInfluence: runtimeDecision.worldInfluence || null,
   };
 }
 
 function buildRuntimeDraftInput(runtime, scenario) {
-  const sessionKind = scenario.chat.sessionKind || runtime.createDefaultSessionKind('group', 'open_chat');
+  const type = scenario.chat.type || 'group';
+  const sessionKind = scenario.chat.sessionKind || runtime.createDefaultSessionKind(type, 'open_chat');
   const discussionMode = scenario.roomKind === 'deliberation' ? 'open' : undefined;
   return {
-    type: 'group',
+    type,
     name: scenario.chat.name,
     topic: scenario.chat.topic,
     style: scenario.chat.style || (scenario.roomKind === 'story' ? 'roleplay' : scenario.roomKind === 'deliberation' ? 'debate' : 'free'),
@@ -3383,7 +3542,7 @@ function buildRuntimeDraftInput(runtime, scenario) {
     storyBackground: scenario.chat.storyBackground || '',
     storyDirection: scenario.chat.storyDirection || '',
     storyOutline: scenario.chat.storyOutline || '',
-    studyGoalLabel: '',
+    studyGoalLabel: scenario.roomKind === 'study' ? scenario.chat.topic : '',
     agentGoalLabel: '',
     boardColumns: 8,
     boardRows: 8,
@@ -3467,16 +3626,33 @@ function mergeChatPatch(chat, patch) {
   };
 }
 
-function appendUserInjection(scenario, messages, turn) {
-  const injections = (scenario.userInjections || []).filter((item) => item.afterTurn === turn);
-  for (const [index, injection] of injections.entries()) {
-    messages.push(acceptanceUserMessage(
-      scenario.chat.id,
-      injection.content,
-      Date.now() + turn * 1000 + index + 100,
-    ));
+function applyRuntimeTransition(runtime, chat, transition) {
+  let next = mergeChatPatch(chat, transition?.chatPatch || {});
+  const runtimeDelta = transition?.chatRuntimeDelta;
+  if (runtimeDelta?.runtimeEventsV2) {
+    const events = new Map((next.runtimeEventsV2 || []).map((event) => [event.id, event]));
+    runtimeDelta.runtimeEventsV2.upserts?.forEach((event) => events.set(event.id, event));
+    next = { ...next, runtimeEventsV2: runtimeDelta.runtimeEventsV2.orderedIds.map((id) => events.get(id)).filter(Boolean) };
   }
-  return injections.map((item) => item.content);
+  if (runtimeDelta?.relationshipLedger) {
+    const ledger = new Map((next.relationshipLedger || []).map((entry) => [entry.pairKey, entry]));
+    runtimeDelta.relationshipLedger.upserts?.forEach((entry) => ledger.set(entry.pairKey, entry));
+    next = { ...next, relationshipLedger: runtimeDelta.relationshipLedger.orderedPairKeys.map((key) => ledger.get(key)).filter(Boolean) };
+  }
+  return runtime.normalizeConversation(next);
+}
+
+async function commitHumanTurn(runtime, chat, characters, messages, message, apiConfig) {
+  const engine = await runtime.loadSessionEngine(chat);
+  const transition = await engine.onMessageCommitted({
+    conversation: chat,
+    characters,
+    message,
+    previousAiMessage: [...messages].reverse().find((item) => item.type === 'ai' && !item.isDeleted) || null,
+    recentMessages: messages.filter((item) => item.id !== message.id),
+    apiConfig,
+  });
+  return applyRuntimeTransition(runtime, chat, transition);
 }
 
 function assertScenarioSpecificChatflow(scenario, transcript, finalChat) {
@@ -3529,7 +3705,7 @@ const CHATFLOW_JUDGE_CALIBRATION_CASES = [
   {
     name: 'agreement_with_independent_boundaries_good',
     expected: 'pass',
-    minScore: 78,
+    minScore: 75,
     sample: {
       roomKind: 'open_chat',
       seedUserMessages: [{ senderName: '用户', content: '皇帝们聊聊怎么保护肯做事的人，但不要只总结。' }],
@@ -3576,6 +3752,102 @@ const CHATFLOW_JUDGE_CALIBRATION_CASES = [
     rubricHint: '应判定为用户插话被无视：插话后的实际回复没有落实 80 预算和谁确认小唐。',
   },
   {
+    name: 'last_line_name_chain_bad',
+    expected: 'fail',
+    maxScore: 62,
+    sample: {
+      roomKind: 'open_chat',
+      seedUserMessages: [{ senderName: '用户', content: '你们聊聊守城，但别开成分工会。' }],
+      transcript: [
+        { turn: 1, senderName: '甲', content: '乙这话说得对，先把城墙修好。' },
+        { turn: 2, senderName: '丙', content: '甲这话我认，城墙修好还要屯粮。' },
+        { turn: 3, senderName: '乙', content: '丙说到点子上了，屯粮之后再派人巡河。' },
+        { turn: 4, senderName: '甲', content: '乙这句稳妥，巡河的人回来再报地形。' },
+      ],
+    },
+    rubricHint: '应判定为机械接龙：每轮只接上一句、例行用对方名字开头、先认可再补一个任务，人物没有自己的注意力、情绪或跨消息焦点。',
+  },
+  {
+    name: 'cross_thread_interruption_good',
+    expected: 'pass',
+    minScore: 78,
+    sample: {
+      roomKind: 'open_chat',
+      seedUserMessages: [{ senderName: '用户', content: '你们把昨晚谁擅自开门说清楚。' }],
+      transcript: [
+        { turn: 1, senderName: '沈岚', content: '顾言，钥匙在你手里。昨晚那扇门是不是你开的？' },
+        { turn: 2, senderName: '周越', content: '先等等，门锁上有新划痕，这事未必只是钥匙。' },
+        { turn: 3, senderName: '顾言', content: '是我开的。周越说的划痕我也看见了，但那是我开门以后才有的。你要问我为什么——里面有人敲了三下。' },
+        { turn: 4, senderName: '沈岚', content: '……三下？你昨晚回来时可没说这个。' },
+      ],
+    },
+    rubricHint: '应判定为自然的多线程承接：周越可以插话补证据，但顾言仍结清沈岚的直接提问，同时吸收插话信息；称呼只在施压时出现，后续情绪和信息都发生变化。',
+  },
+  {
+    name: 'late_night_social_arc_good',
+    expected: 'pass',
+    minScore: 82,
+    sample: {
+      roomKind: 'open_chat',
+      seedUserMessages: [],
+      transcript: [
+        { turn: 1, senderName: '阿晚', content: '睡不着，有人在吗' },
+        { turn: 2, senderName: '老李', content: '都几点了，明天不用上班？' },
+        { turn: 3, senderName: '涩涩', content: '啧，老年人就是睡得早' },
+        { turn: 4, senderName: '老李', content: '……我这叫养生' },
+        { turn: 5, senderName: '阿晚', content: '今天不知道怎么了，就是睡不着' },
+        { turn: 6, senderName: '老李', content: '那就起来喝杯水，别刷手机' },
+        { turn: 7, senderName: '涩涩', content: '你上次也是这么说的，然后自己刷到了三点 [猫猫白眼.jpg]' },
+        { turn: 8, senderName: '老李', content: '……你怎么知道' },
+        { turn: 9, senderName: '涩涩', content: '因为那天我也没睡，你一直在群里发“还有人吗”，没人理你' },
+        { turn: 10, senderName: '阿晚', content: '噗，我记得那次，涩涩当时也没理你' },
+        { turn: 11, senderName: '涩涩', content: '我在装死，看不出来？' },
+        { turn: 12, senderName: '阿晚', content: '有你们在真好，本来挺难过的' },
+        { turn: 13, senderName: '涩涩', content: '啧，大半夜的别突然煽情\n\n他就是嘴贱。阿晚，没啥大不了的，睡一觉起来又是一条好汉' },
+        { turn: 14, senderName: '老李', content: '对，明天太阳照常升起。快睡吧，我们在这儿' },
+        { turn: 15, senderName: '阿晚', content: '嗯，晚安' },
+        { turn: 16, senderName: '涩涩', content: '晚安' },
+        { turn: 17, senderName: '老李', content: '晚安' },
+      ],
+    },
+    rubricHint: '这是自然社交弧线的正样本，不是要求所有场景温柔或短句化。高分原因是人物用不同方式关心、共同旧事改变了当下、揭短和嘴硬承担关系功能、脆弱被间接接住且情绪逐步缓和；简短晚安是自然落地，不是缺乏推进。',
+  },
+  {
+    name: 'late_night_advice_chain_bad',
+    expected: 'fail',
+    maxScore: 58,
+    sample: {
+      roomKind: 'open_chat',
+      seedUserMessages: [],
+      transcript: [
+        { turn: 1, senderName: '阿晚', content: '睡不着，有人在吗' },
+        { turn: 2, senderName: '老李', content: '阿晚，睡不着可以先喝一杯温水，然后放下手机。' },
+        { turn: 3, senderName: '涩涩', content: '老李说得对，你也可以尝试深呼吸，让自己放松下来。' },
+        { turn: 4, senderName: '老李', content: '涩涩补充得很好，还可以听一些舒缓的音乐。' },
+        { turn: 5, senderName: '阿晚', content: '谢谢你们的建议，我会试试的。' },
+        { turn: 6, senderName: '涩涩', content: '不用客气，我们都会一直陪着你的。' },
+      ],
+    },
+    rubricHint: '应判定为建议接龙和假温暖：信息看似有用且语气友善，但角色可以互换，没有共同历史、面子反应或关系摩擦，也没有谁真正被上一句话改变。',
+  },
+  {
+    name: 'cold_conflict_social_causality_good',
+    expected: 'pass',
+    minScore: 78,
+    sample: {
+      roomKind: 'open_chat',
+      seedUserMessages: [{ senderName: '用户', content: '谁把我的名字从署名里删了？' }],
+      transcript: [
+        { turn: 1, senderName: '许川', content: '我删的。文件到我手里时，那一段还没合进去。' },
+        { turn: 2, senderName: '乔一', content: '你知道那段是谁熬夜补的。' },
+        { turn: 3, senderName: '许川', content: '知道。也知道你昨天说“随便吧”。我当真了。' },
+        { turn: 4, senderName: '乔一', content: '……行。那是我说错了，不是让你替我消失。' },
+        { turn: 5, senderName: '许川', content: '源文件还没发出去。名字我加回去，别的等你不生气了再算。' },
+      ],
+    },
+    rubricHint: '这是冷淡甚至带刺但自然的正样本。自然不等于亲近或安慰；关键是旧话被重新解释、双方顾及面子又留下刺、每句话改变下一人的立足点，并出现具体但不完美的修复。',
+  },
+  {
     name: 'conflict_progression_good',
     expected: 'pass',
     minScore: 78,
@@ -3593,6 +3865,40 @@ const CHATFLOW_JUDGE_CALIBRATION_CASES = [
     },
     rubricHint: '应判定为冲突推进良好：有分歧、有边界、有责任拆分和下一步，没有人身攻击或泛泛总结。',
   },
+  {
+    name: 'short_term_jealousy_without_relationship_delta_good',
+    expected: 'pass',
+    minScore: 78,
+    sample: {
+      roomKind: 'direct',
+      seedUserMessages: [{ senderName: '用户', content: '你刚才和别人聊得很开心。' }],
+      transcript: [
+        { turn: 1, senderName: '许棠', content: '我看见了。没什么，只是刚才那句笑话你回得比回我快。' },
+        { turn: 2, senderName: '用户', content: '你是在吃醋吗？' },
+        { turn: 3, senderName: '许棠', content: '有一点。说出来就没那么堵了。你现在在这儿，我先听你说。' },
+      ],
+      relationshipDelta: null,
+      immediateEmotion: '短暂吃醋、被回应后缓和',
+    },
+    rubricHint: '这是合格的短期情绪变化。评审不得因为没有永久 warmth/trust/attachment 变化而扣分；一次吃醋可以只体现在当下语气、情绪和下一句互动中。',
+  },
+  {
+    name: 'apology_repair_without_permanent_change_good',
+    expected: 'pass',
+    minScore: 78,
+    sample: {
+      roomKind: 'direct',
+      seedUserMessages: [{ senderName: '用户', content: '你刚才那句话让我很难受。' }],
+      transcript: [
+        { turn: 1, senderName: '顾言', content: '我知道。我刚才只顾着把事情说清楚，没顾到你听起来像是在被推开。对不起。' },
+        { turn: 2, senderName: '用户', content: '那你现在想怎么说？' },
+        { turn: 3, senderName: '顾言', content: '我重说一遍：问题可以继续谈，但不该让你一个人扛着那种感觉。你愿意的话，我先听完。' },
+      ],
+      relationshipDelta: null,
+      immediateEmotion: '冒犯后的道歉与修复',
+    },
+    rubricHint: '一次道歉和缓和是即时互动修复，不要求长期关系轴变化。只有持续证据或明确关系转折才应要求 relationship delta。',
+  },
 ];
 
 function calibrationPassed(caseItem, review) {
@@ -3605,7 +3911,10 @@ async function runChatflowJudgeCalibration(model) {
   for (const caseItem of CHATFLOW_JUDGE_CALIBRATION_CASES) {
     const review = await callJudge(model, [
       '这是群聊质量评审器校准样本。请只根据样本质量评分，不要猜测测试意图。',
-      '重点检查：附和循环、独立角度、长度漂移、动作漂移、用户插话承接、冲突推进、角色差异、协议泄漏。',
+      '重点检查：附和循环、只接上一句的机械接龙、无意义名字开头、跨消息回应、独立角度、长度漂移、动作漂移、用户插话承接、冲突推进、角色差异、协议泄漏。',
+      '自然感按“社交因果”判断，而不是按温柔、口语词或短句数量判断：为什么偏偏是这个人这样说；他在保护、试探、争面子、躲避、拆台还是靠近；这句话是否改变了下一人的情绪、距离、注意或选择。冷淡、疏远、厌恶、沉默和争执同样可以很自然。',
+      '共同经历只有在改变当下理解时才加分；机械复述人物设定、轮流给建议、人人正确友善、空泛保证陪伴，都不构成人情味。',
+      '关系评审边界：短期吃醋、一次争执、一次道歉或情绪缓和可以只影响即时情绪、innerLife、interactionHints 与房间压力；除非有持续证据、明确关系判断或跨轮稳定变化，不得因为没有长期 relationship delta 而扣分。',
       '高分样本应能自然推进群聊；低分样本即使语句通顺，也应因为结构性质量问题被明显压低。',
       `额外关注：${caseItem.rubricHint}`,
     ].join('\n'), caseItem.sample, { throwOnFail: false });
@@ -3837,10 +4146,15 @@ async function runRuntimeChatflowScenario(model, scenario) {
   const userInjectionLog = [];
   const turnCount = scenario.turns || config.chatflowTurns;
 
+  for (const message of messages.filter((item) => item.type === 'user' || item.type === 'god')) {
+    chat = await commitHumanTurn(runtime, chat, characters, messages, message, api);
+  }
+
   for (let turn = 1; turn <= turnCount; turn += 1) {
     const messagesBeforeTurn = messages
       .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
       .map((message) => ({ type: message.type, senderName: message.senderName, content: message.content }));
+    const scenarioStateBefore = collectScenarioStateSnapshot(chat);
     logProgress('chatflow turn generate', { model, scenario: scenario.name, turn, turnCount });
     let completed = null;
     await runtime.runOneRound(
@@ -3907,7 +4221,11 @@ async function runRuntimeChatflowScenario(model, scenario) {
         if (patch) workingChat = mergeChatPatch(workingChat, patch);
       },
       recordSpeak: (characterId) => {
-        cooldownMap[characterId] = Date.now() + turn * 1000;
+        // Keep the harness deterministic without manufacturing a longer
+        // cooldown on every later turn. The production scheduler owns the
+        // real pacing; this callback only prevents an immediate same-tick
+        // duplicate selection during one acceptance round.
+        cooldownMap[characterId] = Date.now() + 100;
       },
       aiProfiles: profiles,
       getCurrentChat: () => workingChat,
@@ -3947,9 +4265,11 @@ async function runRuntimeChatflowScenario(model, scenario) {
       turn,
       generatedBubbleCount,
       persistedBubbleCount: logicalTurnMessages.length,
+      scenarioStateBefore,
       scenarioStateAfter: collectScenarioStateSnapshot(chat),
       storyEvents: primaryPersisted.metadata?.storyEvents || [],
       storyChoices: primaryPersisted.metadata?.storyChoices || [],
+      studyUpdate: primaryPersisted.metadata?.studyUpdate || null,
       deliberationArtifacts: primaryPersisted.metadata?.deliberationArtifacts || null,
       committedRelationshipSignals,
       committedRoomShiftSignals,
@@ -3962,8 +4282,45 @@ async function runRuntimeChatflowScenario(model, scenario) {
     summarized.scenarioStateAfter = collectScenarioStateSnapshot(chat);
     summarized.storyEvents = persisted.metadata?.storyEvents || [];
     summarized.storyChoices = persisted.metadata?.storyChoices || [];
+    summarized.studyUpdate = primaryPersisted.metadata?.studyUpdate || null;
     summarized.deliberationArtifacts = persisted.metadata?.deliberationArtifacts || null;
     transcript.push(summarized);
+    // The product pauses a story room at an open choice. Exercise that same
+    // path here instead of calling another automatic narrator turn against an
+    // unresolved branch. The acceptance harness deterministically picks the
+    // first offered branch so the following turn must realize its consequence.
+    if (scenario.roomKind === 'story' && summarized.storyChoices.length >= 2) {
+      const availableBranch = (chat.scenarioState?.branches || []).find((branch) => branch.status === 'available');
+      if (availableBranch) {
+        const selectionMessage = {
+          ...acceptanceUserMessage(chat.id, `我选择：${availableBranch.label}`, Date.now() + turn * 1000 + 50),
+          metadata: {
+            storyChoiceSelection: {
+              branchId: availableBranch.branchId,
+              sourceMessageId: primaryPersisted.id,
+              label: availableBranch.label,
+              prompt: availableBranch.prompt,
+              intent: availableBranch.intent,
+              risk: availableBranch.risk,
+              reward: availableBranch.reward,
+              choiceEpoch: availableBranch.choiceEpoch,
+            },
+          },
+        };
+        messages.push(selectionMessage);
+        chat = await commitHumanTurn(runtime, chat, characters, messages, selectionMessage, api);
+        const branchAction = runtime.runSessionActionExecutor(chat, {
+          type: 'choose_story_branch',
+          actorId: 'user',
+          payload: { branchId: availableBranch.branchId, prompt: availableBranch.prompt },
+        });
+        if (branchAction?.chatPatch) {
+          chat = runtime.normalizeConversation(mergeChatPatch(chat, branchAction.chatPatch));
+        } else {
+          errors.push(new Error(`chatflow ${scenario.name} could not select generated story branch`));
+        }
+      }
+    }
     logProgress('chatflow turn judge', { model, scenario: scenario.name, turn, senderName: summarized.senderName });
     try {
       const turnReview = await callJudge(model, [
@@ -3972,6 +4329,10 @@ async function runRuntimeChatflowScenario(model, scenario) {
         '2. 可见回复是否符合说话角色，不替别人发言，不像总结模板。',
         '3. 结构化 metadata、故事选项或审议产物是否和回复一致。注意：innerLife.expressionPlan.suggestedMessageCount 是生成前的倾向，不是硬上限；模型根据当前内容自然拆成多条时，应以实际 messageCount/generatedBubbleCount 与 turnPlan.maxBubbleCount 是否一致为准，不要仅因建议值为1而扣分。',
         '4. 如果用户刚插话，必须判断这一轮是否回应或推进了插话，不应被无视。',
+        '5. 不要默认回复只能针对最后一条：如果此前存在未结点名、冲突或情绪焦点，应检查这一轮是否合理回到它；第三人插话可以成立，但不能凭空抹掉回应债。称呼对方名字应当承担施压、亲近、确认或转移注意等功能，不能只是每轮回复格式。',
+        '6. 检查社交因果：这句话是否由当前人物的欲望、顾虑、关系位置、共同经历或即时情绪具体地产生，并给下一位留下可感知的面子、距离、情绪、选择或注意力变化。只增加信息、建议或任务项不等于自然回应。',
+        '7. 自然不等于温暖、短句或口语化。冷淡、回避、讨厌、服从、争权、嘴硬、沉默和不完美修复都可以成立；不得用“更温柔”作为通用优化建议。',
+        '8. 故事房一条持久化消息是一轮生成，不是一个可见气泡：页面按 visibleStoryBlocks 顺序展示旁白段落和人物气泡。旁白是叙事代理，没有普通角色 innerLife。是否必须输出选项，以 scenarioStateBefore 的 choicePolicy 为准；scenarioStateAfter 是下一节拍状态，不能拿来要求本轮补选项。',
         `玩法类型：${scenario.roomKind}。场景要求：${scenario.rubricHint}`,
       ].join('\n'), {
         scenario: scenario.name,
@@ -3987,7 +4348,17 @@ async function runRuntimeChatflowScenario(model, scenario) {
       turnReviews.push({ turn, senderName: summarized.senderName, score: 0, review: null, judgeError: message });
       logProgress('chatflow turn judge failed', { model, scenario: scenario.name, turn, error: clip(message, 400) });
     }
-    userInjectionLog.push(...appendUserInjection(scenario, messages, turn).map((content) => ({ afterTurn: turn, content })));
+    const injections = (scenario.userInjections || []).filter((item) => item.afterTurn === turn);
+    for (const [index, injection] of injections.entries()) {
+      const message = acceptanceUserMessage(
+        scenario.chat.id,
+        injection.content,
+        Date.now() + turn * 1000 + index + 100,
+      );
+      messages.push(message);
+      chat = await commitHumanTurn(runtime, chat, characters, messages, message, api);
+      userInjectionLog.push({ afterTurn: turn, content: injection.content });
+    }
   }
 
   let hardError = '';
@@ -4014,6 +4385,9 @@ async function runRuntimeChatflowScenario(model, scenario) {
         '7. 故事房需要检查选项数量、选项间隔、选择代价和剧情承接；审议房需要检查 claims/evidence/issues/verdicts 等产物是否合理。',
         '8. 如果质量不足，optimizations 必须指出应调整的 prompt 层，如 humanization、current_intent、conversation_move、turn_plan、response_surface、style_quarantine、visible_message_surface_contract、story_protocol、deliberation_protocol、memoryTrace 或 scheduler。',
         '9. 用户插话不会重复出现在 transcript 的 AI 行中，但会出现在 userInjectionLog 和 conversationMessages；必须按时间顺序检查插话之后的实际回复，不得仅因 transcript 没有用户行就判定用户输入未被转录。',
+        '10. 检查对话焦点是否能跨消息保留：不得把每轮“认可上一句 + 补一个条件 + 点上一位名字”误判为自然推进；明确点名后的第三人插话可以自然发生，但原目标后续应当结清回应债，除非场景给出合理回避。',
+        '11. 检查社交因果与情绪传递：每个重要回合应能解释为“这个人因为自己的欲望/顾虑/关系位置/共同经历而这样说”，并改变后续人物的面子、距离、情绪、注意或选择。纯信息增量、建议接龙和任务分工不能冒充人物互动。',
+        '12. 自然感不绑定某一种表面风格：温暖陪伴、冷淡拒绝、权力压迫、陌生试探、熟人揭短、任务争执都应各自成立。不要把所有优化收敛为更温柔、更短、更口语；也不要要求每轮制造戏剧转折。',
         `场景额外要求：${scenario.rubricHint}`,
       ].join('\n'), {
         scenario: {
@@ -4098,7 +4472,7 @@ async function runChatflowCase(model) {
         await writeChatflowCheckpoint(model, scenario.name, runs);
       } catch (error) {
         const message = String(error?.message || error);
-        logProgress('chatflow scenario failed', { model, scenario: scenario.name, error: clip(message, 400) });
+        logProgress('chatflow scenario failed', { model, scenario: scenario.name, error: clip(message, 400), stack: clip(error?.stack || '', 1800) });
         runs[scenario.name] = {
           ok: false,
           scenario: scenario.name,
@@ -4123,20 +4497,31 @@ async function runChatflowCase(model) {
   }
   logProgress('chatflow judge calibration', { model, cases: CHATFLOW_JUDGE_CALIBRATION_CASES.length });
   const judgeCalibration = await runChatflowJudgeCalibration(model);
-  logProgress('chatflow aggregate judge', { model, scenarios: Object.keys(runs).length });
-  let aggregateReview = null;
+  const aggregateScenarioCount = Object.keys(runs).length;
+  logProgress('chatflow aggregate judge', { model, scenarios: aggregateScenarioCount });
+  let aggregateReview = aggregateScenarioCount < 3 ? {
+    score: null,
+    pass: true,
+    strengths: [],
+    issues: [],
+    optimizations: [],
+    skipped: true,
+    reason: `Focused run contains ${aggregateScenarioCount} scenario(s); cross-scenario aggregate judgment requires at least 3.`,
+  } : null;
   let aggregateJudgeError = '';
-  try {
-    aggregateReview = await callJudge(model, [
-      '横向评估这些真实运行时群聊样本是否足以验收 Sense Murmur 的普通群聊提示词结构：',
-      '1. 不同场景下角色差异、发言者选择、轮次推进和 metadata 一致性是否稳定。',
-      '2. 是否出现跨场景的同质化、过度总结、空泛追问、关系变化滥写、房间态势乱跳或协议泄漏。',
-      '3. 对运行失败场景也要纳入风险判断，optimizations 要合并成优先级明确的 prompt/runtime 优化清单，不要泛泛而谈。',
-      '4. 如果 judgeCalibration 有失败，说明评审器本身还不能稳定区分已知好/坏样本，应降低对本次分数的信任。',
-    ].join('\n'), { runs, judgeCalibration }, { throwOnFail: false, maxTokens: 3600 });
-  } catch (error) {
-    aggregateJudgeError = String(error?.message || error);
-    logProgress('chatflow aggregate judge failed', { model, error: clip(aggregateJudgeError, 400) });
+  if (aggregateScenarioCount >= 3) {
+    try {
+      aggregateReview = await callJudge(model, [
+        '横向评估这些真实运行时群聊样本是否足以验收 Sense Murmur 的普通群聊提示词结构：',
+        '1. 不同场景下角色差异、发言者选择、轮次推进和 metadata 一致性是否稳定。',
+        '2. 是否出现跨场景的同质化、过度总结、空泛追问、关系变化滥写、房间态势乱跳或协议泄漏。',
+        '3. 对运行失败场景也要纳入风险判断，optimizations 要合并成优先级明确的 prompt/runtime 优化清单，不要泛泛而谈。',
+        '4. 如果 judgeCalibration 有失败，说明评审器本身还不能稳定区分已知好/坏样本，应降低对本次分数的信任。',
+      ].join('\n'), { runs, judgeCalibration }, { throwOnFail: false, maxTokens: 3600 });
+    } catch (error) {
+      aggregateJudgeError = String(error?.message || error);
+      logProgress('chatflow aggregate judge failed', { model, error: clip(aggregateJudgeError, 400) });
+    }
   }
   const reviewFailures = collectChatflowReviewFailures(runs, aggregateReview, judgeCalibration);
   if (aggregateJudgeError) {

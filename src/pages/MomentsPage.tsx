@@ -255,6 +255,7 @@ export default function MomentsPage() {
           character: actor,
           characters: [actor],
           allowCharacterReferenceImages: true,
+          useCharacterReferenceImages: true,
           negativePrompt: actor.visualIdentity?.negativePrompt,
           seed: actor.visualIdentity?.seed,
         });

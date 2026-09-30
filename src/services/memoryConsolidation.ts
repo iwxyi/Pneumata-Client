@@ -1,6 +1,7 @@
 import type { MemoryCandidate, MemoryEvidenceEntry, MemoryItem, MemoryValidity, MemoryVisibility } from './memoryTypes';
 import { sanitizeMemoryText } from './distillationText';
 import { compactMemoryItems } from './memoryLifecycle';
+import { resolveMemoryDisclosureMetadata } from './memoryDisclosure';
 
 const MAX_TRACKED_SOURCE_EVENT_IDS = 32;
 const MAX_EVIDENCE_TRAIL_ITEMS = 8;
@@ -251,6 +252,13 @@ function createMemoryItem(candidate: MemoryCandidate, score: number, now: number
     normalizeSourceEventIds(candidate.sourceEventIds || []).join(','),
     text,
   ]);
+  const disclosure = resolveMemoryDisclosureMetadata({
+    scope: candidate.scope,
+    subjectOwner: candidate.subjectOwner,
+    privacyRisk: candidate.privacyRisk,
+    visibility: candidate.visibility,
+    validity: candidate.validity,
+  });
   return {
     id: `${candidate.ownerId}-${candidate.kind}-${now}-${seed}`,
     scope: candidate.scope,
@@ -272,13 +280,14 @@ function createMemoryItem(candidate: MemoryCandidate, score: number, now: number
     distilledFromIds: candidate.distilledFromIds || [],
     distilledAt: candidate.distilledAt || null,
     distillationVersion: candidate.distillationVersion || null,
-    subjectOwner: candidate.subjectOwner,
+    subjectOwner: disclosure.subjectOwner,
     sourceType: candidate.sourceType || (candidate.origin === 'distilled' ? 'distilled' : 'runtime'),
-    privacyRisk: normalizePrivacyRisk(candidate.privacyRisk),
-    visibility: candidate.visibility,
-    validity: candidate.validity || 'active',
+    privacyRisk: disclosure.privacyRisk,
+    visibility: disclosure.visibility,
+    validity: disclosure.validity,
     semanticTags: mergeTextList(undefined, candidate.semanticTags),
     associations: mergeTextList(undefined, candidate.associations),
+    sharedPhrase: candidate.sharedPhrase,
     createdAt: now,
     updatedAt: now,
     lastActivatedAt: null,
@@ -325,6 +334,7 @@ function mergeMemoryItem(item: MemoryItem, candidate: MemoryCandidate, score: nu
     validity: stricterValidity(item.validity, candidate.validity) || 'active',
     semanticTags: mergeTextList(item.semanticTags, candidate.semanticTags),
     associations: mergeTextList(item.associations, candidate.associations),
+    sharedPhrase: candidate.sharedPhrase || item.sharedPhrase,
     updatedAt: refresh ? now : item.updatedAt,
     archivedAt: null,
   };

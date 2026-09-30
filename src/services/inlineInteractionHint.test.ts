@@ -16,6 +16,31 @@ describe('parseInlineInteractionEnvelope story events', () => {
     expect(hints[0].relationship).toBeUndefined();
   });
 
+  it('keeps bounded model-authored immediate impact without interpreting the prose locally', () => {
+    const hints = normalizeInteractionHintCollection({
+      primary: {
+        targetId: 'target',
+        kind: 'boundary',
+        tone: 'defensive',
+        intensity: 4,
+        confidence: 0.94,
+        evidenceText: '过不了我不签',
+        immediateImpact: {
+          speakerEmotionDelta: { irritation: -9, insecurity: -6 },
+          targetEmotionDelta: { irritation: 7, insecurity: 53 },
+          roomDelta: { heat: 8, cohesion: -3, topicDrift: 40 },
+        },
+      },
+      secondary: [],
+    }, 'speaker', '过不了我不签。');
+
+    expect(hints[0].immediateImpact).toEqual({
+      speakerEmotionDelta: { irritation: -9, insecurity: -6 },
+      targetEmotionDelta: { irritation: 7, insecurity: 40 },
+      roomDelta: { heat: 8, cohesion: -3, topicDrift: 20 },
+    });
+  });
+
   it('drops an interaction hint without a verifiable visible quote', () => {
     const hints = normalizeInteractionHintCollection({
       primary: { targetId: 'target', kind: 'support', tone: 'warm', intensity: 3, confidence: 0.9 },
@@ -91,6 +116,24 @@ describe('parseInlineInteractionEnvelope story events', () => {
 });
 
 describe('buildInlineInteractionContract analysis room detection', () => {
+  it('asks study rooms for structured evidence instead of local text guessing', () => {
+    const contract = buildInlineInteractionContract({
+      chat: {
+        id: 'study-1', type: 'group', mode: 'classroom', memberIds: ['teacher', 'user'], runtimeEventsV2: [],
+        sessionKind: { topology: 'group', family: 'study', scenarioId: 'learning-progress', surfaceProfile: 'hybrid' },
+      } as unknown as GroupChat,
+      speaker: { id: 'teacher', name: '老师' } as AICharacter,
+      characters: [{ id: 'teacher', name: '老师' } as AICharacter],
+      recentMessages: [],
+    });
+
+    expect(contract).toContain('"studyUpdate"');
+    expect(contract).toContain("teacher's explicit judgement of the most recent learner turn");
+    expect(contract).toContain('studyUpdate is required for every learning-progress reply');
+    expect(contract).toContain('knowledgeObservations:[]');
+    expect(contract).toContain('Never infer mastery from encouragement');
+  });
+
   it('requires deliberation artifacts when scenario resolves to analysis even if family is stale', () => {
     const contract = buildInlineInteractionContract({
       chat: {
@@ -133,17 +176,20 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       },
     });
 
-    expect(contract).toContain('"messages":[{"content":"first send"');
-    expect(contract).toContain('messages[] is the authoritative ordered list');
-    expect(contract).toContain('If the answer is yes, prefer messages[] for independent sends');
-    expect(contract).toContain('model a short run of real sends with unequal sizes');
-    expect(contract).toContain('simulate typing this turn as live chat');
+    expect(contract).toContain('"messages":null');
+    expect(contract).toContain('messages[] is the ordered list only when');
+    expect(contract).toContain('When messages[] is used');
+    expect(contract).toContain('independently sendable communicative act');
+    expect(contract).toContain('standalone interjection');
+    expect(contract).toContain('examples, not a closed list');
     expect(contract).toContain('terminal punctuation is optional');
     expect(contract).toContain('this is chat even when the topic is serious');
     expect(contract).toContain('Do not make every bubble a complete written sentence');
     expect(contract).toContain('set content equal to messages[0].content');
     expect(contract).toContain('Audio must be the only media in its item');
     expect(contract).toContain('A bubble may contain one or more paragraphs');
+    expect(contract).toContain('Most ordinary turns stay in one bubble');
+    expect(contract).toContain('messages[] should remain uncommon');
   });
 
   it('distinguishes reply targets from members who are only mentioned or affected', () => {
@@ -185,9 +231,9 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     });
 
     expect(contract).toContain('Delivery policy for this room');
-    expect(contract).toContain('proactive image=medium');
-    expect(contract).toContain('proactive audio=off');
-    expect(contract).toContain('they are never quotas');
+    expect(contract).toContain('image=medium');
+    expect(contract).toContain('audio=off');
+    expect(contract).toContain('not a quota or target');
   });
 
   it('uses the style policy ceiling rather than a fixed target bubble count', () => {
@@ -198,8 +244,8 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'off', explicitRequest: true }, audio: { proactivity: 'off', explicitRequest: true }, sticker: { proactivity: 'off', explicitRequest: true } },
       turnPlan: { rhythm: 'multi_bubble', maxBubbleCount: 2, lengthBand: 'short', allowExtraMessages: true, waitSensitive: false, reasons: ['test'] },
     });
-    expect(contract).toContain('one to 5 consecutive bubbles');
-    expect(contract).not.toContain('up to 2 consecutive bubbles');
+    expect(contract).toContain('usual soft ceiling is 5');
+    expect(contract).not.toContain('usual soft ceiling is 2');
   });
 
   it('parses the messages protocol and keeps per-message media decisions', () => {
@@ -215,6 +261,29 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       { content: '第一句', mediaDecision: null },
       { content: '第二句', mediaDecision: { audio: { shouldGenerate: true, text: '第二句' } } },
     ]);
+  });
+
+  it('uses a defensive message cap without dropping overflow text', () => {
+    const parsed = parseInlineInteractionEnvelope(JSON.stringify({
+      content: '一',
+      messages: Array.from({ length: 10 }, (_, index) => ({ content: String(index + 1), mediaDecision: null })),
+      extraMessages: null,
+    }));
+    expect(parsed?.messages).toHaveLength(8);
+    expect(parsed?.messages?.[7]?.content).toBe('8\n9\n10');
+  });
+
+  it('keeps an overflow send with its own media decision', () => {
+    const parsed = parseInlineInteractionEnvelope(JSON.stringify({
+      content: '一',
+      messages: Array.from({ length: 9 }, (_, index) => ({
+        content: String(index + 1),
+        mediaDecision: index === 8 ? { audio: { shouldGenerate: true, text: '9' } } : null,
+      })),
+      extraMessages: null,
+    }));
+    expect(parsed?.messages).toHaveLength(9);
+    expect(parsed?.messages?.[8]?.mediaDecision?.audio?.shouldGenerate).toBe(true);
   });
 
   it('includes generated image prompts as lightweight image reference summaries', () => {

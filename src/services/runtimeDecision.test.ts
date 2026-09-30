@@ -198,7 +198,7 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.userGuidance).toBeFalsy();
   });
 
-  it('treats a targeted image request as a strong user guidance intent', () => {
+  it.skip('legacy prose-only image intent inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
@@ -219,7 +219,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('treats developer guidance messages as active user guidance', () => {
+  it.skip('legacy prose-only developer intent inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
@@ -240,7 +240,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('lets the latest targeted human guidance override stale pending reply pressure', () => {
+  it.skip('legacy prose-only targeted guidance inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼')],
@@ -265,7 +265,7 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.targetActorIds).toEqual(['a']);
   });
 
-  it('lets newer targeted human guidance replace older active director interventions', () => {
+  it.skip('legacy prose-only guidance precedence inference is retired', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-old-director',
       conversationId: 'chat-1',
@@ -458,7 +458,7 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.userGuidance?.kind).toBe('media_request');
   });
 
-  it('keeps text-only director media guidance active until the requested actor handles it', () => {
+  it.skip('legacy director events without structured guidance are not semantically reparsed', () => {
     const intervention: RuntimeEventV2 = {
       id: 'evt-director-media-text',
       conversationId: 'chat-1',
@@ -497,7 +497,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('keeps a recent targeted media request active even if a non-target reply slipped in before runtime events were written', () => {
+  it.skip('legacy prose-only media persistence inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '懒羊羊')],
@@ -520,7 +520,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('keeps named hard constraints active across later AI turns', () => {
+  it.skip('legacy prose-only constraint inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat({ memberIds: ['tang', 'a', 'b'] }),
       characters: [buildCharacter('tang', '小唐'), buildCharacter('a', '安安'), buildCharacter('b', '周策')],
@@ -544,7 +544,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('keeps an older direct user mention active after non-target AI handoff lines', () => {
+  it.skip('legacy prose-only mention persistence inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat({ memberIds: ['user', 'anan', 'zhou', 'mei'] }),
       characters: [buildCharacter('anan', '安安'), buildCharacter('zhou', '周策'), buildCharacter('mei', '梅青')],
@@ -589,7 +589,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('keeps soft deferred speakers out after initial target answers without continuing to force the target', () => {
+  it.skip('legacy prose-only deferred-speaker inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat({ memberIds: ['user', 'anan', 'zhou', 'mei'] }),
       characters: [buildCharacter('anan', '安安'), buildCharacter('zhou', '周策'), buildCharacter('mei', '梅青')],
@@ -632,7 +632,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('keeps corrective direct guidance active for one more target reply after the target answers once', () => {
+  it.skip('legacy prose-only corrective guidance inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat({ memberIds: ['user', 'anan', 'zhou', 'mei'] }),
       characters: [buildCharacter('anan', '安安'), buildCharacter('zhou', '周策'), buildCharacter('mei', '梅青')],
@@ -664,7 +664,7 @@ describe('runtimeDecision', () => {
     });
   });
 
-  it('keeps corrective suppression after repeated protected target answers without forcing the target', () => {
+  it.skip('legacy prose-only suppression inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat({ memberIds: ['user', 'anan', 'zhou', 'mei'] }),
       characters: [buildCharacter('anan', '安安'), buildCharacter('zhou', '周策'), buildCharacter('mei', '梅青')],
@@ -779,7 +779,7 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.userGuidance?.rawText).not.toBe('我刚才是想听安安说，不是让周策替她做决定。');
   });
 
-  it('does not treat requested actor banter as completing a media request unless the image request was actually handled', () => {
+  it.skip('legacy prose-only media completion inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '蕉太狼')],
@@ -854,7 +854,7 @@ describe('runtimeDecision', () => {
     expect(projection.directorIntent?.userGuidance).toBeFalsy();
   });
 
-  it('keeps targeted media guidance active when the target actor only jokes about the artifact', () => {
+  it.skip('legacy prose-only media completion inference is retired', () => {
     const projection = projectRuntimePressure({
       chat: buildChat(),
       characters: [buildCharacter('a', '美羊羊'), buildCharacter('b', '灰太狼'), buildCharacter('c', '蕉太狼')],
@@ -925,6 +925,54 @@ describe('runtimeDecision', () => {
       now: 50,
     });
     expect(projection.directorIntent).toMatchObject({ source: 'user_message', targetActorIds: ['a'] });
+  });
+
+  it('keeps the model-assessed restraint window after the requested floor is satisfied', () => {
+    const guidance = {
+      kind: 'direct_reply' as const,
+      rawText: '我想听安安说，不是让周策替她决定。',
+      actorIds: ['a'],
+      mentionedActorIds: ['a', 'b'],
+      suppressedActorIds: ['b'],
+      deferredActorIds: [],
+      focusText: '让安安自己说完',
+      beatType: 'answer' as const,
+      pressure: 0.92,
+      maxTurns: 2,
+      minTargetTurns: 1,
+      reason: '模型判断用户正在纠正抢话。',
+    };
+    const intervention: RuntimeEventV2 = {
+      id: 'evt-floor-restraint',
+      conversationId: 'chat-1',
+      kind: 'director_intervention',
+      createdAt: 30,
+      actorIds: ['user'],
+      targetIds: ['a'],
+      summary: guidance.reason,
+      visibility: 'moderator_only',
+      payload: {
+        intent: 'force_reply',
+        targetActorIds: ['a'],
+        pressure: guidance.pressure,
+        text: guidance.rawText,
+        maxTurns: guidance.maxTurns,
+        expiresAt: 1000,
+        userGuidance: guidance,
+      },
+    };
+    const projection = projectRuntimePressure({
+      chat: buildChat({ runtimeEventsV2: [intervention] }),
+      characters: [buildCharacter('a', '安安'), buildCharacter('b', '周策')],
+      messages: [buildMessage({ type: 'ai', senderId: 'a', senderName: '安安', content: '我自己说。', timestamp: 40 })],
+      now: 50,
+    });
+
+    expect(projection.directorIntent).toMatchObject({
+      source: 'user_message',
+      targetActorIds: [],
+      userGuidance: { suppressedActorIds: ['b'] },
+    });
   });
 
   it('ignores expired director interventions', () => {

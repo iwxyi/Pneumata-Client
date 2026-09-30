@@ -29,7 +29,7 @@ export const studyPromptAdapter: EnginePromptAdapter = {
   buildSystemPrompt: ({ character, chat, messages, characters }) => {
     const learning = chat.scenarioState?.learning;
     const role = chat.memberIds.find((id) => id !== 'user') === character.id ? 'teacher' : 'student';
-    const knowledge = learning?.knowledgeItems?.slice(0, 24).map((item) => `${item.title}（${item.status}）`).join('、') || '尚未建立知识点地图';
+    const knowledge = learning?.knowledgeItems?.slice(0, 24).map((item) => `${item.id}: ${item.title}（${item.status}）`).join('、') || '尚未建立知识点地图';
     const evidence = learning?.evidence?.slice(-6).map((item) => item.summary).filter(Boolean).join('；') || '暂无已记录学习证据';
     const attempts = learning?.attempts?.slice(-4).map((item) => `${item.status}${typeof item.score === 'number' ? ` ${item.score}${typeof item.maxScore === 'number' ? `/${item.maxScore}` : ''}` : ''}`).join('、') || '暂无练习提交';
     const recent = messages.slice(-8).map((message) => `${message.senderName}: ${message.content}`).join('\n');

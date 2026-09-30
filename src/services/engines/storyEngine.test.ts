@@ -311,6 +311,13 @@ describe('STORY_ENGINE', () => {
         type: 'ai',
         senderId: 'narrator',
         metadata: {
+          storyAssets: {
+            openQuestions: ['门后到底是谁？', '墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。'],
+            clues: ['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。'],
+            stakes: ['激怒护士', '得到停电线索', '暴露位置', '发现新证据'],
+            relationshipShifts: ['墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。'],
+            currentScene: { visibleThreat: '墙上留下新鲜血迹', summary: '门后到底是谁？' },
+          },
           storyChoices: [
             { label: '让林医生追问护士昨晚去向', prompt: '林医生逼问护士', intent: '逼问', risk: '激怒护士', reward: '得到停电线索' },
             { label: '让主角检查墙上的血迹', prompt: '主角检查血迹', intent: '探索', risk: '暴露位置', reward: '发现新证据' },
@@ -454,6 +461,13 @@ describe('STORY_ENGINE', () => {
         content: '林医生逼问护士后，护士承认停电时有人进入档案室，代价是她开始拒绝继续同行。',
         type: 'ai',
         senderId: 'narrator',
+        metadata: {
+          storyAssets: {
+            relationshipShifts: ['林医生逼问护士后，护士开始拒绝继续同行。'],
+            clues: ['停电时有人进入档案室'],
+            stakes: ['护士拒绝继续同行'],
+          },
+        },
       },
     });
     expect(consequenceResult.chatPatch.scenarioState).toEqual(expect.objectContaining({

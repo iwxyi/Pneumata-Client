@@ -53,7 +53,8 @@ function deriveEmotionPressure(params: {
 }) {
   const emotion = params.innerLife.dominantEmotion;
   const affect = params.innerLife.activeAffect;
-  if (!emotion || emotion.value < 18 || !affect || affect.counterpartId !== params.targetActorId) return null;
+  if (!emotion || !affect || affect.counterpartId !== params.targetActorId) return null;
+  if (emotion.value < 18 && !(affect.pressure >= 0.35 && emotion.value >= 12)) return null;
   const constrained = axis(params.relationship?.deference) >= 30
     || axis(params.speaker.personality.assertiveness) + axis(params.speaker.behavior.aggressiveness) < 85
     || (params.innerLife.state.repression || 0) >= 48;
@@ -195,13 +196,17 @@ export function deriveCharacterTurnDrive(input: {
   messages: Message[];
   innerLife: InnerLifeProjection;
   targetActorId?: string;
+  targetMessageId?: string;
   targetName?: string;
   sharedRelationshipFacts?: string[];
   includeRelationshipNote?: boolean;
 }): CharacterTurnDrive {
   const { speaker, innerLife } = input;
   const core = speaker.coreProfile;
-  const latest = latestOtherMessage(speaker, input.messages);
+  const selectedMessage = input.targetMessageId
+    ? input.messages.find((message) => message.id === input.targetMessageId) || null
+    : null;
+  const latest = selectedMessage || latestOtherMessage(speaker, input.messages);
   const resolvedTargetId = input.targetActorId || innerLife.activeAffect?.counterpartId || latest?.senderId;
   const relationship = relationshipToTarget(speaker, resolvedTargetId, latest);
   const targetName = input.targetName
@@ -263,8 +268,8 @@ export function deriveCharacterTurnDrive(input: {
       : '';
   const stake = [relationshipStake, identityStake].filter(Boolean).join('; ')
     || 'no invented private stake; only respond to something concrete if there is one';
-  const relationshipDemandsAction = ['protect', 'test', 'answer_upward', 'exercise_authority'].includes(relationalAction);
-  const speakingNecessity: SpeakingNecessity = directAddress || innerLife.pressure >= 0.66 || relationalAction === 'repair' || relationalAction === 'resist' || relationshipDemandsAction
+  const hierarchyDemandsAnswer = directAddress && ['answer_upward', 'exercise_authority'].includes(relationalAction);
+  const speakingNecessity: SpeakingNecessity = directAddress || innerLife.pressure >= 0.66 || relationalAction === 'repair' || relationalAction === 'resist' || hierarchyDemandsAnswer
     ? 'strong'
     : innerLife.impulse === 'stay_silent' || relationalAction === 'avoid'
       ? 'let_silence_stand'

@@ -18,25 +18,6 @@ function normalizeText(text: string) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-function isLowValueUtterance(text: string) {
-  const normalized = normalizeText(text);
-  if (normalized.length < 20) return true;
-  if (/^(我觉得|我认为|其实|嗯|啊|是的|好的|maybe|well|i think)/i.test(normalized)) return true;
-  return false;
-}
-
-function isQuestionLikeArtifactText(text: string) {
-  return /[？?]|哪里|怎么|为什么|凭什么|是不是|难道|吗|嘛|呢|呀/.test(text);
-}
-
-function extractArtifactCandidate(normalized: string) {
-  const artifactMatch = normalized.match(/(?:^|[。；;]\s*)(总结|共识|方案|清单|计划|summary|conclusion|plan|checklist)[:：]\s*([^。！？!?]{6,60})/i);
-  if (!artifactMatch) return null;
-  const body = artifactMatch[2].trim();
-  if (isQuestionLikeArtifactText(body)) return null;
-  return `${artifactMatch[1]}：${body}`.slice(0, 96);
-}
-
 export function extractMemoryCandidate(text: string): MemoryCandidate | null {
   void text;
   return null;

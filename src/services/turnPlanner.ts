@@ -53,18 +53,11 @@ function latestVisible(messages: Message[]) {
   return messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event').at(-1) || null;
 }
 
-function visibleBubbleCount(message: Message) {
-  const count = message.metadata?.turnSegment?.count;
-  if (typeof count === 'number' && count > 0) return count;
-  return 1;
-}
-
 function recentOwnStats(messages: Message[], speakerId: string) {
   const own = messages
     .filter((message) => !message.isDeleted && message.type === 'ai' && message.senderId === speakerId)
     .slice(-6);
   const lengths = own.map((message) => charLength(message.content)).filter((length) => length > 0);
-  const bubbleCounts = own.map(visibleBubbleCount);
   const averageLength = lengths.length ? lengths.reduce((sum, item) => sum + item, 0) / lengths.length : 0;
   const minLength = lengths.length ? Math.min(...lengths) : 0;
   const maxLength = lengths.length ? Math.max(...lengths) : 0;
@@ -73,17 +66,7 @@ function recentOwnStats(messages: Message[], speakerId: string) {
     lengths,
     averageLength,
     clustered: lengths.length >= 3 && (maxLength - minLength) <= Math.max(24, averageLength * 0.34),
-    recentMultiBubbleCount: bubbleCounts.filter((count) => count > 1).length,
   };
-}
-
-function stableBucket(input: string) {
-  let hash = 2166136261;
-  for (const char of input) {
-    hash ^= char.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return Math.abs(hash >>> 0) % 100;
 }
 
 function resolveTalkativeness(speaker: AICharacter) {
@@ -116,18 +99,16 @@ function isAnalysisRoom(chat: GroupChat) {
 
 function chooseAnalysisContinuationPlan(input: TurnPlanInput, latestLength: number, latestIsHuman: boolean): TurnPlan {
   if (latestIsHuman || input.intent.stance === 'summarize') {
-    const allowExtraMessages = latestIsHuman && latestLength >= 90;
     return {
-      rhythm: allowExtraMessages ? 'multi_bubble' : 'full_reply',
-      maxBubbleCount: allowExtraMessages ? 2 : 1,
+      rhythm: 'full_reply',
+      maxBubbleCount: 1,
       lengthBand: latestLength >= 160 ? 'long' : 'medium',
-      allowExtraMessages,
+      allowExtraMessages: false,
       waitSensitive: false,
-      reasons: [`surface:${input.surface.kind}`, 'analysis_room', latestIsHuman ? 'human_turn' : 'summarize_intent', `latest_length:${latestLength}`, ...(allowExtraMessages ? ['analysis_structured_multi_bubble'] : [])],
+      reasons: [`surface:${input.surface.kind}`, 'analysis_room', latestIsHuman ? 'human_turn' : 'summarize_intent', `latest_length:${latestLength}`],
     };
   }
 
-  const allowExtraMessages = latestLength >= 120 && (input.intent.delivery === 'group_redirect' || input.intent.messageShape === 'two_sentences');
   if (!latestIsHuman && latestLength >= 120) {
     return {
       rhythm: 'short_reply',
@@ -139,12 +120,12 @@ function chooseAnalysisContinuationPlan(input: TurnPlanInput, latestLength: numb
     };
   }
   return {
-    rhythm: input.intent.delivery === 'quick_question' || input.intent.messageShape === 'question_only' ? 'short_reply' : allowExtraMessages ? 'multi_bubble' : 'full_reply',
-    maxBubbleCount: allowExtraMessages ? 2 : 1,
+    rhythm: input.intent.delivery === 'quick_question' || input.intent.messageShape === 'question_only' ? 'short_reply' : 'full_reply',
+    maxBubbleCount: 1,
     lengthBand: latestLength >= 180 ? 'medium' : 'short',
-    allowExtraMessages,
+    allowExtraMessages: false,
     waitSensitive: false,
-    reasons: [`surface:${input.surface.kind}`, 'analysis_room', 'ai_continuation', `latest_length:${latestLength}`, ...(allowExtraMessages ? ['analysis_structured_multi_bubble'] : [])],
+    reasons: [`surface:${input.surface.kind}`, 'analysis_room', 'ai_continuation', `latest_length:${latestLength}`],
   };
 }
 
@@ -165,19 +146,11 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
 
   const ownStats = recentOwnStats(input.messages, input.speaker.id);
   const talkativeness = resolveTalkativeness(input.speaker);
-  const bucket = stableBucket([
-    input.chat.id,
-    input.speaker.id,
-    visibleLatest?.id || '',
-    visibleLatest?.timestamp || input.now || 0,
-    ownStats.count,
-  ].join('|'));
   const reasons = [
     `surface:${input.surface.kind}`,
     `chat:${input.chat.type}`,
     `latest:${latestLength}`,
     `talk:${Math.round(talkativeness)}`,
-    `bucket:${bucket}`,
   ];
 
   if (latestIsShortOpenHuman) {
@@ -193,22 +166,13 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
 
   const asksForDepth = latestIsHuman && latestLength >= 44;
   if (asksForDepth || input.intent.stance === 'summarize') {
-    const canUseExtraMessages = asksForDepth
-      && latestLength >= 64
-      && ownStats.recentMultiBubbleCount === 0
-      && (
-        input.chat.type !== 'group'
-        || input.intent.delivery === 'group_redirect'
-        || input.intent.messageShape === 'question_only'
-        || talkativeness >= 58
-      );
     return {
-      rhythm: canUseExtraMessages ? 'multi_bubble' : 'full_reply',
-      maxBubbleCount: canUseExtraMessages ? 2 : 1,
+      rhythm: 'full_reply',
+      maxBubbleCount: 1,
       lengthBand: latestLength >= 90 ? 'long' : 'medium',
-      allowExtraMessages: canUseExtraMessages,
+      allowExtraMessages: false,
       waitSensitive: false,
-      reasons: [...reasons, asksForDepth ? 'human_depth_request' : 'summarize_intent', ...(canUseExtraMessages ? ['human_depth_can_split_bubbles'] : [])],
+      reasons: [...reasons, asksForDepth ? 'human_depth_request' : 'summarize_intent'],
     };
   }
 
@@ -220,22 +184,6 @@ function deriveBaseTurnPlan(input: TurnPlanInput): TurnPlan {
       allowExtraMessages: false,
       waitSensitive: false,
       reasons: [...reasons, 'group_ai_chain_needs_brevity'],
-    };
-  }
-
-  const canMultiBubble = input.chat.type !== 'group' || talkativeness >= 58 || input.intent.delivery === 'side_remark';
-  const shouldMultiBubble = canMultiBubble
-    && ownStats.recentMultiBubbleCount === 0
-    && latestLength >= 10
-    && latestLength <= 90;
-  if (shouldMultiBubble) {
-    return {
-      rhythm: 'multi_bubble',
-      maxBubbleCount: bucket >= 88 ? 3 : 2,
-      lengthBand: bucket >= 82 ? 'medium' : 'short',
-      allowExtraMessages: true,
-      waitSensitive: false,
-      reasons: [...reasons, 'multi_bubble_context_available'],
     };
   }
 
@@ -269,17 +217,17 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
     return { ...plan, rhythm: plan.rhythm === 'multi_bubble' ? 'full_reply' : plan.rhythm, maxBubbleCount: 1, allowExtraMessages: false, reasons: [...plan.reasons, 'delivery:multi_bubble_off'] };
   }
 
-  if (input.surface.kind !== 'chat') return plan;
-  const maxBubbleCount = Math.max(1, Math.min(5, delivery.maxBubbles));
+  if (input.surface.kind === 'longform') return plan;
+  const maxBubbleCount = Math.max(1, delivery.maxBubbles);
   if (maxBubbleCount === 1) return plan;
 
   // Proactivity is a model-facing tendency, not a local random verdict. The
   // model sees the live meaning, emotion and timing that decide whether this
   // particular turn is one send or several; the runtime only supplies the
-  // room's hard ceiling.
+  // room's usual soft ceiling.
   return {
     ...plan,
-    rhythm: plan.allowExtraMessages ? 'multi_bubble' : plan.rhythm,
+    rhythm: plan.rhythm,
     maxBubbleCount,
     allowExtraMessages: true,
     reasons: [...plan.reasons, `delivery:${delivery.proactivity}_model_decides`],
@@ -287,23 +235,17 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
 }
 
 export function buildTurnPlanPrompt(plan: TurnPlan) {
-  const bubbleLine = plan.allowExtraMessages
-    ? '- Consecutive bubbles are available, never required. Treat them as one to several real sends, not a main sentence plus an appendix: a quick acknowledgement, invitation to continue, hesitation, change of mind, small tease, delayed feeling, question, correction, or practical add-on can each be its own beat. Let the beats be uneven in length. If there is no real send-time change, keep one bubble.'
-    : '- Keep this turn in one visible bubble unless the current moment clearly wants a natural follow-up message.';
   const rhythmLine = plan.rhythm === 'micro_ack'
     ? '\n- This turn can be a tiny acknowledgement or quick nudge. Do not expand it into a paragraph unless the user directly asked for substance.'
     : plan.rhythm === 'short_reply'
-      ? '\n- Keep one compact social or deliberative move. In a multi-send room, that move may unfold as several unequal chat beats rather than one polished sentence.'
-      : plan.rhythm === 'multi_bubble'
-        ? '\n- If using multiple bubbles, keep each bubble purposeful and uneven; do not use them to continue a lecture.'
-        : '';
+      ? '\n- Keep one compact social or deliberative move. Rhythm describes the substance and pace, not the number of messages.'
+      : '';
   return `\n## Turn Plan
 - Rhythm tendency: ${plan.rhythm}
-${bubbleLine}
+- Rhythm and length describe the substance of the turn; choose message boundaries from the whole-turn social meaning in the interaction contract, not from this plan.
 - Do not target a fixed length band. Choose length from the live situation, the user's request, the character's comfort, and the amount of actual substance available.
 - Very short reactions, ordinary one-sentence replies, rambling multi-sentence thoughts, and fuller explanations are all valid when the moment calls for them.
-- A full stop is a possible send boundary, not a mechanical splitting rule. Use messages[] only when the completed first thought changes the timing or social feel of what comes next.
-- This is a weak planning prior, not a keyword rule, output template, or length cap. Follow the current request, scene, and play mode if they need a different shape.
+- A full stop, paragraph, viewpoint, or step is not by itself a send boundary. Follow the current request, scene, and play mode if they need a different shape.
 ${rhythmLine}
 - Plan reasons: ${plan.reasons.join(', ')}`;
 }

@@ -52,15 +52,10 @@ function stripInternalIds(text: string) {
     .trim();
 }
 
-function hasPrivateSurfaceRisk(text: string) {
-  return /(不要|不想|别|公开|隐私|边界|禁忌|压力|焦虑|面试|考试|生日|纪念|私下|只告诉|秘密|住址|地址|电话|手机号|微信|QQ|生病|不舒服|失眠|抑郁|创伤|计划|下周|明天|今晚|昨晚|约定|承诺|称呼|暗号|失约)/.test(text);
-}
-
-function cleanValues(values: string[], visibility: CharacterMindPromptVisibility, max: number) {
+function cleanValues(values: string[], _visibility: CharacterMindPromptVisibility, max: number) {
   return Array.from(new Set(values
     .map((value) => stripInternalIds(compactText(value)))
-    .filter(Boolean)
-    .filter((value) => visibility === 'private' || !hasPrivateSurfaceRisk(value))))
+    .filter(Boolean)))
     .slice(0, max);
 }
 
@@ -187,7 +182,7 @@ function selectRecallCues(
   omitUserContinuity = false,
 ) {
   if (visibleMemoryRecall === 'off') return [];
-  if (suppliedRecallCues?.length) {
+  if (suppliedRecallCues !== undefined) {
     return Array.from(new Set(suppliedRecallCues.map((cue) => stripInternalIds(compactText(cue, 220))).filter(Boolean)))
       .slice(0, maxRecallCues);
   }
@@ -256,8 +251,8 @@ export function adaptCharacterMindProjectionForPrompt(
       visibleMemoryRecall,
       omittedPrivateContinuity: visibility === 'public' && (
         projection.continuity.userProfile.length > 0
-        || projection.continuity.relationshipMemories.some(hasPrivateSurfaceRisk)
-        || projection.continuity.sharedHistory.some(hasPrivateSurfaceRisk)
+        || projection.continuity.relationshipMemories.length > 0
+        || projection.continuity.sharedHistory.length > 0
       ),
       omittedRawRoomLines: !options.includeActiveRoomLineSummaries && projection.room.activeLines.length > 0,
       sourceIds: projection.hidden.sourceIds.slice(0, 12),

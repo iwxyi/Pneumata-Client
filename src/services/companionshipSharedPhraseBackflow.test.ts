@@ -171,6 +171,11 @@ describe('companionshipSharedPhraseBackflow', () => {
         origin: 'distilled',
         confidence: 0.86,
         salience: 0.82,
+        sharedPhrase: {
+          text: '月亮今天也站岗',
+          kind: 'secret_code',
+          visibility: 'private',
+        },
       },
     });
 
@@ -203,6 +208,11 @@ describe('companionshipSharedPhraseBackflow', () => {
         origin: 'distilled',
         confidence: 0.8,
         salience: 0.76,
+        sharedPhrase: {
+          text: '雨天加班券',
+          kind: 'inside_joke',
+          visibility: 'public_hint',
+        },
       },
     });
 
@@ -236,11 +246,34 @@ describe('companionshipSharedPhraseBackflow', () => {
         origin: 'distilled',
         confidence: 0.5,
         salience: 0.82,
+        sharedPhrase: {
+          text: '月亮今天也站岗',
+          kind: 'secret_code',
+          visibility: 'private',
+        },
       },
     });
 
     const events = buildSharedPhraseEventsFromCompanionshipEvents({ chat: chat(), character: character(), events: [distilled] });
 
     expect(events).toEqual([]);
+  });
+
+  it('does not guess a shared phrase from distilled prose without model metadata', () => {
+    const distilled = event({
+      id: 'distilled-memory-with-keywords-only',
+      kind: 'memory_candidate',
+      targetIds: ['char-a', 'user'],
+      summary: '用户和苏苏约定把“月亮今天也站岗”当成秘密暗号。',
+      payload: {
+        kind: 'bond',
+        text: '用户和苏苏约定把“月亮今天也站岗”当成秘密暗号。',
+        origin: 'distilled',
+        confidence: 0.9,
+        salience: 0.9,
+      },
+    });
+
+    expect(buildSharedPhraseEventsFromCompanionshipEvents({ chat: chat(), character: character(), events: [distilled] })).toEqual([]);
   });
 });

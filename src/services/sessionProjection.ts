@@ -11,7 +11,7 @@ import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSan
 import { reportUnresolvedDisplayEntity } from './diagnostics';
 import { formatRuntimeEventKindLabel } from './runtimeEventPresentation';
 import { formatActorRefKindLabel, formatSystemAgentSubtypeLabel, inferSystemAgentSubtypeFromId, toActorRef, type ActorRefKind } from './actorRefPresentation';
-import { evaluateGuidanceGeneratedContent, extractGuidanceMatchTokens, normalizeGuidanceMatchText } from './guidanceExecution';
+import { evaluateGuidanceGeneratedContent } from './guidanceExecution';
 import { projectWorldAttentionStates } from './worldRuntimeProjection';
 import { canUsePrivateThreads } from './conversationCapabilities';
 import { getCurrentRetentionLimits } from './retentionLimits';
@@ -446,7 +446,6 @@ function projectAttentionFollowupMeta(
   const actorMessages = events
     .slice(eventIndex + 1)
     .filter((candidate) => candidate.kind === 'message_generated' && candidate.actorIds?.[0] === actorId);
-  const focusTokens = extractGuidanceMatchTokens(focus || '').filter((token) => !['用户', '成员', actorName, targetName].includes(token));
   if (!actorMessages.length) {
     return {
       kind: eventType === 'attention_followup_member' ? 'member' as const : 'user' as const,
@@ -480,9 +479,7 @@ function projectAttentionFollowupMeta(
       participantNameMap,
     );
     if (!evaluateGuidanceGeneratedContent(text, guidance, actorId).matched) return false;
-    if (!focusTokens.length) return true;
-    const normalizedText = normalizeGuidanceMatchText(text);
-    return focusTokens.some((token) => normalizedText.includes(token));
+    return true;
   });
   if (!completionEvent) {
     return {

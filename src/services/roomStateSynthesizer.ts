@@ -154,7 +154,11 @@ function isAllianceInteraction(interaction: InteractionEventPayload) {
     || interaction.kind === 'take_responsibility';
 }
 
-export function calculateRoomShift(current: RoomStateSnapshotV2 | null, input: InteractionEventPayload | InteractionEventPayload[]): { nextState: RoomStateSnapshotV2; shift: RoomShiftPayload } {
+export function calculateRoomShift(
+  current: RoomStateSnapshotV2 | null,
+  input: InteractionEventPayload | InteractionEventPayload[],
+  options: { semanticSource?: 'model' | 'legacy' } = {},
+): { nextState: RoomStateSnapshotV2; shift: RoomShiftPayload } {
   const interactions = Array.isArray(input) ? input : [input];
   const interaction = interactions[0];
   const base = current
@@ -171,24 +175,31 @@ export function calculateRoomShift(current: RoomStateSnapshotV2 | null, input: I
     cohesion: relaxCohesion(base.cohesion),
     topicDrift: relaxTopicDrift(base.topicDrift),
   };
+  const modelAuthored = options.semanticSource === 'model';
   const delta = interactions
-    .map(calculateInteractionDelta)
+    .map((item) => modelAuthored
+      ? {
+          heat: Math.round(item.immediateImpact?.roomDelta?.heat || 0),
+          cohesion: Math.round(item.immediateImpact?.roomDelta?.cohesion || 0),
+          topicDrift: Math.round(item.immediateImpact?.roomDelta?.topicDrift || 0),
+        }
+      : calculateInteractionDelta(item))
     .reduce<RoomDelta>((total, item) => ({
       heat: total.heat + item.heat,
       cohesion: total.cohesion + item.cohesion,
       topicDrift: total.topicDrift + item.topicDrift,
     }), { heat: 0, cohesion: 0, topicDrift: 0 });
-  const conflictInteractions = interactions.filter(isConflictInteraction);
-  const allianceInteractions = interactions.filter(isAllianceInteraction);
-  const repairInteractions = interactions.filter((item) => item.kind === 'apologize'
+  const conflictInteractions = modelAuthored ? [] : interactions.filter(isConflictInteraction);
+  const allianceInteractions = modelAuthored ? [] : interactions.filter(isAllianceInteraction);
+  const repairInteractions = modelAuthored ? [] : interactions.filter((item) => item.kind === 'apologize'
     || item.kind === 'concede'
     || item.kind === 'take_responsibility'
     || item.kind === 'include');
-  const allianceBreakingInteractions = interactions.filter((item) => item.kind === 'mock'
+  const allianceBreakingInteractions = modelAuthored ? [] : interactions.filter((item) => item.kind === 'mock'
     || item.kind === 'dismiss'
     || item.kind === 'pile_on'
     || item.kind === 'exclude');
-  const pileOn = interactions.find((item) => item.kind === 'pile_on' && item.targetId);
+  const pileOn = modelAuthored ? undefined : interactions.find((item) => item.kind === 'pile_on' && item.targetId);
   const dominantThread = interaction.targetId ? [interaction.actorId, interaction.targetId] as [string, string] : base.dominantThread;
   const alliances = allianceInteractions.reduce(
     (list, item) => item.targetId ? pushUniquePair(list, [item.actorId, item.targetId]) : list,
@@ -201,7 +212,7 @@ export function calculateRoomShift(current: RoomStateSnapshotV2 | null, input: I
   const newlySilencedActors = conflictInteractions
     .filter((item) => item.targetId && (item.kind === 'dismiss' || item.kind === 'pile_on' || item.kind === 'exclude'))
     .map((item) => item.targetId as string);
-  const releasedActors = new Set(interactions
+  const releasedActors = new Set((modelAuthored ? [] : interactions)
     .filter((item) => item.targetId && (isAllianceInteraction(item) || item.kind === 'concede'))
     .map((item) => item.targetId as string));
   const nextState: RoomStateSnapshotV2 = {

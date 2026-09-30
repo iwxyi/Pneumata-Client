@@ -181,7 +181,7 @@ describe('scheduler speaker scoring', () => {
     const b = candidates.find((candidate) => candidate.characterId === 'b');
     const c = candidates.find((candidate) => candidate.characterId === 'c');
     expect(b?.weight).toBeGreaterThan(c?.weight || 0);
-    expect(b?.scoreBreakdown?.reasons).toContain('character_drive:strong');
+    expect(b?.scoreBreakdown?.reasons).not.toContain('character_drive:strong');
   });
 
   it('marks an otherwise unengaged, low-drive bystander as silence-preferring', () => {
@@ -292,6 +292,41 @@ describe('scheduler speaker scoring', () => {
       sourceSpeakerId: 'a',
       sourceMessageId: 'm3',
     });
+  });
+
+  it('keeps an explicit reply debt open when another member interrupts', () => {
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙'), buildCharacter('c', '丙')];
+    const addressed = buildMessage({ id: 'm1', senderId: 'a', senderName: '甲', content: '乙，这件事你来答。', timestamp: 1 }) as Message & {
+      addressedTargetIds?: string[] | null;
+      primaryAddressedTargetId?: string | null;
+    };
+    addressed.addressedTargetIds = ['b'];
+    addressed.primaryAddressedTargetId = 'b';
+    const interruption = buildMessage({ id: 'm2', senderId: 'c', senderName: '丙', content: '等一下，我先说一句。', timestamp: 2 });
+
+    expect(resolvePendingReplyContext(characters, [addressed, interruption])).toMatchObject({
+      primaryTargetId: 'b',
+      sourceSpeakerId: 'a',
+      sourceMessageId: 'm1',
+      unmetTurns: 1,
+      strength: 'strong',
+    });
+  });
+
+  it('settles an earlier reply debt after the addressed member speaks', () => {
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙'), buildCharacter('c', '丙')];
+    const addressed = buildMessage({ id: 'm1', senderId: 'a', senderName: '甲', content: '乙，这件事你来答。', timestamp: 1 }) as Message & {
+      addressedTargetIds?: string[] | null;
+      primaryAddressedTargetId?: string | null;
+    };
+    addressed.addressedTargetIds = ['b'];
+    addressed.primaryAddressedTargetId = 'b';
+
+    expect(resolvePendingReplyContext(characters, [
+      addressed,
+      buildMessage({ id: 'm2', senderId: 'c', senderName: '丙', content: '我先插一句。', timestamp: 2 }),
+      buildMessage({ id: 'm3', senderId: 'b', senderName: '乙', content: '行，我来答。', timestamp: 3 }),
+    ])).toBeNull();
   });
 
   it('does not force an unspoken member into an ordinary multi-character exchange', () => {

@@ -169,8 +169,29 @@ export function applyInteractionEmotions(
   interactions: InteractionEventPayload[],
   role: 'speaker' | 'target',
   current: EmotionalState = character.emotionalState || getEmotionalBaseline(),
+  semanticSource: 'model' | 'legacy' = 'legacy',
 ): EmotionalState {
   const next = decayEmotionalState(current, role);
+  const emotionAxes = ['irritation', 'affection', 'insecurity', 'excitement', 'embarrassment'] as const;
+
+  if (semanticSource === 'model') {
+    const impacts = role === 'speaker'
+      ? interactions.flatMap((interaction) => interaction.immediateImpact?.speakerEmotionDelta ? [interaction.immediateImpact.speakerEmotionDelta] : [])
+      : interactions.flatMap((interaction) => interaction.immediateImpact?.targetEmotionDelta ? [interaction.immediateImpact.targetEmotionDelta] : []);
+    for (const impact of impacts) {
+      for (const axis of emotionAxes) {
+        const delta = Number(impact[axis] || 0);
+        if (Number.isFinite(delta)) next[axis] += delta;
+      }
+    }
+    return {
+      irritation: clampPercent(next.irritation),
+      affection: clampPercent(next.affection),
+      insecurity: clampPercent(next.insecurity),
+      excitement: clampPercent(next.excitement),
+      embarrassment: clampPercent(next.embarrassment),
+    };
+  }
 
   for (const interaction of interactions) {
     const intensity = Math.max(1, Math.min(5, interaction.intensity || 1));

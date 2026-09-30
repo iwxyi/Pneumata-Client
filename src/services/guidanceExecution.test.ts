@@ -114,19 +114,26 @@ describe('guidanceExecution', () => {
     });
   });
 
-  it('accepts only short handoffs from non-target speakers during suppression guidance', () => {
+  it('keeps model-assessed suppression structural without locally guessing guardian semantics', () => {
     const roomMembers = [
       character('anan', '安安'),
       character('zhou', '周策'),
       character('mei', '梅青'),
     ];
-    const guidance = parseUserGuidanceIntent('我刚才是想听安安说，不是让周策替她做决定。', roomMembers);
+    const guidance = {
+      kind: 'direct_reply' as const,
+      rawText: '我刚才是想听安安说，不是让周策替她做决定。',
+      actorIds: ['anan'], mentionedActorIds: ['anan', 'zhou'], suppressedActorIds: ['zhou'],
+      focusText: '让安安继续说完', beatType: 'answer' as const, pressure: 0.9, maxTurns: 2,
+      reason: '模型识别到用户正在纠正发言对象。',
+    };
 
-    expect(evaluateGuidanceGeneratedContent('安安，你继续说完，我先不替你收口。', guidance, 'mei', roomMembers)).toEqual({
+    expect(evaluateGuidanceGeneratedContent('安安，你继续说完，我先不替你收口。', guidance, 'mei', roomMembers)).toEqual({ matched: true, reason: 'matched' });
+    expect(evaluateGuidanceGeneratedContent('我去跟周策说，这段我来安排进附录，后面我负责推进。', guidance, 'mei', roomMembers)).toEqual({
       matched: true,
       reason: 'matched',
     });
-    expect(evaluateGuidanceGeneratedContent('我去跟周策说，这段我来安排进附录，后面我负责推进。', guidance, 'mei', roomMembers)).toEqual({
+    expect(evaluateGuidanceGeneratedContent('这段还是我来定。', guidance, 'zhou', roomMembers)).toEqual({
       matched: false,
       reason: 'suppression_handoff_required',
     });
@@ -237,6 +244,20 @@ describe('guidanceExecution', () => {
         senderName: '灰太狼',
         content: '我没有图片模型，暂时发不了',
         timestamp: 30,
+        metadata: {
+          runtimeDecision: {
+            directorIntent: { userGuidance: guidance },
+            guidanceExecution: {
+              status: 'accepted',
+              validated: true,
+              retryCount: 0,
+              rejectedDraftCount: 0,
+              rejectedReasons: [],
+              finalReason: 'matched',
+              forcedMediaQueued: false,
+            },
+          },
+        },
       }),
     ];
     const progress = collectGuidanceProgressAfterTimestamp(messages, 10, guidance, members);

@@ -9,18 +9,21 @@ import { setAIGenerationRuntimeConfig } from '../aiGenerationRuntimeConfig';
 import { setCompanionshipRuntimeConfig } from '../companionshipRuntimeConfig';
 
 const generateResponseMock = vi.fn();
+const generateJsonResponseMock = vi.fn();
 type OpenChatCommittedMessageForTest = Parameters<typeof openChatEngine.onMessageCommitted>[0]['message'] & {
   socialEventHints?: SocialEventHintEnvelope[] | null;
 };
 
 vi.mock('../aiClient', () => ({
   generateResponse: (...args: unknown[]) => generateResponseMock(...args),
+  generateJsonResponse: (...args: unknown[]) => generateJsonResponseMock(...args),
 }));
 
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-06-01T14:00:00+08:00'));
   generateResponseMock.mockReset();
+  generateJsonResponseMock.mockReset();
   setAIGenerationRuntimeConfig({ enableMoments: true, enableDiaries: true });
   setCompanionshipRuntimeConfig(DEFAULT_COMPANIONSHIP_SETTINGS);
 });
@@ -123,7 +126,45 @@ function readAppliedRuntimeEvents(chat: ReturnType<typeof buildChat>, result: Dr
   return applyResultToChat(chat, result).runtimeEventsV2 || [];
 }
 
+describe('openChatEngine runtime context', () => {
+  it('exposes distinct direct and group delivery plans to the shared generator', () => {
+    const buildContext = openChatEngine.buildRuntimeContextBundle;
+    expect(buildContext).toBeTypeOf('function');
+    if (!buildContext) throw new Error('open chat runtime context builder is missing');
+
+    type Context = Parameters<typeof buildContext>[0];
+    const speaker = buildCharacter('a', '甲');
+    const direct = buildContext({ conversation: buildChat({ type: 'direct' }), speaker } as Context);
+    const group = buildContext({ conversation: buildChat({ type: 'group' }), speaker } as Context);
+
+    expect(direct?.expressionPlan?.surface).toBe('companion');
+    expect(direct?.expressionPlan?.rhythm).toBe('one_shot');
+    expect(group?.expressionPlan?.surface).toBe('casual');
+    expect(group?.expressionPlan?.rhythm).toBe('back_and_forth');
+  });
+});
+
 describe('openChatEngine.onMessageCommitted', () => {
+  it('persists model-assessed user guidance instead of reparsing message prose', async () => {
+    generateJsonResponseMock.mockResolvedValue(JSON.stringify({
+      kind: 'direct_reply', actorIds: ['a'], mentionedActorIds: ['a', 'b'],
+      suppressedActorIds: ['b'], deferredActorIds: [], hasHardConstraints: false,
+      voiceRequest: false, stickerRequest: false, focusText: '让甲先完整回应',
+      beatType: 'answer', pressure: 0.93, maxTurns: 2, minTargetTurns: 2,
+      reason: '用户纠正了发言顺序。', mediaRequest: null,
+    }));
+    const chat = buildChat();
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: { type: 'god', senderId: 'user', content: '不是让乙抢答，我想先听甲说完' },
+      recentMessages: [],
+      apiConfig: buildApiConfig(),
+    });
+    const event = readRuntimeEvents(result).find((item) => item.kind === 'director_intervention');
+    expect(event?.payload.userGuidance).toMatchObject({ actorIds: ['a'], suppressedActorIds: ['b'], minTargetTurns: 2 });
+  });
+
   it('records a user-directed spike and partial release without changing the slow relationship', async () => {
     const chat = buildChat();
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
@@ -309,6 +350,44 @@ describe('openChatEngine.onMessageCommitted', () => {
     const applied = applyResultToChat(chat, result);
     expect(applied.worldState.recentEvent).not.toContain('用户引导：');
     expect(applied.runtimeEventsV2?.some((event) => event.kind === 'memory_candidate' && event.summary.includes('用户发言：'))).toBe(true);
+  });
+
+  it('persists model-assessed reply targets from a participating user without local name matching', async () => {
+    generateJsonResponseMock.mockResolvedValueOnce(JSON.stringify({
+      kind: 'direct_reply',
+      actorIds: ['a'],
+      mentionedActorIds: ['b'],
+      hardConstraintActorIds: [],
+      suppressedActorIds: [],
+      deferredActorIds: [],
+      hasHardConstraints: false,
+      voiceRequest: false,
+      stickerRequest: false,
+      focusText: '让甲回答刚才的问题',
+      beatType: 'answer',
+      pressure: 0.9,
+      maxTurns: 1,
+      minTargetTurns: 1,
+      reason: '用户直接要求甲回答，乙只是被谈及。',
+      mediaRequest: null,
+    }));
+    const chat = buildChat({ memberIds: ['user', 'a', 'b'] });
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙')];
+    const result = await openChatEngine.onMessageCommitted({
+      conversation: chat,
+      characters,
+      apiConfig: buildApiConfig(),
+      message: { type: 'user', senderId: 'user', content: '刚才那件事你来回答。' },
+      previousAiMessage: null,
+      recentMessages: [],
+    });
+
+    const events = readAppliedRuntimeEvents(chat, result);
+    const guidance = events.find((event) => event.kind === 'director_intervention');
+    expect(guidance?.targetIds).toEqual(['a']);
+    expect((guidance?.payload as { userGuidance?: { actorIds?: string[] } }).userGuidance?.actorIds).toEqual(['a']);
+    expect(events.some((event) => event.kind === 'attention_candidate' && event.targetIds?.includes('a'))).toBe(true);
+    expect(events.some((event) => event.kind === 'interaction' && event.actorIds.includes('user'))).toBe(false);
   });
 
   it('does not infer user mention as participant interaction without model-authored interaction data', async () => {

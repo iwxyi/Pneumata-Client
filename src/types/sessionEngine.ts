@@ -1935,6 +1935,7 @@ export function createDefaultConversationEngineDefinition(params: {
   key: string;
   createInitialConfig: () => unknown;
   createInitialState: (config: unknown) => unknown;
+  buildRuntimeContextBundle?: SessionEngineDefinition['buildRuntimeContextBundle'];
   onMessageCommitted: SessionEngineDefinition['onMessageCommitted'];
 }): SessionEngineDefinition {
   return {
@@ -1949,6 +1950,7 @@ export function createDefaultConversationEngineDefinition(params: {
     getActionSchema: createDefaultConversationActionSchema,
     buildGenerationPromptContext: createDefaultConversationPromptContext,
     resolveTurnPolicy: createDefaultConversationTurnPolicy,
+    buildRuntimeContextBundle: params.buildRuntimeContextBundle,
     onMessageCommitted: params.onMessageCommitted,
   };
 }

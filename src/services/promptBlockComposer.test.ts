@@ -62,10 +62,10 @@ describe('promptBlockComposer', () => {
     ], policy);
 
     expect(policy.id).toBe('analysis_room');
-    expect(prompt).toBe('[core]');
+    expect(prompt).toBe('[core][humanization][inner life]');
   });
 
-  it('uses the unified directive with only the compact group-presence delivery inputs', () => {
+  it('uses the unified directive together with lived-expression delivery inputs', () => {
     const policy = resolvePromptPlayMode(chat());
     const prompt = composePromptBlocks([
       { id: 'core', layer: 'core', priority: 0, content: '[core]' },
@@ -82,7 +82,7 @@ describe('promptBlockComposer', () => {
     ], policy);
 
     expect(policy.id).toBe('general_group');
-    expect(prompt).toBe('[core][inner life][directive][turn plan][chat rhythm]');
+    expect(prompt).toBe('[core][humanization][inner life][directive][move][turn plan][chat rhythm]');
   });
 
   it('does not disable scenario group blocks outside ordinary conversation rooms', () => {

@@ -87,8 +87,7 @@ describe('conversationMovePlanner', () => {
       ],
     });
 
-    expect(plan.moveType).toBe('answer_unresolved_question');
-    expect(plan.targetMessageId).toBe('m1');
+    expect(plan.moveType).not.toBe('answer_unresolved_question');
   });
 
   it('does not force casual group speakers to answer every AI question in the room', () => {
@@ -115,8 +114,27 @@ describe('conversationMovePlanner', () => {
       ],
     });
 
-    expect(plan.moveType).toBe('answer_unresolved_question');
-    expect(plan.targetMessageId).toBe('m1');
+    expect(plan.moveType).not.toBe('answer_unresolved_question');
+  });
+
+  it('focuses an earlier direct address after another member interrupts', () => {
+    const plan = planConversationMove({
+      chat: chat('conversation'),
+      speaker: character({ id: 'a', name: '小甲' }),
+      messages: [
+        message('m1', 'b', '小甲，这件事你现在表个态。'),
+        message('m2', 'c', '我先补一个背景。'),
+      ],
+      pendingReplyContext: {
+        targetIds: ['a'], primaryTargetId: 'a', sourceSpeakerId: 'b', sourceMessageId: 'm1', unmetTurns: 1, strength: 'strong',
+      },
+    });
+
+    expect(plan).toMatchObject({
+      targetMessageId: 'm1',
+      targetActorId: 'b',
+      reason: 'pending_direct_address',
+    });
   });
 
   it('bootstraps analysis-room scrutiny even before artifacts exist', () => {
@@ -204,8 +222,7 @@ describe('conversationMovePlanner', () => {
       ],
     });
 
-    expect(plan.moveType).toBe('answer_unresolved_question');
-    expect(plan.targetMessageId).toBe('m1');
+    expect(plan.moveType).not.toBe('answer_unresolved_question');
   });
 
   it('lets casual agreement echo loops settle instead of manufacturing another point', () => {
@@ -221,7 +238,24 @@ describe('conversationMovePlanner', () => {
     });
 
     expect(['react_lightly', 'shift_topic_softly']).toContain(plan.moveType);
-    expect(plan.reason).toBe('chat_echo_loop');
+    expect(plan.reason).toBe('default_room_move');
+  });
+
+  it('occasionally braids back to an earlier room thread instead of always answering the latest speaker', () => {
+    const base = [
+      message('m1', 'b', '我先把北门的事说清楚。'),
+      message('m2', 'c', '南边的粮道也不能漏。'),
+      message('m3', 'b', '北门先守住，粮道再议。'),
+      message('m4', 'c', '那就先记着，别又绕回原处。'),
+    ];
+    const plans = Array.from({ length: 12 }, (_, index) => planConversationMove({
+      chat: chat('conversation'),
+      speaker: character({ id: 'a', name: '小甲' }),
+      messages: [...base, message(`m${index + 5}`, index % 2 ? 'c' : 'b', '我再补一句。')],
+    }));
+
+    expect(plans.some((plan) => plan.reason === 'ambient_thread_braid')).toBe(true);
+    expect(plans.filter((plan) => plan.reason === 'ambient_thread_braid').every((plan) => plan.targetMessageId !== `m${base.length + 5}`)).toBe(true);
   });
 
   it('turns unspoken-member scheduling into a concrete break-in move', () => {
@@ -273,9 +307,8 @@ describe('conversationMovePlanner', () => {
       },
     });
 
-    expect(plan.moveType).toBe('answer_unresolved_question');
-    expect(plan.reason).toBe('unresolved_question');
-    expect(plan.targetMessageId).toBe('m1');
+    expect(plan.moveType).toBe('add_boundary_condition');
+    expect(plan.reason).toBe('unspoken_member_break_in');
   });
 
   it('renders a casual echo-loop prompt that stops manufacturing new substance', () => {

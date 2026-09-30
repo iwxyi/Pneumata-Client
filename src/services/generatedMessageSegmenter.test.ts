@@ -95,14 +95,14 @@ describe('generatedMessageSegmenter', () => {
     expect(buildGeneratedTurnContent(message)).toBe('第一句\n（语音）第二句\n第三句');
   });
 
-  it('limits extra messages to four later bubbles without dropping generated text', () => {
+  it('limits legacy extra messages to seven later bubbles without dropping generated text', () => {
     const message = {
       ...buildMessage('一', 6),
       extraMessages: ['二', '三', '四', '五', '六'],
     };
 
     const segments = splitGeneratedRoundMessage(message);
-    expect(segments.map((item) => item.content)).toEqual(['一', '二', '三', '四', '五\n六']);
+    expect(segments.map((item) => item.content)).toEqual(['一', '二', '三', '四', '五', '六']);
     expect(buildGeneratedTurnContent(message)).toBe('一\n二\n三\n四\n五\n六');
     expect(segments[0]?.extraMessages).toBeUndefined();
   });

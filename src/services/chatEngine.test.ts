@@ -3,6 +3,7 @@ import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import type { Message } from '../types/message';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 import type { AIModelProfile } from '../types/settings';
 import { __chatEngineTestUtils, generateSpeakerMessage, runOneRound } from './chatEngine';
 import { evaluateDuplicateGuard } from './duplicateGuard';
@@ -182,6 +183,31 @@ function buildMediaDirectorIntent(): DirectorIntent {
         subjectText: '灰太狼',
         actionText: '发个灰太狼证件照的图片',
       },
+    },
+  };
+}
+
+function buildGuidanceIntervention(
+  guidance: NonNullable<DirectorIntent['userGuidance']>,
+  createdAt: number,
+): RuntimeEventV2 {
+  return {
+    id: `guidance-${createdAt}`,
+    conversationId: 'chat-1',
+    kind: 'director_intervention',
+    createdAt,
+    actorIds: ['user'],
+    targetIds: guidance.actorIds,
+    summary: guidance.reason,
+    visibility: 'moderator_only',
+    payload: {
+      intent: guidance.beatType === 'invite' ? 'inject_event' : guidance.beatType === 'challenge' ? 'escalate' : 'force_reply',
+      targetActorIds: guidance.actorIds,
+      pressure: guidance.pressure,
+      text: guidance.rawText,
+      maxTurns: guidance.maxTurns,
+      expiresAt: createdAt + 10 * 60_000,
+      userGuidance: guidance as unknown as Record<string, unknown>,
     },
   };
 }
@@ -414,7 +440,7 @@ describe('chatEngine streaming preview', () => {
     expect(contract).not.toContain('一句自然的群聊回复');
   });
 
-  it('adds authoritative storyEvents for story reader prose, dialogue, and choices', () => {
+  it('makes the story output contract follow the current beat choice policy', () => {
     const contract = buildInlineInteractionContract({
       chat: buildChat({
         memberIds: ['narrator'],
@@ -432,7 +458,9 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('Do not copy the JSON shape with storyEvents=null');
     expect(contract).toContain('must include at least one visible narration or speech event');
     expect(contract).toContain('Story-reader turns must use storyEvents as the authoritative visible story body');
-    expect(contract).toContain('"type":"choice_point"');
+    expect(contract).toContain('choicePolicy=forbid');
+    expect(contract).toContain('This beat forbids choice_point');
+    expect(contract).not.toContain('"type":"choice_point"');
     expect(contract).toContain('Speech text must be chat-like');
     expect(contract).toContain('A common speech event is 1-3 sentences');
     expect(contract).toContain('suggested event counts are guidance, not enforcement');
@@ -617,9 +645,12 @@ describe('chatEngine streaming preview', () => {
 
     expect(prompt).toContain('明显烦躁');
     expect(prompt).toContain('轻微戒备');
+    expect(prompt).toContain('## Inner Life');
+    expect(prompt).toContain('## Natural Chat Rhythm');
+    expect(prompt).toContain('## Expression Surface Choice');
     expect(prompt).toContain('阎君统辖幽都，牛头受其差遣并负责夜巡');
-    expect(prompt).toContain('Relationship action: answer_upward');
-    expect(prompt).toContain('Required state change:');
+    expect(prompt).toContain('Relationship pull: answer_upward');
+    expect(prompt).toContain('Possible consequence, not a quota:');
     expect(prompt).not.toContain('## Current speaking intent');
     expect(prompt.match(/## Turn Directive/g)).toHaveLength(1);
   });
@@ -658,11 +689,17 @@ describe('chatEngine streaming preview', () => {
         {
           type: 'choice_point',
           choices: [
-            { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室查病历' },
-            { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录' },
+            { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室查病历', risk: '可能惊动门后的人', reward: '找到被撕病历' },
+            { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录', risk: '暴露调查方向', reward: '确认敲门时间' },
           ],
         },
       ],
+      storyAssets: {
+        currentScene: { location: '医院旧楼铁门', summary: '雨夜里门后传来敲击声，林医生阻止众人开门。' },
+        openQuestions: ['门后是谁在敲击？'],
+        clues: ['门缝里的断续敲击声'],
+        stakes: ['贸然开门会惊动未知的人'],
+      },
       storyChoices: null,
       extraMessages: null,
       interactionHints: null,
@@ -677,7 +714,7 @@ describe('chatEngine streaming preview', () => {
         mode: 'scripted_play',
         sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
         memberIds: ['lin'],
-        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [] },
+        scenarioState: { phase: 'scene', sceneBeatCount: 3, choiceEpoch: 1, branches: [] },
       }),
       speaker: narrator,
       characters: [lin],
@@ -717,8 +754,8 @@ describe('chatEngine streaming preview', () => {
     }));
     expect(message.metadata?.storyQuality?.gaps).not.toContain('missing_story_hook');
     expect(message.metadata?.storyChoices).toEqual([
-      { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室查病历' },
-      { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录' },
+      { label: '让林医生去地下档案室查被撕掉的病历', prompt: '林医生进入地下档案室查病历', risk: '可能惊动门后的人', reward: '找到被撕病历' },
+      { label: '让护士追问昨晚停电记录', prompt: '护士追问停电记录', risk: '暴露调查方向', reward: '确认敲门时间' },
     ]);
     expect(message.metadata?.narrativeTurn?.povActorId).toBe('narrator');
     expect(message.metadata?.narrativeTurn?.blocks).toEqual([
@@ -812,10 +849,10 @@ describe('chatEngine streaming preview', () => {
 
     expect(generateResponseMock).toHaveBeenCalledTimes(2);
     const firstPrompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
-    expect(firstPrompt).toContain('Scene needs override these ranges');
+    expect(firstPrompt).toContain('A short charged exchange can stand on its own');
     expect(firstPrompt).toContain('Use as many narration and speech events as the current story beat needs');
-    expect(firstPrompt).toContain('900-1600 Chinese characters');
-    expect(firstPrompt).toContain('1200-2200 Chinese characters');
+    expect(firstPrompt).not.toContain('900-1600 Chinese characters');
+    expect(firstPrompt).not.toContain('1200-2200 Chinese characters');
     expect(firstPrompt).toContain('Suggested ranges are guidance, not enforcement');
     const retryPrompt = String(generateResponseMock.mock.calls[1]?.[1] || '');
     expect(retryPrompt).toContain('故事房下一节没有按小说连续阅读接续');
@@ -872,8 +909,12 @@ describe('chatEngine streaming preview', () => {
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
 
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('single behavior decision');
+    expect(prompt).toContain('## Character Grounding');
+    expect(prompt).toContain('Read the exchange from inside this person');
     expect(prompt).toContain('do not sprawl to keep airtime');
+    expect(prompt).not.toContain('## Persona Activation');
+    expect(prompt).not.toContain('## Live Presence');
+    expect(prompt).not.toContain('## Character Background Reference');
     expect(prompt).not.toContain('Current speaking intent');
     expect(prompt).not.toContain('Focused Situational Job Contract');
     expect(prompt).not.toContain('Natural Chat Surface Contract');
@@ -902,6 +943,19 @@ describe('chatEngine streaming preview', () => {
       speakerSelection: {
         speakerId: 'susu',
         policy: { source: 'user_guidance_lock', lockedActorIds: ['susu', 'luxun'] },
+      },
+      directorIntent: {
+        source: 'user_message',
+        beatType: 'answer',
+        targetActorIds: ['susu', 'luxun'],
+        pressure: 0.92,
+        reason: '用户要求每个角色分别完成写作任务。',
+        userGuidance: {
+          kind: 'direct_reply', rawText: '你怎么看待AI在未来对人类的影响？每个人写一篇800字作文',
+          actorIds: ['susu', 'luxun'], mentionedActorIds: [], focusText: '每个人分别写一篇800字作文',
+          beatType: 'answer', pressure: 0.92, maxTurns: 2, minTargetTurns: 1,
+          reason: '用户要求每个角色分别完成写作任务。',
+        },
       },
     });
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
@@ -973,7 +1027,8 @@ describe('chatEngine streaming preview', () => {
     expect(message.metadata?.runtimeDecision?.directorIntent?.userGuidance).toMatchObject({
       suppressedActorIds: ['zhou'],
     });
-    expect(message.metadata?.runtimeDecision?.memoryContext?.targetActorId).not.toBe('zhou');
+    expect(message.metadata?.runtimeDecision?.generationRuntime?.turnPlan?.targetIds).toEqual([]);
+    expect(message.metadata?.runtimeDecision?.generationRuntime?.trace?.policyHits).toContain('conversation_move_reason:explicit_user_guidance');
   });
 
   it('models targeted guidance as floor control without forcing every continuation to add a new thesis', async () => {
@@ -1020,6 +1075,7 @@ describe('chatEngine streaming preview', () => {
       characters: [anan, zhou],
       messages: [userTurn, priorAnswer],
       apiConfig: buildProfiles(),
+      directorIntent: priorAnswer.metadata?.runtimeDecision?.directorIntent as DirectorIntent,
     });
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
 
@@ -1132,21 +1188,14 @@ describe('chatEngine streaming preview', () => {
     expect(message.primaryAddressedTargetId).toBe('xutang');
   });
 
-  it('retries non-target suppression replies that take over the requested actor floor', async () => {
+  it('allows a third-party floor guardian without pretending local text checks can judge its semantics', async () => {
     generateResponseMock.mockReset();
-    generateResponseMock
-      .mockResolvedValueOnce(JSON.stringify({
-        content: '那我去跟周策说，这段我来安排进附录，后面我负责推进。',
-        interactionHints: null,
-        socialEventHints: null,
-        conflictFocus: null,
-      }))
-      .mockResolvedValueOnce(JSON.stringify({
-        content: '安安，你继续说完，我先不替你收口。',
-        interactionHints: null,
-        socialEventHints: null,
-        conflictFocus: null,
-      }));
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '安安，你继续说完，我先不替你收口。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
     const anan = buildCharacter('anan', '安安');
     const zhou = buildCharacter('zhou', '周策');
     const mei = buildCharacter('mei', '梅青');
@@ -1182,12 +1231,11 @@ describe('chatEngine streaming preview', () => {
       directorIntent,
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    expect(String(generateResponseMock.mock.calls[1]?.[1] || '')).toContain('one short handoff sentence');
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(message.content).toBe('安安，你继续说完，我先不替你收口。');
     expect(message.metadata?.runtimeDecision?.guidanceExecution).toMatchObject({
-      status: 'accepted_after_retry',
-      rejectedReasons: ['suppression_handoff_required'],
+      status: 'accepted',
+      rejectedReasons: [],
       finalReason: 'matched',
     });
   });
@@ -1483,7 +1531,7 @@ describe('chatEngine streaming preview', () => {
         memberIds: ['narrator', 'mei'],
         mode: 'scripted_play',
         sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
-        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [], chapterMemory: '阿梅在旧宅门口听见门内有脚步声。', stakes: ['暴露位置'] },
+        scenarioState: { phase: 'scene', sceneBeatCount: 0, choiceEpoch: 1, branches: [], chapterMemory: '阿梅在旧宅门口听见门内有脚步声。', stakes: ['暴露位置'] },
       }),
       speaker: narrator,
       characters: [narrator, mei],
@@ -1532,7 +1580,7 @@ describe('chatEngine streaming preview', () => {
         memberIds: ['narrator', 'mei'],
         mode: 'scripted_play',
         sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
-        scenarioState: { phase: 'scene', choiceEpoch: 1, branches: [], chapterMemory: '阿梅在旧宅门口听见门内有脚步声。', stakes: ['暴露位置'] },
+        scenarioState: { phase: 'scene', sceneBeatCount: 3, choiceEpoch: 1, branches: [], chapterMemory: '阿梅在旧宅门口听见门内有脚步声。', stakes: ['暴露位置'] },
       }),
       speaker: narrator,
       characters: [narrator, mei],
@@ -1552,6 +1600,40 @@ describe('chatEngine streaming preview', () => {
       { label: '让阿梅推门进入', prompt: '阿梅推门进入旧宅' },
       { label: '让阿梅先退回院子', prompt: '阿梅退回院子观察窗户' },
     ]);
+  });
+
+  it('retries a required decision beat when the model omits the choice point', async () => {
+    generateResponseMock.mockReset();
+    const section = longStorySection('门锁轻轻弹开。');
+    const base = {
+      narrativeText: null, narrativeBlocks: null, content: '', extraMessages: null,
+      storyChoices: null, interactionHints: null, socialEventHints: null, conflictFocus: null,
+    };
+    generateResponseMock
+      .mockResolvedValueOnce(JSON.stringify({ ...base, storyEvents: [
+        { type: 'narration', actorId: 'narrator', text: section },
+      ] }))
+      .mockResolvedValueOnce(JSON.stringify({ ...base, storyEvents: [
+        { type: 'narration', actorId: 'narrator', text: section },
+        { type: 'choice_point', choices: [
+          { label: '阿梅推门进入', prompt: '阿梅推门进入旧宅' },
+          { label: '阿梅退回院子', prompt: '阿梅退回院子观察窗户' },
+        ] },
+      ] }));
+    const narrator = buildCharacter('narrator', '旁白');
+    const mei = buildCharacter('mei', '阿梅');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({
+        memberIds: ['narrator', 'mei'], mode: 'scripted_play',
+        sessionKind: { family: 'conversation', scenarioId: 'story-reader', surfaceProfile: 'hybrid', topology: 'group' },
+        scenarioState: { phase: 'scene', sceneBeatCount: 3, choiceEpoch: 1, branches: [], chapterMemory: '阿梅听见门内脚步声。', stakes: ['暴露位置'] },
+      }),
+      speaker: narrator, characters: [narrator, mei], messages: [buildUserMessage('继续推进', 1)],
+      apiConfig: buildProfiles(),
+    });
+    expect(generateResponseMock).toHaveBeenCalledTimes(2);
+    expect(generateResponseMock.mock.calls[1]?.[1]).toContain('requires storyEvents.choice_point');
+    expect(message.metadata?.storyChoices).toHaveLength(2);
   });
 
   it('matches story event speech actors by actorName', async () => {
@@ -1905,7 +1987,7 @@ describe('chatEngine streaming preview', () => {
     ]);
   });
 
-  it('retries story-reader sections that are too short to feel like a complete novel beat', async () => {
+  it('accepts a short story exchange without padding to a character quota', async () => {
     generateResponseMock.mockReset();
     generateResponseMock
       .mockResolvedValueOnce(JSON.stringify({
@@ -1952,12 +2034,8 @@ describe('chatEngine streaming preview', () => {
       apiConfig: buildProfiles(),
     });
 
-    expect(generateResponseMock).toHaveBeenCalledTimes(2);
-    const retryPrompt = String(generateResponseMock.mock.calls[1]?.[1] || '');
-    expect(retryPrompt).toContain('visible story section was too short');
-    expect(retryPrompt).toContain('complete novel-like section');
-    expect(retryPrompt).not.toContain('mediaDecision');
-    expect(retryPrompt).not.toContain('content says or implies');
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(message.metadata?.runtimeDecision?.innerLife).toBeUndefined();
     expect(message.metadata?.narrativeTurn?.blocks).toEqual(expect.arrayContaining([
       expect.objectContaining({ actorKind: 'narrator', displayMode: 'paragraph', text: expect.stringContaining('门锁响了一下。') }),
       expect.objectContaining({ actorId: 'mei', actorName: '阿梅', displayMode: 'bubble', text: '有人在里面。' }),
@@ -2282,9 +2360,8 @@ describe('chatEngine streaming preview', () => {
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
 
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('Expression shape:');
-    expect(prompt).not.toContain('## Turn Format Variety');
-    expect(prompt).not.toContain('## Expression Surface Choice');
+    expect(prompt).toContain('Visible shape:');
+    expect(prompt).toContain('## Turn Format Variety');
     expect(message.content).toBe('（轻叹一声，目光落向窗外竹影）\n\n热闹自有热闹的好，冷清也有冷清的趣。\n\n（转回视线，语气淡了几分）你且去别处热闹罢。');
   });
 
@@ -2529,7 +2606,7 @@ describe('chatEngine streaming preview', () => {
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
     expect(prompt).toContain('This is a structured analysis room');
     expect(prompt).toContain('## Analysis Speaker Rules');
-    expect(prompt).toContain('Use the character only as an angle');
+    expect(prompt).toContain('You are a person with stakes in this decision');
     expect(prompt).toContain('Room topic:');
     expect(prompt).toContain('宠物与合租');
     expect(prompt).toContain('Character memory: 倾向用轻松感维持关系张力');
@@ -2538,7 +2615,7 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).not.toContain('## Channel Bias');
     expect(prompt).not.toContain('## Reasoning Bias');
     expect(prompt).not.toContain('## Companionship Context');
-    expect(prompt).not.toContain('## Inner Life');
+    expect(prompt).toContain('## Inner Life');
   });
 
   it('keeps deliberative analysis replies that omit deliberation artifacts and reports the missing panel data once', async () => {
@@ -3057,9 +3134,9 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('do not turn agreement into a paraphrase');
-    expect(prompt).not.toContain('opening-frame history');
-    expect(prompt).not.toContain('## Turn Length Variety');
+    expect(prompt).toContain('write the imperfect line that escapes through their habits');
+    expect(prompt).toContain('opening-frame history');
+    expect(prompt).toContain('## Turn Length Variety');
     expect(prompt).not.toContain('你这个问题问到了实务中的痛点');
     expect(prompt).not.toContain('你这个问题问到了实务中的另一个关键点');
     expect(prompt).not.toContain('你这个问题问到了实务中的核心困境');
@@ -3208,9 +3285,8 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('Expression shape:');
-    expect(prompt).not.toContain('## Expression Surface Choice');
-    expect(prompt).not.toContain('## Turn Format Variety');
+    expect(prompt).toContain('Visible shape:');
+    expect(prompt).toContain('## Expression Surface Choice');
     expect(message.content).toBe('我也有点想排队了😂');
   });
 
@@ -3679,7 +3755,7 @@ describe('chatEngine streaming preview', () => {
     expect((completed[0] as { metadata?: { attachments?: unknown[] } }).metadata?.attachments).toHaveLength(1);
   });
 
-  it('locks short-name direct writing guidance to the intended long-named speaker', async () => {
+  it('locks model-assessed direct writing guidance to the intended speaker without local name matching', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
       content: '如果让我写，我会先把AI当成一面镜子：它照出的不是人类会不会被替代，而是我们愿不愿意重新分配创造力。',
@@ -3693,9 +3769,18 @@ describe('chatEngine streaming preview', () => {
     const completed: unknown[] = [];
     const selected: string[] = [];
     const now = Date.now();
+    const guidance: NonNullable<DirectorIntent['userGuidance']> = {
+      kind: 'direct_reply', rawText: '苏苏你写一篇这个话题的800字作文',
+      actorIds: ['susu'], mentionedActorIds: ['susu'], focusText: '写一篇这个话题的800字作文',
+      beatType: 'answer', pressure: 0.94, maxTurns: 1, minTargetTurns: 1,
+      reason: '模型判断用户把写作任务明确交给苏苏。',
+    };
 
     await runOneRound(
-      buildChat({ memberIds: ['susu', 'luxun', 'xiao'] }),
+      buildChat({
+        memberIds: ['susu', 'luxun', 'xiao'],
+        runtimeEventsV2: [buildGuidanceIntervention(guidance, now - 1000)],
+      }),
       [susu, luxun, xiao],
       [{
         id: 'guide',
@@ -3736,8 +3821,18 @@ describe('chatEngine streaming preview', () => {
     const members = [buildCharacter('wen', '闻溪'), buildCharacter('tang', '许棠'), buildCharacter('cheng', '程野')];
     const now = Date.now();
     const completed: Message[] = [];
+    const guidance: NonNullable<DirectorIntent['userGuidance']> = {
+      kind: 'topic_shift', rawText: '合照里怎么只有闻溪和程野，许棠去哪了？这件事别当成拍漏了就算了。',
+      actorIds: [], mentionedActorIds: ['wen', 'tang', 'cheng'], hardConstraintActorIds: ['tang'],
+      suppressedActorIds: [], deferredActorIds: [], hasHardConstraints: true,
+      focusText: '不能把许棠缺席简单当成拍漏', beatType: 'challenge', pressure: 0.86,
+      maxTurns: 5, reason: '模型判断这是需要全群继续遵守的边界，但没有指定下一位发言者。',
+    };
     await runOneRound(
-      buildChat({ memberIds: ['user', ...members.map((member) => member.id)] }),
+      buildChat({
+        memberIds: ['user', ...members.map((member) => member.id)],
+        runtimeEventsV2: [buildGuidanceIntervention(guidance, now - 75_000)],
+      }),
       members,
       [
         buildUserMessage('合照里怎么只有闻溪和程野，许棠去哪了？这件事别当成拍漏了就算了。', now - 75_000),
@@ -3836,9 +3931,18 @@ describe('chatEngine streaming preview', () => {
     const selected: string[] = [];
     const completed: unknown[] = [];
     const now = Date.now();
+    const guidance: NonNullable<DirectorIntent['userGuidance']> = {
+      kind: 'direct_reply', rawText: '我刚才是想听安安说，不是让周策替她做决定。',
+      actorIds: ['anan'], mentionedActorIds: ['anan', 'zhou'], suppressedActorIds: ['zhou'], deferredActorIds: [],
+      focusText: '让安安自己说完', beatType: 'answer', pressure: 0.92,
+      maxTurns: 3, minTargetTurns: 2, reason: '模型判断用户正在纠正抢话并把发言权还给安安。',
+    };
 
     await runOneRound(
-      buildChat({ memberIds: ['anan', 'zhou', 'mei'] }),
+      buildChat({
+        memberIds: ['anan', 'zhou', 'mei'],
+        runtimeEventsV2: [buildGuidanceIntervention(guidance, now - 3000)],
+      }),
       [anan, zhou, mei],
       [
         {
@@ -3988,7 +4092,10 @@ describe('chatEngine streaming preview', () => {
 
   it('allows a single tutor in the learning progress session', async () => {
     generateResponseMock.mockReset();
-    generateResponseMock.mockResolvedValue(JSON.stringify({ content: '先从今天的目标开始。' }));
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '先从今天的目标开始。',
+      studyUpdate: { phase: 'mapping', knowledgeObservations: [] },
+    }));
     const tutor = buildCharacter('tutor', '导师');
     const completed: unknown[] = [];
     const idleReasons: string[] = [];
@@ -4004,6 +4111,35 @@ describe('chatEngine streaming preview', () => {
     );
     expect(idleReasons).toHaveLength(0);
     expect(completed).toHaveLength(1);
+  });
+
+  it('passes known study knowledge IDs to the model even with an engine prompt context', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '你已经能区分这两种时态了，再试一句。',
+      studyUpdate: { phase: 'learning', knowledgeObservations: [{
+        knowledgeItemId: 'knowledge:past-present', title: '过去时与现在完成时',
+        status: 'practicing', evidenceSummary: '学习者改正了昨天见面的句子。', confidence: 0.8,
+      }] },
+    }));
+    const tutor = buildCharacter('tutor', '导师');
+    await runOneRound(
+      buildChat({
+        memberIds: ['user', 'tutor'],
+        sessionKind: { topology: 'group', family: 'study', scenarioId: 'learning-progress', surfaceProfile: 'hybrid' },
+        scenarioState: { phase: 'learning', learning: {
+          goal: '英语时态', knowledgeItems: [{ id: 'knowledge:past-present', title: '过去时与现在完成时', status: 'practicing', evidenceCount: 1 }],
+        } },
+      }),
+      [tutor],
+      [buildUserMessage('I saw him yesterday，这次对吗？', 1)],
+      buildProfiles(),
+      { onSpeakerSelected: () => undefined, onMessageChunk: () => undefined, onMessageComplete: () => undefined, onError: (error) => { throw error; } },
+      undefined,
+      undefined,
+      {},
+    );
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('knowledge:past-present: 过去时与现在完成时');
   });
 
   it('does not select away or deleted members for group scheduling', async () => {

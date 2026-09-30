@@ -1,6 +1,8 @@
 import type { GeneratedRoundMessage } from './chatEngine';
 
-const MAX_EXTRA_MESSAGES = 4;
+// Compatibility-only protection for legacy extraMessages. The model-facing
+// room limit is deliberately softer and may be exceeded when meaning requires it.
+const MAX_EXTRA_MESSAGES = 7;
 
 function normalizeModelExtraMessages(extraMessages: unknown) {
   if (!Array.isArray(extraMessages)) return [];
@@ -16,7 +18,9 @@ function normalizeModelExtraMessages(extraMessages: unknown) {
 
 function withoutTransientExtras(message: GeneratedRoundMessage): GeneratedRoundMessage {
   if (message.extraMessages == null && message.messageParts == null) return message;
-  const { extraMessages: _extraMessages, messageParts: _messageParts, ...rest } = message;
+  const rest = { ...message };
+  delete rest.extraMessages;
+  delete rest.messageParts;
   return rest;
 }
 
@@ -31,7 +35,8 @@ export function buildGeneratedTurnContent(message: GeneratedRoundMessage) {
   return getVisibleTurnParts(message).join('\n');
 }
 
-export function splitGeneratedMessageText(content: string, _requestedCount = 1) {
+export function splitGeneratedMessageText(content: string, requestedCount = 1) {
+  void requestedCount;
   return content ? [content] : [];
 }
 
@@ -86,6 +91,7 @@ export function splitGeneratedRoundMessage(message: GeneratedRoundMessage) {
       ...(index === 0 ? baseMessage.metadata : {
         format: baseMessage.metadata?.format,
         manualSpeaker: baseMessage.metadata?.manualSpeaker,
+        turnParameters: baseMessage.metadata?.turnParameters,
       }),
       turnSegment: {
         index,

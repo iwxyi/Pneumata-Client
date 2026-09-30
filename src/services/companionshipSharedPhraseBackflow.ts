@@ -66,13 +66,12 @@ function isDistilledMemoryBackflowEligible(payload: Record<string, unknown>) {
   return true;
 }
 
-function quoteOrMeaningfulText(text: string | undefined | null, fallback?: string) {
+function quoteOrCompactText(text: string | undefined | null, fallback?: string) {
   const source = text || '';
   const quoted = source.match(/[“"「『](.{1,36}?)[”"」』]/)?.[1];
   if (quoted) return compactText(quoted, 72);
   const cleaned = compactText(source, 72);
-  if (/(喜欢你|想你|在一起|慢慢来|我在|说好|约定|叫我|称呼|别冷战|说开|别怕|陪着你)/.test(cleaned)) return cleaned;
-  return compactText(fallback, 72);
+  return cleaned || compactText(fallback, 72);
 }
 
 function sharedPhrasePayloadOf(event: RuntimeEventV2): CompanionshipSharedPhraseEventPayload | null {
@@ -137,16 +136,19 @@ function createSharedPhraseEvent(params: {
   };
 }
 
-function classifySharedPhraseFromDistilledMemory(text: string): Pick<SharedPhrase, 'kind' | 'visibility'> | null {
-  const normalized = compactText(text, 220);
-  if (!normalized) return null;
-  if (/(称呼|叫.*[“"「『].{1,16}[”"」』]|昵称|专属称呼)/.test(normalized)) return { kind: 'pet_name', visibility: 'between_actors' };
-  if (/(暗号|秘密口令|小秘密|只有.*知道|不能告诉|保密)/.test(normalized)) return { kind: 'secret_code', visibility: 'private' };
-  if (/(说好|约定|答应|下次一起|以后一起|等.*回来|一起.*补)/.test(normalized)) return { kind: 'promise_line', visibility: 'between_actors' };
-  if (/(慢慢来|我在|别怕|陪着你|不用硬撑|可以难过|先抱一下|安慰)/.test(normalized)) return { kind: 'comfort_line', visibility: 'private' };
-  if (/(喜欢你|想你|在一起|确认.*心意|表白|心意)/.test(normalized)) return { kind: 'confession_line', visibility: 'private' };
-  if (/(共同梗|只有.*懂|玩笑|梗|口头禅)/.test(normalized)) return { kind: 'inside_joke', visibility: 'public_hint' };
-  return null;
+function sharedPhraseFromDistilledMemory(payload: Record<string, unknown>): Pick<SharedPhrase, 'text' | 'kind' | 'visibility'> | null {
+  const value = payload.sharedPhrase;
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Record<string, unknown>;
+  const kinds: SharedPhrase['kind'][] = ['pet_name', 'inside_joke', 'promise_line', 'comfort_line', 'confession_line', 'secret_code', 'other'];
+  const visibilities: SharedPhrase['visibility'][] = ['private', 'between_actors', 'public_hint'];
+  const text = typeof candidate.text === 'string' ? compactText(candidate.text, 72) : '';
+  if (!text || !kinds.includes(candidate.kind as SharedPhrase['kind']) || !visibilities.includes(candidate.visibility as SharedPhrase['visibility'])) return null;
+  return {
+    text,
+    kind: candidate.kind as SharedPhrase['kind'],
+    visibility: candidate.visibility as SharedPhrase['visibility'],
+  };
 }
 
 function buildSharedPhraseEventFromDistilledMemory(params: {
@@ -165,22 +167,20 @@ function buildSharedPhraseEventFromDistilledMemory(params: {
   } else if (participantIds.length < 2) {
     return [];
   }
-  const text = String(payload.text || params.event.summary || '');
-  const classification = classifySharedPhraseFromDistilledMemory(text);
-  if (!classification) return [];
-  const phraseText = quoteOrMeaningfulText(text);
-  if (!phraseText) return [];
+  const sourceText = String(payload.text || params.event.summary || '');
+  const sharedPhrase = sharedPhraseFromDistilledMemory(payload);
+  if (!sharedPhrase) return [];
   return [createSharedPhraseEvent({
     ...params,
     sourceEvent: params.event,
-    text: phraseText,
-    kind: classification.kind,
+    text: sharedPhrase.text,
+    kind: sharedPhrase.kind,
     participantIds,
-    visibility: classification.visibility,
+    visibility: sharedPhrase.visibility,
     firstSaidBy: 'mutual',
     reason: '记忆蒸馏沉淀出稳定共同话语后反写为陪伴运行时事件。',
-    evidence: text,
-    emotionalWeight: classification.kind === 'secret_code' || classification.kind === 'confession_line' ? 76 : 68,
+    evidence: sourceText,
+    emotionalWeight: sharedPhrase.kind === 'secret_code' || sharedPhrase.kind === 'confession_line' ? 76 : 68,
   })];
 }
 
@@ -214,7 +214,7 @@ export function buildSharedPhraseEventsFromCompanionshipEvent(params: {
   if (payload.eventType === 'companionship_promise') {
     const promise = payload as unknown as CompanionshipPromiseEventPayload;
     if (promise.action !== 'opened' && promise.action !== 'fulfilled') return [];
-    const text = quoteOrMeaningfulText(promise.promiseText);
+    const text = quoteOrCompactText(promise.promiseText);
     if (!text) return [];
     return [createSharedPhraseEvent({
       ...params,
@@ -231,7 +231,7 @@ export function buildSharedPhraseEventsFromCompanionshipEvent(params: {
     const phase = payload as unknown as CompanionshipPhaseEventPayload;
     if (phase.phase !== 'confessing' && phase.phase !== 'confirmed' && phase.phase !== 'passionate' && phase.phase !== 'deep') return [];
     const evidenceText = (phase.evidence || []).join('\n');
-    const text = quoteOrMeaningfulText(evidenceText || phase.reason, phase.phase === 'confirmed' ? '确认彼此心意' : '把心意说出口');
+    const text = quoteOrCompactText(evidenceText || phase.reason, phase.phase === 'confirmed' ? '确认彼此心意' : '把心意说出口');
     if (!text) return [];
     return [createSharedPhraseEvent({
       ...params,
@@ -248,7 +248,7 @@ export function buildSharedPhraseEventsFromCompanionshipEvent(params: {
     const conflict = payload as unknown as CompanionshipIntimateConflictEventPayload;
     if (conflict.action !== 'repair_attempted' && conflict.action !== 'resolved') return [];
     const evidenceText = (conflict.evidence || []).join('\n');
-    const text = quoteOrMeaningfulText(evidenceText || conflict.summary, conflict.action === 'resolved' ? '慢慢来，我们说开' : '慢慢来，我在');
+    const text = quoteOrCompactText(evidenceText || conflict.summary, conflict.action === 'resolved' ? '慢慢来，我们说开' : '慢慢来，我在');
     if (!text) return [];
     return [createSharedPhraseEvent({
       ...params,

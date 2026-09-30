@@ -3,7 +3,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import type { NarrativeLineProjection } from './narrativeProjection';
 import { selectPrimaryNarrativeLine } from './narrativeProjection';
-import { getGuidanceTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
+import { getGuidanceTargetActorIds, readStoredUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
 
 export type DirectorIntentSource =
@@ -76,14 +76,8 @@ function getLatestAiMessage(messages: Message[]) {
   return messages.filter((message) => message.type === 'ai' && !message.isDeleted).at(-1) || null;
 }
 
-function findMentionedCharacters(text: string, characters: AICharacter[]) {
-  return characters
-    .filter((character) => character.name && text.includes(character.name))
-    .map((character) => character.id);
-}
-
 function resolveUserMessageDirectorIntent(message: Message, characters: AICharacter[]): DirectorIntent {
-  const guidance = parseUserGuidanceIntent(message.content, characters);
+  const guidance = readStoredUserGuidanceIntent(message, characters);
   if (guidance) {
     const targetActorIds = uniqueActorIds(getGuidanceTargetActorIds(guidance), characters);
     return {
@@ -95,22 +89,12 @@ function resolveUserMessageDirectorIntent(message: Message, characters: AICharac
       userGuidance: guidance,
     };
   }
-  const mentioned = findMentionedCharacters(message.content, characters);
-  if (mentioned.length) {
-    return {
-      source: 'user_message',
-      beatType: 'answer',
-      targetActorIds: uniqueActorIds(mentioned, characters),
-      pressure: 0.9,
-      reason: '用户明确提到了一个或多个角色。',
-    };
-  }
   return {
     source: 'user_message',
-    beatType: message.content.length > 90 ? 'summarize' : 'invite',
+    beatType: 'invite',
     targetActorIds: [],
-    pressure: message.content.length > 90 ? 0.62 : 0.5,
-    reason: '用户消息正在改变下一轮回应方向。',
+    pressure: 0.5,
+    reason: '用户刚刚发言，下一轮应自然接住其真实意图。',
   };
 }
 

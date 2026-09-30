@@ -48,12 +48,12 @@ function addressedMessage(patch: Partial<Message>): Message {
   };
 }
 
-function roomWithInteraction(kind: 'challenge' | 'support', actorId: string, targetId: string, createdAt = 2): GroupChat {
+function roomWithInteraction(kind: 'challenge' | 'support', actorId: string, targetId: string, createdAt = 2, intensity = 5): GroupChat {
   return {
     runtimeEventsV2: [{
       id: 'interaction-1', conversationId: 'c', kind: 'interaction', createdAt,
       actorIds: [actorId], targetIds: [targetId], summary: 'directed turn',
-      payload: { kind, actorId, targetId, intensity: 5, tone: kind === 'challenge' ? 'annoyed' : 'warm', evidenceText: 'directed turn', confidence: 0.95 },
+      payload: { kind, actorId, targetId, intensity, tone: kind === 'challenge' ? 'annoyed' : 'warm', evidenceText: 'directed turn', confidence: 0.95 },
     } satisfies RuntimeEventV2],
   } as GroupChat;
 }
@@ -130,6 +130,21 @@ describe('innerLifeEngine', () => {
     expect(projection.tone).toBe('vulnerable');
   });
 
+  it('makes a medium model-judged support event visible on the next turn', () => {
+    const projection = projectInnerLife({
+      chat: roomWithInteraction('support', 'b', 'a', 2, 2),
+      character: character({
+        emotionalState: { affection: 16, irritation: 0, insecurity: 0, excitement: 6, embarrassment: 0 },
+      }),
+      messages: [message({ senderId: 'b', senderName: '小乙', content: '这次我站你这边。', timestamp: 2 })],
+      now: 3,
+    });
+
+    expect(projection.activeAffect?.pressure).toBeCloseTo(0.4);
+    expect(projection.impulse).toBe('answer');
+    expect(projection.tone).toBe('vulnerable');
+  });
+
   it('keeps an unanswered human address active when a later room message intervenes', () => {
     const projection = projectInnerLife({
       character: character(),
@@ -191,6 +206,44 @@ describe('innerLifeEngine', () => {
     expect(projection.state.loneliness).toBeGreaterThanOrEqual(20);
     expect(projection.impulse).not.toBe('seek_attention');
     expect(getInnerLifeSpeakerBias(projection).reason).toMatch(/^inner:/);
+  });
+
+  it('does not mistake a directed reply without a name for being ignored', () => {
+    const projection = projectInnerLife({
+      character: character(),
+      messages: [
+        message({ id: 'own', senderId: 'a', content: '我走河边那条路。', timestamp: 1 }),
+        addressedMessage({ id: 'reply', senderId: 'b', content: '那条路晚上有灯吗？', timestamp: 2 }),
+        message({ id: 'other', senderId: 'c', content: '我也想知道。', timestamp: 3 }),
+      ],
+      now: 20,
+    });
+
+    expect(projection.state.ignoredStreak).toBe(0);
+    expect(projection.evidence.join(' / ')).not.toContain('未被明显接住');
+  });
+
+  it('does not infer exclusion from one intervening turn', () => {
+    const projection = projectInnerLife({
+      character: character(),
+      messages: [
+        message({ id: 'own', senderId: 'a', content: '我先去看一下。', timestamp: 1 }),
+        message({ id: 'other', senderId: 'b', content: '门还开着。', timestamp: 2 }),
+      ],
+      now: 20,
+    });
+
+    expect(projection.state.ignoredStreak).toBe(0);
+  });
+
+  it('keeps neutral room safety stable across repeated ordinary exchanges', () => {
+    let actor = character({ personality: { ...character().personality, agreeableness: 50 } });
+    for (let turn = 0; turn < 20; turn += 1) {
+      const projection = projectInnerLife({ character: actor, messages: [], now: turn });
+      actor = { ...actor, soulState: projection.state };
+    }
+    expect(actor.soulState?.trustInRoom).toBeGreaterThanOrEqual(49);
+    expect(actor.soulState?.trustInRoom).toBeLessThanOrEqual(51);
   });
 
   it('turns a sustained ignored streak into an observable attention-seeking impulse', () => {

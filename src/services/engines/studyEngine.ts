@@ -1,7 +1,66 @@
-import type { ConversationPhase, GroupChat } from '../../types/chat';
+import type { ConversationPhase, GroupChat, LearningScenarioState } from '../../types/chat';
 import { applyGovernanceToParticipant, mergeGovernanceActionSchema, type SessionEngineActionContext, type SessionEngineDefinition, type SessionGenerationPromptContext, type SessionRuntimeContextBundle } from '../../types/sessionEngine';
 import type { Message } from '../../types/message';
-import { deriveLearningNextStep, recordObservedLearningEvidence } from '../learningNextStep';
+import { deriveLearningNextStep } from '../learningNextStep';
+
+function stableKnowledgeId(title: string) {
+  let hash = 2166136261;
+  for (const character of title.toLocaleLowerCase()) {
+    hash ^= character.codePointAt(0) || 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return `knowledge:model:${(hash >>> 0).toString(36)}`;
+}
+
+function applyModelStudyUpdate(base: LearningScenarioState, message: Pick<Message, 'metadata'>): LearningScenarioState {
+  const update = message.metadata?.studyUpdate;
+  if (!base || !update?.knowledgeObservations?.length) return base;
+  const rank = { unknown: 0, exposed: 1, learning: 2, practicing: 3, usable: 4, verified: 5, stale: 2 } as const;
+  const now = Date.now();
+  const byTitle = new Map(base.knowledgeItems.map((item) => [item.title.toLocaleLowerCase(), item] as const));
+  const byId = new Map(base.knowledgeItems.map((item) => [item.id, item] as const));
+  const evidence = [...(base.evidence || [])];
+  let changed = false;
+  for (const observation of update.knowledgeObservations) {
+    const key = observation.title.toLocaleLowerCase();
+    const previous = (observation.knowledgeItemId && byId.get(observation.knowledgeItemId)) || byTitle.get(key);
+    const status = previous && observation.status !== 'stale' && rank[previous.status] > rank[observation.status]
+      ? previous.status
+      : observation.status;
+    const hasPerformanceEvidence = Boolean(observation.evidenceSummary && ['practicing', 'usable', 'verified'].includes(status));
+    const next = {
+      ...(previous || { id: stableKnowledgeId(observation.title), title: observation.title, evidenceCount: 0 }),
+      status,
+      confidence: observation.confidence ?? previous?.confidence,
+      notes: observation.evidenceSummary || previous?.notes,
+      ...(hasPerformanceEvidence ? {
+        evidenceCount: (previous?.evidenceCount || 0) + 1,
+        lastReviewedAt: now,
+      } : {}),
+    };
+    if (!previous || JSON.stringify(previous) !== JSON.stringify(next)) changed = true;
+    byTitle.set(next.title.toLocaleLowerCase(), next);
+    byId.set(next.id, next);
+    if (hasPerformanceEvidence) {
+      evidence.push({
+        id: `observed-${now}-${next.id}`,
+        kind: 'conversation',
+        summary: observation.evidenceSummary || '',
+        knowledgeItemIds: [next.id],
+        createdAt: now,
+      });
+    }
+  }
+  if (!changed) return base;
+  const nextLearning = {
+    ...base,
+    knowledgeItems: Array.from(byTitle.values()).slice(0, 120),
+    evidence: evidence.slice(-240),
+    lastStudyAction: 'note' as const,
+    lastStudyActionAt: now,
+  };
+  return { ...nextLearning, nextStepSuggestion: deriveLearningNextStep(nextLearning, now) };
+}
 
 const STUDY_PHASES = [
   { key: 'mapping', label: '目标拆解', allowedActions: ['speak', 'send_message', 'assign_task'] as string[] },
@@ -94,11 +153,15 @@ export const STUDY_ENGINE: SessionEngineDefinition = {
   },
   onMessageCommitted: ({ conversation, message }) => {
     const summary = message.content.trim().slice(0, 120);
-    const baseLearning = conversation.scenarioState?.learning || { goal: conversation.topic || '学习目标', knowledgeItems: [] };
-    const learning = message.senderId === 'user'
-      ? recordObservedLearningEvidence(baseLearning, message.content)
-      : baseLearning;
-    const phase = learning.lastStudyAction === 'map' ? 'learning' : learning.lastStudyAction === 'review' ? 'review' : (conversation.scenarioState?.phase || 'mapping');
+    const baseLearning: LearningScenarioState = conversation.scenarioState?.learning || {
+      goal: conversation.topic || '学习目标',
+      knowledgeItems: [],
+    };
+    const learning = applyModelStudyUpdate(baseLearning, message);
+    const learningChanged = learning !== baseLearning;
+    const phase = message.metadata?.studyUpdate?.phase
+      || (learning.lastStudyAction === 'map' ? 'learning' : learning.lastStudyAction === 'review' ? 'review' : (conversation.scenarioState?.phase || 'mapping'));
+    const verifiedKnowledgeCount = learning.knowledgeItems.filter((item) => item.status === 'verified').length;
     return {
       chatPatch: {
         scenarioState: {
@@ -106,12 +169,21 @@ export const STUDY_ENGINE: SessionEngineDefinition = {
           phase,
           learning: { ...learning, lastStudyActionAt: Date.now(), nextStepSuggestion: learning.nextStepSuggestion || deriveLearningNextStep(learning) },
           goals: conversation.scenarioState?.goals?.length ? conversation.scenarioState.goals : [{ goalId: 'study-goal', label: learning.goal, status: 'active' as const }],
-          progress: [{ key: 'study-progress', label: '学习进展', value: learning.knowledgeItems.length, target: 0 }],
+          progress: learning.knowledgeItems.length
+            ? [{ key: 'study-progress', label: '已验证知识点', value: verifiedKnowledgeCount, target: learning.knowledgeItems.length }]
+            : [],
         },
         worldState: { ...conversation.worldState, phase: (phase === 'review' ? 'aligned' : 'warming') as ConversationPhase, focus: learning.goal, recentEvent: `学习进步：${summary}${message.content.trim().length > 120 ? '…' : ''}`, mood: phase === 'review' ? 'reflective' : 'focused' },
       },
       characterPatches: [],
-      runtimeEvents: [{ eventType: 'study_progress', title: '学习进步', summary, eventClass: 'phase', visibilityScope: 'public', channelId: 'public' }],
+      runtimeEvents: [{
+        eventType: learningChanged ? 'study_progress' : 'study_guidance',
+        title: learningChanged ? '学习记录已更新' : '学习推进',
+        summary,
+        eventClass: 'phase',
+        visibilityScope: 'public',
+        channelId: 'public',
+      }],
     };
   },
 };

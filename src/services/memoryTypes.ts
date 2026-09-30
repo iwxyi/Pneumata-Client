@@ -8,6 +8,14 @@ export type MemorySubjectOwner = 'user' | 'speaker' | 'target' | 'third_party' |
 export type MemorySourceType = 'serious' | 'joke' | 'test' | 'correction' | 'temporary' | 'distilled' | 'runtime';
 export type MemoryVisibility = 'private' | 'pair_private' | 'public_safe' | 'never_surface';
 export type MemoryValidity = 'active' | 'stale' | 'contradicted' | 'uncertain';
+export type MemorySharedPhraseKind = 'pet_name' | 'inside_joke' | 'promise_line' | 'comfort_line' | 'confession_line' | 'secret_code' | 'other';
+export type MemorySharedPhraseVisibility = 'private' | 'between_actors' | 'public_hint';
+
+export interface MemorySharedPhraseDescriptor {
+  text: string;
+  kind: MemorySharedPhraseKind;
+  visibility: MemorySharedPhraseVisibility;
+}
 
 export interface MemoryEvidenceEntry {
   id?: string;
@@ -58,6 +66,7 @@ export interface MemoryItem {
   validity?: MemoryValidity;
   semanticTags?: string[];
   associations?: string[];
+  sharedPhrase?: MemorySharedPhraseDescriptor;
 }
 
 export interface MemoryCandidate {
@@ -82,6 +91,7 @@ export interface MemoryCandidate {
   validity?: MemoryValidity;
   semanticTags?: string[];
   associations?: string[];
+  sharedPhrase?: MemorySharedPhraseDescriptor;
   scoreBreakdown: {
     stability: number;
     recurrence: number;

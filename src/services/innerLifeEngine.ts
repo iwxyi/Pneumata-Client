@@ -109,17 +109,25 @@ function createDefaultSoulState(character: AICharacter): CharacterSoulState {
 }
 
 function countIgnoredTurns(character: AICharacter, messages: Message[]) {
-  const active = messages.filter((message) => !message.isDeleted);
+  const active = messages.filter((message) => !message.isDeleted && (message.type === 'ai' || message.type === 'user' || message.type === 'god'));
   const lastOwnIndex = [...active].reverse().findIndex((message) => message.type === 'ai' && message.senderId === character.id);
   if (lastOwnIndex < 0) return character.soulState?.ignoredStreak || 0;
   const ownAbsoluteIndex = active.length - 1 - lastOwnIndex;
   const tail = active.slice(ownAbsoluteIndex + 1);
-  const wasAcknowledged = tail.some((message) => message.content.includes(character.name) || message.senderId === character.id);
+  const wasAcknowledged = tail.some((message) => {
+    const directed = message as Message & {
+      addressedTargetIds?: string[];
+      primaryAddressedTargetId?: string;
+      interactionHints?: Array<{ targetId?: string | null }>;
+    };
+    return message.senderId === character.id
+      || directed.addressedTargetIds?.includes(character.id)
+      || directed.primaryAddressedTargetId === character.id
+      || directed.interactionHints?.some((hint) => hint.targetId === character.id);
+  });
   if (wasAcknowledged) return 0;
-  // Missing an explicit reply is a small social bruise, not proof that the
-  // whole room has ignored the character. The streak remains observable for
-  // attention-seeking, while its contribution to loneliness stays modest.
-  return Math.min(5, tail.filter((message) => message.type === 'ai' || message.type === 'user').length);
+  // One intervening turn is normal conversation, not evidence of exclusion.
+  return tail.length < 2 ? 0 : Math.min(5, tail.length);
 }
 
 function latestOtherMessage(character: AICharacter, messages: Message[]) {
@@ -196,7 +204,9 @@ function chooseImpulse(params: {
   const warmth = relationship?.warmth || 0;
   const attachment = relationship?.attachment || 0;
   const dominantEmotion = resolveDominantEmotion(character);
-  const expressiveEmotion = Boolean(activeAffect && dominantEmotion && dominantEmotion.value >= 30 && dominantEmotion.lead >= 8);
+  const expressiveEmotion = Boolean(activeAffect && dominantEmotion
+    && (dominantEmotion.value >= 30 || (activeAffect.pressure >= 0.35 && dominantEmotion.value >= 14))
+    && dominantEmotion.lead >= 4);
   if (addressed && deference >= 30) return { impulse: 'answer', reason: '被自己会让位或敬畏的人直接看过来，这不仅是回答问题，也是在承受评价。', pressure: 0.94 };
   if (addressed && (threat >= 24 || trust <= -18)) return { impulse: 'defend_face', reason: '不信任或戒备的对象直接施压，先出现的是防守和保住解释权。', pressure: 0.88 };
   if (addressed && (attachment >= 25 || warmth >= 30)) return { impulse: 'answer', reason: '在意的人直接接话，对方的反应比问题本身更能牵动这一轮。', pressure: 0.9 };
@@ -238,15 +248,14 @@ function buildExpressionPlan(impulse: InnerImpulse, impulsePressure: number, sta
   const feedback = buildExpressionFeedbackBias(character);
   const baseLength: InnerLifeLength = impulse === 'answer' || impulse === 'take_control' ? 'short' : impulse === 'show_off' ? 'normal' : state.energy < 30 || impulse === 'avoid' ? 'micro' : 'short';
   const length = feedback.shorter || feedback.lessAssistant ? shortenLength(baseLength, feedback.strongShorter) : baseLength;
-  const baseMessageCount = impulse === 'show_off' && character.speechProfile?.sentenceLengthBias !== 'long' ? 2 : 1;
   return {
     // Situational pressure outranks the generic "less formal" style memory.
     // A character may speak colloquially while still sounding guarded or
     // authoritative; flattening that to `casual` is what made interrogations
     // and power-difference scenes read emotionally blank in the trace.
-    tone: activeAffect && activeAffect.pressure >= 0.5 && ['challenge', 'mock', 'dismiss', 'pile_on', 'exclude', 'boundary'].includes(activeAffect.kind)
+    tone: activeAffect && activeAffect.pressure >= 0.35 && ['challenge', 'mock', 'dismiss', 'pile_on', 'exclude', 'boundary'].includes(activeAffect.kind)
       ? 'defensive'
-      : activeAffect && activeAffect.pressure >= 0.5 && ['support', 'defend', 'apologize', 'concede', 'take_responsibility', 'include'].includes(activeAffect.kind)
+      : activeAffect && activeAffect.pressure >= 0.35 && ['support', 'defend', 'apologize', 'concede', 'take_responsibility', 'include'].includes(activeAffect.kind)
         ? 'vulnerable'
       : defensive
       ? (impulse === 'mock' ? 'teasing' : 'defensive')
@@ -270,7 +279,9 @@ function buildExpressionPlan(impulse: InnerImpulse, impulsePressure: number, sta
               ? 'casual'
               : 'casual',
     length,
-    messageCount: feedback.shorter || feedback.lessAssistant ? 1 : baseMessageCount,
+    // Bubble count is a semantic delivery decision made while writing. Inner
+    // life supplies pressure and rhythm, not a locally inferred send count.
+    messageCount: 1,
     typoLevel: round((character.speechProfile?.sarcasmBias || 0) * 0.06 + (state.mood.arousal || 0) * 0.08),
     delayMs: Math.round(500 + (100 - state.energy) * 22 + (state.repression || 0) * 12),
     allowWithdraw: state.repression >= 56 || state.shame >= 62 || impulse === 'withdraw',
@@ -299,6 +310,9 @@ export function projectInnerLife(params: {
   const topicAttention = inferTopicAttention(params.character, lastMessage);
   const emotional = params.character.emotionalState;
   const room = params.chat?.worldState?.structuredRoomState;
+  const safetyBaseline = clamp(50 + ((params.character.personality.agreeableness ?? 50) - 50) * 0.24
+    + ((room?.cohesion ?? 50) - 50) * 0.16
+    - (emotional?.irritation || 0) * 0.16 - (emotional?.insecurity || 0) * 0.2);
   const state: CharacterSoulState = {
     ...previous,
     mood: {
@@ -312,7 +326,7 @@ export function projectInnerLife(params: {
     repression: clamp((previous.repression || 0) * 0.72 + (emotional?.irritation || 0) * 0.08 + (emotional?.insecurity || 0) * 0.08),
     shame: clamp((previous.shame || 0) * 0.66 + (emotional?.embarrassment || 0) * 0.18 + (emotional?.insecurity || 0) * 0.08),
     envy: clamp((previous.envy || 0) * 0.72),
-    trustInRoom: clamp((previous.trustInRoom || 50) * 0.7 + (params.character.personality.agreeableness || 50) * 0.12 + (room?.cohesion || 0) * 0.08 - (emotional?.irritation || 0) * 0.08),
+    trustInRoom: clamp((previous.trustInRoom ?? safetyBaseline) * 0.7 + safetyBaseline * 0.3),
     ignoredStreak,
     updatedAt: now,
   };
@@ -393,13 +407,10 @@ export function buildInnerLifePromptBlock(projection: InnerLifeProjection) {
     projection.impulse === 'repair' ? 'awkward repair impulse' : '',
     projection.state.trustInRoom <= 34 ? 'low room safety' : '',
   ].filter(Boolean).join(', ');
-  const rhythm = projection.expressionPlan.messageCount > 1
-    ? `${projection.expressionPlan.messageCount} quick beats are possible if the thought truly lands as separate sends`
-    : 'one beat is likely, but it can be a tiny reaction, a normal answer, or a fuller explanation if the latest request earns it';
   const emotionLead = projection.dominantEmotion
     ? `${projection.dominantEmotion.kind} ${Math.round(projection.dominantEmotion.value)} (lead ${Math.round(projection.dominantEmotion.lead)})`
     : 'none clearly active';
-  return `\n## Inner Life\n- Current impulse: ${projection.impulse}; tone: ${projection.tone}; pressure: ${projection.pressure.toFixed(2)}.\n- Fast emotional lead: ${emotionLead}. A fast emotion may jump after one line and ease after expression; show it through timing, wording, warmth, defensiveness, teasing, over-explaining, or a sudden stop rather than naming the score.\n- Inner reason: ${projection.reason}\n- Inner residue: ${residue || 'none strong enough to foreground'}.\n- Expression rhythm: ${rhythm}. This is a rhythm cue, not a word-count cap; use a line break only when the thought truly lands as separate quick messages.\n- Let this shape omissions, timing, defensiveness, vulnerability, and messiness. Do not explain these fields in the reply.\n- For repair, shame, face-saving, or attention-seeking pressure, keep the character’s social mask and habits alive. Do not turn the pressure into a clean apology, clean confession, generic vulnerability, or generic defiance.\n- For time-limited or mortality-colored pressure, prefer concrete risk judgment, practical care, changed priority, or passing on a usable distinction. Avoid farewell tone, death monologue, and polished aphorisms.\n- Only let wistfulness or fragile hope leak into the message when the current residue or conversation actually earns it; never turn every turn into poetry or farewell.`;
+  return `\n## Inner Life\n- Current impulse: ${projection.impulse}; tone: ${projection.tone}; pressure: ${projection.pressure.toFixed(2)}.\n- Fast emotional lead: ${emotionLead}. A fast emotion may jump after one line and ease after expression; show it through timing, wording, warmth, defensiveness, teasing, over-explaining, or a sudden stop rather than naming the score.\n- Inner reason: ${projection.reason}\n- Inner residue: ${residue || 'none strong enough to foreground'}.\n- Let this shape omissions, timing, defensiveness, vulnerability, and messiness. Choose whether to send one message or several from the meaning and room style of the whole turn, not from this emotional state alone. Do not explain these fields in the reply.\n- For repair, shame, face-saving, or attention-seeking pressure, keep the character’s social mask and habits alive. Do not turn the pressure into a clean apology, clean confession, generic vulnerability, or generic defiance.\n- For time-limited or mortality-colored pressure, prefer concrete risk judgment, practical care, changed priority, or passing on a usable distinction. Avoid farewell tone, death monologue, and polished aphorisms.\n- Only let wistfulness or fragile hope leak into the message when the current residue or conversation actually earns it; never turn every turn into poetry or farewell.`;
 }
 
 export function buildInnerLifeMetadata(projection: InnerLifeProjection, actualMessageCount?: number): NonNullable<NonNullable<Message['metadata']>['runtimeDecision']>['innerLife'] {

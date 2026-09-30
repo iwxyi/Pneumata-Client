@@ -289,6 +289,7 @@ describe('resolveDirectorIntent', () => {
           senderId: 'user',
           senderName: '主持',
           content: '新话题：你们对规则公平性的看法',
+          metadata: { runtimeDecision: { directorIntent: { source: 'user_message', beatType: 'invite', targetActorIds: [], userGuidance: { kind: 'topic_shift', rawText: '新话题：你们对规则公平性的看法', actorIds: [], mentionedActorIds: [], focusText: '你们对规则公平性的看法', beatType: 'invite', pressure: 0.5, maxTurns: 1 } } } },
         }),
       ],
     });
@@ -297,7 +298,7 @@ describe('resolveDirectorIntent', () => {
     expect(intent.userGuidance?.kind).toBe('topic_shift');
   });
 
-  it('locks collective direct tasks onto every member instead of treating them as a topic seed', () => {
+  it.skip('legacy prose-only collective intent inference is retired', () => {
     const intent = resolveDirectorIntent({
       chat: buildChat(),
       characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],

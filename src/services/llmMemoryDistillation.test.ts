@@ -131,6 +131,11 @@ describe('llmMemoryDistillation', () => {
           subjectIds: ['char-a', 'char-b'],
           text: '红太狼和沸羊羊长期互相顶牛。',
           confidence: 0.84,
+          sharedPhrase: {
+            text: '这回算我欠你的',
+            kind: 'promise_line',
+            visibility: 'between_actors',
+          },
         },
       ],
     }));
@@ -145,6 +150,11 @@ describe('llmMemoryDistillation', () => {
     expect(new Set(result[0]?.sourceEventIds || []).size).toBe(18);
     expect(result[0]?.distilledAt).toBe(1777000000000);
     expect(result[0]?.evidenceText).toContain('完整原始对话证据');
+    expect(result[0]?.sharedPhrase).toEqual({
+      text: '这回算我欠你的',
+      kind: 'promise_line',
+      visibility: 'between_actors',
+    });
     expect(generateJsonResponseMock.mock.calls[0]?.[2]).toEqual(expect.arrayContaining([
       expect.objectContaining({
         content: expect.stringContaining('原始证据'),

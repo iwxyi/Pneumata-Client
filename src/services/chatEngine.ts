@@ -1,6 +1,6 @@
 import { getCharacterModelProfileId, type AICharacter } from '../types/character';
 import { resolveShowRoleActions, type GroupChat } from '../types/chat';
-import type { Message, StoryEvent } from '../types/message';
+import type { Message, StoryEvent, StoryAssetMetadata } from '../types/message';
 import type { APIConfig, AIModelProfile } from '../types/settings';
 import type { MediaGenerationDecision, MessageAttachment, MessageMetadata, NarrativeBlock } from '../types/message';
 import type { SessionEngineDefinition, SessionGenerationPromptContext, SessionGenerationRuntimeBundle } from '../types/sessionEngine';
@@ -32,7 +32,7 @@ import { buildHumanizationPrompt, postProcessHumanChat } from './dialogueHumaniz
 import { buildInnerLifeMetadata, buildInnerLifePromptBlock, projectInnerLife, type InnerLifeProjection } from './innerLifeEngine';
 import { maybeAutoWithdrawMessage } from './messageWithdrawal';
 import { BASE_COOLDOWN_MS, MAX_HISTORY_FOR_PROMPT } from '../constants/defaults';
-import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
+import { buildInlineInteractionContract, parseInlineInteractionEnvelope, type InlineStoryAssets } from './inlineInteractionHint';
 import { getExpressionFeedbackCategoryLabel, summarizeExpressionFeedbackInfluence } from './expressionFeedbackInfluence';
 import type { UserGuidanceIntent } from './userGuidanceIntent';
 import { collectGuidanceProgressAfterTimestamp, evaluateGuidanceGeneratedContent, type GuidanceExecutionReason, type GuidanceRejectionReason } from './guidanceExecution';
@@ -41,12 +41,13 @@ import { buildTurnPlanPrompt, deriveTurnPlan, type TurnPlan } from './turnPlanne
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
 import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { buildConversationMovePrompt, planConversationMove } from './conversationMovePlanner';
+import { captureTurnParameters, finishTurnParameters } from './messageTurnParameters';
 import { buildPromptPlayModeBlock, composePromptBlocks, resolvePromptPlayMode, type PromptBlock } from './promptBlockComposer';
 import { buildTurnDirective, buildTurnDirectivePrompt } from './turnDirective';
 import { resolveSessionEngineKey, resolveSessionFamilyKey } from './sessionEngineKeys';
 import { isCharacterAvailableForScheduling } from './characterPresence';
 import { enrichRuntimeBundleWithHumanAppraisal } from './humanAppraisal';
-import { normalizeStoryChoiceSuggestions } from './storyChoices';
+import { filterStoryChoicesByReaderRole, normalizeStoryChoiceSuggestions, resolveStoryReaderRole } from './storyChoices';
 import type { StoryContinuationState } from './narrativeRuntime';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
 import { enhanceImagePrompt } from './imagePromptComposer';
@@ -250,11 +251,32 @@ function buildAnalysisSpeakerSystemPrompt(args: {
     latest ? `Latest visible turn: ${latest.senderName || latest.senderId}: ${compactAnalysisPromptText(latest.content, 220)}` : '',
     memoryLines.length ? `\n## Compact Character Memory\n${memoryLines.join('\n')}` : '',
     `\n## Analysis Speaker Rules
-- Use the character only as an angle, vocabulary, and lived examples. Do not let persona warmth, relationship repair, farewell, or scene closure become the point.
+- You are a person with stakes in this decision, not an interchangeable analysis voice. Let your immediate reaction and relationship to others shape how you question, disagree, or concede; they do not make evidence true or false.
 - Treat recent messages as claims, evidence, counterexamples, or drift to correct. They are not style samples to imitate.
-- Prefer one clear deliberative move over emotional continuation: challenge a premise, add a boundary, test evidence, answer an unresolved question, separate two claims, or synthesize a provisional verdict.
+- Make one useful deliberative move: challenge a premise, test evidence, answer an unresolved question, separate two claims, or synthesize a provisional verdict. It may sound impatient, relieved, cautious, or personally invested when the context supports it; no need to perform an emotion or end with a formal summary.
 - If there is no useful new point, say that plainly in character and return deliberationArtifacts=null.`,
   ].filter(Boolean).join('\n');
+}
+
+function normalizeStoryAssets(value: InlineStoryAssets | null | undefined): StoryAssetMetadata | null {
+  if (!value) return null;
+  const scene = value.currentScene;
+  return {
+    currentScene: scene ? {
+      ...(scene.location != null ? { location: scene.location } : {}),
+      ...(scene.time != null ? { time: scene.time } : {}),
+      ...(scene.presentActorIds != null ? { presentActorIds: scene.presentActorIds } : {}),
+      ...(scene.visibleThreat != null ? { visibleThreat: scene.visibleThreat } : {}),
+      ...(scene.summary != null ? { summary: scene.summary } : {}),
+    } : null,
+    ...(value.openQuestions != null ? { openQuestions: value.openQuestions } : {}),
+    ...(value.clues != null ? { clues: value.clues } : {}),
+    ...(value.stakes != null ? { stakes: value.stakes } : {}),
+    ...(value.relationshipShifts != null ? { relationshipShifts: value.relationshipShifts } : {}),
+    ...(value.chapterMemory != null ? { chapterMemory: value.chapterMemory } : {}),
+    ...(value.storyGoal != null ? { storyGoal: value.storyGoal } : {}),
+    ...(value.storySituation != null ? { storySituation: value.storySituation } : {}),
+  };
 }
 
 function buildStoryReaderSystemPrompt(params: {
@@ -267,8 +289,26 @@ function buildStoryReaderSystemPrompt(params: {
   promptSuffix: string;
 }) {
   const policy = resolvePromptPlayMode(params.chat);
+  const names = new Map(params.characters.map((character) => [character.id, character.name]));
   const characterLines = params.characters
-    .map((character) => `- id=${character.id}; name=${character.name}`)
+    .map((character) => {
+      const relationships = character.relationships
+        .filter((relationship) => names.has(relationship.characterId))
+        .map((relationship) => `${names.get(relationship.characterId)}: ${compactAnalysisPromptText(relationship.note || '', 160)}; warmth=${relationship.warmth}, trust=${relationship.trust}, threat=${relationship.threat}, attachment=${relationship.attachment ?? 0}, deference=${relationship.deference ?? 0}`);
+      const feelings = Object.entries(character.emotionalState || {})
+        .filter(([, value]) => typeof value === 'number' && Number.isFinite(value) && value !== 0)
+        .sort((left, right) => Number(right[1]) - Number(left[1]))
+        .slice(0, 3).map(([kind, value]) => `${kind}=${value}`).join(', ');
+      return [
+        `- id=${character.id}; name=${character.name}`,
+        character.background ? `  background: ${compactAnalysisPromptText(character.background, 220)}` : '',
+        character.speakingStyle ? `  voice: ${compactAnalysisPromptText(character.speakingStyle, 160)}` : '',
+        character.coreProfile?.coreDesire ? `  desire: ${compactAnalysisPromptText(character.coreProfile.coreDesire, 140)}` : '',
+        character.coreProfile?.coreFear ? `  fear: ${compactAnalysisPromptText(character.coreProfile.coreFear, 140)}` : '',
+        feelings ? `  current feelings: ${feelings}` : '',
+        ...relationships.map((relationship) => `  toward ${relationship}`),
+      ].filter(Boolean).join('\n');
+    })
     .join('\n') || '- No named characters available.';
   const latestChapter = params.chat.scenarioState?.storyChapters?.at(-1);
   const chapterTitle = params.chat.scenarioState?.chapterRecap?.title || latestChapter?.title || '未命名';
@@ -797,7 +837,7 @@ function buildStoryProtocolPrompt(basePrompt: string) {
 Final story-reader output requirements:
 - Return exactly one valid JSON object, with no markdown and no prose outside JSON.
 - storyEvents is mandatory and must contain at least one visible narration or speech event. It may also include a choice_point event for a real decision pause and a chapter_update event for structured chapter indexing.
-- Write a complete novel-like beat, not a stub. As a soft default, ordinary story beats often land around 900-1600 Chinese characters, while consequence, reveal, danger, or chapter-climax beats often need 1200-2200 Chinese characters. Scene needs override these ranges: a sharp exchange can be shorter, and a major scene can be longer.
+- Let the beat end when its action, pressure, or consequence lands. A short charged exchange can stand on its own; a scene with genuine movement may run longer.
 - Use as many narration and speech events as the current story beat needs. Suggested ranges are guidance, not enforcement: do not pad with filler, truncate, or stop early merely to fit a count or character range.
 - Put all visible story text inside storyEvents only. Do not write story prose as markdown, plain text, or any separate top-level prose container.
 - If a character speaks, represent it as a storyEvents speech event with actorId or exact actorName.
@@ -813,7 +853,7 @@ function buildStoryProtocolQualityRetryPrompt(basePrompt: string, reason: string
 Story protocol retry:
 - The previous draft was rejected because it violated the storyEvents contract: ${reason}
 - Return storyEvents as the only visible story body.
-- Output one committed, complete novel-like section only. Expand the actual current beat with concrete action, consequence, pressure, clue movement, sensory detail, and useful dialogue; do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
+- Output one committed scene beat only. Show its concrete action, consequence, pressure, or clue movement; do not include alternate rewrites, previous transcript recap, candidate continuations, or multiple versions of the same consequence.
 - Do not reuse any wording, paragraph, opening frame, final image, or dialogue from the rejected draft.`;
 }
 
@@ -842,23 +882,6 @@ function hasLegacyNarrativeBlocks(value: unknown) {
   ));
 }
 
-function storyEventVisibleText(event: StoryEvent) {
-  if (event.type !== 'narration' && event.type !== 'speech') return '';
-  return (event.text || '').trim();
-}
-
-function countStoryVisibleCharacters(value: string) {
-  return value.replace(/\s+/g, '').length;
-}
-
-function getMinimumStoryVisibleCharacters(chat: GroupChat) {
-  const phase = chat.scenarioState?.phase;
-  const beatKind = chat.scenarioState?.storyBeatKind;
-  if (phase === 'branch' || beatKind === 'consequence') return 560;
-  if (beatKind === 'decision' || chat.scenarioState?.storyChoicePolicy === 'require') return 520;
-  return 560;
-}
-
 function validateStoryReaderGeneration(params: {
   chat: GroupChat;
   parsedEnvelope: ReturnType<typeof parseInlineInteractionEnvelope>;
@@ -868,11 +891,10 @@ function validateStoryReaderGeneration(params: {
   finalResponse?: string;
   rawContent?: string;
   continuationState?: StoryContinuationState | null;
-  narrativeRuntime: Pick<NarrativeRuntimeModule, 'evaluateStoryContinuationQuality'>;
+  narrativeRuntime: Pick<NarrativeRuntimeModule, 'evaluateStoryContinuationQuality' | 'resolveStoryBeatPlan' | 'getStoryChoicesFromEvents'>;
 }) {
   const storyEvents = params.storyEvents || [];
   const visibleEvents = storyEvents.filter((event) => event.type === 'narration' || event.type === 'speech');
-  const visibleText = visibleEvents.map(storyEventVisibleText).join('\n');
   const parsed = params.parsedEnvelope as (ReturnType<typeof parseInlineInteractionEnvelope> & {
     narrativeBlocks?: unknown;
     narrativeText?: unknown;
@@ -909,6 +931,21 @@ function validateStoryReaderGeneration(params: {
       message: '故事房生成结果缺少可见 storyEvents narration/speech。',
     };
   }
+  const beatPlan = params.narrativeRuntime.resolveStoryBeatPlan(params.chat);
+  if (beatPlan.choicePolicy === 'require') {
+    const readerRole = params.chat.scenarioState?.readerRole || resolveStoryReaderRole(params.chat);
+    const proposedChoices = params.narrativeRuntime.getStoryChoicesFromEvents(storyEvents);
+    const choices = params.chat.scenarioState?.readerRole
+      ? filterStoryChoicesByReaderRole(proposedChoices, readerRole)
+      : proposedChoices;
+    if (choices.length < 2) {
+      return {
+        code: 'story_choice_required',
+        message: '当前叙事节拍必须提供 2-4 个符合读者身份的 storyEvents.choice_point 选项。',
+        details: { beatKind: beatPlan.beatKind, validChoiceCount: choices.length },
+      };
+    }
+  }
   const continuationQuality = params.narrativeRuntime.evaluateStoryContinuationQuality(storyEvents, params.continuationState);
   if (!continuationQuality.ok) {
     return {
@@ -919,21 +956,6 @@ function validateStoryReaderGeneration(params: {
         gaps: continuationQuality.gaps,
         lastVisibleBeat: params.continuationState?.lastVisibleBeat || '',
         lastSpokenLine: params.continuationState?.lastSpokenLine || '',
-      },
-    };
-  }
-  const visibleCharacterCount = countStoryVisibleCharacters(visibleText);
-  const minimumVisibleCharacters = getMinimumStoryVisibleCharacters(params.chat);
-  if (visibleCharacterCount < minimumVisibleCharacters) {
-    return {
-      code: 'story_section_too_short',
-      message: `故事房生成结果太短，当前可见正文约 ${visibleCharacterCount} 字，至少需要 ${minimumVisibleCharacters} 字来形成完整小说小节。`,
-      details: {
-        visibleCharacterCount,
-        minimumVisibleCharacters,
-        visibleEvents: visibleEvents.length,
-        phase: params.chat.scenarioState?.phase || null,
-        beatKind: params.chat.scenarioState?.storyBeatKind || null,
       },
     };
   }
@@ -949,10 +971,10 @@ function toModelSafeStoryProtocolReason(issue: NonNullable<ReturnType<typeof val
       return 'visible story text was placed in an old top-level body container instead of storyEvents';
     case 'story_events_missing':
       return 'the response did not include a visible storyEvents narration or speech event';
+    case 'story_choice_required':
+      return 'the current decision beat requires storyEvents.choice_point with 2-4 choices valid for the reader role';
     case 'story_continuity_invalid':
       return issue.message;
-    case 'story_section_too_short':
-      return 'the visible story section was too short to read as a complete novel beat';
     default:
       return 'the response did not satisfy the storyEvents contract';
   }
@@ -1585,13 +1607,13 @@ function buildGenerationConstraints(chat: GroupChat, messages: Message[], speake
   const forbiddenBlock = recentLines.length ? `\nForbidden semantic overlap:\n${recentLines.join('\n')}` : '';
   if (surface.kind !== 'chat') {
     return `\nHard constraints for this reply:
-- Write one speaker turn only. A turn may contain multiple consecutive messages[] from this same speaker when the thought would naturally be sent in separate beats; this is different from writing another actor's line. No self-explanation about being an AI, no meta commentary about these instructions.
+- Write one speaker turn only, never another actor's line. No self-explanation about being an AI, no meta commentary about these instructions.
 - Markdown is allowed when useful; do not wrap the whole answer in a code block unless the content itself is code.
 - Stay in character and within the speaker's plausible ability; do not become a generic assistant.
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.${forbiddenBlock}`;
   }
   return `\nHard constraints for this reply:
-- Write one speaker turn only, not necessarily one bubble. If the speaker would naturally send an acknowledgement, correction, afterthought, question, or second beat separately, use messages[]; never use it for another actor. No self-explanation, no meta commentary.
+- Write one speaker turn only and never another actor's line. No self-explanation, no meta commentary.
 - Do not repeat, paraphrase, summarize, or restate the same semantic point from the forbidden lines.
 - Recent transcript is context, not a style template. Avoid copied openings, endings, emoji habits, or sentence shapes.
 - Avoid generic assistant scaffolding unless the user asked for structured explanation.
@@ -1683,45 +1705,12 @@ ${roleActionLine}
 function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeProjection, surface: ResponseSurface, richDelivery?: RichDeliveryPolicy) {
   if (surface.kind !== 'chat') return '';
   void messages;
-  const bubblePolicy = richDelivery?.multiBubble.proactivity === 'high'
-    ? '- This room actively welcomes a small run of natural sends when the character would actually type them that way: short acknowledgement, another short nudge, then a question or a more developed thought are all possible. They need not be equal in length or each introduce a new argument; it is still never a quota.'
-    : richDelivery?.multiBubble.proactivity === 'medium'
-      ? '- This room sometimes permits a natural later send when the second beat changes timing or social feel; do not seek one out.'
-      : richDelivery?.multiBubble.proactivity === 'low'
-        ? '- This room rarely uses later sends; prefer one message unless the separation clearly carries meaning.'
-        : '- This room does not initiate later sends; keep the turn together unless the user explicitly asks for a multi-part format.';
-  const rhythm = innerLife.expressionPlan.messageCount > 1
-    ? `- The inner rhythm has room for ${innerLife.expressionPlan.messageCount} bubbles. Decide during writing whether the first complete thought would actually be sent before the next one occurs.`
-    : '- The inner rhythm is not a one-bubble requirement. Decide during writing whether the first complete thought would actually be sent before the next one occurs.';
+  void innerLife;
+  void richDelivery;
   return `\n## Natural Chat Rhythm
 - Real chat is uneven; choose size from the moment, not a fixed template.
-${rhythm}
-${bubblePolicy}
-- In a live group room, messages[] is a normal available delivery shape, not an exceptional feature. When the character's first send would plausibly be followed by a separate thought, use two or more uneven messages[] items even when nobody explicitly requested multiple messages. Do not wait for a numeric request; do not split merely to manufacture variety.
-- One bubble can contain multiple paragraphs when the speaker is making one continuous point.
-- Multiple bubbles are for consecutive sends with separate social purposes: correction, afterthought, softened add-on, practical follow-up, or a second beat that would feel typed after pressing send.
-- A bubble can also be a small conversational beat rather than a self-contained argument: acknowledgement, invitation, hesitation, realization, retraction, reaction, or question. Do not inflate each one into a polished mini-answer.
-- A sentence ending in a full stop can be an opportunity to send, then think again, but punctuation alone is never enough. Split when the social timing, hesitation, correction, or afterthought would actually change.
 - A live-chat turn does not always need a new argument or task result. Low-information social signals are valid when they change stance, consent, resistance, timing, face, attention, or emotional temperature.
-- Do not use messages[] for punctuation splitting, action/dialogue separation, another actor's line, or making a lecture longer.`;
-}
-
-function buildUnifiedGroupPresencePrompt(innerLife: InnerLifeProjection, richDelivery?: RichDeliveryPolicy) {
-  const bubblePolicy = richDelivery?.multiBubble.proactivity === 'high'
-    ? 'Natural consecutive sends are welcome when the character would genuinely press send, think again, then add a different beat.'
-    : richDelivery?.multiBubble.proactivity === 'medium'
-      ? 'A second send is available when it changes the timing or social feel.'
-      : 'Keep separate sends for a real change of timing or social feel.';
-  const directedAffect = innerLife.activeAffect
-    ? `Directed emotional residue: ${innerLife.activeAffect.role} ${innerLife.activeAffect.kind}, pressure ${innerLife.activeAffect.pressure.toFixed(2)}. The turn directive identifies the counterpart. Do not transfer this feeling to whoever merely spoke last; after expression it may ease without disappearing.`
-    : 'No current person-specific emotional residue is evidenced; do not invent one from generic mood.';
-  return `\n## Live Presence
-- Inner impulse: ${innerLife.impulse}; tone: ${innerLife.tone}. Let it affect what this person notices, leaves unsaid, resists, or blurts out. Never explain the state itself.
-- ${directedAffect}
-- Do not polish awkwardness, face-saving, irritation, affection, uncertainty, or withdrawal into a correct group conclusion.
-- ${bubblePolicy} One bubble may still contain multiple paragraphs; do not split a sentence just because it ends.
-- This is still chat even when the subject is grave. Terminal punctuation is part of its timing: by default, a short send may end without a full stop when it is a mutter, a held thought, a reaction, or a follow-up. Use a full stop only when the speaker is deliberately landing a thought. Do not make every bubble in one run a polished sentence with the same closing mark. Only a genuinely requested document, report, or formal deliverable needs document-like closing punctuation.
-- A small reaction, a selective objection, a reluctant concession, an aside, a question, or silence can be a complete turn. Do not turn every turn into a complete response to the room.`;
+- A short reaction, an unfinished thought, a compact practical answer, and a fuller explanation are all legitimate shapes. Do not polish every turn into the same complete mini-essay.`;
 }
 
 function isBracketedLine(line: string) {
@@ -1877,9 +1866,7 @@ function buildExpressionSurfaceChoicePrompt(input: {
   ].join('|'));
   const lengthOptions = input.turnPlan.rhythm === 'micro_ack'
     ? ['low-pressure tiny option', 'concise line if enough', 'substantive line if needed']
-    : input.turnPlan.rhythm === 'multi_bubble'
-      ? ['first bubble short, later bubble carries detail', 'two uneven chat bubbles', 'brief setup plus separate afterthought']
-      : ['short sentence if enough', 'ordinary chat line', 'longer practical paragraph', 'brief side comment if enough', 'specific follow-up question'];
+    : ['short sentence if enough', 'ordinary chat line', 'longer practical paragraph', 'brief side comment if enough', 'specific follow-up question'];
   const isAnalysisRoom = resolveSessionFamilyKey(input.chat) === 'analysis';
   const moveOptions = input.intent.stance === 'probe'
     ? ['ask one pointed follow-up', 'test a hidden assumption', 'ask for a concrete detail', 'turn the question back socially']
@@ -2508,7 +2495,9 @@ function buildMessageMetadata(params: {
   runtimeDecision?: MessageMetadata['runtimeDecision'];
   deliberationArtifacts?: MessageMetadata['deliberationArtifacts'] | null;
   presenceUpdate?: MessageMetadata['presenceUpdate'] | null;
+  studyUpdate?: MessageMetadata['studyUpdate'] | null;
   storyEvents?: MessageMetadata['storyEvents'] | null;
+  storyAssets?: MessageMetadata['storyAssets'] | null;
   storyEventsNormalized?: boolean;
   storyQuality?: MessageMetadata['storyQuality'] | null;
   narrativeTurn?: MessageMetadata['narrativeTurn'] | null;
@@ -2520,7 +2509,7 @@ function buildMessageMetadata(params: {
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
   const storyEvents = params.storyEventsNormalized ? (params.storyEvents || []) : [];
   const storyQuality = params.storyQuality || null;
-  if (!decision && !params.runtimeDecision && !params.deliberationArtifacts && !params.presenceUpdate && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length) return undefined;
+  if (!decision && !params.runtimeDecision && !params.deliberationArtifacts && !params.presenceUpdate && !params.studyUpdate && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length && !params.storyAssets) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const contextText = params.narrativeTurn?.blocks.map((block) => block.text).filter(Boolean).join('\n\n') || params.content;
   const attachments: MessageAttachment[] = [];
@@ -2583,6 +2572,7 @@ function buildMessageMetadata(params: {
     format: params.surface?.allowMarkdown ? 'markdown' : 'plain',
     contextText,
     storyEvents: storyEvents.length ? storyEvents : undefined,
+    storyAssets: params.storyAssets || undefined,
     storyQuality: storyQuality || undefined,
     narrativeTurn: params.narrativeTurn || undefined,
     storyChoices: storyChoices || undefined,
@@ -2594,6 +2584,7 @@ function buildMessageMetadata(params: {
     ...(params.runtimeDecision ? { runtimeDecision: params.runtimeDecision } : {}),
     ...(params.deliberationArtifacts ? { deliberationArtifacts: params.deliberationArtifacts } : {}),
     ...(params.presenceUpdate ? { presenceUpdate: params.presenceUpdate } : {}),
+    ...(params.studyUpdate ? { studyUpdate: params.studyUpdate } : {}),
   };
 }
 
@@ -2648,7 +2639,10 @@ function buildRuntimeDecisionMetadata(params: {
         mentionedActorIds: params.directorIntent.userGuidance.mentionedActorIds,
         hardConstraintActorIds: params.directorIntent.userGuidance.hardConstraintActorIds,
         suppressedActorIds: params.directorIntent.userGuidance.suppressedActorIds,
+        deferredActorIds: params.directorIntent.userGuidance.deferredActorIds,
         hasHardConstraints: params.directorIntent.userGuidance.hasHardConstraints,
+        voiceRequest: params.directorIntent.userGuidance.voiceRequest,
+        stickerRequest: params.directorIntent.userGuidance.stickerRequest,
         focusText: params.directorIntent.userGuidance.focusText,
         beatType: params.directorIntent.userGuidance.beatType,
         pressure: Number(params.directorIntent.userGuidance.pressure.toFixed(3)),
@@ -3135,6 +3129,10 @@ async function generateWithPrompt(params: {
       },
     },
   );
+  if (typeof response !== 'string') {
+    const receivedType = response === null ? 'null' : typeof response;
+    throw new TypeError(`AI generation returned ${receivedType}; expected a text response.`);
+  }
   logDeveloperDiagnostic('chat-run:model-request-finished', {
     chatId: params.chat.id,
     speakerId: params.speaker.id,
@@ -3149,9 +3147,21 @@ async function generateWithPrompt(params: {
   const parsedEnvelope = parseInlineInteractionEnvelope(response);
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const narrativeRuntime = isStoryReader ? await loadNarrativeRuntime() : null;
-  const storyEvents = narrativeRuntime
+  const rawStoryEvents = narrativeRuntime
     ? narrativeRuntime.normalizeStoryEvents(parsedEnvelope?.storyEvents, { previousMessages: params.activeMessages })
     : [];
+  const storyBeatPlan = isStoryReader && narrativeRuntime ? narrativeRuntime.resolveStoryBeatPlan(params.chat) : null;
+  const storyEvents = storyBeatPlan?.choicePolicy === 'forbid'
+    ? rawStoryEvents.filter((event) => event.type !== 'choice_point')
+    : rawStoryEvents;
+  if (rawStoryEvents.length !== storyEvents.length) {
+    logDeveloperDiagnostic('story-protocol:choice-forbidden-at-generation', {
+      chatId: params.chat.id,
+      beatKind: storyBeatPlan?.beatKind,
+      choicePolicy: storyBeatPlan?.choicePolicy,
+      droppedChoicePointCount: rawStoryEvents.length - storyEvents.length,
+    }, 'warn', 'chat-run');
+  }
   const storyEventContent = storyEvents.length && narrativeRuntime
     ? narrativeRuntime.buildStoryEventsVisibleText(storyEvents, params.characters || [])
     : '';
@@ -3376,9 +3386,7 @@ async function generateNonDuplicateResponse(params: {
             ...('details' in storyProtocolIssue ? storyProtocolIssue.details : {}),
           },
         });
-        const modelSafeStoryProtocolReason = storyProtocolIssue.code === 'story_section_too_short'
-          ? `${toModelSafeStoryProtocolReason(storyProtocolIssue)}; ${storyProtocolIssue.message}`
-          : toModelSafeStoryProtocolReason(storyProtocolIssue);
+        const modelSafeStoryProtocolReason = toModelSafeStoryProtocolReason(storyProtocolIssue);
         prompt = storyProtocolIssue.code === 'story_continuity_invalid'
           ? buildStoryContinuityQualityRetryPrompt(params.systemPrompt, storyProtocolIssue.message, storyContinuationState)
           : buildStoryProtocolQualityRetryPrompt(params.systemPrompt, modelSafeStoryProtocolReason);
@@ -3400,6 +3408,16 @@ async function generateNonDuplicateResponse(params: {
         },
       });
       throw new EmptyGeneratedResponseError(params.speaker.name, { reason: 'story_protocol_invalid', message: storyProtocolIssue.message });
+    }
+    if (params.chat.sessionKind?.scenarioId === 'learning-progress' && !generated.parsedEnvelope?.studyUpdate) {
+      if (attempt < 2) {
+        prompt = `${params.systemPrompt}\n\nLearning-state retry:\n- The previous reply omitted the required studyUpdate object. Return a complete JSON chat turn, including a non-null studyUpdate with phase and knowledgeObservations.\n- Judge the learner's latest visible attempt. If there is no assessable evidence, use knowledgeObservations:[]; never invent progress.\n- Keep the visible reply natural and responsive to the learner.`;
+        continue;
+      }
+      throw new EmptyGeneratedResponseError(params.speaker.name, {
+        reason: 'study_protocol_invalid',
+        message: '学习房回复缺少必要的结构化学习观察，未提交不完整的学习进度。',
+      });
     }
     const evaluationResponse = generated.fullNarrativeResponse || generated.fullResponse;
     if (normalizeForComparison(evaluationResponse)) {
@@ -3811,23 +3829,68 @@ export async function generateSpeakerMessage(params: {
     ? params.directorIntent
     : latestActiveUserGuidance || params.directorIntent || null;
   const emotion = getEmotion(params.speaker.id);
-  const recentTargetId = resolveRecentTargetIdForSpeaker(params.chat, params.speaker, activeMessages, params.pendingReplyContext);
-  const recentText = activeMessages.at(-1)?.content || '';
-  const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText, effectiveDirectorIntent, {
-    conversationFamily: params.chat.sessionKind?.family,
-    scenarioId: params.chat.sessionKind?.scenarioId,
-  });
   const innerLife = reconcileSelectedInnerLife(
     projectInnerLife({
       chat: params.chat,
       character: params.speaker,
       messages: activeMessages,
       explicitUserAddressed: effectiveDirectorIntent?.source === 'user_message'
-        && effectiveDirectorIntent.targetActorIds.includes(params.speaker.id),
+        && effectiveDirectorIntent.targetActorIds.includes(params.speaker.id)
+        && (activeMessages.at(-1)?.type === 'user' || activeMessages.at(-1)?.type === 'god'),
     }),
     params.speakerScore,
   );
   const reconciledSpeakerScore = reconcileSelectedSpeakerScore(params.speakerScore, innerLife, params.pendingReplyContext);
+  const plannedConversationMove = planConversationMove({
+    chat: params.chat,
+    speaker: params.speaker,
+    messages: activeMessages,
+    speakerScore: reconciledSpeakerScore,
+    pendingReplyContext: params.pendingReplyContext,
+  });
+  const explicitGuidanceForSpeaker = effectiveDirectorIntent?.source === 'user_message'
+    && Boolean(effectiveDirectorIntent.userGuidance?.actorIds.includes(params.speaker.id));
+  const guidanceSourceMessage = explicitGuidanceForSpeaker
+    ? activeMessages.findLast((message) => (
+        (message.type === 'user' || message.type === 'god')
+        && message.content.trim() === effectiveDirectorIntent.userGuidance?.rawText.trim()
+      )) || activeMessages.findLast((message) => message.type === 'user' || message.type === 'god')
+    : null;
+  const directedAffectTarget = innerLife.activeAffect?.role === 'received'
+    && innerLife.activeAffect.pressure >= 0.42
+    && !params.pendingReplyContext?.targetIds.includes(params.speaker.id)
+    ? innerLife.activeAffect.counterpartId : null;
+  const directedAffectMessage = directedAffectTarget
+    ? activeMessages.findLast((message) => message.senderId === directedAffectTarget && message.type === 'ai')
+    : null;
+  const conversationMovePlan = explicitGuidanceForSpeaker
+    ? {
+        ...plannedConversationMove,
+        targetMessageId: guidanceSourceMessage?.id || plannedConversationMove.targetMessageId,
+        targetClaimText: effectiveDirectorIntent.userGuidance?.focusText || guidanceSourceMessage?.content || plannedConversationMove.targetClaimText,
+        reason: 'explicit_user_guidance',
+      }
+    : directedAffectTarget && effectiveMembers.some((member) => member.id === directedAffectTarget)
+    ? {
+        ...plannedConversationMove,
+        targetActorId: directedAffectTarget,
+        targetMessageId: directedAffectMessage?.id || plannedConversationMove.targetMessageId,
+        targetClaimText: directedAffectMessage?.content.slice(0, 120) || plannedConversationMove.targetClaimText,
+        reason: 'directed_emotional_residue',
+      }
+    : plannedConversationMove;
+  const focusMessage = conversationMovePlan.targetMessageId
+    ? activeMessages.find((message) => message.id === conversationMovePlan.targetMessageId)
+    : null;
+  const recentTargetId = explicitGuidanceForSpeaker
+    ? undefined
+    : conversationMovePlan.targetActorId
+      || resolveRecentTargetIdForSpeaker(params.chat, params.speaker, activeMessages, params.pendingReplyContext);
+  const recentText = focusMessage?.content || activeMessages.at(-1)?.content || '';
+  const intent = deriveSpeakIntentFromContext(params.speaker, recentTargetId, recentText, effectiveDirectorIntent, {
+    conversationFamily: params.chat.sessionKind?.family,
+    scenarioId: params.chat.sessionKind?.scenarioId,
+  });
   const effectiveSpeakerSelection = params.speakerSelection && reconciledSpeakerScore
     ? {
       ...params.speakerSelection,
@@ -3856,11 +3919,6 @@ export async function generateSpeakerMessage(params: {
       intent.messageShape = 'single_sentence';
     }
   }
-  const directedAffectTarget = innerLife.activeAffect?.role === 'received'
-    && innerLife.activeAffect.pressure >= 0.42
-    && !params.pendingReplyContext?.targetIds.includes(params.speaker.id)
-    && activeMessages.at(-1)?.type === 'ai'
-    ? innerLife.activeAffect.counterpartId : null;
   if (directedAffectTarget && effectiveMembers.some((member) => member.id === directedAffectTarget)) {
     intent.target = directedAffectTarget;
   }
@@ -3883,30 +3941,55 @@ export async function generateSpeakerMessage(params: {
     messages: activeMessages,
     speaker: params.speaker,
   }) || null;
-  const baseRuntimeBundle = runtimeContextBundle || buildGenerationRuntimeBundle({
+  const sharedRuntimeBundle = buildGenerationRuntimeBundle({
     chat: params.chat,
     speaker: params.speaker,
     messages: activeMessages,
     promptContext: enginePromptContext,
     sessionEngine,
   });
+  // The shared runtime builder always supplies a complete turn plan. Keep that
+  // invariant explicit while allowing an engine to override only known fields;
+  // spreading two optional plans previously widened every required field.
+  const sharedTurnPlan = sharedRuntimeBundle.turnPlan;
+  if (!sharedTurnPlan) {
+    throw new Error(`Generation runtime did not produce a turn plan for ${params.speaker.id}`);
+  }
+  const baseRuntimeBundle: SessionGenerationRuntimeBundle = runtimeContextBundle ? {
+    ...sharedRuntimeBundle,
+    ...runtimeContextBundle,
+    turnPlan: {
+      ...sharedTurnPlan,
+      ...(runtimeContextBundle.turnPlan || {}),
+    },
+    expressionPlan: runtimeContextBundle.expressionPlan
+      ? { ...(sharedRuntimeBundle.expressionPlan || {}), ...runtimeContextBundle.expressionPlan }
+      : sharedRuntimeBundle.expressionPlan,
+    realizationPlan: runtimeContextBundle.realizationPlan
+      ? { ...(sharedRuntimeBundle.realizationPlan || {}), ...runtimeContextBundle.realizationPlan }
+      : sharedRuntimeBundle.realizationPlan,
+    trace: {
+      ...(sharedRuntimeBundle.trace || {}),
+      ...(runtimeContextBundle.trace || {}),
+      policyHits: Array.from(new Set([
+        ...(sharedRuntimeBundle.trace?.policyHits || []),
+        ...(runtimeContextBundle.trace?.policyHits || []),
+      ])),
+    },
+  } : sharedRuntimeBundle;
   const runtimeBundle = enrichRuntimeBundleWithHumanAppraisal({
     bundle: baseRuntimeBundle,
     chat: params.chat,
     speaker: params.speaker,
     messages: activeMessages,
   });
-  const plannedConversationMove = planConversationMove({
-    chat: params.chat,
-    speaker: params.speaker,
-    messages: activeMessages,
-    speakerScore: reconciledSpeakerScore,
-  });
-  const conversationMovePlan = directedAffectTarget && effectiveMembers.some((member) => member.id === directedAffectTarget)
-    ? { ...plannedConversationMove, targetActorId: directedAffectTarget, reason: 'directed_emotional_residue' }
-    : plannedConversationMove;
+  const focusedTargetIds = explicitGuidanceForSpeaker
+    ? []
+    : conversationMovePlan.targetActorId ? [conversationMovePlan.targetActorId] : runtimeBundle.turnPlan?.targetIds || [];
   const runtimeBundleWithMovePlan = {
     ...runtimeBundle,
+    turnPlan: runtimeBundle.turnPlan ? { ...runtimeBundle.turnPlan, targetIds: focusedTargetIds } : runtimeBundle.turnPlan,
+    realizationPlan: runtimeBundle.realizationPlan ? { ...runtimeBundle.realizationPlan, targetIds: focusedTargetIds } : runtimeBundle.realizationPlan,
     trace: {
       ...(runtimeBundle.trace || {}),
       policyHits: [
@@ -3920,6 +4003,17 @@ export async function generateSpeakerMessage(params: {
       ].filter(Boolean).join(' | ') || null,
     },
   };
+  const capturedTurnParameters = captureTurnParameters({
+    chat: params.chat,
+    speaker: params.speaker,
+    members: effectiveMembers,
+    innerLife,
+    move: conversationMovePlan.moveType,
+    targetId: conversationMovePlan.targetActorId,
+    intendedRecipientIds: runtimeBundleWithMovePlan.turnPlan?.targetIds || [],
+    hotspot: runtimeBundleWithMovePlan.trace?.hotspotState,
+    enabled: isDeveloperModeEnabled(),
+  });
   const pendingReplyPrompt = params.pendingReplyContext?.targetIds.includes(params.speaker.id) && params.pendingReplyContext.sourceSpeakerId
     ? `\nPending reply expectation:
 - You were explicitly addressed by ${characterMap.get(params.pendingReplyContext.sourceSpeakerId)?.name || params.pendingReplyContext.sourceSpeakerId}.
@@ -3995,15 +4089,17 @@ export async function generateSpeakerMessage(params: {
     emotion,
     activeMessages,
     characterMap,
-    preferEnginePromptAdapter: !enginePromptContext,
+    preferEnginePromptAdapter: resolveSessionFamilyKey(params.chat) === 'study' || !enginePromptContext,
     promptAssembly,
   });
   const promptBlocks: PromptBlock[] = [
     { id: 'engine_prefix', layer: 'core', priority: -100, content: promptPrefix },
     { id: 'speaker_identity', layer: 'core', priority: 0, content: speakerSystemPrompt },
     buildPromptPlayModeBlock(promptPlayMode),
-    { id: 'humanization', layer: 'character', priority: 20, content: usesUnifiedGroupTurn ? '' : buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance) },
-    { id: 'inner_life', layer: 'character', priority: 30, content: usesUnifiedGroupTurn ? buildUnifiedGroupPresencePrompt(innerLife, richDelivery) : buildInnerLifePromptBlock(innerLife) },
+    // The unified group turn directive decides the social job; inner life,
+    // rhythm, and surface choice decide how that job leaks through the voice.
+    { id: 'humanization', layer: 'character', priority: 20, content: buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance, { family: resolveSessionFamilyKey(params.chat), type: params.chat.type }) },
+    { id: 'inner_life', layer: 'character', priority: 30, content: buildInnerLifePromptBlock(innerLife) },
     { id: 'pending_reply', layer: 'task', priority: 10, content: pendingReplyPrompt },
     { id: 'user_guidance', layer: 'task', priority: 20, content: buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities, priorGuidanceReplies) },
     { id: 'room_floor_state', layer: 'task', priority: 25, content: buildGuidanceFloorPrompt(guidanceFloorState) },
@@ -4016,12 +4112,12 @@ export async function generateSpeakerMessage(params: {
     { id: 'role_action_visibility', layer: 'runtime', priority: 10, content: buildRoleActionVisibilityPrompt(showRoleActions) },
     { id: 'expression_feedback', layer: 'runtime', priority: 20, content: buildExpressionFeedbackPrompt(expressionFeedbackTrace) },
     { id: 'turn_directive', layer: 'task', priority: 48, content: buildTurnDirectivePrompt(unifiedTurnDirective) },
-    { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: usesUnifiedGroupTurn ? '' : buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
-    { id: 'conversation_move', layer: 'task', priority: 50, content: usesUnifiedGroupTurn ? '' : buildConversationMovePrompt(conversationMovePlan, params.chat) },
-    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: usesUnifiedGroupTurn ? '' : buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan }) },
-    { id: 'turn_length_variety', layer: 'style', priority: 30, content: usesUnifiedGroupTurn ? '' : buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
-    { id: 'turn_format_variety', layer: 'style', priority: 40, content: usesUnifiedGroupTurn ? '' : buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
-    { id: 'turn_plan', layer: 'runtime', priority: 30, content: usesUnifiedGroupTurn ? '' : buildTurnPlanPrompt(turnPlan) },
+    { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
+    { id: 'conversation_move', layer: 'task', priority: 50, content: buildConversationMovePrompt(conversationMovePlan, params.chat) },
+    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan }) },
+    { id: 'turn_length_variety', layer: 'style', priority: 30, content: buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
+    { id: 'turn_format_variety', layer: 'style', priority: 40, content: buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
+    { id: 'turn_plan', layer: 'runtime', priority: 30, content: buildTurnPlanPrompt(turnPlan) },
     { id: 'runtime_role_constraint', layer: 'runtime', priority: 40, content: buildRuntimeRoleConstraintPrompt(runtimeBundleWithMovePlan) },
     { id: 'response_surface', layer: 'style', priority: 50, content: buildResponseSurfacePrompt(responseSurface) },
     { id: 'style_quarantine', layer: 'style', priority: 60, content: buildStyleQuarantinePrompt(responseSurface) },
@@ -4118,7 +4214,7 @@ export async function generateSpeakerMessage(params: {
   const explicitMediaRequests = {
     image: Boolean(userGuidance?.mediaRequest),
     audio: Boolean(userGuidance?.voiceRequest),
-    sticker: /(表情包|斗图|meme|sticker)/i.test(userGuidance?.rawText || ''),
+    sticker: Boolean(userGuidance?.stickerRequest),
   };
   const mergedMediaDecision = mergeGuidanceMediaDecision({
     decision: modelMediaDecision,
@@ -4178,7 +4274,7 @@ export async function generateSpeakerMessage(params: {
     narrativeLines: params.narrativeLines,
     speakerSelection: effectiveSpeakerSelection,
     speakerScore: reconciledSpeakerScore,
-    innerLife,
+    innerLife: isStoryReader ? undefined : innerLife,
     surface: responseSurface,
     turnPlan,
     actualBubbleCount: generated.messageParts?.length || Math.max(1, 1 + (generated.extraMessages?.length || 0)),
@@ -4191,6 +4287,14 @@ export async function generateSpeakerMessage(params: {
     guidanceExecution,
     worldInfluence: worldInfluenceSnapshot,
     runtimeBundle: runtimeBundleWithDiagnostics,
+  });
+  const addressedTargets = generated.parsedEnvelope?.addressedTargets;
+  const turnParameters = finishTurnParameters({
+    captured: capturedTurnParameters,
+    members: effectiveMembers,
+    addressedTargetIds: addressedTargets?.targetIds,
+    primaryAddressedTargetId: addressedTargets?.primaryTargetId,
+    bubbleCount: generated.messageParts?.length || Math.max(1, 1 + (generated.extraMessages?.length || 0)),
   });
   if (structuredOutputTrace.policyHits.includes('structured_output:no_json_envelope')
     || structuredOutputTrace.policyHits.some((item) => item.includes('_dropped:'))
@@ -4216,6 +4320,7 @@ export async function generateSpeakerMessage(params: {
       responseLength: generatedStoryResponse.length,
     }, 'warn', 'chat-run');
   }
+  const storyAssets = normalizeStoryAssets(generated.parsedEnvelope?.storyAssets);
   const baseMetadata = buildMessageMetadata({
     decision: generated.messageParts?.length ? null : mergedMediaDecision,
     capabilities: mediaCapabilities,
@@ -4225,13 +4330,16 @@ export async function generateSpeakerMessage(params: {
     activeMessages,
     surface: responseSurface,
     storyEvents,
+    storyAssets,
     storyEventsNormalized: true,
-    storyQuality: narrativeRuntime && storyEvents.length ? narrativeRuntime.evaluateStoryEventQuality(storyEvents) : null,
+    storyQuality: narrativeRuntime && storyEvents.length ? narrativeRuntime.evaluateStoryEventQuality(storyEvents, storyAssets) : null,
     narrativeTurn,
     storyChoices,
     deliberationArtifacts: generated.parsedEnvelope?.deliberationArtifacts || null,
     presenceUpdate: generated.parsedEnvelope?.presenceUpdate || null,
+    studyUpdate: generated.parsedEnvelope?.studyUpdate || null,
     runtimeDecision: runtimeDecisionMetadata,
+    ...(turnParameters ? { turnParameters } : {}),
   });
   const messageParts = generated.messageParts?.map((part, index) => ({
     content: part.content,
@@ -4244,13 +4352,16 @@ export async function generateSpeakerMessage(params: {
       activeMessages,
       surface: responseSurface,
       storyEvents: index === 0 ? storyEvents : [],
+      storyAssets: index === 0 ? storyAssets : null,
       storyEventsNormalized: true,
-      storyQuality: index === 0 && narrativeRuntime && storyEvents.length ? narrativeRuntime.evaluateStoryEventQuality(storyEvents) : null,
+      storyQuality: index === 0 && narrativeRuntime && storyEvents.length ? narrativeRuntime.evaluateStoryEventQuality(storyEvents, storyAssets) : null,
       narrativeTurn: index === 0 ? narrativeTurn : null,
       storyChoices: index === 0 ? storyChoices : null,
       deliberationArtifacts: index === 0 ? generated.parsedEnvelope?.deliberationArtifacts || null : null,
       presenceUpdate: index === 0 ? generated.parsedEnvelope?.presenceUpdate || null : null,
+      studyUpdate: index === 0 ? generated.parsedEnvelope?.studyUpdate || null : null,
       runtimeDecision: index === 0 ? runtimeDecisionMetadata : undefined,
+      ...(turnParameters ? { turnParameters } : {}),
     }),
   })) || null;
   const completedMessage = buildCompletedMessage({

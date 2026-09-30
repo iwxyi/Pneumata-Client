@@ -21,7 +21,7 @@ describe('conflictAxisEngine', () => {
       },
     };
 
-    const nextAxes = evolveConflictAxes(chat as never, '这句只是普通接话，没有继续争归属。');
+    const nextAxes = evolveConflictAxes(chat as never, { present: false });
     expect(nextAxes[0]?.currentTilt).toBeGreaterThan(-26);
     expect(nextAxes[0]?.currentTilt).toBe(-18);
   });

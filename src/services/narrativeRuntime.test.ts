@@ -173,7 +173,13 @@ describe('narrativeRuntime', () => {
           { label: '让主角检查墙上的新鲜血迹', prompt: '主角检查血迹', risk: '暴露位置', reward: '发现新证据' },
         ],
       },
-    ]);
+    ], {
+      currentScene: { location: '旧医院走廊', visibleThreat: '门后的脚步声' },
+      openQuestions: ['护士昨晚去了哪里？'],
+      clues: ['墙上的新鲜血迹'],
+      stakes: ['暴露位置'],
+      relationshipShifts: [],
+    });
     const weak = evaluateStoryEventQuality([
       { type: 'narration', text: '他们继续往前走。' },
       { type: 'choice_point', choices: [{ label: '推进剧情', prompt: '推进剧情' }] },
@@ -650,7 +656,13 @@ describe('narrativeRuntime', () => {
       summary: '护士承认停电时有人进入档案室。',
       message: {
         content: '清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。',
-        metadata: {},
+        metadata: {
+          storyAssets: {
+            currentScene: { location: '旧医院走廊', time: '清晨', presentActorIds: ['lin', 'nurse'], visibleThreat: '停电期间有人进入档案室' },
+            clues: ['清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。'],
+            relationshipShifts: ['清晨的旧医院走廊里，护士承认停电时有人进入档案室，她开始怀疑林医生隐瞒真相。'],
+          },
+        },
       },
     });
     expect(assets).toEqual(expect.objectContaining({

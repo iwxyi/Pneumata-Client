@@ -268,7 +268,7 @@ describe('deriveTurnPlan', () => {
     expect(plan.reasons).toContain('group_ai_chain_needs_brevity');
   });
 
-  it('allows direct human depth requests to split into consecutive bubbles', () => {
+  it('does not locally equate a direct depth request with multiple bubbles', () => {
     const plan = deriveTurnPlan({
       chat: chat({ type: 'direct' }),
       speaker: character(),
@@ -283,13 +283,12 @@ describe('deriveTurnPlan', () => {
       now: 10,
     });
 
-    expect(plan.rhythm).toBe('multi_bubble');
-    expect(plan.allowExtraMessages).toBe(true);
-    expect(plan.maxBubbleCount).toBe(2);
-    expect(plan.reasons).toContain('human_depth_can_split_bubbles');
+    expect(plan.rhythm).toBe('full_reply');
+    expect(plan.reasons).toContain('human_depth_request');
+    expect(plan.reasons).not.toContain('human_depth_can_split_bubbles');
   });
 
-  it('allows addressed group human depth requests to use extra bubbles without changing AI-chain brevity', () => {
+  it('does not locally equate an addressed group depth request with multiple bubbles', () => {
     const plan = deriveTurnPlan({
       chat: chat({ type: 'group' }),
       speaker: character(),
@@ -304,9 +303,9 @@ describe('deriveTurnPlan', () => {
       now: 10,
     });
 
-    expect(plan.rhythm).toBe('multi_bubble');
-    expect(plan.allowExtraMessages).toBe(true);
-    expect(plan.reasons).toContain('human_depth_can_split_bubbles');
+    expect(plan.rhythm).toBe('full_reply');
+    expect(plan.reasons).toContain('human_depth_request');
+    expect(plan.reasons).not.toContain('human_depth_can_split_bubbles');
   });
 
   it('still allows full analysis replies when a human turn asks for substance', () => {
@@ -374,7 +373,7 @@ describe('deriveTurnPlan', () => {
     });
 
     expect(prompt).toContain('Do not target a fixed length band');
-    expect(prompt).toContain('not a keyword rule, output template, or length cap');
+    expect(prompt).toContain('message boundaries from the whole-turn social meaning');
     expect(prompt).toContain('one compact social or deliberative move');
     expect(prompt).not.toContain('Target length band');
   });
@@ -390,11 +389,9 @@ describe('deriveTurnPlan', () => {
     expect(plan.maxBubbleCount).toBe(5);
     expect(plan.reasons.some((reason) => reason.startsWith('delivery:'))).toBe(true);
     const prompt = buildTurnPlanPrompt(plan);
-    expect(prompt).toContain('never required');
-    expect(prompt).toContain('full stop is a possible send boundary');
-    expect(prompt).toContain('not a mechanical splitting rule');
-    expect(prompt).toContain('one to several real sends');
-    expect(prompt).toContain('uneven in length');
+    expect(prompt).toContain('choose message boundaries from the whole-turn social meaning');
+    expect(prompt).toContain('not by itself a send boundary');
+    expect(prompt).not.toContain('several unequal chat beats');
   });
 
   it('lets the model choose bubble count within each enabled room policy', () => {

@@ -63,8 +63,6 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
     return {
       id: 'analysis_room',
       disabledBlocks: [
-        'humanization',
-        'inner_life',
         'expression_feedback',
         'natural_chat_rhythm',
         'current_intent',
@@ -75,7 +73,7 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
       ],
       notes: [
         'Analysis rooms are not ordinary group chat. Deliberation structure, topic progress, and evidence pressure override social alliance pressure.',
-        'Character voice may affect wording, but it must not replace the deliberation job.',
+        'Characters retain immediate feelings and personal stakes while performing the deliberation job; emotions affect phrasing, not the validity of evidence.',
         'If the room has drifted into farewell, praise, or poetic continuation, stop extending that thread and either synthesize or state that no new deliberation point follows.',
       ],
     };
@@ -94,17 +92,12 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
     if (resolveSessionFamilyKey(chat) === 'conversation') {
       return {
         id: 'general_group',
-        // Ordinary group chat uses the hybrid prompt architecture: full fact
-        // blocks remain, but scattered behavior/style/runtime blocks are
-        // replaced by the single Turn Directive. Do not apply this to direct
-        // companionship or scenario engines.
+        // Ordinary group chat uses the Turn Directive as its social spine.
+        // Keep only the small lived-expression blocks that change wording and
+        // timing; broader contracts are folded into the directive to avoid
+        // competing checklists and prompt bloat.
         disabledBlocks: [
-          'humanization',
           'current_intent',
-          'conversation_move',
-          'expression_surface_choice',
-          'turn_length_variety',
-          'turn_format_variety',
           'response_surface',
           'runtime_role_constraint',
           'focused_situational_job_contract',
@@ -112,7 +105,7 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
         ],
         notes: [
           'General group rooms keep social momentum, relationships, and room pressure available.',
-          'Ordinary group turns use one Turn Directive for this turn’s social job, emotion, relationship stance, and expression shape.',
+          'Ordinary group turns use one compact first-person situation frame so facts become character-specific attention, social risk, emotion, and expression instead of a checklist of required moves.',
         ],
       };
     }

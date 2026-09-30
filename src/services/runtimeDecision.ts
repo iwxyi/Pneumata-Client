@@ -5,7 +5,7 @@ import type { DirectorBeatType } from './directorIntent';
 import { resolveDirectorIntent, type DirectorIntent, type PendingReplyLike } from './directorIntent';
 import { collectGuidanceProgressAfterTimestamp } from './guidanceExecution';
 import { projectNarrativeLines, selectPrimaryNarrativeLine, type NarrativeLineProjection } from './narrativeProjection';
-import { getGuidanceTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
+import { getGuidanceTargetActorIds, readStoredUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 
 export interface RuntimePressureProjection {
   narrativeLines: NarrativeLineProjection[];
@@ -109,7 +109,7 @@ export function resolveLatestActiveUserGuidance(characters: AICharacter[], messa
     .reverse();
 
   for (const message of humanMessages) {
-    const guidance = parseUserGuidanceIntent(message.content, characters);
+    const guidance = readStoredUserGuidanceIntent(message, characters);
     if (!guidance || !isExplicitPersistentGuidance(guidance)) continue;
     if (now > message.timestamp + 10 * 60_000) return { intent: null, timestamp: message.timestamp };
 
@@ -165,11 +165,10 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
     const storedGuidance = typeof payload.userGuidance === 'object' && payload.userGuidance
       ? payload.userGuidance as UserGuidanceIntent
       : null;
-    const parsedGuidance = storedGuidance ? null : parseUserGuidanceIntent(text || '', characters);
-    const guidance = storedGuidance || parsedGuidance;
+    const guidance = storedGuidance;
     const hasPersistentTargetedGuidance = Boolean(
       storedGuidance?.actorIds.length
-      || (parsedGuidance?.kind === 'media_request' && parsedGuidance.actorIds.length),
+      || (storedGuidance?.kind === 'media_request' && storedGuidance.actorIds.length),
     );
     const pendingGuidanceActorIds = hasPersistentTargetedGuidance && guidance?.actorIds.length
       ? getPendingTargetActorIdsAfter(messages, event.createdAt, guidance, characters)
@@ -192,7 +191,7 @@ function getLatestDirectorInterventionIntent(chat: GroupChat, characters: AIChar
       : targetActorIds.length
         ? targetActorIds
         : guidanceTargetActorIds;
-    if (hasPersistentTargetedGuidance && !activeTargetActorIds.length) continue;
+    if (hasPersistentTargetedGuidance && !activeTargetActorIds.length && !hasFloorRestraintWindow) continue;
     return {
       source: 'user_message',
       targetLineId: typeof payload.targetLineId === 'string' ? payload.targetLineId : undefined,

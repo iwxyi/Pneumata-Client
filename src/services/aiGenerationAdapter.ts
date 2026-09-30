@@ -49,6 +49,7 @@ export interface ImageGenerationAdapterOptions {
   character?: AICharacter | null;
   characters?: AICharacter[];
   allowCharacterReferenceImages?: boolean;
+  useCharacterReferenceImages?: boolean;
   signal?: AbortSignal;
   aiUsage?: AiUsageMetadata;
 }
@@ -84,12 +85,6 @@ function profileToApi(profile: AIModelProfile | APIConfig): APIConfig {
 
 function isAIModelProfile(profile: AIModelProfile | APIConfig): profile is AIModelProfile {
   return 'id' in profile && 'type' in profile;
-}
-
-function shouldUseCharacterReferenceImages(prompt: string, intent: GenerationIntent) {
-  if (intent === 'character-reference' || intent === 'avatar') return false;
-  const normalized = prompt.toLowerCase();
-  return /自拍|照片|合照|集体照|出镜|露脸|半身|全身|穿着|表情|pose|selfie|portrait|photo|group photo|wearing|face|person/.test(normalized);
 }
 
 function sortReferenceImages(images: CharacterVisualReferenceImage[], primaryId?: string | null) {
@@ -150,7 +145,7 @@ function appendVisualIdentityText(prompt: string, params: ImageGenerationAdapter
 function normalizeReferenceImages(params: ImageGenerationAdapterOptions): ImageReferenceInput[] {
   const requested = [
     ...(params.referenceImages || []),
-    ...(shouldUseCharacterReferenceImages(params.prompt, params.intent) ? collectCharacterReferenceImages(params) : []),
+    ...(params.useCharacterReferenceImages ? collectCharacterReferenceImages(params) : []),
   ].filter((item) => item.url);
 
   const unique = Array.from(new Map(requested.map((item) => [item.url, item])).values());

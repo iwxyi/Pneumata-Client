@@ -24,6 +24,8 @@ import {
 import { isRuntimeEvidenceMemory } from './memoryPresentation';
 import { getCurrentRetentionLimits } from './retentionLimits';
 
+const SHARED_PHRASE_ANALYSIS_RULE = '\n\n如果证据形成了一句可复用的共同称呼、梗、约定、安慰语、表白语或暗号，请在对应 item 增加 sharedPhrase：{"text":"可复用原话","kind":"pet_name|inside_joke|promise_line|comfort_line|confession_line|secret_code|other","visibility":"private|between_actors|public_hint"}；否则省略。这个分类由模型完成，运行时不会根据正文关键词猜测。';
+
 function isEligibleItem(item: MemoryItem) {
   return !item.archivedAt
     && !isRuntimeEvidenceMemory(item)
@@ -195,6 +197,7 @@ function toCandidate(ownerId: string, source: MemoryItem[], item: LlmAnalyzedMem
     validity: item.validity || 'active',
     semanticTags: item.semanticTags,
     associations: item.associations,
+    sharedPhrase: item.sharedPhrase,
     scoreBreakdown: {
       stability: 0.9,
       recurrence: 0.78,
@@ -232,18 +235,20 @@ export function formatLlmDistillationReasonLabel(reason: string) {
   return labels[reason] || reason;
 }
 
-export function shouldRunLlmChatDistillation(chat: GroupChat, _turnCount: number) {
+export function shouldRunLlmChatDistillation(chat: GroupChat, turnCount: number) {
+  void turnCount;
   return buildDistillationSource(chat, 'chat').length > 0;
 }
 
-export function shouldRunLlmCharacterDistillation(character: AICharacter, _turnCount: number) {
+export function shouldRunLlmCharacterDistillation(character: AICharacter, turnCount: number) {
+  void turnCount;
   return buildDistillationSource(character, 'character').length > 0;
 }
 
 export async function distillChatMemoriesWithLlm(api: APIConfig, chat: GroupChat, options?: { now?: number }): Promise<MemoryCandidate[]> {
   const source = buildDistillationSource(chat, 'chat');
   if (!source.length) return [];
-  const systemPrompt = buildChatMemoryAnalysisPrompt();
+  const systemPrompt = `${buildChatMemoryAnalysisPrompt()}${SHARED_PHRASE_ANALYSIS_RULE}`;
   const raw = await generateJsonResponse(api, systemPrompt, [
     { role: 'user', content: `群聊：${chat.name}\n主题：${chat.topic || '未设置'}\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
   ], { aiUsage: { type: 'memory_distillation', label: '蒸馏群聊记忆', scope: 'chat', resourceId: chat.id } });
@@ -254,7 +259,7 @@ export async function distillChatMemoriesWithLlm(api: APIConfig, chat: GroupChat
 export async function distillCharacterMemoriesWithLlm(api: APIConfig, character: AICharacter, options?: { now?: number }): Promise<MemoryCandidate[]> {
   const source = buildDistillationSource(character, 'character');
   if (!source.length) return [];
-  const systemPrompt = buildCharacterMemoryAnalysisPrompt();
+  const systemPrompt = `${buildCharacterMemoryAnalysisPrompt()}${SHARED_PHRASE_ANALYSIS_RULE}`;
   const raw = await generateJsonResponse(api, systemPrompt, [
     { role: 'user', content: `${buildCharacterAnalysisContext(character)}\n\n最近高门槛证据：\n${buildMemoryAnalysisEvidenceBlock(source)}` },
   ], { aiUsage: { type: 'memory_distillation', label: '蒸馏角色记忆', scope: 'character', resourceId: character.id } });

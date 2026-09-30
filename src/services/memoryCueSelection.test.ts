@@ -30,8 +30,8 @@ function memory(overrides: Partial<MemoryItem>): MemoryItem {
     relatedConversationId: overrides.relatedConversationId,
     subjectOwner: overrides.subjectOwner,
     sourceType: overrides.sourceType,
-    privacyRisk: overrides.privacyRisk,
-    visibility: overrides.visibility,
+    privacyRisk: overrides.privacyRisk ?? 0.08,
+    visibility: overrides.visibility ?? 'public_safe',
     validity: overrides.validity,
     semanticTags: overrides.semanticTags,
     associations: overrides.associations,
@@ -72,6 +72,9 @@ describe('selectConstrainedMemoryCues', () => {
       memory({
         id: 'friend-allergy',
         text: '用户说朋友对猫毛过敏，不是用户本人过敏。',
+        subjectOwner: 'third_party',
+        visibility: 'private',
+        privacyRisk: 0.8,
         salience: 0.9,
         confidence: 0.95,
       }),
@@ -94,6 +97,9 @@ describe('selectConstrainedMemoryCues', () => {
       memory({
         id: 'friend-allergy',
         text: '用户说朋友对猫毛过敏，不是用户本人过敏。',
+        subjectOwner: 'third_party',
+        visibility: 'private',
+        privacyRisk: 0.8,
         salience: 0.9,
         confidence: 0.95,
       }),
@@ -105,6 +111,7 @@ describe('selectConstrainedMemoryCues', () => {
       }),
     ], {
       cueText: '你还记得我是不是猫毛过敏吗？',
+      explicitRecallRequested: true,
     });
 
     expect(cues.map((item) => item.id)).toContain('friend-allergy');
@@ -117,6 +124,8 @@ describe('selectConstrainedMemoryCues', () => {
         id: 'work',
         scope: 'relationship',
         text: '用户最近提过某个同事说话很冲，让自己有点烦。',
+        visibility: 'private',
+        privacyRisk: 0.75,
         salience: 0.86,
         confidence: 0.84,
       }),

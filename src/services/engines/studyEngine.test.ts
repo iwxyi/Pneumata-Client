@@ -24,8 +24,66 @@ describe('study progress engine', () => {
     expect(participants.map((participant) => participant.roleKey)).toEqual(['student', 'teacher']);
   });
 
-  it('does not manufacture a percentage score when a learning message is committed', () => {
+  it('does not manufacture progress when a turn has no model-authored learning evidence', () => {
     const result = STUDY_ENGINE.onMessageCommitted?.({ conversation: buildChat(), characters: [], message: { type: 'user', senderId: 'user', content: '先列出知识点' } });
-    expect(result?.chatPatch.scenarioState?.progress?.[0]).toMatchObject({ label: '学习进展', target: 0 });
+    expect(result?.chatPatch.scenarioState?.progress).toEqual([]);
+    expect(result?.runtimeEvents[0]).toMatchObject({ eventType: 'study_guidance', title: '学习推进' });
+  });
+
+  it('applies structured model observations without guessing from message keywords', () => {
+    const result = STUDY_ENGINE.onMessageCommitted?.({
+      conversation: buildChat(),
+      characters: [],
+      message: {
+        type: 'ai',
+        senderId: 'teacher',
+        content: '你已经独立区分了这两个时态。',
+        metadata: {
+          studyUpdate: {
+            phase: 'learning',
+            knowledgeObservations: [{ title: '过去时与现在完成时', status: 'verified', evidenceSummary: '学习者独立改正例句并解释了时间标记。', confidence: 0.92 }],
+          },
+        },
+      },
+    });
+    expect(result?.chatPatch.scenarioState?.phase).toBe('learning');
+    expect(result?.chatPatch.scenarioState?.learning?.knowledgeItems[0]).toMatchObject({
+      title: '过去时与现在完成时', status: 'verified', evidenceCount: 1,
+    });
+    expect(result?.chatPatch.scenarioState?.progress?.[0]).toMatchObject({ label: '已验证知识点', value: 1, target: 1 });
+    expect(result?.runtimeEvents[0]).toMatchObject({ eventType: 'study_progress', title: '学习记录已更新' });
+  });
+
+  it('updates a known point by its explicit identity even when the model rephrases its title', () => {
+    const conversation = buildChat();
+    conversation.scenarioState!.learning!.knowledgeItems = [{
+      id: 'knowledge:index-basics', title: '索引与全表扫描', status: 'practicing', evidenceCount: 1,
+    }];
+    const result = STUDY_ENGINE.onMessageCommitted?.({
+      conversation, characters: [],
+      message: { type: 'ai', senderId: 'teacher', content: '这次你找到了索引的作用。', metadata: {
+        studyUpdate: { phase: 'learning', knowledgeObservations: [{
+          knowledgeItemId: 'knowledge:index-basics', title: '什么时候使用索引', status: 'usable',
+          evidenceSummary: '学习者根据查询条件选择了索引。',
+        }] },
+      } },
+    });
+    expect(result?.chatPatch.scenarioState?.learning?.knowledgeItems).toMatchObject([
+      { id: 'knowledge:index-basics', title: '索引与全表扫描', status: 'usable', evidenceCount: 2 },
+    ]);
+    expect(result?.chatPatch.scenarioState?.progress?.[0]).toMatchObject({ value: 0, target: 1 });
+  });
+
+  it('does not attach an unknown model-supplied identity to an existing point', () => {
+    const conversation = buildChat();
+    conversation.scenarioState!.learning!.knowledgeItems = [{ id: 'known', title: '索引原理', status: 'exposed' }];
+    const result = STUDY_ENGINE.onMessageCommitted?.({
+      conversation, characters: [],
+      message: { type: 'ai', senderId: 'teacher', content: '接下来讨论事务。', metadata: {
+        studyUpdate: { knowledgeObservations: [{ knowledgeItemId: 'missing', title: '事务隔离', status: 'exposed' }] },
+      } },
+    });
+    expect(result?.chatPatch.scenarioState?.learning?.knowledgeItems).toHaveLength(2);
+    expect(result?.chatPatch.scenarioState?.learning?.knowledgeItems[1]?.id).not.toBe('missing');
   });
 });

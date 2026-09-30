@@ -151,9 +151,8 @@ describe('dialogueHumanizer', () => {
       ],
     );
 
-    expect(prompt).toContain('agreement echo');
-    expect(prompt).toContain('brief personal show of support');
-    expect(prompt).toContain('Stop restating the shared conclusion');
+    expect(prompt).not.toContain('agreement echo');
+    expect(prompt).not.toContain('Stop restating the shared conclusion');
     expect(prompt).toContain('Preferred archetype: 护住关系');
     expect(prompt).not.toContain('Preferred archetype: 顺手站边');
     expect(prompt).not.toContain('Latch onto this phrase or point if useful: 这回我站他');

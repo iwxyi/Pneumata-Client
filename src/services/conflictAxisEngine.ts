@@ -1,4 +1,5 @@
 import type { GroupChat, ConversationConflictAxis } from '../types/chat';
+import type { ConflictFocusPayload } from '../types/runtimeEvent';
 
 const AXIS_DECAY_STEP = 8;
 const AXIS_DISPLAY_THRESHOLD = 12;
@@ -21,31 +22,22 @@ function formatAxisSummary(axis: ConversationConflictAxis) {
   return `${axis.title} ${(axis.currentTilt || 0) > 0 ? axis.poles[0] : axis.poles[1]}`;
 }
 
-function detectIdentityOwnershipSpike(text: string) {
-  const ownershipClaim = /(我儿子|我家|我老婆|我老公|我对象|我的人|我们家的|咱家的)/.test(text);
-  const authorityChallenge = /(轮不到|关你什么事|谁说的|谁准你|还得你批准|少插嘴|你算谁|凭什么)/.test(text);
-  const mirroredClaim = /(就是|说得对).*(我儿子|我家|咱家的)/.test(text);
-  return ownershipClaim && (authorityChallenge || mirroredClaim);
-}
-
-function detectContradictionSpike(text: string) {
-  return /(前后矛盾|你刚才还|不是.*又|怎么又|到底谁|谁才是|明明是|凭什么说是你的|关你什么事)/.test(text);
-}
-
-function readAxisDelta(axis: ConversationConflictAxis, text: string, identitySpike: boolean, contradictionSpike: boolean) {
+function readAxisDelta(axis: ConversationConflictAxis, conflict: ConflictFocusPayload | null | undefined) {
+  if (!conflict?.present) return 0;
+  const severity = typeof conflict.severity === 'number' && Number.isFinite(conflict.severity)
+    ? Math.max(0, Math.min(1, conflict.severity))
+    : 0.55;
+  const pressure = conflict.nextPressure;
+  const sign = pressure === 'cool' || pressure === 'stabilize' ? 1 : -1;
+  const magnitude = Math.round(8 + severity * 22);
   if (axis.title === '归属/身份冲突') {
-    let delta = 0;
-    if (identitySpike) delta -= 26;
-    if (contradictionSpike) delta -= 18;
-    return delta;
+    if (conflict.type === 'identity_ownership' || conflict.type === 'alliance_boundary') return sign * magnitude;
+    return conflict.type === 'authority_challenge' || conflict.type === 'status_competition' ? sign * Math.round(magnitude * 0.7) : 0;
   }
-
-  let delta = 0;
-  if (/反对|攻击|质疑|不行|wrong|hate|terrible|失败|荒谬/.test(text)) delta -= 14;
-  if (/支持|同意|喜欢|欣赏|great|agree|love|太好了/.test(text)) delta += 10;
-  if (/但是|不过|可是|然而|actually|but|however/.test(text)) delta -= 6;
-  if (contradictionSpike) delta -= 10;
-  return delta;
+  if (conflict.type === 'contradiction_exposure' || conflict.type === 'value_conflict' || conflict.type === 'goal_conflict' || conflict.type === 'tone_escalation') {
+    return sign * Math.round(magnitude * 0.7);
+  }
+  return 0;
 }
 
 export function createDefaultConflictAxes(chat: Pick<GroupChat, 'topic' | 'style' | 'dramaRules'>): ConversationConflictAxis[] {
@@ -66,14 +58,11 @@ export function createDefaultConflictAxes(chat: Pick<GroupChat, 'topic' | 'style
   return axes;
 }
 
-export function evolveConflictAxes(chat: GroupChat, messageContent: string) {
+export function evolveConflictAxes(chat: GroupChat, conflict: ConflictFocusPayload | null | undefined) {
   const axes = (chat.worldState.conflictAxes || []).length ? (chat.worldState.conflictAxes || []) : createDefaultConflictAxes(chat);
-  const text = messageContent.toLowerCase();
-  const identitySpike = detectIdentityOwnershipSpike(text);
-  const contradictionSpike = detectContradictionSpike(text);
   return axes.map((axis) => ({
     ...axis,
-    currentTilt: clampTilt(relaxTilt(axis.currentTilt || 0) + readAxisDelta(axis, text, identitySpike, contradictionSpike)),
+    currentTilt: clampTilt(relaxTilt(axis.currentTilt || 0) + readAxisDelta(axis, conflict)),
   }));
 }
 

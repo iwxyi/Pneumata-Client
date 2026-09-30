@@ -129,4 +129,27 @@ describe('roomStateSynthesizer', () => {
     expect(repaired.conflictPairs).toEqual([]);
     expect(repaired.alliances).toEqual([['a', 'b']]);
   });
+
+  it('uses model-authored room deltas without deriving pair labels from the interaction kind', () => {
+    const { nextState, shift } = calculateRoomShift({
+      heat: 20,
+      cohesion: -4,
+      topicDrift: 3,
+      dominantThread: null,
+      alliances: [],
+      conflictPairs: [],
+      pileOnTarget: null,
+      silencedActors: [],
+    }, buildInteraction({
+      kind: 'support',
+      tone: 'warm',
+      immediateImpact: { roomDelta: { heat: 7, cohesion: -3, topicDrift: 2 } },
+    }), { semanticSource: 'model' });
+
+    expect(shift.delta).toEqual({ heat: 7, cohesion: -3, topicDrift: 2 });
+    expect(nextState.heat).toBe(25);
+    expect(nextState.cohesion).toBe(-6);
+    expect(nextState.alliances).toEqual([]);
+    expect(nextState.conflictPairs).toEqual([]);
+  });
 });

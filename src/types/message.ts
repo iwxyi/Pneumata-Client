@@ -141,6 +141,17 @@ export interface StoryChoiceSuggestion {
   reward?: string | null;
 }
 
+export interface StudyTurnUpdate {
+  phase?: 'mapping' | 'learning' | 'review' | null;
+  knowledgeObservations?: Array<{
+    knowledgeItemId?: string | null;
+    title: string;
+    status: 'unknown' | 'exposed' | 'learning' | 'practicing' | 'usable' | 'verified' | 'stale';
+    evidenceSummary?: string | null;
+    confidence?: number | null;
+  }> | null;
+}
+
 export type StoryEventType = 'narration' | 'speech' | 'choice_point' | 'chapter_update';
 
 export interface StoryEventChoice {
@@ -200,6 +211,23 @@ export interface NarrativeTurnMetadata {
   phase?: string;
   povActorId?: string;
   blocks: NarrativeBlock[];
+}
+
+export interface StoryAssetMetadata {
+  currentScene?: {
+    location?: string;
+    time?: string;
+    presentActorIds?: string[];
+    visibleThreat?: string;
+    summary?: string;
+  } | null;
+  openQuestions?: string[];
+  clues?: string[];
+  stakes?: string[];
+  relationshipShifts?: string[];
+  chapterMemory?: string;
+  storyGoal?: string;
+  storySituation?: string;
 }
 
 export interface MessageMetadata {
@@ -265,10 +293,12 @@ export interface MessageMetadata {
     createdFromMessageId?: string | null;
   };
   storyEvents?: StoryEvent[];
+  storyAssets?: StoryAssetMetadata;
   storyQuality?: StoryQualityTrace;
   narrativeTurn?: NarrativeTurnMetadata;
   storyChoices?: StoryChoiceSuggestion[];
   storyChoiceSelection?: StoryChoiceSelection;
+  studyUpdate?: StudyTurnUpdate;
   manualSpeaker?: {
     actorId: string;
     actorName: string;
@@ -304,8 +334,10 @@ export interface MessageMetadata {
         mentionedActorIds?: string[];
         hardConstraintActorIds?: string[];
         suppressedActorIds?: string[];
+        deferredActorIds?: string[];
         hasHardConstraints?: boolean;
         voiceRequest?: boolean;
+        stickerRequest?: boolean;
         focusText?: string;
         beatType?: string;
         pressure?: number;
@@ -450,6 +482,30 @@ export interface MessageMetadata {
       applied?: boolean;
       effects?: string[];
     }>;
+  };
+  /** Small, developer-only snapshot of inputs before generation and targets returned by the model. */
+  turnParameters?: {
+    version: 1;
+    emotion: {
+      mood: { pleasure: number; arousal: number; dominance: number };
+      tone: string;
+      impulse: string;
+      pressure: number;
+      dominant?: { kind: string; value: number };
+      directed?: { counterpart: string; kind: string; role: string; pressure: number };
+    };
+    relationships: Array<{
+      target: string;
+      warmth: number;
+      competence: number;
+      trust: number;
+      threat: number;
+      attachment: number;
+      deference: number;
+    }>;
+    room?: { heat?: number; cohesion?: number; topicDrift?: number; hotspot?: string };
+    plan: { move: string; target?: string; addressedBefore: boolean; intendedRecipients: string[] };
+    delivery: { addressedRecipients: string[]; primaryRecipient?: string; bubbleCount: number };
   };
   deliberationArtifacts?: {
     claims?: Array<{

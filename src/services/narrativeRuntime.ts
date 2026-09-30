@@ -1,6 +1,6 @@
 import type { GroupChat, StoryBeatKind, StoryChoicePolicy, StoryCurrentSceneState } from '../types/chat';
 import type { AICharacter } from '../types/character';
-import type { Message, NarrativeBlock, NarrativeTurnMetadata, StoryChoiceSuggestion, StoryEvent } from '../types/message';
+import type { Message, NarrativeBlock, NarrativeTurnMetadata, StoryAssetMetadata, StoryChoiceSuggestion, StoryEvent } from '../types/message';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
 import { normalizeStoryChoiceSuggestions } from './storyChoices';
 
@@ -371,12 +371,7 @@ export function buildStoryEventsVisibleText(events: StoryEvent[], characters: AI
     .trim();
 }
 
-function countMatches(text: string, pattern: RegExp) {
-  pattern.lastIndex = 0;
-  return Array.from(text.matchAll(pattern)).length;
-}
-
-export function evaluateStoryEventQuality(events: StoryEvent[]) {
+export function evaluateStoryEventQuality(events: StoryEvent[], storyAssets?: StoryAssetMetadata | null) {
   const normalized = normalizeStoryEvents(events);
   const visibleText = normalized
     .filter((event) => event.type === 'narration' || event.type === 'speech')
@@ -386,21 +381,21 @@ export function evaluateStoryEventQuality(events: StoryEvent[]) {
   const speechCount = normalized.filter((event) => event.type === 'speech').length;
   const choiceEvents = normalized.filter((event) => event.type === 'choice_point');
   const choices = choiceEvents.flatMap((event) => event.choices || []);
-  const concreteSignals = countMatches(visibleText, /(门|窗|雨|血|灯|脚步|钥匙|名单|病历|档案|信|照片|袖口|走廊|房间|医院|妆台|院子|声音|气味|手指|眼神|伤口|锁)/g);
-  const hookSignals = countMatches(visibleText, /(为什么|谁|哪里|真相|秘密|隐瞒|失踪|异常|危险|威胁|暴露|怀疑|背叛|来不及|脚步声|敲击声|血迹|停电|名单|钥匙|代价|风险)/g);
-  const relationshipSignals = countMatches(visibleText, /(信任|怀疑|保护|试探|逼问|沉默|拒绝|靠近|远离|隐瞒|背叛|动摇|警觉|害怕|犹豫)/g);
+  const concreteSignals = storyAssets?.currentScene?.location || storyAssets?.currentScene?.summary ? 1 : 0;
+  const hookSignals = (storyAssets?.openQuestions?.length || 0) + (storyAssets?.clues?.length || 0) + (storyAssets?.stakes?.length || 0);
+  const relationshipSignals = storyAssets?.relationshipShifts?.length || 0;
   const labels = [
     narrationCount > 0 ? 'has_narration' : '',
     speechCount > 0 ? 'has_speech' : '',
     choices.length >= 2 ? 'has_choice_point' : '',
-    concreteSignals >= 2 ? 'concrete_scene' : '',
+    concreteSignals > 0 ? 'concrete_scene' : '',
     hookSignals > 0 ? 'has_story_hook' : '',
     relationshipSignals > 0 ? 'has_relationship_pressure' : '',
     choices.length >= 2 && choices.every((choice) => choice.risk && choice.reward) ? 'choices_have_tradeoffs' : '',
   ].filter(Boolean);
   const gaps = [
     narrationCount > 0 ? '' : 'missing_narration',
-    !visibleText || concreteSignals >= 2 ? '' : 'weak_concrete_scene',
+    !visibleText || concreteSignals > 0 ? '' : 'weak_concrete_scene',
     hookSignals > 0 ? '' : 'missing_story_hook',
     speechCount > 0 ? '' : 'no_character_speech',
     choices.length && choices.length < 2 ? 'too_few_choices' : '',
@@ -409,7 +404,7 @@ export function evaluateStoryEventQuality(events: StoryEvent[]) {
   const score = Math.max(0, Math.min(100, Math.round(
     (narrationCount > 0 ? 20 : 0)
     + (speechCount > 0 ? 12 : 0)
-    + (concreteSignals >= 2 ? 22 : concreteSignals > 0 ? 10 : 0)
+    + (concreteSignals > 0 ? 22 : 0)
     + (hookSignals > 0 ? 18 : 0)
     + (relationshipSignals > 0 ? 10 : 0)
     + (choices.length >= 2 ? 10 : 0)
@@ -726,85 +721,20 @@ function mergeStoryAssetList(existing: string[] | undefined, additions: string[]
   return merged.slice(-limit);
 }
 
-function splitStorySentences(text: string) {
-  return (text.match(/[^。！？!?；;]+[。！？!?；;]?/g) || [text])
-    .map((part) => compactStoryAssetText(part, 96))
-    .filter(Boolean);
-}
-
-function pickLastMatchingSentence(sentences: string[], pattern: RegExp) {
-  return sentences.slice().reverse().find((sentence) => {
-    pattern.lastIndex = 0;
-    return pattern.test(sentence);
-  }) || '';
-}
-
-function pickLastMatch(texts: string[], pattern: RegExp) {
-  for (const text of texts.slice().reverse()) {
-    pattern.lastIndex = 0;
-    const matches = Array.from(text.matchAll(pattern));
-    const match = matches.at(-1)?.[0];
-    if (match) return match;
-  }
-  return '';
-}
-
-function pickFirstMatch(text: string, pattern: RegExp) {
-  pattern.lastIndex = 0;
-  return Array.from(text.matchAll(pattern))[0]?.[0] || '';
-}
-
-function inferStorySceneTime(sentences: string[], fallback?: string) {
-  const pattern = /雨夜|深夜|凌晨|清晨|黄昏|傍晚|夜里|白天|天亮|天黑|黎明|午后|此刻|现在|刚才|昨晚|今早|第二天|新的一天/g;
-  const fallbackTime = fallback ? pickLastMatch([fallback], pattern) || fallback : '';
-  return compactStoryAssetText(
-    pickLastMatch(sentences, pattern) || fallbackTime,
-    16,
-  );
-}
-
-function inferStorySceneLocation(sentences: string[], fallback?: string) {
-  const locationPattern = /(?:旧医院走廊|旧医院|地下档案室|封锁(?:的)?旧住院楼|旧住院楼|走廊尽头|门外|门内|主楼|后院|医院|旧楼|走廊|病房|档案室|地下室|住院楼|妆台|侯府|房间|门口|院子|街|巷|车站|教室|办公室|实验室|仓库|码头|森林|城堡|宫殿|学校)/g;
-  const sentence = pickLastMatchingSentence(sentences, locationPattern);
-  const fallbackLocation = fallback ? pickFirstMatch(fallback, locationPattern) : '';
-  return compactStoryAssetText(
-    (sentence ? pickFirstMatch(sentence, locationPattern) : '') || fallbackLocation,
-    32,
-  );
-}
-
-function inferStorySceneThreat(sentences: string[]) {
-  const sentence = pickLastMatchingSentence(sentences, /(危险|威胁|血迹|异常|失踪|隐瞒|暴露|追上|封锁|锁住|停电|真相|秘密|脚步声|敲击声|盯着|怀疑|背叛|来不及)/);
-  return compactStoryAssetText(
-    sentence,
-    56,
-  );
-}
-
-function inferPresentActorIds(text: string, characters: AICharacter[]) {
-  return characters
-    .filter((character) => character.name && text.includes(character.name))
-    .map((character) => character.id)
-    .slice(0, 6);
-}
-
 function buildCurrentScenePatch(params: {
   conversation: GroupChat;
-  text: string;
-  summary: string;
-  sentences: string[];
-  characters?: AICharacter[];
+  storyAssets?: StoryAssetMetadata | null;
 }): StoryCurrentSceneState | null {
   const previous = params.conversation.scenarioState?.currentScene || null;
-  const state = params.conversation.scenarioState;
-  const summary = compactStoryAssetText(params.summary || params.text || previous?.summary || state?.storySituation || state?.storyBackground || '', 120);
-  const location = inferStorySceneLocation(params.sentences, previous?.location || state?.storyBackground || params.conversation.topic);
-  const time = inferStorySceneTime(params.sentences, previous?.time);
-  const visibleThreat = inferStorySceneThreat(params.sentences) || previous?.visibleThreat;
-  const presentActorIds = inferPresentActorIds(params.text, params.characters || []);
+  const scene = params.storyAssets?.currentScene;
+  if (!scene && !previous) return null;
+  const summary = compactStoryAssetText(scene?.summary || previous?.summary || '', 180);
+  const location = compactStoryAssetText(scene?.location || previous?.location || '', 64);
+  const time = compactStoryAssetText(scene?.time || previous?.time || '', 32);
+  const visibleThreat = compactStoryAssetText(scene?.visibleThreat || previous?.visibleThreat || '', 120);
   const mergedActorIds = Array.from(new Set([
     ...(previous?.presentActorIds || []),
-    ...presentActorIds,
+    ...(scene?.presentActorIds || []),
   ].filter(Boolean))).slice(-6);
   if (!summary && !location && !time && !visibleThreat && !mergedActorIds.length) return null;
   return {
@@ -929,19 +859,12 @@ export function extractStoryAssets(params: {
   characters?: AICharacter[];
 }): StoryAssetPatch {
   const text = getVisibleStoryText(params.message);
-  const sentences = splitStorySentences(text);
-  const openQuestionCandidates = sentences.filter((sentence) => (
-    /[?？]$/.test(sentence)
-    || /(谁|为何|为什么|是否|哪里|怎么|怎样|什么|真相|秘密|失踪|隐藏|隐瞒)/.test(sentence)
-  ));
-  const clueCandidates = sentences.filter((sentence) => (
-    /(线索|证据|发现|记录|名单|钥匙|档案|病历|血迹|痕迹|照片|录音|门缝|脚印|异常|真相)/.test(sentence)
-  ));
-  const relationshipCandidates = sentences.filter((sentence) => (
-    /(信任|怀疑|保护|隐瞒|背叛|靠近|疏远|敌意|动摇|试探|质问|承认|否认)/.test(sentence)
-  ));
+  const modelAssets = params.message.metadata?.storyAssets;
+  const openQuestionCandidates = modelAssets?.openQuestions || [];
+  const clueCandidates = modelAssets?.clues || [];
+  const relationshipCandidates = modelAssets?.relationshipShifts || [];
   const stakeCandidates = [
-    ...sentences.filter((sentence) => /(危险|代价|风险|威胁|暴露|失去|来不及|时间|牺牲|安全|封锁|追上|逃走)/.test(sentence)),
+    ...(modelAssets?.stakes || []),
     ...params.choices.flatMap((choice) => [choice.risk, choice.reward].filter(Boolean) as string[]),
   ];
   const chapterMemoryParts = [
@@ -957,13 +880,10 @@ export function extractStoryAssets(params: {
       : (selectedGoal || state?.storyGoal || state?.storyDirection || params.conversation.topic || ''),
     120,
   );
-  const storySituation = compactStoryAssetText(params.summary || text || state?.storySituation || state?.storyBackground || '', 180);
+  const storySituation = compactStoryAssetText(modelAssets?.storySituation || params.summary || text || state?.storySituation || state?.storyBackground || '', 180);
   const currentScene = buildCurrentScenePatch({
     conversation: params.conversation,
-    text,
-    summary: params.summary,
-    sentences,
-    characters: params.characters,
+    storyAssets: modelAssets,
   });
   return {
     ...(currentScene ? { currentScene } : {}),

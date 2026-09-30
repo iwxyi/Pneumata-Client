@@ -6,7 +6,7 @@ import {
   DEFAULT_EMOTIONAL_STATE,
   type AICharacter,
 } from '../types/character';
-import { applyInteractionEmotion, deriveEmotionalState, formatEmotionStateLabel, formatLocalizedEmotionSummary } from './personalityDrift';
+import { applyInteractionEmotion, applyInteractionEmotions, deriveEmotionalState, formatEmotionStateLabel, formatLocalizedEmotionSummary } from './personalityDrift';
 
 function buildCharacter(patch: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -93,5 +93,24 @@ describe('deriveEmotionalState', () => {
     expect(afterSpeaking.irritation).toBeLessThan(68);
     expect(afterSpeaking.irritation).toBeGreaterThan(0);
     expect(afterSpeaking.insecurity).toBeLessThan(36);
+  });
+
+  it('applies model-authored affect directly instead of reinterpreting interaction kinds', () => {
+    const target = buildCharacter({
+      id: 'target',
+      emotionalState: { irritation: 50, affection: 5, insecurity: 20, excitement: 0, embarrassment: 0 },
+    });
+    const afterTurn = applyInteractionEmotions(target, [{
+      kind: 'support',
+      actorId: 'speaker',
+      targetId: 'target',
+      intensity: 5,
+      tone: 'warm',
+      evidenceText: '我替你说',
+      confidence: 0.95,
+      immediateImpact: { targetEmotionDelta: { irritation: 11, affection: -3, insecurity: 8 } },
+    }], 'target', target.emotionalState, 'model');
+
+    expect(afterTurn).toMatchObject({ irritation: 57, affection: 0, insecurity: 25 });
   });
 });

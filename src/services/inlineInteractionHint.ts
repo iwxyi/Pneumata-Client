@@ -1,11 +1,12 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { MediaGenerationDecision, Message, MessagePresenceUpdate } from '../types/message';
+import type { MediaGenerationDecision, Message, MessagePresenceUpdate, StudyTurnUpdate } from '../types/message';
 import type { AddressedTargetHintEnvelope, ConflictFocusPayload, InteractionHintCollection, InteractionHintEnvelope, RecentSocialEventSummary, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeSocialEventHints } from '../types/runtimeEvent';
 import type { TurnPlan } from './turnPlanner';
 import type { RichDeliveryPolicy } from './styleProfileRegistry';
-import { hasVisibleStoryEvents, normalizeStoryEvents } from './narrativeRuntime';
+import { hasVisibleStoryEvents, normalizeStoryEvents, resolveStoryBeatPlan } from './narrativeRuntime';
+import { resolveStoryReaderRole } from './storyChoices';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
 import { getPromptSpeakerLabel, getPromptTurnTypeLabel, isHumanDirectedMessage } from './chatMessageSemantics';
 
@@ -37,6 +38,23 @@ export interface InlineStoryBlock {
   actorName?: string | null;
   kind: 'prose' | 'dialogue';
   text: string;
+}
+
+export interface InlineStoryAssets {
+  currentScene?: {
+    location?: string | null;
+    time?: string | null;
+    presentActorIds?: string[] | null;
+    visibleThreat?: string | null;
+    summary?: string | null;
+  } | null;
+  openQuestions?: string[] | null;
+  clues?: string[] | null;
+  stakes?: string[] | null;
+  relationshipShifts?: string[] | null;
+  chapterMemory?: string | null;
+  storyGoal?: string | null;
+  storySituation?: string | null;
 }
 
 export interface InlineDeliberationArtifacts {
@@ -79,6 +97,7 @@ export interface InlineInteractionEnvelope {
   }> | null;
   narrativeText?: string | null;
   storyEvents?: InlineStoryEvent[] | null;
+  storyAssets?: InlineStoryAssets | null;
   narrativeBlocks?: InlineStoryBlock[] | null;
   extraMessages?: string[] | null;
   intentionalRepeat?: boolean | null;
@@ -91,6 +110,7 @@ export interface InlineInteractionEnvelope {
   storyChoices?: InlineStoryChoice[] | null;
   deliberationArtifacts?: InlineDeliberationArtifacts | null;
   presenceUpdate?: MessagePresenceUpdate | null;
+  studyUpdate?: StudyTurnUpdate | null;
   toolRequest?: {
     type: 'web_search';
     query: string;
@@ -239,16 +259,47 @@ function sanitizePresenceUpdate(value: MessagePresenceUpdate | null | undefined)
   };
 }
 
+function sanitizeStudyTurnUpdate(value: StudyTurnUpdate | null | undefined): StudyTurnUpdate | null {
+  if (!value || typeof value !== 'object') return null;
+  const allowedStatuses = new Set(['unknown', 'exposed', 'learning', 'practicing', 'usable', 'verified', 'stale']);
+  const observations = Array.isArray(value.knowledgeObservations)
+    ? value.knowledgeObservations.flatMap((item) => {
+        if (!item || typeof item !== 'object') return [];
+        const title = cleanArtifactText(item.title, 80);
+        const knowledgeItemId = cleanArtifactText(item.knowledgeItemId, 100) || null;
+        if (!title || !allowedStatuses.has(item.status)) return [];
+        const evidenceSummary = cleanArtifactText(item.evidenceSummary, 240);
+        const confidence = typeof item.confidence === 'number' && Number.isFinite(item.confidence)
+          ? Math.max(0, Math.min(1, item.confidence))
+          : undefined;
+        return [{ knowledgeItemId, title, status: item.status, evidenceSummary: evidenceSummary || null, confidence }];
+      }).slice(0, 12)
+    : [];
+  const phase = value.phase === 'mapping' || value.phase === 'learning' || value.phase === 'review' ? value.phase : null;
+  return phase || observations.length ? { phase, knowledgeObservations: observations } : null;
+}
+
 function sanitizeEnvelope(envelope: InlineInteractionEnvelope): InlineInteractionEnvelope {
-  const messages = Array.isArray(envelope.messages)
+  const cleanMessages = Array.isArray(envelope.messages)
     ? envelope.messages
       .filter((part): part is NonNullable<InlineInteractionEnvelope['messages']>[number] => Boolean(part && typeof part === 'object' && typeof part.content === 'string' && part.content.trim()))
-      .slice(0, 5)
       .map((part) => ({
         content: part.content.trim(),
         mediaDecision: part.mediaDecision && typeof part.mediaDecision === 'object' ? part.mediaDecision : null,
       }))
     : null;
+  // The room policy is a soft norm for the model. This is only a defensive
+  // transport cap for malformed/runaway output; overflow text remains visible.
+  const messages = cleanMessages && cleanMessages.length > 8
+    && !cleanMessages.slice(8).some((part) => part.mediaDecision)
+    ? [
+        ...cleanMessages.slice(0, 7),
+        {
+          content: cleanMessages.slice(7).map((part) => part.content).join('\n'),
+          mediaDecision: cleanMessages[7]?.mediaDecision || null,
+        },
+      ]
+    : cleanMessages;
   return {
     ...envelope,
     content: typeof envelope.content === 'string' ? envelope.content : '',
@@ -258,6 +309,7 @@ function sanitizeEnvelope(envelope: InlineInteractionEnvelope): InlineInteractio
     storyEvents: normalizeStoryEvents(envelope.storyEvents),
     deliberationArtifacts: sanitizeDeliberationArtifacts(envelope.deliberationArtifacts),
     presenceUpdate: sanitizePresenceUpdate(envelope.presenceUpdate),
+    studyUpdate: sanitizeStudyTurnUpdate(envelope.studyUpdate),
   };
 }
 
@@ -361,7 +413,10 @@ export function buildInlineInteractionContract(params: {
   webSearchResultInjected?: boolean;
 }) {
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
+  const storyBeatPlan = isStoryReader ? resolveStoryBeatPlan(params.chat) : null;
+  const storyReaderRole = isStoryReader ? resolveStoryReaderRole(params.chat) : null;
   const isAnalysisRoom = resolveSessionFamilyKey(params.chat) === 'analysis';
+  const isStudyRoom = resolveSessionFamilyKey(params.chat) === 'study';
   const mediaCapabilities = params.mediaCapabilities || { image: false, audio: false };
   const richDelivery = params.richDelivery;
   const shouldIncludeMediaDecision = Boolean(!isStoryReader && (mediaCapabilities.image || mediaCapabilities.audio || mediaCapabilities.sticker));
@@ -384,6 +439,9 @@ export function buildInlineInteractionContract(params: {
   const deliberationExample = isAnalysisRoom
     ? `,\n  "deliberationArtifacts": {"claims":[{"text":"从本条可见回复中抽取的论点","stance":"review","reason":"这条可见回复为什么支持该论点","confidence":0.8}]}`
     : '';
+  const studyUpdateExample = isStudyRoom
+    ? ',"studyUpdate":{"phase":"learning","knowledgeObservations":[{"knowledgeItemId":null,"title":"本轮实际涉及的知识点","status":"exposed","evidenceSummary":"本轮可见对话中支持这一判断的事实","confidence":0.8}]}'
+    : '';
   const toolRequestExample = params.webSearchEnabled && !params.webSearchResultInjected && !isStoryReader
     ? ', "toolRequest": null'
     : '';
@@ -392,20 +450,24 @@ export function buildInlineInteractionContract(params: {
     : '';
 
   const deliveryPolicyRules = richDelivery
-    ? `\nDelivery policy for this room: consecutive bubbles=${richDelivery.multiBubble.proactivity} (maximum ${richDelivery.multiBubble.maxBubbles}); proactive image=${richDelivery.image.proactivity}; proactive audio=${richDelivery.audio.proactivity}; proactive sticker=${richDelivery.sticker.proactivity}. “off” means do not initiate that delivery form yourself, but honor an explicit user request when the capability is available. “low”, “medium”, and “high” are increasing invitations to use it when the exact moment benefits; they are never quotas. For high or medium bubble delivery, a natural first-send/afterthought/question sequence is an ordinary valid outcome even without an explicit multi-message request; decide from timing and character impulse, not from a fixed count. Keep media relevant, avoid repeating recent media, and do not spend a delivery form merely to decorate a reply.`
+    ? `\nDelivery policy for this room: later text sends have ${richDelivery.multiBubble.proactivity} willingness, with a usual soft ceiling of ${richDelivery.multiBubble.maxBubbles}; organization style=${richDelivery.multiBubble.organization || 'balanced'}; image=${richDelivery.image.proactivity}; audio=${richDelivery.audio.proactivity}; sticker=${richDelivery.sticker.proactivity}. This is a style prior, not a quota or target. “off” means do not initiate that delivery form yourself, but honor an explicit user request when the capability is available. “low”, “medium”, and “high” adjust willingness only. In conversational rooms, separate a reaction, answer, afterthought, correction, changed mind, distinct recipient, or confirm-act-report sequence only when sending them separately changes their social timing or force. In structured rooms, first keep multiple answers, viewpoints, steps, or evidence in one readable bubble with paragraphs, numbering, or a compact list; split only when the separate send itself carries timing, interruption, emotional change, recipient, medium, or another social effect. Keep media relevant, avoid repeating recent media, and do not spend a delivery form merely to decorate a reply.`
     : '';
+  const ordinaryBubbleBias = ' One text bubble is the ordinary result; messages[] should remain uncommon unless the boundary itself changes timing, object, recipient, or social force.';
   const mediaRules = (shouldIncludeMediaDecision
-    ? `\n\nRules for mediaDecision:\n1. Media is optional. Follow this room's delivery policy before deciding; never pretend media was sent when no task is queued.${deliveryPolicyRules}\n${mediaCapabilities.image ? `2. Use images for requested or genuinely useful visual content. Infer the user's actual image goal from the latest message plus recent conversation. images is an array of 1-9 distinct image tasks; use one entry per image, never repeat the same prompt. Each image prompt must be final model-ready text and altText must be concise and specific.\n3. imageReferenceRegistry below lists recent chat images. Use IDs only when the request clearly identifies a reference; never output URLs, base64, or markdown image links.\nImage reference registry:\n${JSON.stringify(imageReferenceRegistry)}\n` : ''}${mediaCapabilities.audio ? '4. Use audio when the user asks for a voice reply or when the delivery policy permits it and speaking is a natural expression of the character\'s current emotion and relationship context. audio.text is the exact spoken content and must not add facts beyond the visible reply. When audio is selected, keep visible text concise and semantically aligned with the spoken content; do not send a long essay followed by a short unrelated audio clip.\n' : ''}5. Text, audio, and images may be combined in one turn. Prefer messages[] when this turn contains multiple independent consecutive sends. Each item has content and its own optional mediaDecision. A voice item must be a standalone bubble; text and images may be combined or sent separately. Multiple text/image/audio items may be emitted in natural sequence.\n6. Keep legacy content + extraMessages compatible. When messages[] is present it is authoritative and extraMessages should be null.`
+    ? `\n\nRules for mediaDecision:\n1. Media is optional. Follow this room's delivery policy before deciding; never pretend media was sent when no task is queued.\n${mediaCapabilities.image ? `2. Use images for requested or genuinely useful visual content. Infer the user's actual image goal from the latest message plus recent conversation. images is an array of 1-9 distinct image tasks; use one entry per image, never repeat the same prompt. Each image prompt must be final model-ready text and altText must be concise and specific.\n3. imageReferenceRegistry below lists recent chat images. Use IDs only when the request clearly identifies a reference; never output URLs, base64, or markdown image links.\nImage reference registry:\n${JSON.stringify(imageReferenceRegistry)}\n` : ''}${mediaCapabilities.audio ? '4. Use audio when the user asks for a voice reply or when the delivery policy permits it and speaking is a natural expression of the character\'s current emotion and relationship context. audio.text is the exact spoken content and must not add facts beyond the visible reply. When audio is selected, keep visible text concise and semantically aligned with the spoken content; do not send a long essay followed by a short unrelated audio clip.\n' : ''}5. Text, audio, and images may be combined in one turn. Each item has content and its own optional mediaDecision. A voice item must be a standalone bubble; text and images may be combined or sent separately when there are distinct communicative acts.\n6. Keep legacy content + extraMessages compatible. When messages[] is present it is authoritative and extraMessages should be null.`
     : '');
   const expressiveAudioOverride = mediaCapabilities.audio
     ? '\n\nAudio policy clarification: decide from the user\'s actual intent and the character\'s situation, not from a local keyword rule. If the latest user request explicitly asks to hear the reply, speak, sing, or send a voice message, audio is required when TTS is available. Character identity, habitual voice-message preference, affection, urgency, teasing, singing, crying, anger, or an emotionally important scene may also justify proactive audio. Consecutive audio turns are allowed when natural for the scene; do not suppress them merely because the previous turn also used audio. Keep each spoken text aligned with its visible message.\n'
     : '';
 
-  const turnPlanMaxBubbles = Math.max(2, Math.min(5, params.richDelivery?.multiBubble.maxBubbles || params.turnPlan?.maxBubbleCount || 1));
+  const turnPlanMaxBubbles = Math.max(2, params.richDelivery?.multiBubble.maxBubbles || params.turnPlan?.maxBubbleCount || 1);
   const turnPlanRules = params.turnPlan
     ? params.turnPlan.allowExtraMessages
-      ? `\nTurn plan: rhythm=${params.turnPlan.rhythm}; this turn may use one to ${turnPlanMaxBubbles} consecutive bubbles if that is how the speaker would naturally send it. Before choosing the envelope, simulate typing this turn as live chat rather than drafting a paragraph. This is permission, not a quota: model a short run of real sends with unequal sizes, not a polished paragraph cut apart. A bubble may be only acknowledgement, invitation, hesitation, realization, retraction, reaction, or a question; it does not need a new thesis. If the user explicitly asks for several separate messages, treat that as a real delivery request and honor it when the scene and character can do so; decide the natural count from the request and context, up to the room maximum. After each beat, ask whether the next one would be typed after pressing send. If the answer is yes, prefer messages[] for independent sends and set content equal to messages[0].content; set extraMessages=null. Do not downgrade distinct short sends into paragraph breaks. A full stop alone is never a reason to split. A bubble may contain one or more paragraphs when that reads more naturally than separate sends.`
-      : `\nTurn plan: rhythm=${params.turnPlan.rhythm}; one bubble is the default, but content may still contain paragraph breaks if the visible reply genuinely has separate thoughts.`
+      ? `\nTurn plan: rhythm=${params.turnPlan.rhythm}; default to one bubble and choose the actual count from the whole turn. The room's usual soft ceiling is ${turnPlanMaxBubbles}, but it is not a target; exceed it only if more independent sends truly need separate delivery. A bubble may contain one or more paragraphs. Before using messages[], decide whether each item is an independently sendable communicative act with its own function, object, timing, or social effect. If merging two items would leave the same meaning, timing, recipient, and relationship effect, keep them together. This can include a standalone interjection, answer then personal view, separate replies to different people, confirm -> act -> report, correction or deliberate repetition, visible change of mind, bite then soften, refuse then explain, or another situation the model recognizes. These are examples, not a closed list. Several sentences, viewpoints, operations, paragraphs, or punctuation alone do not justify splitting. Conversational rooms may let timing and emotional beats breathe across sends; structured, serious, deliberative, teaching, and task rooms should normally combine related material into one readable bubble with paragraphs, numbering, or a compact list. If the user explicitly asks for several messages, honor the request but still choose a natural count and meaningful boundaries. When messages[] is used, set content equal to messages[0].content and extraMessages=null.`
+      : `\nTurn plan: rhythm=${params.turnPlan.rhythm}; one bubble is the default, but content may still contain paragraph breaks if the visible reply genuinely has separate thoughts. A bubble may contain one or more paragraphs.`
+    : '';
+  const unifiedBubbleBoundaryRule = params.turnPlan?.allowExtraMessages
+    ? ' Most ordinary turns stay in one bubble; do not treat multiple sentences, viewpoints, or details as separate sends unless combining them would change their social effect.'
     : '';
   const aiDirectInteractionRules = params.chat.type === 'ai_direct'
     ? '\n8. In AI direct chats, target the other participant when the turn clearly supports, challenges, probes, defends, mocks, or dismisses them; do not target the speaker or the user unless the user is an actual participant.'
@@ -416,7 +478,7 @@ export function buildInlineInteractionContract(params: {
 2. storyEvents must be an ordered array for every normal story-reader turn and must include at least one visible narration or speech event. Do not set storyEvents=null; even a single spoken line must be represented as a speech event. Use as many narration and speech events as the current story beat needs; suggested event counts are guidance, not enforcement. Do not pad, truncate, or stop early just to fit a fixed count. Each event is one of:
    - {"type":"narration","actorId":"narrator","text":"brief external scene action or visible consequence"}
    - {"type":"speech","actorId":"character-id-or-null","actorName":"exact display name or null","text":"spoken line only"}
-   - {"type":"choice_point","choices":[{"label":"让某人做具体动作","prompt":"选择后要推进的具体后果","intent":"逼问/保护/追踪/隐瞒/冒险/揭露","risk":"可能付出的代价","reward":"可能获得的信息或关系推进"}]}
+   ${storyBeatPlan?.choicePolicy === 'forbid' ? '' : `- {"type":"choice_point","choices":[{"label":"具体行动主体做具体动作","prompt":"选择后要推进的具体后果","intent":"选择的戏剧功能","risk":"可能付出的代价","reward":"可能获得的信息或关系推进"}]}`}
    - {"type":"chapter_update","title":"4-10 Chinese characters, concrete and memorable","summary":"optional short recap","status":"active or completed","startNewChapter":false}
 3. narration carries action, movement, consequences, inner pressure, scene changes, clue reveals, and time jumps. Narration renders as正文段落.
 4. speech is optional. Use it only for words actually spoken aloud by a character; every speech event must include either a valid actorId or an exact actorName.
@@ -425,7 +487,7 @@ export function buildInlineInteractionContract(params: {
 7. Do not let one character inherit another character's private object, gesture, memory, clothing detail, wording, or sensory detail unless that detail was explicitly spoken aloud or publicly visible.
 8. Put each narration and each character line in its own event, preserving story order. Do not merge narration and speech into one event.
 9. Do not output alternate rewrites of the same moment. If you revise a narration or spoken line, keep only the final version; do not include both drafts in storyEvents.
-10. choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.
+10. ${storyBeatPlan?.choicePolicy === 'forbid' ? 'This beat forbids choice_point. Do not emit one anywhere in storyEvents.' : storyBeatPlan?.choicePolicy === 'require' ? 'This beat requires exactly one choice_point after the visible pressure has landed.' : 'choice_point appears only at a genuine decision point. Never add choices on a fixed cadence.'}
 11. Put user decision pauses in a choice_point event. Do not render choices in any top-level field outside storyEvents or in a separate visible prose block.
 12. Write visible scene execution, not author notes, beat analysis, future outline, or summaries like "接下来剧情将". If the user just chose a branch, first show what immediately changes on screen: a cost, clue, relationship shift, danger, or opportunity.
 13. For non-choice beats, write a satisfying readable section rather than a minimal stub. Let the scene breathe with consequences, sensory detail, movement, and dialogue when useful. Stop only when the beat naturally lands on a hook or a genuine choice point.
@@ -434,24 +496,25 @@ export function buildInlineInteractionContract(params: {
     : '';
   const storyChoiceRules = isStoryReader
     ? `\n\nRules for story choice points:
-1. Most turns should not contain a choice_point; keep the story moving normally unless the scene has reached a real fork.
-2. Add exactly one storyEvents choice_point with 2-4 options only when user participation would improve the story.
+1. The authoritative runtime policy for this beat is choicePolicy=${storyBeatPlan?.choicePolicy || 'allow'} (${storyBeatPlan?.reason || 'scene-dependent'}).
+2. ${storyBeatPlan?.choicePolicy === 'forbid' ? 'Do not output a choice_point in this beat.' : storyBeatPlan?.choicePolicy === 'require' ? 'Output exactly one storyEvents choice_point with 2-4 options after showing the decision pressure.' : 'Add exactly one storyEvents choice_point with 2-4 options only when user participation would improve the story.'}
 3. Do not ask for choices just because a fixed number of turns passed. There is no fixed cadence.
 4. It is allowed to ask again soon if the scene truly demands it, but the room must not remain in a constant choose-operate loop.
 5. Each option must read like a concrete character action: name who does what to whom or what object/place. Avoid abstract plot directions such as investigate clues, deepen emotion, advance plot, face the key person, continue the branch.
-6. Each choice_point option must be shaped as {"label":"让某人做具体动作","prompt":"选择后要推进的具体后果","intent":"选择的戏剧功能","risk":"可能代价","reward":"可能收益"}.
+6. Each choice_point option must be shaped as {"label":"具体行动主体做具体动作","prompt":"选择后要推进的具体后果","intent":"选择的戏剧功能","risk":"可能代价","reward":"可能收益"}. ${storyReaderRole === 'participant' ? 'The user is a participant: every label uses “我” as its action subject.' : 'The user directs the cast: every label begins with the exact acting character name; do not phrase it as “让某人…”.'}
 7. Do not output top-level storyChoices for the primary path. storyEvents.choice_point is the source of truth. If a legacy storyChoices field is emitted for compatibility, it must exactly mirror the choice_point options and will have lower priority than storyEvents.`
     : '';
   if (isStoryReader) {
     return `\n\nOutput contract:
 Return one valid JSON object only. This is the required shape for story-reader turns:
 {
-  "storyEvents": [
+      "storyEvents": [
     { "type": "chapter_update", "title": "短章节名", "summary": "可选章节摘要", "status": "active" },
     { "type": "narration", "actorId": "narrator", "text": "写一段当前场景中可见的动作或后果。" },
     { "type": "speech", "actorId": "member-id", "actorName": "角色显示名", "text": "写一句角色真正说出口的话。" }
   ],
-  "intentionalRepeat": false${mediaExample},
+  "intentionalRepeat": false,
+  "storyAssets": {"currentScene": null, "openQuestions": [], "clues": [], "stakes": [], "relationshipShifts": [], "chapterMemory": null, "storyGoal": null, "storySituation": null}${mediaExample},
   "conflictFocus": null,
   "interactionHints": null,
   "socialEventHints": null
@@ -470,6 +533,7 @@ Story-reader visible body rule:
 2. Never put story prose or dialogue in markdown, plain text outside JSON, or any top-level field outside storyEvents.
 3. Every normal story turn needs at least one storyEvents narration or speech event, even if it also contains a chapter_update or choice_point.
 4. interactionHints, conflictFocus, and socialEventHints are optional diagnostics; keep them null unless the current story event itself provides specific evidence.
+5. storyAssets is required for story-reader turns. It is the authoritative structured reading of this turn: include only assets actually established or changed on screen, and use empty arrays/null when there is no new item. Do not copy visible prose wholesale into every field.
 
 social_outing diagnostics:
 socialEventHints is the only model-authored source for activity creation and updates; the runtime will not invent or patch a social_outing from local keyword matching. When the visible storyEvents clearly propose, arrange, update, or commit to a shared concrete activity, socialEventHints must include one social_outing object with participantIds/targetIds as member ids, confidence 0-1, urgency, seedIntent, visibilityPlan, expectedArtifacts, title, activityType, timeHint, locationHint, dedupeKey, and optional participantStates. Use participantStates values mentioned/invited/interested/maybe/going/declined/withdrawn. Include "user" when the user is invited or participating.
@@ -494,7 +558,7 @@ ${transcriptScope}${recentSocialEvents ? `\n\nRecent social events to avoid dupl
     : '';
 
   const interactionKinds = 'support|challenge|mock|dismiss|defend|evade|probe|pile_on|redirect|apologize|concede|take_responsibility|include|exclude|boundary|side_comment';
-  const interactionRule = `Before writing, appraise the latest visible human turn's immediate effect on the current speaker. If that latest turn is from the user or director and it clearly warms, needles, embarrasses, pressures, reassures, alarms, or excites this speaker, emit incomingImpact as {"kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from the human turn","reason":"why that quote has this effect"}; otherwise incomingImpact is null. This is a fast feeling, not a relationship change. Let that appraisal genuinely shape the visible reply before reporting it. interactionHints is the outgoing fast-affect channel: emit it whenever the speaker's own words clearly land on a particular member by warming them, needling them, embarrassing them, putting them on the spot, defending them, dismissing them, apologizing or conceding to them, taking responsibility toward them, including or excluding them, setting a boundary, making them wary, or making them excited. Do not omit a hint merely because the exchange is ordinary or because the slow relationship does not change. Use null only when no member-specific emotional effect is visible. When used, targetId must be a member id: {"primary":{"targetId":"member-id","kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from this reply","reason":"why the quote has this effect","relationship":null},"secondary":[]}. evidenceText is required, must be a short exact substring of the visible source turn, and must support the chosen kind and tone by itself; never use the whole reply as evidence. Classify what the quoted words actually do, not their hoped-for outcome: admitting fault is apologize or take_responsibility, yielding a point is concede, and naming who was left out is exclude rather than support. intensity is the immediate spike (1-5), not a permanent score: one sharp line may be 4-5, a small sting or warmth 1-2. The runtime lets a speaker release some pressure after expressing it while the person who received it keeps a stronger residue. The interaction event may exist without any lasting relationship change. Include relationship only when this turn itself gives evidence for a slow relationship update: {"delta":{"warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0},"labels":["meaning"],"stance":"stance"}. attachment and deference are especially slow axes: omit them or keep them within -2..2 unless this turn contains a real turning point. Omit uncertain hints.${aiDirectInteractionRules}`;
+  const interactionRule = `Before writing, appraise the latest visible human turn's immediate effect on the current speaker. If that latest turn is from the user or director and it clearly warms, needles, embarrasses, pressures, reassures, alarms, or excites this speaker, emit incomingImpact as {"kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from the human turn","reason":"why that quote has this effect","immediateImpact":{"targetEmotionDelta":{"irritation":8,"insecurity":4}}}; otherwise incomingImpact is null. The incoming targetEmotionDelta is the immediate effect on the current speaker, not a relationship change. Let that appraisal genuinely shape the visible reply before reporting it. interactionHints is the outgoing fast-affect channel: emit it whenever the speaker's own words clearly land on a particular member by warming them, needling them, embarrassing them, putting them on the spot, defending them, dismissing them, apologizing or conceding to them, taking responsibility toward them, including or excluding them, setting a boundary, making them wary, or making them excited. Do not omit a hint merely because the exchange is ordinary or because the slow relationship does not change. Use null only when no member-specific emotional effect is visible. When used, targetId must be a member id: {"primary":{"targetId":"member-id","kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from this reply","reason":"why the quote has this effect","immediateImpact":{"speakerEmotionDelta":{"irritation":-8},"targetEmotionDelta":{"insecurity":12},"roomDelta":{"heat":5,"cohesion":-2,"topicDrift":0}},"relationship":null},"secondary":[]}. immediateImpact is your semantic judgement of this visible line, not a local keyword score: use signed integer deltas, emotion axes within -40..40 and room axes within -20..20. Positive raises an axis and negative releases it. Put the whole-turn speaker release and room effect on primary only; secondary hints contain only their own targetEmotionDelta so effects are not duplicated. Omit zero axes. evidenceText is required, must be a short exact substring of the visible source turn, and must support the chosen kind, tone, and impact by itself; never use the whole reply as evidence. Classify what the quoted words actually do, not their hoped-for outcome: admitting fault is apologize or take_responsibility, yielding a point is concede, and naming who was left out is exclude rather than support. intensity is the immediate spike (1-5), not a permanent score: one sharp line may be 4-5, a small sting or warmth 1-2. The interaction event may exist without any lasting relationship change. Include relationship only when this turn itself gives evidence for a slow relationship update: {"delta":{"warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0},"labels":["meaning"],"stance":"stance"}. attachment and deference are especially slow axes: omit them or keep them within -2..2 unless this turn contains a real turning point. Omit uncertain hints.${aiDirectInteractionRules}`;
   const addressedTargetRule = `addressedTargets tracks reply debt, not every person mentioned or emotionally affected. Emit {"targetIds":["member-id"],"primaryTargetId":"member-id","confidence":0.9,"reason":"why this member is expected to answer next"} only when the visible reply directly asks, calls on, challenges, or hands the floor to one or more members. A member discussed in the past tense, compared with someone else, or merely affected by the line is not addressed unless the speaker now expects their response. Use null when nobody is expected to answer next. targetIds and primaryTargetId must use the valid member ids below.`;
   const socialRule = `socialEventHints: null unless the visible turn itself proposes, commits to, updates, or cancels a concrete activity or social event. It is the only model-authored source for those events; the runtime will not infer them from keywords. For an outing, include member-id participantIds/targetIds, title, activityType, timeHint, locationHint, participantStates, and the existing dedupeKey when updating. Include "user" when the user is an invited or participating member.`;
   const toolRule = params.webSearchEnabled && !params.webSearchResultInjected
@@ -504,14 +568,15 @@ ${transcriptScope}${recentSocialEvents ? `\n\nRecent social events to avoid dupl
       : '';
   return `${mediaCapabilityInstruction}\n## Output Contract
 Return exactly one JSON object. It must be parseable. content is a non-empty visible first bubble; use null for absent fields and never expose protocol text.
-{"content":"visible first bubble","messages":[{"content":"first send","mediaDecision":null},{"content":"later send","mediaDecision":null}],"extraMessages":null,"intentionalRepeat":false${mediaExample}${deliberationExample},"presenceUpdate":null,"conflictFocus":null,"incomingImpact":null,"interactionHints":null,"addressedTargets":null,"socialEventHints":null${toolRequestExample}}
+{"content":"visible reply","messages":null,"extraMessages":null,"intentionalRepeat":false${mediaExample}${deliberationExample}${studyUpdateExample},"presenceUpdate":null,"conflictFocus":null,"incomingImpact":null,"interactionHints":null,"addressedTargets":null,"socialEventHints":null${toolRequestExample}}
 
-messages[] is the authoritative ordered list for one speaker's independent consecutive sends (maximum 5); otherwise use null. Each item has non-empty content and optional mediaDecision. Audio must be the only media in its item. Do not split a sentence mechanically or write another actor. Unless the requested output is a document, report, or formal deliverable, this is chat even when the topic is serious: terminal punctuation is optional by default. A short reaction, unfinished thought, mutter, or follow-up may naturally have no final mark. Do not make every bubble a complete written sentence ending with the same punctuation; use a full stop when the speaker intentionally lands the thought. extraMessages is legacy-only and null whenever messages[] is used.${turnPlanRules}
+messages[] is the ordered list only when this speaker actually sends more than one message; otherwise use null. Each item has non-empty content and optional mediaDecision. Audio must be the only media in its item. Do not split a sentence mechanically or write another actor. Unless the requested output is a document, report, or formal deliverable, this is chat even when the topic is serious: terminal punctuation is optional by default. A short reaction, unfinished thought, mutter, or follow-up may naturally have no final mark. Do not make every bubble a complete written sentence ending with the same punctuation; use a full stop when the speaker intentionally lands the thought. extraMessages is legacy-only and null whenever messages[] is used.${turnPlanRules}${unifiedBubbleBoundaryRule}${deliveryPolicyRules}${ordinaryBubbleBias}
 
 intentionalRepeat is false unless repeating wording, cadence, or a marker is the deliberate social move; do not use it to excuse template drift. presenceUpdate is null unless the speaker explicitly goes away, returns, or states an actual availability change.
 ${interactionRule}
 ${addressedTargetRule}
 ${socialRule}
+${isStudyRoom ? 'studyUpdate is required for every learning-progress reply: this is the teacher\'s explicit judgement of the most recent learner turn, not optional bookkeeping. Return a non-null object with phase and knowledgeObservations. Record only knowledge actually introduced, practiced, demonstrated, corrected, or checked in the visible exchange. For the same underlying knowledge point already in the known learning map, copy its exact knowledgeItemId even if you phrase its title differently; use null only for a genuinely new point. Use exposed for newly introduced material, practicing when the learner attempts it, usable when they apply it successfully with some support, and verified only after clear independent evidence. If the learner gives no assessable answer, still return knowledgeObservations:[] with the phase; never use null merely because the turn is conversational. Never infer mastery from encouragement, topic mention, or one untested explanation. evidenceSummary must point to the exact learner attempt or the concrete material just taught.' : ''}
 Valid member ids:
 ${buildMemberReference({ chat: params.chat, characters: params.characters, speakerId: params.speaker.id })}
 conflictFocus tracks the current live contradiction, not only brand-new conflicts. If a concrete contradiction is visible in the recent transcript, keep it non-null and mark whether this turn opens, escalates, cools, redirects, resolves, or leaves it unresolved. Use null only when there is genuinely no live contradiction; never invent one merely to add drama.${mediaRules}${expressiveAudioOverride}${deliberationRules}

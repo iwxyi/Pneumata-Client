@@ -152,6 +152,7 @@ function appendDistilledMemoryEvents(conversation: GroupChat, existingEvents: Ru
         salience: item.salience,
         confidence: item.confidence,
         origin: 'distilled',
+        sharedPhrase: item.sharedPhrase,
       },
     }));
   return [...existingEvents, ...newEvents];
@@ -353,7 +354,7 @@ export function buildNextWorldState(
   const existingAxes = (conversation.worldState.conflictAxes || []).length ? (conversation.worldState.conflictAxes || []) : createDefaultConflictAxes(conversation);
   const normalizedConflict = message.type === 'ai' ? normalizeConflictFocus(message.conflictFocus || null, conversation, message, now) : null;
   const nextConflictAxes = normalizedConflict && message.type === 'ai' && config.worldMultiplier >= 0.7
-    ? evolveConflictAxes(conversation, message.content)
+    ? evolveConflictAxes(conversation, message.conflictFocus || null)
     : existingAxes;
   const nextConflictState = updateConflictRuntimeState(conversation.worldState.conflictState || null, normalizedConflict, now);
   return {
@@ -428,7 +429,7 @@ function buildSeededRelationshipLedger(conversation: GroupChat, characters: AICh
 export function buildRelationshipTransition(params: {
   conversation: GroupChat;
   characters: AICharacter[];
-  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null; conflictFocus?: ConflictFocusPayload | null; timestamp?: number };
+  message: Pick<Message, 'content' | 'type' | 'senderId'> & { interactionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; interactionHints?: import('../types/runtimeEvent').InteractionEventPayload[] | null; incomingInteractionHint?: import('../types/runtimeEvent').InteractionEventPayload | null; conflictFocus?: ConflictFocusPayload | null; timestamp?: number };
   previousAiMessage?: Pick<Message, 'senderId'> | null;
   recentMessages?: Message[];
   config?: RuntimeEvolutionConfig;
@@ -462,15 +463,27 @@ export function buildRelationshipTransition(params: {
     else groups.set(entry.target.id, { target: entry.target, hints: [entry.hint] });
     return groups;
   }, new Map<string, { target: AICharacter; hints: Array<NonNullable<typeof uniqueHints[number]>> }>()).values());
+  const incomingInteraction = params.message.incomingInteractionHint && speaker
+    && params.message.incomingInteractionHint.targetId === speaker.id
+    && params.message.incomingInteractionHint.actorId !== speaker.id
+    ? params.message.incomingInteractionHint
+    : null;
 
   if (isCharacterAuthoredMessage && speaker && targetEntries.length) {
     const summary = truncateWithEllipsis(params.message.content, 48);
     const speakerDrift = speaker.personalityDrift || {};
     const speakerEmotion = applyInteractionEmotions(
       speaker,
-      targetEntries.map(({ hint }) => hint),
+      [
+        ...(incomingInteraction?.immediateImpact?.targetEmotionDelta ? [{
+          ...incomingInteraction,
+          immediateImpact: { speakerEmotionDelta: incomingInteraction.immediateImpact.targetEmotionDelta },
+        }] : []),
+        ...targetEntries.map(({ hint }) => hint),
+      ],
       'speaker',
       speaker.emotionalState || getEmotionalBaseline(),
+      'model',
     );
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const driftEntries = localizedDriftSummary ? [{ type: 'drift' as const, text: localizedDriftSummary, createdAt: nextEventTimestamp() }] : [];
@@ -531,6 +544,7 @@ export function buildRelationshipTransition(params: {
         hints,
         'target',
         target.emotionalState || getEmotionalBaseline(),
+        'model',
       );
       targetEmotionById.set(target.id, targetEmotion);
       const projectedTargetSoul = projectInnerLife({
@@ -699,7 +713,9 @@ export function buildRelationshipTransition(params: {
     // No directed model hint means there is no justified semantic stimulus.
     // Speaking still releases fast affect, but local word matching must not
     // invent irritation, affection, or embarrassment.
-    const speakerEmotion = decayEmotionalState(speaker.emotionalState || getEmotionalBaseline(), 'speaker');
+    const speakerEmotion = incomingInteraction
+      ? applyInteractionEmotions(speaker, [incomingInteraction], 'target', speaker.emotionalState || getEmotionalBaseline(), 'model')
+      : decayEmotionalState(speaker.emotionalState || getEmotionalBaseline(), 'speaker');
     const localizedDriftSummary = getRuntimeAffectEventDriftLine(speaker.name, speakerDrift, 'zh');
     const projectedSpeakerSoul = projectInnerLife({
       chat: params.conversation,

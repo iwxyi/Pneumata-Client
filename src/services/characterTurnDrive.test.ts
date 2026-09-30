@@ -38,6 +38,22 @@ describe('characterTurnDrive', () => {
     expect(drive.evidence).not.toContain('core_desire');
   });
 
+  it('does not make ordinary warmth a permanent obligation to keep talking', () => {
+    const drive = deriveCharacterTurnDrive({
+      speaker: character('a', {
+        relationships: [{ characterId: 'b', warmth: 45, competence: 30, trust: 40, threat: 0, attachment: 20, deference: 0 }],
+      }),
+      messages: [{ id: 'm', chatId: 'c', senderId: 'b', senderName: '乙', type: 'ai', content: '那就先这样。', timestamp: 1, isDeleted: false }],
+      innerLife,
+      targetActorId: 'b',
+      targetMessageId: 'm',
+      targetName: '乙',
+    });
+
+    expect(drive.relationalAction).toBe('protect');
+    expect(drive.speakingNecessity).toBe('let_silence_stand');
+  });
+
   it('turns hierarchy and directional deference into a live target-specific drive', () => {
     const superior = character('yan');
     const subordinate = character('niu', {

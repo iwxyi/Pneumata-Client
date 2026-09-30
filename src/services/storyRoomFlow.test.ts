@@ -8,7 +8,7 @@ import { runSessionActionExecutor } from './sessionActionExecutors/sessionAction
 import { STORY_ENGINE } from './engines/storyEngine';
 import { buildNarrativeTurnFromStoryEvents, buildStoryAssetPrompt, buildStoryEventsVisibleText, evaluateStoryEventQuality, getStoryChoicesFromEvents, normalizeStoryEvents } from './narrativeRuntime';
 import type { GroupChat } from '../types/chat';
-import type { Message, StoryEvent } from '../types/message';
+import type { Message, StoryAssetMetadata, StoryEvent } from '../types/message';
 
 function buildStoryChat(): GroupChat {
   return normalizeConversation({
@@ -93,6 +93,26 @@ function storyEventMessage(
   });
 }
 
+function buildStoryAssets(overrides: Partial<StoryAssetMetadata> = {}): StoryAssetMetadata {
+  return {
+    currentScene: overrides.currentScene === null ? null : {
+      location: '旧医院走廊',
+      time: '雨夜',
+      presentActorIds: ['lin', 'nurse'],
+      visibleThreat: '档案室门后仍有人活动',
+      summary: '林医生与护士在旧医院档案室外追查停电与失踪名单。',
+      ...(overrides.currentScene || {}),
+    },
+    openQuestions: overrides.openQuestions || ['停电时进入档案室的人是谁？'],
+    clues: overrides.clues || ['档案室门锁留下新鲜使用痕迹'],
+    stakes: overrides.stakes || ['追查会惊动门后的人'],
+    relationshipShifts: overrides.relationshipShifts || [],
+    ...(overrides.chapterMemory ? { chapterMemory: overrides.chapterMemory } : {}),
+    ...(overrides.storyGoal ? { storyGoal: overrides.storyGoal } : {}),
+    ...(overrides.storySituation ? { storySituation: overrides.storySituation } : {}),
+  };
+}
+
 async function commitStoryMessage(chat: GroupChat, message: Message): Promise<GroupChat> {
   const commit = await STORY_ENGINE.onMessageCommitted({
     conversation: chat,
@@ -122,8 +142,8 @@ function chooseStoryBranch(chat: GroupChat, branchLabel: string): GroupChat {
   });
 }
 
-function assertReadableStoryTurn(events: StoryEvent[], options: { minScore?: number; requireChoices?: boolean } = {}) {
-  const quality = evaluateStoryEventQuality(events);
+function assertReadableStoryTurn(events: StoryEvent[], assets: StoryAssetMetadata, options: { minScore?: number; requireChoices?: boolean } = {}) {
+  const quality = evaluateStoryEventQuality(events, assets);
   expect(quality.score).toBeGreaterThanOrEqual(options.minScore ?? 72);
   expect(quality.labels).toEqual(expect.arrayContaining(['has_narration', 'has_speech', 'concrete_scene', 'has_story_hook']));
   expect(quality.gaps).not.toContain('missing_narration');
@@ -149,6 +169,13 @@ describe('story room user flow', () => {
     const choiceMessage = storyEventMessage(chat, {
       id: 'choice-source',
       timestamp: 10,
+      metadata: {
+        storyAssets: buildStoryAssets({
+          openQuestions: ['护士隐瞒了谁进入档案室？'],
+          clues: ['墙上的新鲜血迹'],
+          stakes: ['逼问可能激怒护士'],
+        }),
+      },
     }, [
       { type: 'narration', text: '门后到底是谁？墙上留下新鲜血迹，林医生开始怀疑护士隐瞒真相。' },
       { type: 'speech', characterId: 'lin', text: '你昨晚停电时，到底去了哪里？' },
@@ -240,6 +267,21 @@ describe('story room user flow', () => {
     const consequenceMessage = storyEventMessage(branchChat, {
       id: 'consequence',
       timestamp: 30,
+      metadata: {
+        storyAssets: buildStoryAssets({
+          currentScene: {
+            location: '旧医院走廊',
+            time: '清晨',
+            presentActorIds: ['lin', 'nurse'],
+            visibleThreat: '逼问的代价是护士开始拒绝继续同行',
+            summary: '护士承认停电时有人进入档案室，随后开始拒绝配合。',
+          },
+          openQuestions: ['拿钥匙进入档案室的人是谁？'],
+          clues: ['有人在停电时拿铜钥匙进入档案室'],
+          stakes: ['护士可能拒绝继续同行'],
+          relationshipShifts: ['护士对林医生的警惕明显上升'],
+        }),
+      },
     }, [
       { type: 'narration', text: '清晨的旧医院走廊里，林医生逼问护士后，护士承认停电时有人进入档案室，代价是她开始拒绝继续同行。' },
       { type: 'speech', characterId: 'nurse', text: '我只看见有人拿着钥匙进去，别再逼我了。' },
@@ -293,8 +335,8 @@ describe('story room user flow', () => {
   it('keeps a multi-choice long flow readable, remembered, and non-repetitive', async () => {
     let chat = buildStoryChat();
     const visibleTexts = new Set<string>();
-    const recordTurn = (events: StoryEvent[], options?: { minScore?: number; requireChoices?: boolean }) => {
-      assertReadableStoryTurn(events, options);
+    const recordTurn = (events: StoryEvent[], assets: StoryAssetMetadata, options?: { minScore?: number; requireChoices?: boolean }) => {
+      assertReadableStoryTurn(events, assets, options);
       const text = normalizedVisibleText(events);
       expect(text.length).toBeGreaterThan(30);
       expect(visibleTexts.has(text)).toBe(false);
@@ -312,8 +354,13 @@ describe('story room user flow', () => {
         ],
       },
     ];
-    recordTurn(firstChoiceEvents, { requireChoices: true });
-    const firstChoiceMessage = storyEventMessage(chat, { id: 'first-choice', timestamp: 10 }, firstChoiceEvents);
+    const firstChoiceAssets = buildStoryAssets({
+      openQuestions: ['失踪名单到底少了谁？'],
+      clues: ['墙上的新鲜血迹', '护士袖口里疑似藏着钥匙'],
+      stakes: ['逼问护士可能让她拒绝同行'],
+    });
+    recordTurn(firstChoiceEvents, firstChoiceAssets, { requireChoices: true });
+    const firstChoiceMessage = storyEventMessage(chat, { id: 'first-choice', timestamp: 10, metadata: { storyAssets: firstChoiceAssets } }, firstChoiceEvents);
     chat = await commitStoryMessage(chat, firstChoiceMessage);
     expect(chat.scenarioState).toEqual(expect.objectContaining({
       phase: 'choice',
@@ -333,8 +380,15 @@ describe('story room user flow', () => {
       { type: 'narration', text: '林医生把问题压得更低，走廊顶灯忽然闪了一下。护士的眼神从血迹移到档案室门锁上，终于承认停电时有个拿铜钥匙的人进过档案室；代价是她后退半步，明显开始警觉。' },
       { type: 'speech', characterId: 'nurse', text: '我只看见钥匙，不知道那个人的脸。你再逼我，我就不往前走了。' },
     ];
-    recordTurn(firstConsequenceEvents);
-    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'first-consequence', timestamp: 20 }, firstConsequenceEvents));
+    const firstConsequenceAssets = buildStoryAssets({
+      currentScene: { visibleThreat: '护士因逼问而后退，并威胁停止同行', summary: '护士承认拿铜钥匙的人进入档案室，但拒绝透露身份。' },
+      openQuestions: ['拿铜钥匙的人是谁？'],
+      clues: ['停电时有人拿铜钥匙进入档案室'],
+      stakes: ['护士可能停止同行'],
+      relationshipShifts: ['护士对林医生的信任下降'],
+    });
+    recordTurn(firstConsequenceEvents, firstConsequenceAssets);
+    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'first-consequence', timestamp: 20, metadata: { storyAssets: firstConsequenceAssets } }, firstConsequenceEvents));
     expect(chat.scenarioState).toEqual(expect.objectContaining({
       phase: 'scene',
       selectedChoice: null,
@@ -352,8 +406,14 @@ describe('story room user flow', () => {
       { type: 'narration', text: '档案室门锁里传来极轻的转动声，旧医院走廊的雨味被一股消毒水气味压住。地上的血迹没有通向楼梯，反而在门前断掉，像有人故意把路线擦干净。' },
       { type: 'speech', characterId: 'lin', text: '钥匙是真的，血迹也是真的。现在的问题是，门里的人为什么还没有出来？' },
     ];
-    recordTurn(pressureEvents);
-    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'pressure', timestamp: 30 }, pressureEvents));
+    const pressureAssets = buildStoryAssets({
+      currentScene: { visibleThreat: '档案室门锁正在从里面转动', summary: '血迹在档案室门前断掉，门内仍有人活动。' },
+      openQuestions: ['门里的人为什么还没有出来？'],
+      clues: ['血迹在档案室门前被人为擦断'],
+      stakes: ['门里的人可能销毁证据或逃走'],
+    });
+    recordTurn(pressureEvents, pressureAssets);
+    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'pressure', timestamp: 30, metadata: { storyAssets: pressureAssets } }, pressureEvents));
     expect(chat.scenarioState).toEqual(expect.objectContaining({
       phase: 'scene',
       storyBeatKind: 'decision',
@@ -372,8 +432,14 @@ describe('story room user flow', () => {
         ],
       },
     ];
-    recordTurn(secondChoiceEvents, { requireChoices: true });
-    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'second-choice', timestamp: 40 }, secondChoiceEvents));
+    const secondChoiceAssets = buildStoryAssets({
+      currentScene: { visibleThreat: '门内的人可能趁迟疑逃走', summary: '护士露出被雨水洇开的名单，林医生必须在开门与查名单之间选择。' },
+      openQuestions: ['名单上缺失的名字是谁？'],
+      clues: ['护士袖口里藏着被雨水洇开的名单'],
+      stakes: ['迟疑会让门里的人逃走'],
+    });
+    recordTurn(secondChoiceEvents, secondChoiceAssets, { requireChoices: true });
+    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'second-choice', timestamp: 40, metadata: { storyAssets: secondChoiceAssets } }, secondChoiceEvents));
     expect(chat.scenarioState).toEqual(expect.objectContaining({
       phase: 'choice',
       choiceEpoch: 3,
@@ -395,8 +461,15 @@ describe('story room user flow', () => {
       { type: 'narration', text: '护士把袖口里的名单拍在窗台上，纸角被雨水泡软，缺失的名字旁边压着一枚档案室钥匙印。她没有再退，却把灯关掉，代价是林医生再也看不清门内那个人的脸。' },
       { type: 'speech', characterId: 'nurse', text: '名单给你，但你欠我一次。门里那个人不是我放进去的。' },
     ];
-    recordTurn(secondConsequenceEvents);
-    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'second-consequence', timestamp: 50 }, secondConsequenceEvents));
+    const secondConsequenceAssets = buildStoryAssets({
+      currentScene: { visibleThreat: '灯被关掉后，门内那个人的脸再也看不清', summary: '护士交出名单和钥匙印，却关灯保护门内的人。' },
+      openQuestions: ['门内的人是谁，为什么护士仍在保护他？'],
+      clues: ['缺失名字旁压着档案室钥匙印'],
+      stakes: ['关灯使门内的人获得逃脱机会'],
+      relationshipShifts: ['护士要求林医生欠她一次，形成新的交换关系'],
+    });
+    recordTurn(secondConsequenceEvents, secondConsequenceAssets);
+    chat = await commitStoryMessage(chat, storyEventMessage(chat, { id: 'second-consequence', timestamp: 50, metadata: { storyAssets: secondConsequenceAssets } }, secondConsequenceEvents));
     expect(chat.scenarioState).toEqual(expect.objectContaining({
       phase: 'scene',
       choiceEpoch: 3,

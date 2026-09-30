@@ -1,5 +1,6 @@
 import type { MemoryItem } from './memoryTypes';
 import type { MemoryVisibleRecallMode } from '../types/settings';
+import { resolveMemoryDisclosureMetadata } from './memoryDisclosure';
 
 export type MemoryCueMode = 'implicit_only' | 'light_reference' | 'explicit_reference' | 'corrective';
 
@@ -19,12 +20,9 @@ export interface MemoryCueSelectionContext {
   recentMemoryUseIds?: string[];
   visibleRecallMode?: MemoryVisibleRecallMode;
   targetActorIds?: string[];
+  explicitRecallRequested?: boolean;
 }
 
-const HIGH_PRIVACY_PATTERN = /(秘密|隐私|私下|健康|病|过敏|焦虑|压力|同事|朋友|家人|生日|纪念|创伤|身体|面试|考试)/;
-const THIRD_PARTY_PATTERN = /(朋友|同事|家人|室友|别人|对方|ta|TA|他|她).{0,24}(不是用户|不属于用户|不是我|不是本人|第三方|隐私|过敏|生病)/i;
-const CONTRADICTION_PATTERN = /(假的|测试|开玩笑|反讽|随口|后来澄清|不是真的|不是用户|不属于用户|旧|很久以前|后来没再提|破例|临时)/;
-const EXPLICIT_USER_ASK_PATTERN = /(记得|还记得|我是不是|我以前|我之前|你知道|你还知道|帮我总结|我的偏好|我喜欢|我讨厌)/;
 const SINGLE_CJK_SIGNAL_CHARS = new Set(['甜', '腻', '糖', '猫', '辣', '雨', '热', '冷', '茶', '困']);
 
 function normalize(text: string | undefined | null) {
@@ -80,34 +78,22 @@ function hasTargetSubjectMatch(item: MemoryItem, targetActorIds?: string[]) {
 }
 
 function inferPrivacyRisk(item: MemoryItem) {
-  const text = memoryText(item);
-  let risk = typeof item.privacyRisk === 'number' && Number.isFinite(item.privacyRisk)
-    ? Math.max(0, Math.min(1, item.privacyRisk))
-    : 0;
-  if (HIGH_PRIVACY_PATTERN.test(text)) risk += 0.35;
-  if (THIRD_PARTY_PATTERN.test(text)) risk += 0.35;
-  if (item.subjectOwner === 'third_party') risk += 0.35;
-  if (item.visibility === 'private') risk += 0.28;
-  if (item.visibility === 'pair_private') risk += 0.2;
-  if (item.visibility === 'never_surface') risk += 1;
-  if (item.scope === 'relationship') risk += 0.08;
-  if (item.sourceTag === 'companionship_user_profile') risk += 0.18;
-  if (item.kind === 'taboo' || item.kind === 'resentment') risk += 0.16;
-  return Math.min(1, risk);
+  return resolveMemoryDisclosureMetadata(item).privacyRisk;
 }
 
 function isContradictedOrEphemeral(item: MemoryItem) {
-  if (item.validity === 'contradicted' || item.validity === 'stale') return true;
+  const { validity } = resolveMemoryDisclosureMetadata(item);
+  if (validity === 'contradicted' || validity === 'stale') return true;
   if (item.sourceType === 'joke' || item.sourceType === 'test' || item.sourceType === 'temporary') return true;
-  return CONTRADICTION_PATTERN.test(memoryText(item));
+  return false;
 }
 
 function shouldNeverSurface(item: MemoryItem) {
-  return item.visibility === 'never_surface';
+  return resolveMemoryDisclosureMetadata(item).visibility === 'never_surface';
 }
 
 function isThirdPartyOwnership(item: MemoryItem) {
-  return item.subjectOwner === 'third_party' || THIRD_PARTY_PATTERN.test(memoryText(item));
+  return resolveMemoryDisclosureMetadata(item).subjectOwner === 'third_party';
 }
 
 function baseScore(item: MemoryItem, context: MemoryCueSelectionContext) {
@@ -133,7 +119,7 @@ function baseScore(item: MemoryItem, context: MemoryCueSelectionContext) {
 
 function cueMode(item: MemoryItem, context: MemoryCueSelectionContext, score: number): MemoryCueMode | null {
   const privacyRisk = inferPrivacyRisk(item);
-  const explicitAsk = EXPLICIT_USER_ASK_PATTERN.test(normalize(context.cueText));
+  const explicitAsk = context.explicitRecallRequested === true;
   const recentUse = context.recentMemoryUseIds?.includes(item.id);
   const relevance = lexicalRelevance(item, context.cueText);
   const directSubject = hasDirectSubjectMatch(item, context.cueText) || hasTargetSubjectMatch(item, context.targetActorIds);
@@ -144,7 +130,7 @@ function cueMode(item: MemoryItem, context: MemoryCueSelectionContext, score: nu
   if (isThirdPartyOwnership(item) || isContradictedOrEphemeral(item)) {
     return explicitAsk ? 'corrective' : null;
   }
-  if (context.isPublicChannel && privacyRisk >= 0.3) return score >= 0.3 ? 'implicit_only' : null;
+  if (context.isPublicChannel && privacyRisk >= 0.3) return 'implicit_only';
   if (visibleRecallMode === 'implicit') return 'implicit_only';
   if (recentUse || privacyRisk >= 0.35) return 'implicit_only';
   if (visibleRecallMode === 'direct') {
@@ -163,7 +149,11 @@ function cueRule(mode: MemoryCueMode) {
   return 'Use only to correct uncertainty or ownership. Do not turn third-party, joke, test, or contradicted facts into stable user traits.';
 }
 
-function cueText(item: MemoryItem, mode: MemoryCueMode) {
+function cueText(item: MemoryItem, mode: MemoryCueMode, context: MemoryCueSelectionContext) {
+  if (context.isPublicChannel && mode === 'implicit_only' && inferPrivacyRisk(item) >= 0.3) {
+    const target = item.scope === 'relationship' ? 'the current relationship' : 'the current person';
+    return `Private continuity about ${target} exists; use only as unspoken caution, familiarity, or bias.`;
+  }
   const source = normalize(item.summary || item.text)
     .replace(/\bstatus_shift\b/g, 'state shift');
   if (mode === 'implicit_only') return source.slice(0, 120);
@@ -182,7 +172,7 @@ export function selectConstrainedMemoryCues(items: MemoryItem[], context: Memory
       return {
         id: item.id,
         mode,
-        text: cueText(item, mode),
+        text: cueText(item, mode, context),
         rule: cueRule(mode),
         score,
         source: item,

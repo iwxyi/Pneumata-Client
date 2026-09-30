@@ -9,7 +9,7 @@ import { normalizeRuntimeEvent } from './runtimeEventFactory';
 import { sanitizeMemoryText } from './distillationText';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
 
-interface RuntimeEventLike extends RuntimeEventPayload {}
+type RuntimeEventLike = RuntimeEventPayload;
 
 function normalizeSubjectIds(ids: string[] = []) {
   return Array.from(new Set(ids.filter(Boolean)));
@@ -181,19 +181,6 @@ function compactStructuredSummary(text: string) {
   return sanitizeMemoryText(text).slice(0, 128);
 }
 
-function buildDecisionCandidate(chat: GroupChat, text: string): MemoryCandidate | null {
-  if (!/(总结|共识|方案|清单|计划|summary|plan|checklist)/i.test(text)) return null;
-  return {
-    scope: 'conversation',
-    layerHint: 'long_term',
-    kind: 'decision',
-    ownerId: chat.id,
-    text: sanitizeMemoryCandidateText(chat, text, 120),
-    sourceEventIds: [],
-    scoreBreakdown: { stability: 0.8, recurrence: 0.4, impact: 0.7, specificity: 0.7, durability: 0.8 },
-  };
-}
-
 function buildConflictCandidate(chat: GroupChat): MemoryCandidate | null {
   if (!chat.worldState.conflictAxes?.length) return null;
   return {
@@ -220,26 +207,17 @@ function buildWorldStateCandidate(chat: GroupChat): MemoryCandidate | null {
   };
 }
 
-function buildRelationshipCandidate(chat: GroupChat, message: Pick<Message, 'content' | 'type' | 'senderId'>): MemoryCandidate | null {
-  if (message.type !== 'ai' || !/反对|支持|欣赏|讨厌|质疑|阴阳|嘲讽|帮助|护着|针对/i.test(message.content)) return null;
-  return {
-    scope: 'conversation',
-    layerHint: 'episodic',
-    kind: 'trait_evidence',
-    ownerId: chat.id,
-    text: sanitizeMemoryCandidateText(chat, message.content.trim(), 120),
-    sourceEventIds: [],
-    scoreBreakdown: { stability: 0.5, recurrence: 0.5, impact: 0.65, specificity: 0.7, durability: 0.5 },
-  };
-}
-
 function buildMemoryCandidatesFromRuntimeEvents(chat: GroupChat, events: RuntimeEventLike[]): MemoryCandidate[] {
   return events.map((event) => normalizeRuntimeEvent(event)).flatMap<MemoryCandidate>((event) => {
     if (event.eventType === 'group_relationship_shift' || event.eventType === 'relationship_shift') {
+      const metrics = isStringRecord(event.metrics) ? event.metrics : null;
+      const delta = metrics && isStringRecord(metrics.delta) ? metrics.delta : null;
+      const positive = Number(delta?.warmth || 0) + Number(delta?.competence || 0) + Number(delta?.trust || 0);
+      const negative = Number(delta?.threat || 0);
       return [{
         scope: 'relationship',
         layerHint: 'episodic',
-        kind: /升温|靠近|支持|保护/.test(event.summary) ? 'bond' : 'resentment',
+        kind: positive >= negative ? 'bond' : 'resentment',
         ownerId: chat.id,
         subjectIds: event.pair || [],
         text: sanitizeMemoryCandidateText(chat, `${event.title}：${event.summary}`, 128),
@@ -310,10 +288,8 @@ export function buildMemoryCandidates(chat: GroupChat, message: Pick<Message, 'c
   const structuredCandidates = buildMemoryCandidatesFromStructuredRuntime(chat);
   const eventCandidates = buildMemoryCandidatesFromRuntimeEvents(chat, normalizedEvents);
   const fallbackCandidates = shouldUseLegacyFallback(chat, normalizedEvents) ? [
-    buildDecisionCandidate(chat, message.content.trim()),
     buildConflictCandidate(chat),
     buildWorldStateCandidate(chat),
-    buildRelationshipCandidate(chat, message),
   ].filter(Boolean) as MemoryCandidate[] : [];
   return [...structuredCandidates, ...eventCandidates, ...fallbackCandidates];
 }
@@ -347,6 +323,8 @@ export function buildMemoryCandidateEvents(params: {
         text: item.text,
         salience: item.salience,
         confidence: item.confidence,
+        origin: item.origin,
+        sharedPhrase: item.sharedPhrase,
       } as MemoryCandidatePayload,
     }));
 }

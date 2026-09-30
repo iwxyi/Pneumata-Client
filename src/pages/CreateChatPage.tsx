@@ -335,6 +335,8 @@ export default function CreateChatPage() {
   }, [editingChat?.id, editingChat?.groupVisual?.backgroundOpacity, editingChat?.groupVisual?.backgroundUrl]);
   const showDirectorTab = !editingChat || isGroupConversation;
   const showGameplayTab = !editingChat || isGroupConversation;
+  const useFreeEntitlement = authMode !== 'cloud' || !isLoggedIn;
+  const entitlementReady = useFreeEntitlement ? freeEntitlementLoaded : membershipLoaded;
   const managementTabIndex = showGameplayTab ? 2 : 1;
   const runtimeTabIndex = showRuntimeTab ? (showManagementTab ? managementTabIndex + 1 : managementTabIndex) : managementTabIndex;
   const directorTabIndex = showDirectorTab ? (showRuntimeTab ? runtimeTabIndex + 1 : managementTabIndex + (showManagementTab ? 1 : 0)) : runtimeTabIndex;
@@ -1083,7 +1085,6 @@ export default function CreateChatPage() {
     mysteryRoleMappingMode,
     name,
     roomTemplate,
-    selectedRoomTemplate,
     selectedMembers,
     showRoleActions,
     style,
@@ -1274,8 +1275,6 @@ export default function CreateChatPage() {
         ? `当前只有 ${customCharacters.length} 个AI角色，群聊至少需要 ${MIN_MEMBERS} 个AI角色。请再创建 ${missingGroupCharacterCount} 个角色，或根据主题批量生成。`
         : `You currently have ${customCharacters.length} AI role(s), but a group chat needs at least ${MIN_MEMBERS}. Create ${missingGroupCharacterCount} more, or generate roles in batch from your topic.`);
   const startChatLabel = editingChat ? t('common.save') : '开始群聊';
-  const useFreeEntitlement = authMode !== 'cloud' || !isLoggedIn;
-  const entitlementReady = useFreeEntitlement ? freeEntitlementLoaded : membershipLoaded;
   const maxChats = entitlementReady
     ? useFreeEntitlement
       ? freeEntitlement?.maxChats ?? null

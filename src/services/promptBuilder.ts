@@ -8,7 +8,7 @@ import { formatConflictPromptText, formatConflictStageLabel } from './runtimeEve
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getExperienceLensLabel } from './experienceChangePresentation';
 import { sanitizeUserFacingText, type DisplayTextMember } from './displayTextSanitizer';
-import { getGuidanceMemoryTargetActorIds, parseUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
+import { getGuidanceMemoryTargetActorIds, readStoredUserGuidanceIntent, type UserGuidanceIntent } from './userGuidanceIntent';
 import { buildCompanionshipPromptBlock, buildSharedMemoryAnchors, buildSharedSecrets } from './companionshipProjection';
 import { projectConversationForModel, type ConversationProjectionOptions } from './conversationProjection';
 import { resolvePersonaActivation, type PersonaActivation } from './personaActivation';
@@ -149,7 +149,6 @@ function buildManualMemorySeedPrompt(character: AICharacter, members: DisplayTex
   const canExposeUserMemoryText = !chat || chat.type === 'direct';
   const mindOwnsAuthoredContinuity = chat ? usesMindOwnedConversationContract(chat) : false;
   const hasUserMemory = Boolean(memory.userMemories?.length);
-  const hasUserBoundaryMemory = (memory.userMemories || []).some((text) => /(不要|不想|别|公开|隐私|边界|禁忌|压力|焦虑|面试|考试|生日|纪念|私下)/.test(text));
   const lines = [
     !mindOwnsAuthoredContinuity && memory.shortTermSummary?.trim() ? `- Current private summary: ${cleanPromptText(memory.shortTermSummary, members)}` : '',
     !mindOwnsAuthoredContinuity && memory.longTerm?.length ? `- Stable long-term memories: ${memory.longTerm.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
@@ -158,7 +157,6 @@ function buildManualMemorySeedPrompt(character: AICharacter, members: DisplayTex
     !mindOwnsAuthoredContinuity && memory.tabooTopics?.length ? `- Taboo or sensitive topics that trigger avoidance, defensiveness, or careful wording: ${memory.tabooTopics.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
     !mindOwnsAuthoredContinuity && canExposeUserMemoryText && hasUserMemory ? `- Memories about the user: ${memory.userMemories.slice(-6).map((item) => cleanPromptText(item, members, 160)).join(' / ')}` : '',
     !mindOwnsAuthoredContinuity && !canExposeUserMemoryText && hasUserMemory ? `- Private user continuity exists but this is not a pair-private channel. Let it shape restraint and care; do not expose the underlying user facts.` : '',
-    !mindOwnsAuthoredContinuity && !canExposeUserMemoryText && hasUserBoundaryMemory ? `- User-related boundaries or sensitive cues exist. Avoid public pressure, public reminders, or revealing private details unless the user states them here.` : '',
   ].filter(Boolean);
   if (!lines.length) return '';
   return `\n## Manual Memory Seeds\n${lines.join('\n')}\n- Treat these as authored character continuity. Let them shape tone, attention, omissions, and reactions; do not list them unless the conversation naturally calls for it.`;
@@ -257,6 +255,10 @@ function sharedAnchorToPromptMemory(anchor: SharedMemoryAnchor, character: AICha
     reinforcementCount: Math.max(1, Math.round(anchor.salience / 35)),
     sourceEventIds: anchor.sourceId ? [anchor.sourceId] : [],
     sourceTag: COMPANIONSHIP_SHARED_ANCHOR_SOURCE_TAG,
+    subjectOwner: 'target',
+    privacyRisk: 0.55,
+    visibility: 'pair_private',
+    validity: 'active',
     origin: anchor.source === 'runtime_event' ? 'runtime' : 'distilled',
     distilledFromIds: anchor.sourceId ? [anchor.sourceId] : [],
     distilledAt: anchor.source === 'runtime_event' ? null : anchor.updatedAt || null,
@@ -380,6 +382,10 @@ function userProfileItemToPromptMemory(item: UserProfileMemoryEventItem & { upda
     reinforcementCount: item.sensitive ? 2 : 1,
     sourceEventIds: item.sourceEventIds,
     sourceTag: COMPANIONSHIP_USER_PROFILE_SOURCE_TAG,
+    subjectOwner: 'user',
+    privacyRisk: item.sensitive ? 0.8 : 0.55,
+    visibility: 'private',
+    validity: 'active',
     origin: 'runtime',
     distilledFromIds: item.sourceEventIds,
     distilledAt: null,
@@ -754,7 +760,6 @@ function buildResponseRulesPrompt(chat: GroupChat) {
         '- This is a private conversation with a person, not a character showcase or a polished answer service. Let what they said change your attention, mood, choice of detail, or willingness to stay with the subject.',
         '- Take a real relational stance that fits this character and this history: warmth, curiosity, protectiveness, teasing, hesitation, guardedness, irritation, distance, disagreement, or a clean boundary are all valid. Do not force tenderness or agreement.',
         '- Poetry, reassurance, a farewell, or silence can all be right when they express this character\'s actual closeness, avoidance, refusal, uncertainty, or decision to end the exchange. Do not use a generic version of them to avoid reacting.',
-        '- When one thought would naturally arrive after pressing send, you may send it as a second independent bubble. Do not split a sentence just to simulate texting.',
       ]
     : [];
   const lengthRule = usesUnifiedOrdinaryGroupTurnContract(chat)
@@ -943,8 +948,19 @@ function buildTopicSection(chat: GroupChat) {
   return `## Conversation Context\n${lines.join('\n')}`;
 }
 
-function buildCharacterSection(character: AICharacter, emotion: number, personaActivation: PersonaActivation) {
+function buildCharacterSection(character: AICharacter, emotion: number, personaActivation: PersonaActivation, compactForUnifiedGroup = false) {
   const expertise = character.expertise?.length ? character.expertise.join(', ') : 'Generalist';
+  if (compactForUnifiedGroup) {
+    return [
+      `You are ${character.name}. Read the room from this person's lived position; do not perform a character sheet.`,
+      '',
+      '## Character Grounding',
+      character.background ? `- Lived context: ${character.background}` : '',
+      character.speakingStyle ? `- Habitual voice: ${character.speakingStyle}` : '',
+      character.expertise?.length ? `- Familiar ground: ${expertise}` : '',
+      '- These are causes of attention and judgment, not facts that every reply must mention. The Character Mind and current-turn frame below decide what is active now.',
+    ].filter(Boolean).join('\n');
+  }
   return [
     `You are ${character.name}. Stay in character through situated judgment, relationships, memory, limits, and voice.`,
     '',
@@ -1001,8 +1017,10 @@ function normalizeStoredGuidance(message: Message): UserGuidanceIntent | null {
     mentionedActorIds: stored.mentionedActorIds || [],
     hardConstraintActorIds: stored.hardConstraintActorIds || [],
     suppressedActorIds: stored.suppressedActorIds || [],
+    deferredActorIds: stored.deferredActorIds || [],
     hasHardConstraints: stored.hasHardConstraints,
     voiceRequest: stored.voiceRequest === true,
+    stickerRequest: stored.stickerRequest === true,
     mediaRequest: stored.mediaRequest?.kind === 'image' ? {
       kind: 'image',
       subjectActorIds: stored.mediaRequest.subjectActorIds || [],
@@ -1020,7 +1038,7 @@ function normalizeStoredGuidance(message: Message): UserGuidanceIntent | null {
 
 function parsePromptGuidance(message: Message, characters: Map<string, AICharacter>) {
   const members = Array.from(characters.values());
-  return parseUserGuidanceIntent(message.content, members) || normalizeStoredGuidance(message);
+  return normalizeStoredGuidance(message) || readStoredUserGuidanceIntent(message, members);
 }
 
 function pickGuidanceTarget(guidance: UserGuidanceIntent, speaker: AICharacter, characters: Map<string, AICharacter>) {
@@ -1163,6 +1181,7 @@ export function buildSystemPromptWithContext(character: AICharacter, chat: Group
 }
 
 export function buildPromptAssemblyWithContext(character: AICharacter, chat: GroupChat, emotion: number, messages: Message[], characters: Map<string, AICharacter>, options: { preferredTargetActorId?: string } = {}): PromptAssemblyWithContext {
+  const compactForUnifiedGroup = usesUnifiedOrdinaryGroupTurnContract(chat);
   const memoryContext = resolvePromptMemoryContext(character, chat, messages, characters, options.preferredTargetActorId);
   const personaActivation = resolvePersonaActivation({ chat, speaker: character, messages });
   const companionshipPrompt = buildCompanionshipPromptBlock({ chat, character, messages });
@@ -1184,7 +1203,7 @@ export function buildPromptAssemblyWithContext(character: AICharacter, chat: Gro
   );
 
   const systemPrompt = [
-    buildCharacterSection(character, emotion, personaActivation),
+    buildCharacterSection(character, emotion, personaActivation, compactForUnifiedGroup),
     buildTopicSection(chat),
     buildRelationshipSection(character, memoryContext.target, chat),
     buildPromptMemorySection(chat, character, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, memoryContext.target, memoryContext.relationshipSnapshot, characters, memoryContext.recallCue, Boolean(companionshipPrompt), memoryContext.recentMemoryUseIds, mind),

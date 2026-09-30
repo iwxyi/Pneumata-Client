@@ -153,32 +153,6 @@ function buildRecentPhraseConstraint(messages: Message[]) {
   return '\n- The room is already echoing repeated phrasing. Preserve the social pressure, but deliberately change sentence architecture instead of matching the same catchphrase, prefix, cadence, or framing.';
 }
 
-function isAgreementEchoOpener(content: string) {
-  return /^(这句|这话|这点|这个|他说得|说得|讲得|我认|朕认|我也认|我也接|我接|我站|我同意|同意|赞同|确实|没错|不错|不差|对[，,。 ]|嗯|是这个理|有道理|补得对|说到点子上|稳当|能用|说得好|说得在理|太准|太真实|就是)/.test(content.trim());
-}
-
-function hasCounterMove(content: string) {
-  return /(但|不过|可|只是|问题是|先别|未必|不对|不该|不能|凭什么|反过来|前提是|除非|代价|风险|漏洞|误区|我不认|朕不认|不见得|未必如此|倒要问)/.test(content);
-}
-
-function isAgreementEchoLoop(messages: Message[]) {
-  const recentAi = messages
-    .filter((message) => !message.isDeleted && message.type === 'ai')
-    .slice(-6);
-  if (recentAi.length < 3) return false;
-  return recentAi.filter((message) => isAgreementEchoOpener(message.content) && !hasCounterMove(message.content)).length >= 3;
-}
-
-function buildAgreementEchoLoopHint(messages: Message[], archetype: MessageArchetype) {
-  if (!isAgreementEchoLoop(messages)) return '';
-  const backingLine = archetype.key === 'backing'
-    ? '\n- Even if the local archetype says backing, do not recycle the room\'s wording. A brief personal show of support, a changed temperature, or a pause can be enough; do not invent a condition or task just to add content.'
-    : '';
-  return `${backingLine}
-- The room has fallen into an agreement echo. Stop restating the shared conclusion.
-- Let it land, show a character-specific reaction, change the social temperature, go briefly quiet, or move only to a genuinely nearby topic. Do not manufacture a counterexample, boundary condition, cost, or sharp question merely to keep the exchange going.`;
-}
-
 function extractEmojiTokens(content: string) {
   return content.match(/\p{Extended_Pictographic}/gu) || [];
 }
@@ -315,13 +289,27 @@ ${actionLine}
 - Treat old carry-over, repeated jokes, and the previous AI line as lower priority than this human guidance.`;
 }
 
-export function buildHumanizationPrompt(character: AICharacter, intent: SpeakIntent, messages: Message[], guidance?: UserGuidanceIntent | null) {
+export function buildHumanizationPrompt(
+  character: AICharacter,
+  intent: SpeakIntent,
+  messages: Message[],
+  guidance?: UserGuidanceIntent | null,
+  context?: { family?: string | null; type?: string | null },
+) {
   const fingerprint = buildSpeechFingerprint(character);
   const archetype = pickMessageArchetype(intent);
   const recentTargetId = intent.target === 'group' ? null : intent.target;
   const latestTargetText = guidance?.focusText || guidance?.rawText || getLatestTargetText(messages, recentTargetId);
   const guidanceOverride = buildGuidanceCarryoverOverride(guidance);
   const hasChatHistory = messages.some(isVisibleDialogueTurn);
+  if (context?.family === 'analysis') {
+    return `\n## Human Deliberation Voice
+- Keep the room's evidence and reasoning standards, but speak as this person under the current social and emotional pressure, not as a neutral report generator.
+- Respond to the live discussion as a whole. You may return to an earlier claim, notice an alliance or omission, interrupt a weak premise, or let a personal stake alter the wording; do not mechanically paraphrase only the immediately previous line.
+- Professional does not mean affectless. Irritation, uncertainty, respect, defensiveness, urgency, relief, or dry humor may show through when supported by the current state, while evidence and conclusions remain precise.
+- Do not manufacture warmth, hostility, names, questions, or rhetorical flourishes. Let this character's actual relationship, authority, confidence, and immediate feeling determine distance and tone.
+- Avoid committee-template openings and closings. Make the deliberative move directly, with the amount of detail the issue actually needs.${buildSpeechStyleSummary(character)}${buildTabooHint(character)}${guidanceOverride}`;
+  }
   if (!hasChatHistory) {
     return `\n## Human Chat Fingerprint
 - This is the first visible message in the room. Open the conversation from the chat topic or setting; do not act like you are replying to earlier lines.
@@ -336,9 +324,7 @@ export function buildHumanizationPrompt(character: AICharacter, intent: SpeakInt
   }
   const stanceMemory = buildStanceMemory(messages, character.id, recentTargetId);
   const selectiveMisread = buildSelectiveMisread(intent, latestTargetText);
-  const latchLine = isAgreementEchoLoop(messages)
-    ? '- Latch rule: repeated agreement phrases are exhausted. Do not latch onto them; respond to the underlying unresolved tension instead.'
-    : `- Latch onto this phrase or point if useful: ${pickTopicLatch(latestTargetText)}`;
+  const latchLine = '- A recent phrase may be relevant, but respond to the situation rather than recycling its wording.';
   return `\n## Human Chat Fingerprint
 - Preferred archetype: ${archetype.label} (${archetype.key})
 - Archetype execution: ${buildArchetypeExecutionHint(archetype)}
@@ -358,7 +344,7 @@ ${latchLine}
 - If you ask, let it sound like a live human move rather than a formal interviewer move.
 - Question tendency: ${fingerprint.prefersQuestions ? [fingerprint.asksForInformation ? 'info-seeking' : '', fingerprint.usesQuestionAsPushback ? 'pushback' : '', fingerprint.usesQuestionToSteer ? 'steering' : '', fingerprint.usesQuestionPlayfully ? 'playful' : ''].filter(Boolean).join(' / ') : 'not preferred'}
 - Terse bias: ${fingerprint.terseBias}/100${buildRecentSelfOpeningHint(messages, character.id)}${buildInnerResidueChatHint(character)}
-- Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}${buildAgreementEchoLoopHint(messages, archetype)}${buildRecentEmojiContagionHint(messages)}
+- Sarcasm bias: ${fingerprint.sarcasmBias}/100${buildSpeechStyleSummary(character)}${buildCatchphraseHint(character)}${buildTabooHint(character)}${buildRecentSurfaceHint(messages)}${buildRecentPhraseConstraint(messages)}${buildRecentEmojiContagionHint(messages)}
 - Keep the reply socially sticky: continue the social situation, not the room's wording, punctuation rhythm, or sentence mold.${guidanceOverride}`;
 }
 

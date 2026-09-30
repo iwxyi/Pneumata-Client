@@ -56,6 +56,12 @@ export interface ModelRelationshipAssessment {
   stance?: string;
 }
 
+export interface ModelImmediateImpact {
+  speakerEmotionDelta?: Partial<Record<'irritation' | 'affection' | 'insecurity' | 'excitement' | 'embarrassment', number>>;
+  targetEmotionDelta?: Partial<Record<'irritation' | 'affection' | 'insecurity' | 'excitement' | 'embarrassment', number>>;
+  roomDelta?: Partial<Record<'heat' | 'cohesion' | 'topicDrift', number>>;
+}
+
 export interface InteractionEventPayload {
   kind: InteractionKind;
   actorId: string;
@@ -65,6 +71,7 @@ export interface InteractionEventPayload {
   evidenceText: string;
   confidence: number;
   relationship?: ModelRelationshipAssessment;
+  immediateImpact?: ModelImmediateImpact;
 }
 
 export interface InteractionHintEnvelope {
@@ -77,6 +84,7 @@ export interface InteractionHintEnvelope {
   reason?: string;
   evidenceText?: string;
   relationship?: ModelRelationshipAssessment;
+  immediateImpact?: ModelImmediateImpact;
 }
 
 export interface AddressedTargetHintEnvelope {
@@ -127,6 +135,21 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
     }
     : undefined;
   const normalizedRelationship = relationship && Object.values(relationship.delta).some((value) => value !== 0) ? relationship : undefined;
+  const normalizeDelta = <T extends string>(
+    source: Partial<Record<T, number>> | null | undefined,
+    keys: readonly T[],
+    limit: number,
+  ) => Object.fromEntries(keys.flatMap((key) => {
+    const value = Number(source?.[key]);
+    if (!Number.isFinite(value) || value === 0) return [];
+    return [[key, Math.round(Math.max(-limit, Math.min(limit, value)))]];
+  })) as Partial<Record<T, number>>;
+  const speakerEmotionDelta = normalizeDelta(hint.immediateImpact?.speakerEmotionDelta, ['irritation', 'affection', 'insecurity', 'excitement', 'embarrassment'] as const, 40);
+  const targetEmotionDelta = normalizeDelta(hint.immediateImpact?.targetEmotionDelta, ['irritation', 'affection', 'insecurity', 'excitement', 'embarrassment'] as const, 40);
+  const roomDelta = normalizeDelta(hint.immediateImpact?.roomDelta, ['heat', 'cohesion', 'topicDrift'] as const, 20);
+  const immediateImpact = Object.keys(speakerEmotionDelta).length || Object.keys(targetEmotionDelta).length || Object.keys(roomDelta).length
+    ? { speakerEmotionDelta, targetEmotionDelta, roomDelta }
+    : undefined;
   return {
     actorId,
     targetId: resolvedTargetId,
@@ -139,6 +162,7 @@ export function normalizeInteractionHintPayload(hint: InteractionHintEnvelope | 
     // changing the long-lived relationship. Keep the event while leaving its
     // relationship assessment absent in that case.
     relationship: normalizedRelationship,
+    immediateImpact,
   };
 }
 
@@ -204,6 +228,12 @@ export interface MemoryCandidatePayload {
   text: string;
   salience: number;
   confidence: number;
+  origin?: 'runtime' | 'distilled' | 'seeded';
+  sharedPhrase?: {
+    text: string;
+    kind: 'pet_name' | 'inside_joke' | 'promise_line' | 'comfort_line' | 'confession_line' | 'secret_code' | 'other';
+    visibility: 'private' | 'between_actors' | 'public_hint';
+  };
 }
 
 export interface DirectorInterventionPayload {

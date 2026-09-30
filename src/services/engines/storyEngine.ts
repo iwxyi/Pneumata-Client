@@ -127,7 +127,7 @@ function buildGenerationPromptContext(params: Parameters<NonNullable<SessionEngi
         'End the beat with at least one trackable hook: a clue, unanswered question, visible cost, relationship pressure, changed location, or imminent threat.',
         'Make the next pressure point specific enough that choices can name the person, place, clue, threat, or goal involved.',
         'Prefer spoken tension, subtext, interruption, denial, probing, or evasion over narrator explanation when characters are present and speaking.',
-        'Prefer narrator-led prose with concrete sensory detail and visible consequences. It is valid for the whole response to be narration with no character speech.',
+        'Let narration carry external action and consequences; let present characters carry their own spoken reactions. A silent scene may use narration only.',
         ]),
     ],
   };
@@ -207,7 +207,7 @@ function buildNarrativeTurnMetadata(params: { conversation: GroupChat; speaker: 
   };
 }
 
-function getActionSchema(_conversation: GroupChat) {
+function getActionSchema() {
   return {
     title: '故事动作',
     actions: [],
@@ -449,7 +449,7 @@ export const STORY_ENGINE: SessionEngineDefinition = {
   resolveTurnPolicy,
   getVisiblePanels,
   getAvailableActions,
-  getActionSchema: ({ conversation }) => getActionSchema(conversation),
+  getActionSchema: () => getActionSchema(),
   buildGenerationPromptContext,
   buildRuntimeContextBundle,
   buildNarrativeTurnMetadata,

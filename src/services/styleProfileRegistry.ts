@@ -4,9 +4,14 @@ import type { SessionGenerationPromptContext } from '../types/sessionEngine';
 export type ChatStyleProfile = 'assistant_room' | 'casual_room' | 'discovery_room' | 'analytical_room' | 'companion_room' | 'dramatic_room' | 'task_room';
 
 export type RichDeliveryProactivity = 'off' | 'low' | 'medium' | 'high';
+export type MessageOrganizationStyle = 'conversational' | 'balanced' | 'structured';
 
 export interface RichDeliveryPolicy {
-  multiBubble: { proactivity: RichDeliveryProactivity; maxBubbles: number };
+  multiBubble: {
+    proactivity: RichDeliveryProactivity;
+    maxBubbles: number;
+    organization?: MessageOrganizationStyle;
+  };
   image: { proactivity: RichDeliveryProactivity; explicitRequest: boolean };
   audio: { proactivity: RichDeliveryProactivity; explicitRequest: boolean };
   sticker: { proactivity: RichDeliveryProactivity; explicitRequest: boolean };
@@ -31,7 +36,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'professional',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'off', maxBubbles: 1 }, image: requestedOnlyDelivery, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
+    richDelivery: { multiBubble: { proactivity: 'off', maxBubbles: 1, organization: 'structured' }, image: requestedOnlyDelivery, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
   }],
   ['casual_room', {
     key: 'casual_room',
@@ -42,7 +47,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: { proactivity: 'high', explicitRequest: true } },
+    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5, organization: 'conversational' }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: { proactivity: 'high', explicitRequest: true } },
   }],
   ['discovery_room', {
     key: 'discovery_room',
@@ -53,7 +58,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 3 }, image: { proactivity: 'high', explicitRequest: true }, audio: { proactivity: 'low', explicitRequest: true }, sticker: { proactivity: 'low', explicitRequest: true } },
+    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 3, organization: 'balanced' }, image: { proactivity: 'high', explicitRequest: true }, audio: { proactivity: 'low', explicitRequest: true }, sticker: { proactivity: 'low', explicitRequest: true } },
   }],
   ['analytical_room', {
     key: 'analytical_room',
@@ -64,7 +69,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'professional',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 2 }, image: { proactivity: 'medium', explicitRequest: true }, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
+    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 3, organization: 'structured' }, image: { proactivity: 'medium', explicitRequest: true }, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
   }],
   ['companion_room', {
     key: 'companion_room',
@@ -75,7 +80,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'chat',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'high', explicitRequest: true }, sticker: { proactivity: 'medium', explicitRequest: true } },
+    richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5, organization: 'conversational' }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'high', explicitRequest: true }, sticker: { proactivity: 'medium', explicitRequest: true } },
   }],
   ['dramatic_room', {
     key: 'dramatic_room',
@@ -86,7 +91,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'creative',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 2 }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: requestedOnlyDelivery },
+    richDelivery: { multiBubble: { proactivity: 'medium', maxBubbles: 4, organization: 'balanced' }, image: { proactivity: 'medium', explicitRequest: true }, audio: { proactivity: 'medium', explicitRequest: true }, sticker: requestedOnlyDelivery },
   }],
   ['task_room', {
     key: 'task_room',
@@ -97,7 +102,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
       responseStyle: 'professional',
       allowMarkdown: true,
     },
-    richDelivery: { multiBubble: { proactivity: 'low', maxBubbles: 2 }, image: requestedOnlyDelivery, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
+    richDelivery: { multiBubble: { proactivity: 'low', maxBubbles: 3, organization: 'structured' }, image: requestedOnlyDelivery, audio: requestedOnlyDelivery, sticker: requestedOnlyDelivery },
   }],
 ]);
 

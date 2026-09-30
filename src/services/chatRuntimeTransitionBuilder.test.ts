@@ -92,6 +92,16 @@ function buildRelationshipMemory(id: string, ownerId: string, subjectIds: string
 }
 
 describe('buildRelationshipTransition', () => {
+  it('accepts a human message without an incoming interaction hint', () => {
+    const result = buildRelationshipTransition({
+      conversation: buildChat(),
+      characters: [buildCharacter('char-a', '甲')],
+      message: { type: 'user', senderId: 'user', content: '甲，你怎么看？' },
+      previousAiMessage: null,
+    });
+    expect(result.characterPatches).toEqual([]);
+  });
+
   it('applies a fast target emotion without inventing a lasting relationship delta', () => {
     const chat = buildChat();
     const speaker = buildCharacter('char-a', '甲');
@@ -106,6 +116,7 @@ describe('buildRelationshipTransition', () => {
         content: '你根本不配管这件事。',
         interactionHint: {
           kind: 'dismiss', actorId: 'char-a', targetId: 'char-b', intensity: 5, tone: 'sarcastic', evidenceText: '你根本不配管这件事。', confidence: 0.96,
+          immediateImpact: { targetEmotionDelta: { irritation: 34, embarrassment: 24 } },
         },
       },
       previousAiMessage: null,
@@ -131,8 +142,8 @@ describe('buildRelationshipTransition', () => {
         senderId: 'char-a',
         content: '你别装没听见。还有，这件事轮不到你替我决定。',
         interactionHints: [
-          { kind: 'probe', actorId: 'char-a', targetId: 'char-b', intensity: 3, tone: 'annoyed', evidenceText: '你别装没听见。', confidence: 0.92 },
-          { kind: 'challenge', actorId: 'char-a', targetId: 'char-b', intensity: 4, tone: 'defensive', evidenceText: '轮不到你替我决定。', confidence: 0.95 },
+          { kind: 'probe', actorId: 'char-a', targetId: 'char-b', intensity: 3, tone: 'annoyed', evidenceText: '你别装没听见。', confidence: 0.92, immediateImpact: { targetEmotionDelta: { irritation: 12 } } },
+          { kind: 'challenge', actorId: 'char-a', targetId: 'char-b', intensity: 4, tone: 'defensive', evidenceText: '轮不到你替我决定。', confidence: 0.95, immediateImpact: { targetEmotionDelta: { irritation: 18, insecurity: 14 } } },
         ],
       },
       previousAiMessage: null,
@@ -158,6 +169,7 @@ describe('buildRelationshipTransition', () => {
         content: '这一次我信你的判断。',
         interactionHint: {
           kind: 'support', actorId: 'char-a', targetId: 'char-b', intensity: 3, tone: 'warm', evidenceText: '这一次我信你的判断。', confidence: 0.94,
+          immediateImpact: { targetEmotionDelta: { affection: 12 } },
           relationship: { delta: { warmth: 2, competence: 3, trust: 4, threat: 0, attachment: 0, deference: 0 }, labels: ['认可'], stance: '更愿意托付判断' },
         },
       },
@@ -544,6 +556,7 @@ describe('buildWorldRuntimeEvents', () => {
       sourceEventIds: ['e1', 'e2'],
       sourceTag: 'memory_distillation',
       origin: 'distilled',
+      sharedPhrase: { text: '雨天加班券', kind: 'inside_joke', visibility: 'between_actors' },
       distilledFromIds: ['m1', 'm2'],
       distilledAt: 1_000,
       createdAt: 1_000,

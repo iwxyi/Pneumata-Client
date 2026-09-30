@@ -20,7 +20,8 @@ import { canApplyRelationshipInteraction, getRelationshipLedgerEntry, inferRelat
 import { calculateRoomShift } from '../roomStateSynthesizer';
 import { resolveRuntimeEvolutionConfig } from '../runtimeEvolutionConfig';
 import type { APIConfig } from '../../types/settings';
-import { getGuidanceTargetActorIds, parseUserGuidanceIntent } from '../userGuidanceIntent';
+import { getGuidanceTargetActorIds } from '../userGuidanceIntent';
+import { assessUserGuidance } from '../userGuidanceAssessment';
 import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 import { buildMomentPostText } from '../momentTextBuilder';
 import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
@@ -258,73 +259,6 @@ function buildPairPrivateThreadCandidateFromHint(params: {
     visibility: 'derived_public',
     payload,
   });
-}
-
-function buildPairPrivateThreadCandidate(params: {
-  conversation: GroupChat;
-  interaction: InteractionEventPayload | null;
-  relationshipLedger: GroupChat['relationshipLedger'];
-  structuredRoomState: GroupChat['worldState']['structuredRoomState'];
-  message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
-}): RuntimeEventV2 | null {
-  void params.interaction;
-  void params.relationshipLedger;
-  void params.structuredRoomState;
-  return buildPairPrivateThreadCandidateFromHint(params);
-}
-
-function buildAttentionDrivenCheckInCandidate(params: {
-  conversation: GroupChat;
-  characters: AICharacter[];
-  message: Pick<Message, 'content' | 'senderId'>;
-}): RuntimeEventV2 | null {
-  void params;
-  return null;
-}
-
-function buildAttentionDrivenReactMomentCandidate(params: {
-  conversation: GroupChat;
-  characters: AICharacter[];
-  message: Pick<Message, 'content' | 'senderId'>;
-}): RuntimeEventV2 | null {
-  void params;
-  return null;
-}
-
-function buildAttentionDrivenInviteActivityCandidate(params: {
-  conversation: GroupChat;
-  characters: AICharacter[];
-  message: Pick<Message, 'content' | 'senderId'>;
-}): RuntimeEventV2 | null {
-  void params;
-  return null;
-}
-
-function buildAttentionDrivenCalendarReminderCandidate(params: {
-  conversation: GroupChat;
-  characters: AICharacter[];
-  message: Pick<Message, 'content' | 'senderId'>;
-}): RuntimeEventV2 | null {
-  void params;
-  return null;
-}
-
-function buildAttentionDrivenComfortCandidate(params: {
-  conversation: GroupChat;
-  characters: AICharacter[];
-  message: Pick<Message, 'content' | 'senderId'>;
-}): RuntimeEventV2 | null {
-  void params;
-  return null;
-}
-
-function buildAttentionDrivenShareMomentCandidate(params: {
-  conversation: GroupChat;
-  characters: AICharacter[];
-  message: Pick<Message, 'content' | 'senderId'>;
-}): RuntimeEventV2 | null {
-  void params;
-  return null;
 }
 
 function buildPostMomentCandidateFromHint(params: {
@@ -630,17 +564,6 @@ function buildConflictExpressionCandidateFromHint(params: {
   });
 }
 
-function buildConflictExpressionCandidate(params: {
-  conversation: GroupChat;
-  interaction: InteractionEventPayload | null;
-  structuredRoomState: GroupChat['worldState']['structuredRoomState'];
-  message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
-}): RuntimeEventV2 | null {
-  void params.interaction;
-  void params.structuredRoomState;
-  return buildConflictExpressionCandidateFromHint(params);
-}
-
 function buildConflictExpressionArtifactEvents(params: {
   conversation: GroupChat;
   socialEventCandidates: RuntimeEventV2[];
@@ -782,59 +705,6 @@ function findLatestActorSocialArtifact(chat: GroupChat, actorId: string, created
     .sort((left, right) => right.createdAt - left.createdAt)[0];
 }
 
-function normalizeLooseText(value: string) {
-  return value
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[，。！？、,.!?:;：；“”"'‘’（）()【】[\]-]/g, '');
-}
-
-function matchesFollowupFocus(focus: string | null | undefined, text: string) {
-  const normalizedFocus = normalizeLooseText(focus || '');
-  if (!normalizedFocus) return true;
-  const normalizedText = normalizeLooseText(text || '');
-  if (!normalizedText) return false;
-  if (normalizedText.includes(normalizedFocus.slice(0, Math.min(6, normalizedFocus.length)))) return true;
-  const chunks = normalizedFocus.split(/(?:和|并|再|先|后|然后|并且)/).filter((item) => item.length >= 2);
-  return chunks.some((chunk) => normalizedText.includes(chunk.slice(0, Math.min(4, chunk.length))));
-}
-
-function hasRecentCompletedAttentionFollowup(
-  chat: GroupChat,
-  actorId: string,
-  targetId: string | undefined,
-  createdAt: number,
-  windowMs: number,
-) {
-  const events = chat.runtimeEventsV2 || [];
-  for (let index = events.length - 1; index >= 0; index -= 1) {
-    const event = events[index]!;
-    if (event.createdAt >= createdAt || createdAt - event.createdAt > windowMs) continue;
-    if (event.kind !== 'director_intervention') continue;
-    const payload = typeof event.payload === 'object' && event.payload !== null ? event.payload as Record<string, unknown> : null;
-    if (!payload) continue;
-    const eventType = typeof payload.eventType === 'string' ? payload.eventType : '';
-    if (eventType !== 'attention_followup_user' && eventType !== 'attention_followup_member') continue;
-    const followupActorId = typeof payload.actorId === 'string' ? payload.actorId : '';
-    if (followupActorId !== actorId) continue;
-    if (eventType === 'attention_followup_member') {
-      const followupTargetId = typeof payload.targetId === 'string' ? payload.targetId : '';
-      if (!targetId || followupTargetId !== targetId) continue;
-    }
-    const focus = typeof payload.focus === 'string' ? payload.focus : '';
-    const completion = events.find((candidate) => {
-      if (candidate.createdAt <= event.createdAt || candidate.createdAt >= createdAt) return false;
-      if (candidate.kind !== 'message_generated') return false;
-      if ((candidate.actorIds || [])[0] !== actorId) return false;
-      const candidatePayload = typeof candidate.payload === 'object' && candidate.payload !== null ? candidate.payload as Record<string, unknown> : null;
-      const text = typeof candidatePayload?.text === 'string' ? candidatePayload.text : candidate.summary;
-      return matchesFollowupFocus(focus, text || '');
-    });
-    if (completion) return true;
-  }
-  return false;
-}
-
 function resolveAttentionRestraintFailureDetail(chat: GroupChat, payload: SocialEventCandidatePayload, createdAt: number): {
   detail: string;
   hitEventId?: string;
@@ -935,33 +805,6 @@ void buildGiftExchangeArtifactEvents;
 void buildStatusUpdateCandidate;
 void buildStatusUpdateCandidateFromHint;
 void buildStatusUpdateArtifactEvents;
-
-function buildRecentSocialEventContext(chat: GroupChat, eventKind?: SocialEventCandidatePayload['eventKind']) {
-  return (chat.runtimeEventsV2 || [])
-    .filter((event) => event.kind === 'event_candidate' || event.kind === 'artifact')
-    .filter((event) => {
-      const payload = event.payload as Record<string, unknown>;
-      return typeof payload.eventKind === 'string' && (!eventKind || payload.eventKind === eventKind);
-    })
-    .slice(-8)
-    .map((event) => {
-      const payload = event.payload as Record<string, unknown>;
-      return {
-        title: typeof payload.title === 'string' ? payload.title : undefined,
-        activityType: typeof payload.activityType === 'string' ? payload.activityType : null,
-        timeHint: typeof payload.timeHint === 'string' ? payload.timeHint : null,
-        locationHint: typeof payload.locationHint === 'string' ? payload.locationHint : null,
-        dedupeKey: typeof payload.dedupeKey === 'string' ? payload.dedupeKey : null,
-        participantIds: Array.isArray(payload.participantIds) ? payload.participantIds.filter((id): id is string => typeof id === 'string') : [],
-        targetIds: Array.isArray(event.targetIds) ? event.targetIds : [],
-        summary: event.summary,
-      };
-    });
-}
-
-function buildCharacterReference(characters: AICharacter[]) {
-  return characters.map((character) => `- id=${character.id}; name=${character.name}`).join('\n');
-}
 
 async function resolveSocialEventHints(params: {
   conversation: GroupChat;
@@ -1144,29 +987,6 @@ function buildRejectedSocialOutingHintDiagnostic(params: {
       source: 'model_structured_output',
     },
   });
-}
-
-function buildCalendarItemIdForSocialOuting(event: RuntimeEventV2) {
-  const payload = event.payload as Partial<SocialEventCandidatePayload> & Record<string, unknown>;
-  if (typeof payload.dedupeKey === 'string' && payload.dedupeKey.trim()) return payload.dedupeKey.trim();
-  return [
-    typeof payload.eventKind === 'string' ? payload.eventKind : '',
-    typeof payload.title === 'string' ? payload.title : '',
-    typeof payload.activityType === 'string' ? payload.activityType : '',
-    typeof payload.timeHint === 'string' ? payload.timeHint : '',
-    typeof payload.locationHint === 'string' ? payload.locationHint : '',
-    Array.isArray(payload.participantIds) ? payload.participantIds.filter((id): id is string => typeof id === 'string').sort().join(',') : '',
-  ].join('::');
-}
-
-function findRecentSocialOutingCalendarItemId(conversation: GroupChat) {
-  const latest = [...(conversation.runtimeEventsV2 || [])]
-    .reverse()
-    .find((event) => {
-      const payload = event.payload as { eventKind?: string };
-      return event.kind === 'event_candidate' && payload.eventKind === 'social_outing';
-    });
-  return latest ? buildCalendarItemIdForSocialOuting(latest) : '';
 }
 
 function normalizeSemanticText(value: string | null | undefined) {
@@ -1410,10 +1230,6 @@ function findRecentMomentBackflowEventId(chat: GroupChat, payload: SocialEventCa
   return matched?.id || null;
 }
 
-function shouldAutoBackflowOuting(chat: GroupChat, payload: SocialEventCandidatePayload, createdAt: number) {
-  return !(chat.runtimeEventsV2 || []).some((event) => event.kind === 'artifact' && (event.payload as { artifactType?: string; eventKind?: string }).artifactType === 'outing_summary' && (event.payload as { eventKind?: string }).eventKind === 'social_outing' && buildCandidateClusterKey(event.payload as SocialEventCandidatePayload) === buildCandidateClusterKey(payload) && event.createdAt >= createdAt);
-}
-
 function findRecentOutingBackflowEventId(chat: GroupChat, payload: SocialEventCandidatePayload, createdAt: number) {
   const matched = (chat.runtimeEventsV2 || []).find((event) => event.kind === 'artifact'
     && (event.payload as { artifactType?: string; eventKind?: string }).artifactType === 'outing_summary'
@@ -1459,27 +1275,6 @@ function inferNextSuggestedAtFromSuppression(
   const baseAt = hitEvent?.createdAt || event.createdAt;
   const nextAt = baseAt + windowMs;
   return nextAt > event.createdAt ? nextAt : undefined;
-}
-
-function hasPendingCandidateSuppression(
-  chat: GroupChat,
-  actorId: string,
-  eventKind: SocialEventCandidatePayload['eventKind'],
-  now: number,
-) {
-  return (chat.runtimeEventsV2 || []).some((event) => {
-    if (event.kind !== 'action_resolution') return false;
-    if ((event.actorIds || [])[0] !== actorId) return false;
-    const payload = event.payload as {
-      eventType?: string;
-      candidateEventKind?: string;
-      nextSuggestedAt?: number;
-    };
-    return payload.eventType === 'event_candidate_suppressed'
-      && payload.candidateEventKind === eventKind
-      && typeof payload.nextSuggestedAt === 'number'
-      && payload.nextSuggestedAt > now;
-  });
 }
 
 function resolveCandidateSuppression(chat: GroupChat, event: RuntimeEventV2, characters: AICharacter[], batchCandidates: RuntimeEventV2[]): Omit<CandidateSuppressionRecord, 'event'> | null {
@@ -1689,19 +1484,6 @@ void mergeRuntimeEventsWithCompaction;
 void buildNonCandidateAdditions;
 void mergeCompactedRuntimeEvents;
 
-function buildSocialOutingCandidate(params: {
-  conversation: GroupChat;
-  characters: AICharacter[];
-  interaction: InteractionEventPayload | null;
-  structuredRoomState: GroupChat['worldState']['structuredRoomState'];
-  message: Pick<Message, 'content' | 'senderId'> & { socialEventHints?: SocialEventHintEnvelope[] | null };
-}): RuntimeEventV2 | null {
-  void params.characters;
-  void params.interaction;
-  void params.structuredRoomState;
-  return buildSocialOutingCandidateFromHint(params);
-}
-
 function buildSocialEventCandidates(params: {
   conversation: GroupChat;
   characters: AICharacter[];
@@ -1839,10 +1621,26 @@ async function buildStructuredRuntime(params: {
     const isUserPersonaMessage = params.message.type === 'user' && params.message.senderId === 'user';
     const treatAsGuidance = params.message.type === 'god' || !senderIsMember;
     const summary = params.message.content.trim().slice(0, 128);
-    const guidance = params.message.type === 'god' ? parseUserGuidanceIntent(params.message.content, params.characters) : null;
+    const guidance = (treatAsGuidance || isUserPersonaMessage) ? await assessUserGuidance({
+      config: params.apiConfig,
+      chat: params.conversation,
+      characters: params.characters,
+      message: params.message,
+      recentMessages: params.recentMessages,
+    }) : null;
     const targetActorIds = getGuidanceTargetActorIds(guidance);
-    const mentionedActorIds: string[] = [];
+    const mentionedActorIds = guidance?.mentionedActorIds || [];
     const directorTargetActorIds = targetActorIds;
+    const shouldCreateGuidanceEvent = Boolean(
+      guidance
+      && summary
+      && (treatAsGuidance
+        || guidance.kind !== 'topic_shift'
+        || targetActorIds.length
+        || guidance.hasHardConstraints
+        || guidance.suppressedActorIds?.length
+        || guidance.deferredActorIds?.length),
+    );
     const cueEvent = summary && isUserPersonaMessage ? createRuntimeEventV2({
       conversationId: params.conversation.id,
       kind: 'memory_candidate',
@@ -1861,8 +1659,7 @@ async function buildStructuredRuntime(params: {
     const userRoomShiftEvent: RuntimeEventV2 | null = null;
     const userRelationshipDeltaEvent: RuntimeEventV2 | null = null;
     const userMemoryFromInteraction = userInteractionEvent ? buildMemoryCandidateFromStructuredEvent(userInteractionEvent) : null;
-    const userMemoryFromRoomShift = userRoomShiftEvent ? buildMemoryCandidateFromStructuredEvent(userRoomShiftEvent) : null;
-    const directorEvent = summary && params.message.type === 'god' ? createRuntimeEventV2({
+    const directorEvent = shouldCreateGuidanceEvent && guidance ? createRuntimeEventV2({
       conversationId: params.conversation.id,
       kind: 'director_intervention',
       summary: guidance?.reason || `主持人指令：${summary}`,
@@ -1888,14 +1685,10 @@ async function buildStructuredRuntime(params: {
         text: guidance?.rawText || summary,
         maxTurns: guidance?.maxTurns || 1,
         expiresAt: Date.now() + 10 * 60_000,
-        userGuidance: guidance ? guidance as unknown as Record<string, unknown> : {
-          rawText: summary,
-          targetActorIds: directorTargetActorIds,
-          decisionSource: 'fallback_director_intervention',
-        },
+        userGuidance: guidance as unknown as Record<string, unknown>,
       } satisfies DirectorInterventionPayload,
     }) : null;
-    const attentionTargetIds: string[] = [];
+    const attentionTargetIds = isUserPersonaMessage ? targetActorIds : [];
     const attentionEvent = isUserPersonaMessage && attentionTargetIds.length ? createRuntimeEventV2({
       conversationId: params.conversation.id,
       kind: 'attention_candidate',
@@ -1918,7 +1711,6 @@ async function buildStructuredRuntime(params: {
       userRelationshipDeltaEvent,
       userRoomShiftEvent,
       userMemoryFromInteraction,
-      userMemoryFromRoomShift,
       attentionEvent,
       directorEvent,
     ].filter(Boolean) as RuntimeEventV2[];
@@ -2061,6 +1853,7 @@ async function buildStructuredRuntime(params: {
   const { nextState: structuredRoomState, shift: roomShift } = calculateRoomShift(
     params.conversation.worldState.structuredRoomState || null,
     allInteractions,
+    { semanticSource: 'model' },
   );
 
   const relationshipDelta = inferRelationshipDelta(interaction);
@@ -2564,6 +2357,7 @@ export const openChatEngine: SessionEngineDefinition = createDefaultConversation
   key: 'open_chat',
   createInitialConfig: () => ({ ...DEFAULT_OPEN_CHAT_MODE_CONFIG, sessionFamily: 'conversation', scenarioId: 'open-chat' }),
   createInitialState: () => DEFAULT_OPEN_CHAT_MODE_STATE,
+  buildRuntimeContextBundle,
   onMessageCommitted,
 });
 

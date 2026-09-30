@@ -463,6 +463,7 @@ async function runRichMediaQueueEntry(entry: RichMediaQueueEntry) {
         aspectRatio: attachment.aspectRatio,
         imageSize: attachment.imageSize,
         allowCharacterReferenceImages: true,
+        useCharacterReferenceImages: true,
         negativePrompt: visualCharacter?.visualIdentity?.negativePrompt,
         seed: visualCharacter?.visualIdentity?.seed,
         aiUsage: {

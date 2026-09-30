@@ -147,7 +147,17 @@ function describeSocialJob(plan: ConversationMovePlan, intent: SpeakIntent) {
 }
 
 function describeEmotion(innerLife: InnerLifeProjection) {
-  const pressure = innerLife.pressure >= 0.65 ? 'visible' : innerLife.pressure >= 0.42 ? 'subtle' : 'background';
+  // A strong stored affect or directed interaction is itself pressure. The
+  // old threshold used only the generic impulse pressure, so a character with
+  // visible irritation could be described as "low pressure / stay silent" in
+  // the same prompt. That contradiction made the model average the signals
+  // into the detached, agreeable voice users were seeing.
+  const affectPressure = innerLife.activeAffect?.pressure || 0;
+  const emotionPressure = innerLife.dominantEmotion
+    ? Math.min(1, Math.max(0, innerLife.dominantEmotion.value) / 100)
+    : 0;
+  const pressureValue = Math.max(innerLife.pressure, affectPressure, emotionPressure * 0.9);
+  const pressure = pressureValue >= 0.65 ? 'visible' : pressureValue >= 0.42 ? 'subtle' : 'background';
   const impulseMap: Record<string, string> = {
     answer: 'answer because addressed',
     show_off: 'wants a little room authority',
@@ -159,7 +169,9 @@ function describeEmotion(innerLife: InnerLifeProjection) {
     mock: 'teasing or needling',
     avoid: 'low-energy avoidance',
     change_topic: 'wants to move away from the pressure',
-    stay_silent: 'low internal pressure',
+    stay_silent: pressureValue >= 0.42
+      ? 'holding the reaction back despite active feeling'
+      : 'low internal pressure',
     send_emoji: 'small social signal',
     withdraw: 'pulling back',
   };
@@ -190,10 +202,16 @@ function describeRequiredChange(input: BuildTurnDirectiveInput, hasNarrativePres
   const recentAi = input.messages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-5);
   const repeatedPracticalAdvance = recentAi.length >= 4
     && recentAi.every((message) => message.content.length >= 24);
-  if (hasNarrativePressure || repeatedPracticalAdvance) {
+  if (hasNarrativePressure) {
     return 'make one observable state change: shift who has leverage, expose a preference or vulnerability, impose or accept a cost, deepen or strain a bond, force a choice, or make the prior plan emotionally harder to carry out. Advancing the task with one more fact or assignment is not enough';
   }
-  return 'leave a visible residue in stance, attention, permission, trust, face, obligation, or choice; a small change is enough, but pure topic continuation is not';
+  if (input.innerLife.pressure >= 0.58 || (input.innerLife.activeAffect?.pressure || 0) >= 0.35) {
+    return 'let the active feeling cause one perceptible change in timing, confidence, closeness, face, permission, or choice; do not replace it with another task summary';
+  }
+  if (repeatedPracticalAdvance) {
+    return 'the room has already advanced the practical plan several times; an honest reaction, doubt, joke, refusal, side concern, or clean landing is more useful than another assignment';
+  }
+  return 'no mandatory plot or task change; a specific reaction, partial answer, changed attention, or natural landing is enough';
 }
 
 function describeExpression(input: BuildTurnDirectiveInput) {
@@ -205,7 +223,7 @@ function describeExpression(input: BuildTurnDirectiveInput) {
     : input.turnPlan.rhythm === 'micro_ack'
       ? 'a tiny reaction is valid'
       : input.turnPlan.rhythm === 'multi_bubble'
-        ? 'one bubble by default; split only for a real afterthought'
+        ? 'a real afterthought may change the turn, but rhythm does not decide message count'
         : 'one compact live-chat move by default';
   const styleLine = style === 'analytical'
     ? 'use distinctions or tradeoffs only when they advance the point'
@@ -283,6 +301,10 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
   if (input.runtimeBundle?.trace?.hotspotState === 'hot') {
     forbiddenDrift.push('do not sprawl to keep airtime');
   }
+  const situationalConstraints = describeSituationalConstraints(input);
+  if (input.runtimeBundle?.trace?.hotspotState === 'hot') {
+    situationalConstraints.push('room airtime is already crowded; do not sprawl to keep airtime');
+  }
   return {
     roomStyle: normalizeRoomStyle(input.styleProfile),
     characterDrive: deriveCharacterTurnDrive({
@@ -291,6 +313,7 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
       messages: input.messages,
       innerLife: input.innerLife,
       targetActorId,
+      targetMessageId: input.conversationMovePlan.targetMessageId,
       targetName,
       sharedRelationshipFacts,
       includeRelationshipNote: true,
@@ -305,44 +328,33 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
     requiredChange: describeRequiredChange(input, Boolean(narrativePressure)),
     expressionShape: describeExpression(input),
     userConstraint: describeUserConstraint(input.userGuidance),
-    situationalConstraints: describeSituationalConstraints(input),
+    situationalConstraints,
     forbiddenDrift,
   };
 }
 
 export function buildTurnDirectivePrompt(directive: TurnDirective | null | undefined) {
   if (!directive) return '';
-  const targetLine = directive.targetName ? `\n- Attention target for interpretation only: ${directive.targetName}; this is not an instruction to visibly address them by name.` : '';
+  const targetLine = directive.targetName ? ` The live attention is on ${directive.targetName}, but their name belongs in the visible reply only if saying it performs a real social action.` : '';
   const userLine = directive.userConstraint ? `\n- User constraint: ${directive.userConstraint}.` : '';
   const situationalLine = directive.situationalConstraints.length
     ? `\n- Situational constraints: ${directive.situationalConstraints.join('; ')}.`
     : '';
   const relationshipAction = directive.characterDrive.relationalAction === 'situated'
-    ? 'let the target-specific relationship evidence decide the action; do not map one axis to a preset reaction'
+    ? 'not predetermined; infer it from the target-specific evidence below'
     : directive.characterDrive.relationalAction;
   const affectBeat = directive.emotionalUndercurrent.includes('Directed')
     ? '\n- Fast-emotion beat: make the first visible beat acknowledge the spike through a choice of wording, interruption, defensiveness, warmth, or a sudden stop. If the speaker expresses it, let the pressure ease somewhat afterward, but leave one specific residue that can affect the next turn; do not resolve it with a polished apology or generic reassurance.'
     : directive.emotionalUndercurrent.startsWith('visible:')
       ? '\n- Fast-emotion beat: let the opening beat visibly carry this pressure before facts, repair, or logistics take over. If the turn softens, make that change of footing perceptible instead of beginning at the already-calm conclusion.'
     : '';
-  return `\n## Turn Directive
-- This is the single behavior decision for this ordinary group-chat turn. Character drive is the primary behavior decision; the social job is only a secondary realization option. Never replace the drive with generic room management.
-- Do not recite the room's agenda, redistribute the same terms, or produce a cleaned-up consensus merely because the social job is to advance the topic. Let this speaker's own stake, blind spot, memory, irritation, affection, uncertainty, or appetite change what they notice and whether they agree.
-- A believable reply may leave part of the proposal untouched, seize on one word, object to the framing, make an aside, concede reluctantly, ask for something personal, or stop after a small reaction. It does not need to carry every prior condition forward.
-- Room style: ${directive.roomStyle}.${targetLine}
-- Personal stake: ${directive.characterDrive.stake}.
-- Felt reaction now: ${directive.characterDrive.feltReaction}.
-- Immediate want: ${directive.characterDrive.immediateWant}.
-- Immediate social risk: ${directive.characterDrive.immediateRisk}.
-- Relationship action: ${relationshipAction}.
-- Observable relationship move: ${directive.characterDrive.observableMove}.
-- Attention lens: ${directive.characterDrive.attentionLens}.
-- Speaking necessity: ${directive.characterDrive.speakingNecessity}; a turn marked let_silence_stand may be brief, partial, or omitted when the runtime allows it.
-- Social job: ${directive.socialJob}.
-- Relationship effect: ${directive.relationshipEffect}.
-- Active dramatic line: ${directive.narrativePressure || 'none stored; use the immediate interpersonal consequence rather than inventing lore'}.
-- Required state change: ${directive.requiredChange}.
-- Inner undercurrent: ${directive.emotionalUndercurrent}.${affectBeat}${situationalLine}
-- Expression shape: ${directive.expressionShape}.${userLine}
-- Forbidden drift: ${directive.forbiddenDrift.join('; ')}.`;
+  return `\n## Turn Directive — This Person in This Moment
+- Read the exchange from inside this person, not as a moderator planning the next useful contribution.${targetLine}
+- Personal meaning: ${directive.characterDrive.stake}. The latest moment lands as ${directive.characterDrive.feltReaction}. They want to ${directive.characterDrive.immediateWant}, while risking ${directive.characterDrive.immediateRisk}.
+- Relationship pull: ${relationshipAction}. ${directive.relationshipEffect}. Do not announce or explain the relationship; let it bend what is noticed, forgiven, challenged, joked about, withheld, or remembered.
+- Attention: ${directive.characterDrive.attentionLens}. ${directive.socialJob} is one available move, not an obligation. They may answer only part, react to an earlier line, interrupt, tease, misunderstand, dodge, change footing, send a low-information social signal, or let the moment rest.
+- Emotional weather: ${directive.emotionalUndercurrent}.${affectBeat}
+- Possible consequence, not a quota: ${directive.requiredChange}. Dramatic line: ${directive.narrativePressure || 'none; do not invent one'}.
+- Visible shape: ${directive.expressionShape}. Before writing, silently decide what this moment means to this person and what they would rather not say; write the imperfect line that escapes through their habits, not a complete explanation of the plan.${userLine}${situationalLine}
+- Keep only essential constraints: do not copy a recent sentence frame, expose internal fields, or use a name as automatic reply formatting. Other recent lines remain available as social history; the last line is not automatically the only target.`;
 }

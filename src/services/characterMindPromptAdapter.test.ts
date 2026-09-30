@@ -52,6 +52,21 @@ function projection(overrides: Partial<CharacterMindProjection> = {}): Character
 }
 
 describe('characterMindPromptAdapter', () => {
+  it('does not fall back to untyped projection prose when structured recall selection supplied no cues', () => {
+    const value = projection();
+    value.continuity.relationshipMemories = ['一段没有披露级别的关系细节'];
+
+    const result = adaptCharacterMindProjectionForPrompt(value, {
+      chatType: 'group',
+      visibility: 'public',
+      visibleRecallCues: [],
+      renderVisibleRecallCues: true,
+    });
+
+    expect(result.visibleRecallInput).toEqual([]);
+    expect(result.promptBlock).not.toContain('一段没有披露级别的关系细节');
+  });
+
   it('keeps public group prompts safe while preserving continuity as behavioral pressure', () => {
     const output = adaptCharacterMindProjectionForPrompt(projection(), {
       chatType: 'group',
