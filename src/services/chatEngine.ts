@@ -1374,8 +1374,11 @@ function inferCharacterRoleFit(character: AICharacter, text: string): ResponseSu
     || /(专家|教授|老师|工程师|医生|律师|作家|编辑|面试官|研究员|顾问|经理|架构师|评论家|编剧|导演)/i.test(profileText)
     || character.behavior.summarizing >= 72
     || character.speechProfile?.sentenceLengthBias === 'long';
-  const explicitPersonalTask = new RegExp(`${character.name}.{0,12}(写|分析|讲|解释|出题|评审|展开)`).test(text);
-  if (expertLike || explicitPersonalTask) return 'capable';
+  // Whether a character is being assigned a task is a semantic decision made by
+  // the model. The local runtime only uses the character's structured profile;
+  // scanning the latest text for a name plus a verb creates false assignments.
+  void text;
+  if (expertLike) return 'capable';
   if (childLike || character.speechProfile?.sentenceLengthBias === 'short' || character.behavior.summarizing <= 28) return 'limited';
   return 'ordinary';
 }
@@ -3827,7 +3830,6 @@ function resolveRecentTargetIdForSpeaker(chat: GroupChat, speaker: AICharacter, 
     ...(addressedMessage.addressedTargetIds || []),
   ].filter(Boolean);
   if (addressedTargetIds.includes(speaker.id)) return latestAi.senderId;
-  if (latestAi.content.includes(speaker.name)) return latestAi.senderId;
   return undefined;
 }
 
