@@ -329,6 +329,31 @@ describe('scheduler speaker scoring', () => {
     ])).toBeNull();
   });
 
+  it('returns to an overdue explicit addressee when newer exchanges keep arriving', () => {
+    const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙'), buildCharacter('c', '丙')];
+    const addressed = buildMessage({ id: 'm1', senderId: 'a', content: '丙，请你审一下风险。', timestamp: 1 }) as Message & {
+      addressedTargetIds: string[];
+      primaryAddressedTargetId: string;
+    };
+    addressed.addressedTargetIds = ['c'];
+    addressed.primaryAddressedTargetId = 'c';
+    const newer = buildMessage({ id: 'm2', senderId: 'b', content: '甲，口径你定。', timestamp: 2 }) as Message & {
+      addressedTargetIds: string[];
+    };
+    newer.addressedTargetIds = ['a'];
+    expect(resolvePendingReplyContext(characters, [addressed, newer])?.primaryTargetId).toBe('a');
+
+    const continued = buildMessage({ id: 'm3', senderId: 'a', content: '乙，按这个口径做。', timestamp: 3 }) as Message & {
+      addressedTargetIds: string[];
+    };
+    continued.addressedTargetIds = ['b'];
+    expect(resolvePendingReplyContext(characters, [addressed, newer, continued])).toMatchObject({
+      primaryTargetId: 'c',
+      sourceMessageId: 'm1',
+      unmetTurns: 2,
+    });
+  });
+
   it('does not force an unspoken member into an ordinary multi-character exchange', () => {
     const now = Date.now();
     const candidates = calculateWeights(

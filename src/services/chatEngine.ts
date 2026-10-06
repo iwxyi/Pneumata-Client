@@ -91,6 +91,7 @@ function reconcileAddressedTargets(
   envelope: AddressedTargetHintEnvelope | null | undefined,
   validTargetIds: ReadonlySet<string>,
   interactionHints: InteractionEventPayload[] = [],
+  soleConversationPartnerId?: string | null,
 ): ReconciledAddressedTargets {
   const explicitTargetIds = Array.from(new Set((envelope?.targetIds || []).filter((id): id is string => (
     typeof id === 'string' && id.trim().length > 0 && validTargetIds.has(id)
@@ -101,6 +102,9 @@ function reconcileAddressedTargets(
       .filter((hint) => isReplyWorthyInteractionKind(hint.kind))
       .map((hint) => hint.targetId)
       .filter((id): id is string => typeof id === 'string' && validTargetIds.has(id))));
+  if (!targetIds.length && soleConversationPartnerId && validTargetIds.has(soleConversationPartnerId)) {
+    targetIds.push(soleConversationPartnerId);
+  }
   const primaryTargetId = typeof envelope?.primaryTargetId === 'string'
     && targetIds.includes(envelope.primaryTargetId)
     ? envelope.primaryTargetId
@@ -4290,10 +4294,17 @@ export async function generateSpeakerMessage(params: {
     throw new EmptyGeneratedResponseError(params.speaker.name, { localInterceptionReported: true, reason: 'empty_content' });
   }
 
+  const otherMemberIds = params.chat.memberIds.filter((memberId) => memberId !== params.speaker.id);
+  const soleConversationPartnerId = params.chat.type === 'direct'
+    ? 'user'
+    : params.chat.type === 'ai_direct' && otherMemberIds.length === 1
+      ? otherMemberIds[0]
+      : undefined;
   const addressedTargets = reconcileAddressedTargets(
     generated.parsedEnvelope?.addressedTargets,
-    new Set(params.chat.memberIds.filter((memberId) => memberId !== params.speaker.id)),
+    new Set([...params.chat.memberIds.filter((memberId) => memberId !== params.speaker.id), ...(params.chat.type === 'direct' ? ['user'] : [])]),
     normalizeInteractionHintCollection(generated.parsedEnvelope?.interactionHints || null, params.speaker.id, generated.fullResponse || generated.rawResponse || ''),
+    soleConversationPartnerId,
   );
 
   const msgEmotion = analyzeEmotion(generatedStoryResponse);

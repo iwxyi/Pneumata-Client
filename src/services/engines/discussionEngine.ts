@@ -507,6 +507,15 @@ function onMessageCommitted(params: {
   const nextEvidence = appendCappedMany(params.conversation.scenarioState?.deliberationEvidence, modelArtifacts.evidence);
   const nextIssues = appendCappedMany(params.conversation.scenarioState?.deliberationIssues, modelArtifacts.issues);
   const nextVerdicts = appendCappedMany(params.conversation.scenarioState?.deliberationVerdicts, modelArtifacts.verdicts, 6);
+  const projectedCounts = {
+    claims: nextClaims.length,
+    evidence: nextEvidence.length,
+    issues: nextIssues.length,
+    verdicts: nextVerdicts.length,
+    summaries: modelArtifacts.summaryText
+      ? 1
+      : params.conversation.scenarioState?.summaryText ? 1 : 0,
+  };
   return {
     chatPatch: {
       scenarioState: {
@@ -525,6 +534,7 @@ function onMessageCommitted(params: {
         deliberationEvidence: nextEvidence,
         deliberationIssues: nextIssues,
         deliberationVerdicts: nextVerdicts,
+        deliberationArtifactCounts: projectedCounts,
         deliberationMomentum: buildDeliberationMomentum(nextClaims),
         summaryText: modelArtifacts.summaryText || params.conversation.scenarioState?.summaryText,
       },

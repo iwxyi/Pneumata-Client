@@ -233,9 +233,12 @@ export function resolvePendingReplyContext(characters: AICharacter[], recentMess
   // to be last. Scan backwards so an interruption does not erase an earlier
   // direct address; speaking once after the address settles that actor's debt.
   const recentWindow = recentAiMessages.slice(-12);
-  let sourceMessage: Message | null = null;
-  let targetIds: string[] = [];
-  let explicitTargetIds: string[] = [];
+  const pending: Array<{
+    sourceMessage: Message;
+    targetIds: string[];
+    explicitTargetIds: string[];
+    unmetTurns: number;
+  }> = [];
   for (let sourceIndex = recentWindow.length - 1; sourceIndex >= 0; sourceIndex -= 1) {
     const candidate = recentWindow[sourceIndex] as Message & { addressedTargetIds?: string[] | null; primaryAddressedTargetId?: string | null };
     const explicit = (candidate.primaryAddressedTargetId ? [candidate.primaryAddressedTargetId] : [])
@@ -255,12 +258,20 @@ export function resolvePendingReplyContext(characters: AICharacter[], recentMess
           && message.metadata?.turnSegment?.count === segment.count
           && message.metadata.turnSegment.index === segment.count - 1)
       : null;
-    sourceMessage = turnEnd || candidate;
-    targetIds = unresolvedTargets;
-    explicitTargetIds = explicit.filter((targetId) => unresolvedTargets.includes(targetId));
-    break;
+    const sourceMessage = turnEnd || candidate;
+    pending.push({
+      sourceMessage,
+      targetIds: unresolvedTargets,
+      explicitTargetIds: explicit.filter((targetId) => unresolvedTargets.includes(targetId)),
+      unmetTurns: countUnmetTurns(recentAiMessages, unresolvedTargets[0], sourceMessage.id),
+    });
   }
-  if (!sourceMessage || !targetIds.length) return null;
+  // A newer exchange may take one turn, but cannot indefinitely displace an
+  // explicit request already waiting through two other speakers' turns.
+  const selected = pending.filter((item) => item.explicitTargetIds.length && item.unmetTurns >= 2).at(-1)
+    || pending[0];
+  if (!selected) return null;
+  const { sourceMessage, targetIds, explicitTargetIds } = selected;
 
   const primaryTargetId = explicitTargetIds.find((targetId) => targetIds.includes(targetId)) || targetIds[0] || null;
   if (!primaryTargetId) return null;

@@ -1157,6 +1157,51 @@ describe('chatEngine streaming preview', () => {
     expect(message.primaryAddressedTargetId).toBeNull();
   });
 
+  it('records the sole direct-chat partner without reading the reply wording', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '嗯，我在。',
+      addressedTargets: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ type: 'direct', memberIds: ['mei'] }),
+      speaker: mei,
+      characters: [mei],
+      messages: [buildUserMessage('还在吗？', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.addressedTargetIds).toEqual(['user']);
+    expect(message.primaryAddressedTargetId).toBe('user');
+  });
+
+  it('records the sole AI-private partner without reading the reply wording', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '嗯，我听见了。',
+      addressedTargets: null,
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const a = buildCharacter('a', '甲');
+    const b = buildCharacter('b', '乙');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ type: 'ai_direct', memberIds: ['a', 'b'] }),
+      speaker: a,
+      characters: [a, b],
+      messages: [buildAiMessage('b', '乙', '我先说。', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.addressedTargetIds).toEqual(['b']);
+    expect(message.primaryAddressedTargetId).toBe('b');
+  });
+
   it('keeps model-addressed targets authoritative when other members are only mentioned', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
