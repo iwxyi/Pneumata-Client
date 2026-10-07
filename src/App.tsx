@@ -1,4 +1,4 @@
-import { lazy as reactLazy, Suspense, useMemo, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useMemo, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Box, Button, Dialog, DialogActions, DialogContent, DialogTitle, LinearProgress, ThemeProvider, CssBaseline, Typography, useMediaQuery } from '@mui/material';
 import { createAppTheme } from './theme';
@@ -122,24 +122,6 @@ const [
   loadAdminSendRecordsPage,
   loadAdminProfilePage,
 ] = routePreloaders;
-
-// A remote Vite browser can retain an old HMR module URL after the dev server
-// restarts. Recover once before surfacing the import error instead of leaving
-// the route (and often the whole page) blank.
-const lazy = (loader: Parameters<typeof reactLazy>[0]) => reactLazy(async () => {
-  try {
-    const module = await loader();
-    sessionStorage.removeItem(`pneumata:module-recovery:${window.location.pathname}`);
-    return module;
-  } catch (error) {
-    const reloadKey = `pneumata:module-recovery:${window.location.pathname}`;
-    if (sessionStorage.getItem(reloadKey) !== '1') {
-      sessionStorage.setItem(reloadKey, '1');
-      window.location.reload();
-    }
-    throw error;
-  }
-});
 
 const HomePage = lazy(loadHomePage);
 const ChatListPage = lazy(loadChatListPage);
