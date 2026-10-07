@@ -169,6 +169,31 @@ describe('turnDirective', () => {
     expect(prompt).not.toContain('Active target: 陈越');
   });
 
+  it('keeps planning labels out of the visible dialogue contract', () => {
+    const prompt = buildTurnDirectivePrompt({
+      roomStyle: 'casual',
+      characterDrive: {
+        stake: '不想让对方一个人扛着',
+        feltReaction: '有点心软又嘴硬',
+        immediateWant: '让对方知道自己在听',
+        immediateRisk: '显得过分认真',
+        attentionLens: '对方话里的犹豫',
+        relationalAction: 'situated',
+      },
+      socialJob: 'show social support while keeping independent judgment',
+      emotionalUndercurrent: 'subtle: protective warmth',
+      relationshipEffect: 'treat the relationship as evidence',
+      requiredChange: 'a specific reaction is enough',
+      expressionShape: 'ordinary wording',
+      situationalConstraints: [],
+      forbiddenDrift: [],
+    });
+
+    expect(prompt).toContain('private planning language, not dialogue');
+    expect(prompt).toContain('先接住/我来回应/这句我认');
+    expect(prompt).toContain('calm does not mean generic or emotionless');
+  });
+
   it('treats scalar social posture as subordinate to concrete relationship evidence', () => {
     const directive = buildTurnDirective({
       chat: chat(),

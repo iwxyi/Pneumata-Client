@@ -6,6 +6,7 @@ import type { GeneratedRoundMessage } from './chatEngine';
 import { splitGeneratedRoundMessage } from './generatedMessageSegmenter';
 import { runSessionCommitPipeline, type SessionCommitPipelineResult } from './sessionCommitPipeline';
 import { useSettingsStore } from '../stores/useSettingsStore';
+import { revealMessageInPlace } from './chatCommitMessage';
 
 export async function commitGeneratedMessageTurn(params: {
   api: APIConfig;
@@ -35,6 +36,8 @@ export async function commitGeneratedMessageTurn(params: {
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
   shouldContinue?: () => boolean;
+  onSegmentStart?: (message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>, index: number) => Message | null;
+  revealSegment?: (message: Message, content: string, index: number) => Promise<void>;
 }) {
   const segments = splitGeneratedRoundMessage(params.message);
   let workingChat = params.chat;
@@ -45,15 +48,27 @@ export async function commitGeneratedMessageTurn(params: {
   const turnIdentitySalt = `turn:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 
   for (let index = 0; index < segments.length; index += 1) {
+    const segmentMessage = segments[index];
+    const streamingMessage = index === 0
+      ? params.streamingMessage
+      : params.onSegmentStart?.(segmentMessage, index) || null;
+    if (index > 0 && streamingMessage) {
+      if (params.revealSegment) await params.revealSegment(streamingMessage, segmentMessage.content, index);
+      else if (animateLocalReveal) await revealMessageInPlace({ message: streamingMessage, content: segmentMessage.content, upsertMessage: params.upsertMessage, shouldContinue: params.shouldContinue });
+      else params.upsertMessage({ ...streamingMessage, content: segmentMessage.content, isStreaming: false });
+    }
     const result = await runSessionCommitPipeline({
       api: params.api,
       chatId: params.chatId,
       chat: workingChat,
       characters: workingCharacters,
-      message: segments[index],
-      streamingMessage: index === 0 ? params.streamingMessage : null,
-      localReveal: index > 0 ? animateLocalReveal : undefined,
-      localRevealStartDelayMs: index > 0 ? Math.min(720, 180 + Array.from(segments[index].content).length * 18) : undefined,
+      message: segmentMessage,
+      streamingMessage,
+      // The commit pipeline owns the first streamed bubble. Follow-up
+      // bubbles use the same reveal path, but each gets its own identity and
+      // is rendered before its commit runtime is applied.
+      localReveal: false,
+      localRevealStartDelayMs: undefined,
       localMessageIdentitySalt: `${turnIdentitySalt}:${index}`,
       currentMessages: workingMessages,
       onCommit: params.onCommit,

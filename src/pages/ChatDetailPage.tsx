@@ -1011,6 +1011,7 @@ export default function ChatDetailPage() {
     clearStreamingMessageRef,
     freezeStreamingDisplay,
     getDisplayedStreamingMessage,
+    startFollowupStreamingMessage,
   } = useStreamingMessageState(upsertMessageWithLiveReveal);
 
   useLayoutEffect(() => {
@@ -2020,6 +2021,7 @@ export default function ChatDetailPage() {
     activeChatIdRef,
     streamingMessageRef,
     getDisplayedStreamingMessage,
+    startFollowupStreamingMessage,
     freezeStreamingDisplay,
     updateStreamingMessage,
     onLocalInterception: appendLocalInterceptionHint,

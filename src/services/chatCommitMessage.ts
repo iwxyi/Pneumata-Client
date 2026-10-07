@@ -31,6 +31,7 @@ interface PersistLocalFirstMessagesParams {
   deferLocalUpsert?: boolean;
 }
 
+
 function deferUiWrite(task: () => void) {
   const scheduler = (globalThis as typeof globalThis & {
     requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
@@ -74,12 +75,14 @@ async function revealLocalMessage(params: {
   tickMs?: number;
   startDelayMs?: number;
   initialContent?: string;
+  shouldContinue?: () => boolean;
 }) {
   let displayed = params.initialContent || '';
   const wait = params.delay || delayMs;
   params.upsertMessage({ ...params.message, content: displayed, isStreaming: displayed !== params.message.content });
   if (displayed !== params.message.content && params.startDelayMs) await wait(params.startDelayMs);
   while (displayed !== params.message.content) {
+    if (params.shouldContinue?.() === false) throw new GenerationCancelledError();
     displayed = getNextStreamingDisplayContent(displayed, params.message.content);
     params.upsertMessage({ ...params.message, content: displayed, isStreaming: displayed !== params.message.content });
     if (displayed !== params.message.content) {
@@ -218,6 +221,26 @@ export async function persistLocalFirstMessages(params: PersistLocalFirstMessage
   return localMessages;
 }
 
+
 export async function persistStreamingMessage(params: PersistLocalFirstMessageParams) {
   return persistLocalFirstMessage(params);
+}
+
+export async function revealMessageInPlace(params: {
+  message: Message;
+  content: string;
+  upsertMessage: (message: Message) => void;
+  delay?: (ms: number) => Promise<void>;
+  tickMs?: number;
+  shouldContinue?: () => boolean;
+}) {
+  const next = { ...params.message, content: params.content, isStreaming: false };
+  await revealLocalMessage({
+    message: next,
+    upsertMessage: params.upsertMessage,
+    delay: params.delay,
+    tickMs: params.tickMs,
+    shouldContinue: params.shouldContinue,
+  });
+  return next;
 }

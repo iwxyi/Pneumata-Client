@@ -647,7 +647,7 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('轻微戒备');
     expect(prompt).toContain('## Inner Life');
     expect(prompt).toContain('## Natural Chat Rhythm');
-    expect(prompt).toContain('## Expression Surface Choice');
+    expect(prompt).not.toContain('## Expression Surface Choice');
     expect(prompt).toContain('阎君统辖幽都，牛头受其差遣并负责夜巡');
     expect(prompt).toContain('Relationship pull: answer_upward');
     expect(prompt).toContain('Possible consequence, not a quota:');
@@ -2472,7 +2472,7 @@ describe('chatEngine streaming preview', () => {
 
     expect(prompt).toContain('## Turn Directive');
     expect(prompt).toContain('Visible shape:');
-    expect(prompt).toContain('## Turn Format Variety');
+    expect(prompt).not.toContain('## Turn Format Variety');
     expect(message.content).toBe('（轻叹一声，目光落向窗外竹影）\n\n热闹自有热闹的好，冷清也有冷清的趣。\n\n（转回视线，语气淡了几分）你且去别处热闹罢。');
   });
 
@@ -3259,7 +3259,7 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('## Turn Directive');
     expect(prompt).toContain('write the imperfect line that escapes through their habits');
     expect(prompt).toContain('opening-frame history');
-    expect(prompt).toContain('## Turn Length Variety');
+    expect(prompt).not.toContain('## Turn Length Variety');
     expect(prompt).not.toContain('你这个问题问到了实务中的痛点');
     expect(prompt).not.toContain('你这个问题问到了实务中的另一个关键点');
     expect(prompt).not.toContain('你这个问题问到了实务中的核心困境');
@@ -3409,7 +3409,7 @@ describe('chatEngine streaming preview', () => {
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Turn Directive');
     expect(prompt).toContain('Visible shape:');
-    expect(prompt).toContain('## Expression Surface Choice');
+    expect(prompt).not.toContain('## Expression Surface Choice');
     expect(message.content).toBe('我也有点想排队了😂');
   });
 

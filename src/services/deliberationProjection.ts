@@ -153,6 +153,20 @@ function projectMessageArtifacts(chat: GroupChat, messages: Message[] = []) {
   return { claims, evidence, issues, verdicts, summaryText };
 }
 
+export function countProjectedDeliberationArtifacts(
+  chat: GroupChat,
+  messages: Array<Pick<Message, 'id' | 'senderId' | 'timestamp' | 'type' | 'content' | 'metadata' | 'isDeleted'>> = [],
+) {
+  const projected = projectMessageArtifacts(chat, messages as Message[]);
+  return {
+    claims: projected.claims.length,
+    evidence: projected.evidence.length,
+    issues: projected.issues.length,
+    verdicts: projected.verdicts.length,
+    summaries: projected.summaryText ? 1 : 0,
+  };
+}
+
 export interface DeliberationSidebarArtifactItem {
   key: string;
   label: string;

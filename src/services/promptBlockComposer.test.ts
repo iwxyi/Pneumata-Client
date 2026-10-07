@@ -82,7 +82,9 @@ describe('promptBlockComposer', () => {
     ], policy);
 
     expect(policy.id).toBe('general_group');
-    expect(prompt).toBe('[core][humanization][inner life][directive][move][turn plan][chat rhythm]');
+    expect(prompt).toBe('[core][humanization][inner life][directive][turn plan][chat rhythm]');
+    expect(prompt).not.toContain('[move]');
+    expect(prompt).not.toContain('[surface]');
   });
 
   it('does not disable scenario group blocks outside ordinary conversation rooms', () => {

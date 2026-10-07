@@ -102,6 +102,14 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
           'runtime_role_constraint',
           'focused_situational_job_contract',
           'natural_chat_surface_contract',
+          // The unified Turn Directive already contains the room-level move,
+          // attention, and visible-expression guidance. Keeping the second
+          // move/surface chooser here makes the model optimize a checklist
+          // instead of speaking from the character's actual position.
+          'conversation_move',
+          'expression_surface_choice',
+          'turn_length_variety',
+          'turn_format_variety',
         ],
         notes: [
           'General group rooms keep social momentum, relationships, and room pressure available.',

@@ -264,6 +264,27 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).not.toContain('## Persona Activation');
   });
 
+  it('keeps compact group grounding character-specific without turning it into a checklist', () => {
+    const character = buildCharacter({
+      coreProfile: {
+        coreDesire: '',
+        coreFear: '',
+        valuePriority: ['体面', '可靠'],
+        socialMask: '先拿玩笑挡一下认真话',
+        biases: [],
+        interactionHabits: ['先看谁在替别人吞代价'],
+        expressionHabits: ['真正担心时先挖苦一句'],
+        sensitivities: ['被当成只会附和的人'],
+        conflictStyle: '不正面吵，先挑对方逻辑里的刺',
+      },
+    });
+    const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [], new Map([[character.id, character]]));
+    expect(prompt).toContain('Expression habits: 真正担心时先挖苦一句');
+    expect(prompt).toContain('Conflict posture: 不正面吵，先挑对方逻辑里的刺');
+    expect(prompt).toContain('What this person protects first: 体面, 可靠');
+    expect(prompt).toContain('These voice fingerprints are differentiators');
+  });
+
   it('injects core desire and fear as private deeper motivation instead of loose profile data', () => {
     const character = buildCharacter({
       coreProfile: {

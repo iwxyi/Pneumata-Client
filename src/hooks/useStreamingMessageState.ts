@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { Message } from '../types/message';
 import { useSettingsStore } from '../stores/useSettingsStore';
 import { getNextStreamingDisplayContent, STREAMING_DISPLAY_TICK_MS } from '../services/streamingDisplayBuffer';
@@ -8,6 +8,7 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
   const streamingMessageRef = useRef<Message | null>(null);
   const streamingFlushTimerRef = useRef<number | null>(null);
   const displayedStreamingMessageRef = useRef<Message | null>(null);
+  const followupMessagesRef = useRef(new Map<string, Message>());
 
   const stopStreamingFlushTimer = useCallback(() => {
     if (streamingFlushTimerRef.current == null) return;
@@ -15,6 +16,7 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
     streamingFlushTimerRef.current = null;
   }, []);
 
+  const flushStreamingDisplayRef = useRef<() => void>(() => undefined);
   const flushStreamingDisplay = useCallback(() => {
     streamingFlushTimerRef.current = null;
     const target = streamingMessageRef.current;
@@ -26,9 +28,12 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
     displayedStreamingMessageRef.current = nextDisplayed;
     upsertMessage(nextDisplayed);
     if (nextContent !== target.content) {
-      streamingFlushTimerRef.current = window.setTimeout(flushStreamingDisplay, STREAMING_DISPLAY_TICK_MS);
+      streamingFlushTimerRef.current = window.setTimeout(() => flushStreamingDisplayRef.current(), STREAMING_DISPLAY_TICK_MS);
     }
   }, [upsertMessage]);
+  useEffect(() => {
+    flushStreamingDisplayRef.current = flushStreamingDisplay;
+  }, [flushStreamingDisplay]);
 
   const updateStreamingMessage = useCallback((updater: (current: Message | null) => Message | null, options?: { immediate?: boolean }) => {
     const next = updater(streamingMessageRef.current);
@@ -44,8 +49,8 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
       displayedStreamingMessageRef.current = { ...next, content: '' };
     }
     if (streamingFlushTimerRef.current != null) return;
-    streamingFlushTimerRef.current = window.setTimeout(flushStreamingDisplay, STREAMING_DISPLAY_TICK_MS);
-  }, [enableStreamingDisplayAnimation, flushStreamingDisplay, stopStreamingFlushTimer, upsertMessage]);
+    streamingFlushTimerRef.current = window.setTimeout(() => flushStreamingDisplayRef.current(), STREAMING_DISPLAY_TICK_MS);
+  }, [enableStreamingDisplayAnimation, stopStreamingFlushTimer, upsertMessage]);
 
   const discardStreamingMessage = useCallback(() => {
     stopStreamingFlushTimer();
@@ -61,7 +66,15 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
     stopStreamingFlushTimer();
     streamingMessageRef.current = null;
     displayedStreamingMessageRef.current = null;
+    followupMessagesRef.current.clear();
   }, [stopStreamingFlushTimer]);
+
+  const startFollowupStreamingMessage = useCallback((message: Message) => {
+    const next = { ...message, isStreaming: true };
+    followupMessagesRef.current.set(next.clientKey || next.id, next);
+    upsertMessage(next);
+    return next;
+  }, [upsertMessage]);
 
   const freezeStreamingDisplay = useCallback(() => {
     stopStreamingFlushTimer();
@@ -76,5 +89,6 @@ export function useStreamingMessageState(upsertMessage: (message: Message) => vo
     clearStreamingMessageRef,
     freezeStreamingDisplay,
     getDisplayedStreamingMessage,
+    startFollowupStreamingMessage,
   };
 }

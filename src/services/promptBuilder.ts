@@ -951,6 +951,19 @@ function buildTopicSection(chat: GroupChat) {
 function buildCharacterSection(character: AICharacter, emotion: number, personaActivation: PersonaActivation, compactForUnifiedGroup = false) {
   const expertise = character.expertise?.length ? character.expertise.join(', ') : 'Generalist';
   if (compactForUnifiedGroup) {
+    const core = character.coreProfile;
+    const compactVoiceFingerprint = [
+      ...(core?.expressionHabits || []).slice(0, 2).map((item) => `- Expression habits: ${item}`),
+      core?.conflictStyle ? `- Conflict posture: ${core.conflictStyle}` : '',
+      core?.socialMask ? `- Social mask: ${core.socialMask}` : '',
+      ...(core?.interactionHabits || []).slice(0, 2).map((item) => `- Interaction instinct: ${item}`),
+      ...((core?.valuePriority || []).slice(0, 2).length
+        ? [`- What this person protects first: ${(core?.valuePriority || []).slice(0, 2).join(', ')}`]
+        : []),
+      ...((core?.sensitivities || []).slice(0, 2).length
+        ? [`- What makes them bristle: ${(core?.sensitivities || []).slice(0, 2).join(', ')}`]
+        : []),
+    ].filter(Boolean);
     return [
       `You are ${character.name}. Read the room from this person's lived position; do not perform a character sheet.`,
       '',
@@ -958,6 +971,10 @@ function buildCharacterSection(character: AICharacter, emotion: number, personaA
       character.background ? `- Lived context: ${character.background}` : '',
       character.speakingStyle ? `- Habitual voice: ${character.speakingStyle}` : '',
       character.expertise?.length ? `- Familiar ground: ${expertise}` : '',
+      ...compactVoiceFingerprint,
+      compactVoiceFingerprint.length
+        ? '- These voice fingerprints are differentiators, not lines to repeat. Let them alter what this person notices, avoids, concedes, jokes about, or refuses; do not announce the profile.'
+        : '',
       '- These are causes of attention and judgment, not facts that every reply must mention. The Character Mind and current-turn frame below decide what is active now.',
     ].filter(Boolean).join('\n');
   }

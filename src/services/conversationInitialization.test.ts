@@ -93,4 +93,25 @@ describe('conversation initialization lifecycle', () => {
     expect(getConversationInitializationRequirement(group({ phase: 'free' }, ['a']), oneMember).required).toBe(false);
     expect(getConversationInitializationRequirement({ ...group(), type: 'direct' }, [character('a'), character('b')]).required).toBe(false);
   });
+
+  it('does not gate legacy groups whose declared members were deleted', () => {
+    const deletedA = { ...character('a'), deletedAt: 123 };
+    const deletedB = { ...character('b'), deletedAt: 456 };
+
+    expect(getConversationInitializationRequirement(group(), [deletedA, deletedB])).toEqual({
+      required: false,
+      fingerprint: 'a|b',
+      status: 'ready',
+    });
+  });
+
+  it('does not gate a group when fewer than two eligible members remain', () => {
+    const deletedB = { ...character('b'), deletedAt: 456 };
+
+    expect(getConversationInitializationRequirement(group(), [character('a'), deletedB])).toMatchObject({
+      required: false,
+      fingerprint: 'a|b',
+      status: 'ready',
+    });
+  });
 });

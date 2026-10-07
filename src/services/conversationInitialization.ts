@@ -23,6 +23,10 @@ export function buildConversationMemberFingerprint(chat: Pick<GroupChat, 'member
   // Use the declared room membership, not only already-loaded character
   // records. This keeps the room blocked during detail hydration, so an
   // automatic opening cannot outrun relationship initialization.
+  // Keep the character argument part of the contract for callers that build
+  // the fingerprint while records are hydrating; the declared ids remain the
+  // stable identity used to invalidate stale completion records.
+  void _characters;
   return Array.from(new Set(chat.memberIds))
     .filter((memberId) => memberId !== 'user')
     .sort()
@@ -31,7 +35,11 @@ export function buildConversationMemberFingerprint(chat: Pick<GroupChat, 'member
 
 export function getConversationInitializationRequirement(chat: Pick<GroupChat, 'type' | 'memberIds' | 'modeState'>, characters: AICharacter[]): ConversationInitializationRequirement {
   const fingerprint = buildConversationMemberFingerprint(chat, characters);
-  if (chat.type !== 'group' || chat.memberIds.filter((memberId) => memberId !== 'user').length < 2) {
+  // A legacy room can retain member ids for characters that were later
+  // deleted. There is no relationship work to perform when fewer than two
+  // eligible characters remain, so do not leave the room waiting forever for
+  // an initialization pass that cannot produce any input.
+  if (chat.type !== 'group' || getEligibleMembers(chat, characters).length < 2) {
     return { required: false, fingerprint, status: 'ready' };
   }
   const state = chat.modeState.initialization;

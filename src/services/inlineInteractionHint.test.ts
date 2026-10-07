@@ -155,7 +155,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('visible content must either make a deliberative move');
   });
 
-  it('describes messages protocol as the preferred independent bubble format', () => {
+  it('lets conversational follow-ups be separate sends without making each a self-contained point', () => {
     const contract = buildInlineInteractionContract({
       chat: {
         id: 'chat-1',
@@ -166,6 +166,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       speaker: { id: 'speaker', name: '说话人' } as AICharacter,
       characters: [{ id: 'speaker', name: '说话人' } as AICharacter],
       recentMessages: [],
+      richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5, organization: 'conversational' }, image: { proactivity: 'off', explicitRequest: true }, audio: { proactivity: 'off', explicitRequest: true }, sticker: { proactivity: 'off', explicitRequest: true } },
       turnPlan: {
         rhythm: 'multi_bubble',
         maxBubbleCount: 3,
@@ -179,17 +180,19 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('"messages":null');
     expect(contract).toContain('messages[] is the ordered list only when');
     expect(contract).toContain('When messages[] is used');
-    expect(contract).toContain('independently sendable communicative act');
-    expect(contract).toContain('standalone interjection');
-    expect(contract).toContain('examples, not a closed list');
+    expect(contract).toContain('a thought can follow a beat later');
+    expect(contract).toContain('typed in one sitting');
+    expect(contract).toContain('most turns naturally settle into one send');
+    expect(contract).toContain('need not be a self-contained point');
+    expect(contract).toContain('Message count is a delivery choice');
+    expect(contract).not.toContain('independently sendable communicative act');
+    expect(contract).not.toContain('Most ordinary turns stay in one bubble');
     expect(contract).toContain('terminal punctuation is optional');
     expect(contract).toContain('this is chat even when the topic is serious');
     expect(contract).toContain('Do not make every bubble a complete written sentence');
     expect(contract).toContain('set content equal to messages[0].content');
     expect(contract).toContain('Audio must be the only media in its item');
-    expect(contract).toContain('A bubble may contain one or more paragraphs');
-    expect(contract).toContain('Most ordinary turns stay in one bubble');
-    expect(contract).toContain('messages[] should remain uncommon');
+    expect(contract).toContain('Do not split merely because the text has several sentences');
   });
 
   it('distinguishes reply targets from members who are only mentioned or affected', () => {

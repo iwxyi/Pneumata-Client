@@ -15,6 +15,8 @@ import { isGenerationCancelledError } from './generationCancellation';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
 import { isAutoRunnableSessionAction } from './conversationCapabilities';
 import { applyAnalysisRunPolicy, buildAnalysisRunPolicyEvent, type SessionLoopDecision } from './analysisRunPolicy';
+import { attachMessageToActiveBranch } from './messageBranching';
+import { createStreamingLocalMessage } from './chatCommitMessage';
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -228,6 +230,7 @@ export async function runSessionLoop(params: {
   getUserDraftActivity?: () => UserDraftActivity | null;
   getStreamingMessage?: () => Message | null;
   getDisplayedStreamingMessage?: () => Message | null;
+  startFollowupStreamingMessage?: (message: Message) => Message;
   getCurrentChat?: () => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
   ensureCharacterDetail?: (characterId: string) => Promise<AICharacter | null>;
@@ -525,6 +528,17 @@ export async function runSessionLoop(params: {
                 getCurrentChat: params.getCurrentChat,
                 getCurrentCharacters: params.getCurrentCharacters,
                 shouldContinue: () => isActiveLoop(params),
+                onSegmentStart: (segment, index) => {
+                  if (!isActiveLoop(params)) return null;
+                  const latestChat = params.getCurrentChat?.() || currentChat;
+                  const latestMessages = params.getCurrentMessages();
+                  const placeholder = createStreamingLocalMessage(attachMessageToActiveBranch(latestChat, latestMessages, {
+                    ...segment,
+                    content: '',
+                    metadata: segment.metadata,
+                  }), { identitySalt: `followup:${Date.now()}:${index}` });
+                  return params.startFollowupStreamingMessage?.({ ...placeholder, isStreaming: true }) || placeholder;
+                },
               });
             } catch (error) {
               if (isGenerationCancelledError(error) || !isActiveLoop(params)) return;
