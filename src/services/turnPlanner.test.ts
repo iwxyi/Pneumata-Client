@@ -99,7 +99,7 @@ describe('deriveTurnPlan', () => {
     const plan = deriveTurnPlan({
       chat: chat({ id: 'delivery-chat' }),
       speaker: character({ id: 'delivery-char' }),
-      messages: [message({ id: 'delivery-message', content: '我想先听你说说这件事为什么会变成这样，再补一句你觉得我下一步最该做什么，别只给我一个笼统安慰。请把原因和行动建议分开说，也告诉我最容易忽略的风险是什么。', timestamp: 31 })],
+      messages: [message({ id: 'delivery-message', content: '昨晚那家店又开门了，我差点进去。', timestamp: 31 })],
       intent,
       surface: { kind: 'chat' },
       richDelivery: highDelivery,
@@ -107,7 +107,27 @@ describe('deriveTurnPlan', () => {
     });
 
     expect(plan.maxBubbleCount).toBeLessThanOrEqual(5);
+    expect(plan.allowExtraMessages).toBe(true);
+    expect(plan.maxBubbleCount).toBe(5);
     expect(plan.reasons).toContain('delivery:high_model_decides');
+  });
+
+  it('keeps a longer casual group reply eligible for model-chosen follow-up bubbles', () => {
+    const plan = deriveTurnPlan({
+      chat: chat({ id: 'casual-group', type: 'group', memberIds: ['char-a', 'char-b'], style: 'free' }),
+      speaker: character(),
+      messages: [message({
+        type: 'ai', senderId: 'char-b', senderName: 'Lily',
+        content: '这件衣服肩线很好看，我刚才还在想要不要带回去。', timestamp: 32,
+      })],
+      intent,
+      surface: { kind: 'chat' },
+      richDelivery: highDelivery,
+      now: 33,
+    });
+
+    expect(plan.allowExtraMessages).toBe(true);
+    expect(plan.maxBubbleCount).toBe(5);
   });
 
   it('prevents proactive splitting when the room policy turns it off', () => {

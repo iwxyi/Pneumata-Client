@@ -173,7 +173,7 @@ type GenerationWithGuidanceTrace = {
   streamedFallbackUsed?: boolean;
 };
 
-const MAX_EXTRA_MESSAGES = 4;
+const MAX_EXTRA_MESSAGES = 7;
 const emotionMap: Record<string, number> = {};
 type NarrativeRuntimeModule = typeof import('./narrativeRuntime');
 
@@ -771,7 +771,6 @@ function normalizeExtraMessages(params: {
   const normalizedContent = normalizeForComparison(params.content);
   const seen = new Set<string>(normalizedContent ? [normalizedContent] : []);
   const cleaned = params.extraMessages
-    .slice(0, maxExtraMessages)
     .map((item) => (typeof item === 'string'
       ? finalizeResponse(item, params.intent, params.speaker, params.recentMessages, params.showRoleActions, false, params.surface)
       : ''))
@@ -3235,9 +3234,10 @@ async function generateWithPrompt(params: {
     : (() => {
       const parts = parsedEnvelope.messages
         .filter((part): part is { content: string; mediaDecision?: MediaGenerationDecision | null } => Boolean(part && typeof part.content === 'string' && part.content.trim()));
-      const limit = Math.max(1, Math.min(5, params.turnPlan?.maxBubbleCount ?? 1));
-      return parts.slice(0, limit).map((part, index) => ({
-        content: index === limit - 1 ? parts.slice(index).map((item) => item.content.trim()).join('\n') : part.content.trim(),
+      // The plan is a tendency, not a truncation rule. Preserve model-selected
+      // send boundaries; the protocol parser owns the defensive cap.
+      return parts.map((part) => ({
+        content: part.content.trim(),
         mediaDecision: part.mediaDecision || null,
       }));
     })();

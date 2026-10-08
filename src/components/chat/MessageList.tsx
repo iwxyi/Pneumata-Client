@@ -11,7 +11,7 @@ import type { NarrativeStoryChoiceOption } from './messageBubblePresentation';
 import SystemMessageItem from './SystemMessageItem';
 import { resolveCharacterOrDeleted } from '../../utils/deletedEntity';
 import type { ChatRenderItem } from './chatRenderModel';
-import { isNarrativeRevealAllowed } from './messageListPresentation';
+import { getContinuousAiMessageKeys, isNarrativeRevealAllowed } from './messageListPresentation';
 import type { ExpressionFeedbackKind } from '../../services/characterExpressionFeedback';
 import ImageLightbox, { type LightboxImageItem } from '../common/ImageLightbox';
 import { useSettingsStore } from '../../stores/useSettingsStore';
@@ -48,31 +48,10 @@ const PREPEND_STABILIZE_MAX_FRAMES = 36;
 const PREPEND_STABILIZE_STABLE_FRAMES = 6;
 const PREPEND_STABILIZE_OVERSCAN = 18;
 const INITIAL_TAIL_REVEAL_THRESHOLD = 4;
-const CONTINUOUS_SENDER_WINDOW_MS = 90_000;
 const storyNodeFadeIn = keyframes`
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 `;
-
-export function getContinuousAiMessageKeys(items: MessageListRenderItem[]) {
-  const keys = new Set<string>();
-  for (let index = 1; index < items.length; index += 1) {
-    const previous = items[index - 1];
-    const current = items[index];
-    if (
-      previous.renderKind === 'bubble'
-      && current.renderKind === 'bubble'
-      && previous.message.type === 'ai'
-      && current.message.type === 'ai'
-      && previous.message.senderId === current.message.senderId
-      && current.message.timestamp >= previous.message.timestamp
-      && current.message.timestamp - previous.message.timestamp <= CONTINUOUS_SENDER_WINDOW_MS
-    ) {
-      keys.add(current.key);
-    }
-  }
-  return keys;
-}
 
 type ResponsiveInset = number | string | Record<string, number | string>;
 interface ScrollAnchorSnapshot {
@@ -1878,7 +1857,7 @@ export default function MessageList({
     restoreBottomDistance();
     const handle = window.requestAnimationFrame(restoreBottomDistance);
     return () => window.cancelAnimationFrame(handle);
-  }, [cancelProgrammaticScroll, isLoadingNewer, isUserScrollMomentumActive, renderItems, scrollToBottom, updatePinnedState]);
+  }, [cancelProgrammaticScroll, isLoadingNewer, isUserScrollMomentumActive, renderItems, runScrollWrite, scrollToBottom, updatePinnedState]);
 
   useLayoutEffect(() => {
     const currentMetrics = {
@@ -1936,6 +1915,12 @@ export default function MessageList({
       && currentMetrics.lastItemContentLength > previousMetrics.lastItemContentLength;
     const isStreamingTailHandoff = currentMetrics.lastItemIsStreaming || previousMetrics.lastItemIsStreaming;
     if (tailGrew && isStreamingTailHandoff) {
+      // Streaming rows can grow after the virtualizer has measured them. Keep
+      // the initial viewport pinned even when the content-length mutation
+      // itself is intentionally not animated.
+      if (shouldStickToBottomRef.current && !isUserPointerHeldRef.current) {
+        scrollToBottom('auto', 'tailFollow');
+      }
       tailFollowStartSnapshotRef.current = null;
       return;
     }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Message } from '../../types/message';
 import { buildChatRenderItems } from './chatRenderModel';
 import { buildMessageListRenderItems } from './messageListRenderItems';
-import { getContinuousAiMessageKeys } from './MessageList';
+import { getContinuousAiMessageKeys } from './messageListPresentation';
 import { shouldMaintainTailAfterMutation } from './messageListTailOwnership';
 import { getVisibleNarrativeDisplayBlocks, isNarrativeRevealAllowed } from './messageListPresentation';
 

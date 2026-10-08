@@ -223,10 +223,22 @@ export function deriveTurnPlan(input: TurnPlanInput): TurnPlan {
   const maxBubbleCount = Math.max(1, delivery.maxBubbles);
   if (maxBubbleCount === 1) return plan;
 
+  // Base conversational heuristics choose the reply's substance and length.
+  // They must not turn a room's enabled multi-send policy into a hard one-send
+  // cap; only explicit wait/long-form/off policies should do that.
+  if (plan.waitSensitive || plan.rhythm === 'defer_or_wait') return plan;
+
   // Proactivity is a model-facing tendency, not a local random verdict. The
   // model sees the live meaning, emotion and timing that decide whether this
   // particular turn is one send or several; the runtime only supplies the
   // room's usual soft ceiling.
+  const shouldKeepSingleSend = plan.waitSensitive
+    || input.surface.kind === 'professional'
+    || isAnalysisRoom(input.chat)
+    || plan.reasons.includes('human_depth_request')
+    || plan.reasons.includes('summarize_intent')
+    || plan.reasons.includes('group_ai_chain_needs_brevity');
+  if (shouldKeepSingleSend) return plan;
   return {
     ...plan,
     rhythm: plan.rhythm,

@@ -1513,9 +1513,48 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(message.messageParts).toHaveLength(3);
     expect(message.metadata?.runtimeDecision?.turnPlan?.actualBubbleCount).toBe(3);
-    expect(message.metadata?.runtimeDecision?.turnPlan?.maxBubbleCount).toBeGreaterThanOrEqual(3);
+    expect(message.metadata?.runtimeDecision?.turnPlan?.maxBubbleCount).toBe(1);
     expect(message.messageParts?.[1]?.metadata?.attachments?.[0]).toMatchObject({ kind: 'image', status: 'queued' });
     expect(message.messageParts?.[2]?.metadata?.attachments?.[0]).toMatchObject({ kind: 'audio', status: 'queued' });
+  });
+
+  it.each([1, 3, 6])('preserves %i model-selected sends even with a single-send plan', async (count) => {
+    const contents = Array.from({ length: count }, (_, index) => `消息${index + 1}：内容独立`);
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: contents[0],
+      messages: contents.map((content) => ({ content })),
+    }));
+    const speaker = buildCharacter('speaker', '潇潇');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['speaker'] }),
+      speaker,
+      characters: [speaker],
+      messages: [buildUserMessage('嗯', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.messageParts?.map((part) => part.content)).toEqual(contents);
+    expect(message.content).toBe(contents[0]);
+    expect(message.metadata?.runtimeDecision?.turnPlan?.actualBubbleCount).toBe(count);
+    expect(message.metadata?.runtimeDecision?.turnPlan?.maxBubbleCount).toBe(1);
+  });
+
+  it('preserves all legacy extra text when defensive overflow merges the tail', async () => {
+    const extras = Array.from({ length: 10 }, (_, index) => `补充${index + 1}：独立内容`);
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({ content: '先说第一件', extraMessages: extras }));
+    const speaker = buildCharacter('speaker', '潇潇');
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['speaker'] }),
+      speaker,
+      characters: [speaker],
+      messages: [buildUserMessage('嗯', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    expect(message.extraMessages).toHaveLength(7);
+    expect(message.extraMessages?.join('\n')).toBe(extras.join('\n'));
   });
 
   it('uses model-selected historical image refs for generated image attachments', () => {
