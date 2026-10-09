@@ -3,15 +3,15 @@ import { getNextStreamingDisplayContent } from './streamingDisplayBuffer';
 
 describe('getNextStreamingDisplayContent', () => {
   it('reveals incoming streaming text progressively', () => {
-    expect(getNextStreamingDisplayContent('', 'abcdef')).toBe('ab');
-    expect(getNextStreamingDisplayContent('ab', 'abcdef')).toBe('abcd');
+    expect(getNextStreamingDisplayContent('', 'abcdef')).toBe('a');
+    expect(getNextStreamingDisplayContent('a', 'abcdef')).toBe('ab');
   });
 
   it('uses larger steps for long incoming text without jumping to the end', () => {
     const target = 'x'.repeat(160);
 
-    expect(getNextStreamingDisplayContent('', target)).toBe('x'.repeat(8));
-    expect(getNextStreamingDisplayContent('x'.repeat(8), target)).toBe('x'.repeat(16));
+    expect(getNextStreamingDisplayContent('', target)).toBe('x'.repeat(4));
+    expect(getNextStreamingDisplayContent('x'.repeat(4), target)).toBe('x'.repeat(8));
   });
 
   it('jumps to target when stream content is rewritten', () => {

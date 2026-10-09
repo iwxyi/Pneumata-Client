@@ -6,7 +6,9 @@ import type { GeneratedRoundMessage } from './chatEngine';
 import { splitGeneratedRoundMessage } from './generatedMessageSegmenter';
 import { runSessionCommitPipeline, type SessionCommitPipelineResult } from './sessionCommitPipeline';
 import { useSettingsStore } from '../stores/useSettingsStore';
-import { revealMessageInPlace } from './chatCommitMessage';
+import { createStreamingLocalMessage, revealMessageInPlace } from './chatCommitMessage';
+import { attachMessageToActiveBranch } from './messageBranching';
+import { GenerationCancelledError, isGenerationCancelledError } from './generationCancellation';
 
 export async function commitGeneratedMessageTurn(params: {
   api: APIConfig;
@@ -36,8 +38,6 @@ export async function commitGeneratedMessageTurn(params: {
   getCurrentChat?: (id: string) => GroupChat | undefined;
   getCurrentCharacters?: () => AICharacter[];
   shouldContinue?: () => boolean;
-  onSegmentStart?: (message: Omit<Message, 'id' | 'timestamp' | 'isDeleted'>, index: number) => Message | null;
-  revealSegment?: (message: Message, content: string, index: number) => Promise<void>;
 }) {
   const segments = splitGeneratedRoundMessage(params.message);
   let workingChat = params.chat;
@@ -48,14 +48,30 @@ export async function commitGeneratedMessageTurn(params: {
   const turnIdentitySalt = `turn:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
 
   for (let index = 0; index < segments.length; index += 1) {
+    if (params.shouldContinue?.() === false) throw new GenerationCancelledError();
     const segmentMessage = segments[index];
-    const streamingMessage = index === 0
-      ? params.streamingMessage
-      : params.onSegmentStart?.(segmentMessage, index) || null;
-    if (index > 0 && streamingMessage) {
-      if (params.revealSegment) await params.revealSegment(streamingMessage, segmentMessage.content, index);
-      else if (animateLocalReveal) await revealMessageInPlace({ message: streamingMessage, content: segmentMessage.content, upsertMessage: params.upsertMessage, shouldContinue: params.shouldContinue });
-      else params.upsertMessage({ ...streamingMessage, content: segmentMessage.content, isStreaming: false });
+    const streamingMessage = (index === 0 ? params.streamingMessage : null)
+      || createStreamingLocalMessage(attachMessageToActiveBranch(workingChat, workingMessages, {
+        ...segmentMessage,
+        content: '',
+      }), { identitySalt: `${turnIdentitySalt}:${index}` });
+    try {
+      if (animateLocalReveal) {
+        await revealMessageInPlace({
+          message: streamingMessage,
+          content: segmentMessage.content,
+          initialContent: streamingMessage.content,
+          keepStreaming: true,
+          upsertMessage: params.upsertMessage,
+          shouldContinue: params.shouldContinue,
+        });
+      }
+      if (params.shouldContinue?.() === false) throw new GenerationCancelledError();
+    } catch (error) {
+      if (isGenerationCancelledError(error)) {
+        params.upsertMessage({ ...streamingMessage, isDeleted: true, isStreaming: true });
+      }
+      throw error;
     }
     const result = await runSessionCommitPipeline({
       api: params.api,
@@ -64,9 +80,7 @@ export async function commitGeneratedMessageTurn(params: {
       characters: workingCharacters,
       message: segmentMessage,
       streamingMessage,
-      // The commit pipeline owns the first streamed bubble. Follow-up
-      // bubbles use the same reveal path, but each gets its own identity and
-      // is rendered before its commit runtime is applied.
+      // All entry points reveal here; persistence must not start another animation.
       localReveal: false,
       localRevealStartDelayMs: undefined,
       localMessageIdentitySalt: `${turnIdentitySalt}:${index}`,

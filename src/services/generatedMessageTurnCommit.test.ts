@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Message } from '../types/message';
 import { commitGeneratedMessageTurn } from './generatedMessageTurnCommit';
+import { useSettingsStore } from '../stores/useSettingsStore';
 
 const runSessionCommitPipelineMock = vi.fn();
 
@@ -10,6 +11,7 @@ vi.mock('./sessionCommitPipeline', () => ({
 
 beforeEach(() => {
   runSessionCommitPipelineMock.mockReset();
+  useSettingsStore.setState({ enableStreamingDisplayAnimation: false });
 });
 
 function buildPersistedMessage(content: string, index: number): Message {
@@ -72,7 +74,7 @@ describe('commitGeneratedMessageTurn', () => {
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(2);
     expect(runSessionCommitPipelineMock.mock.calls.map((call) => call[0].message.content)).toEqual(['等下', '你刚说谁来着？']);
     expect(runSessionCommitPipelineMock.mock.calls[1]?.[0]).toMatchObject({
-      streamingMessage: null,
+      streamingMessage: expect.objectContaining({ content: '', senderId: 'char-1' }),
       localRevealStartDelayMs: undefined,
     });
   });
@@ -180,22 +182,24 @@ describe('commitGeneratedMessageTurn', () => {
     expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(1);
   });
 
-  it('lets the runner provide an independent streaming identity for follow-up bubbles', async () => {
+  it('creates independent streaming identities without entry-point callbacks', async () => {
     runSessionCommitPipelineMock.mockImplementation(async (args: { message: Message; streamingMessage?: Message | null }) => ({
       persistedMessage: buildPersistedMessage(args.message.content, runSessionCommitPipelineMock.mock.calls.length),
       transition: { chatPatch: {}, characterPatches: [], runtimeEvents: [] },
       nextChat: { id: 'chat-1' },
       nextCharacters: [],
     }));
-    const followup = buildPersistedMessage('', 99);
     await commitGeneratedMessageTurn({
       ...baseParams(),
-      onSegmentStart: () => followup,
       message: {
         chatId: 'chat-1', type: 'ai', senderId: 'char-1', senderName: '甲', content: '第一条',
         messageParts: [{ content: '第一条' }, { content: '第二条' }], emotion: 0,
       },
     } as never);
-    expect(runSessionCommitPipelineMock.mock.calls[1]?.[0]?.streamingMessage).toBe(followup);
+    const first = runSessionCommitPipelineMock.mock.calls[0]?.[0]?.streamingMessage as Message;
+    const followup = runSessionCommitPipelineMock.mock.calls[1]?.[0]?.streamingMessage as Message;
+    expect(followup.content).toBe('');
+    expect(followup.id).not.toBe(first.id);
+    expect(followup.clientKey).not.toBe(first.clientKey);
   });
 });

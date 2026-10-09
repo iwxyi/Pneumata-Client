@@ -83,7 +83,6 @@ export function useChatRunLoop(params: {
   activeChatIdRef: React.MutableRefObject<string | null>;
   streamingMessageRef: React.MutableRefObject<Message | null>;
   getDisplayedStreamingMessage: () => Message | null;
-  startFollowupStreamingMessage: (message: Message) => Message;
   freezeStreamingDisplay: () => void;
   updateStreamingMessage: (updater: (current: Message | null) => Message | null, options?: { immediate?: boolean }) => void;
   onLocalInterception?: (event: LocalInterceptionEvent) => void | Promise<void>;
@@ -174,7 +173,6 @@ export function useChatRunLoop(params: {
         getUserDraftActivity: current.getUserDraftActivity,
         getStreamingMessage: () => current.streamingMessageRef.current,
         getDisplayedStreamingMessage: current.getDisplayedStreamingMessage,
-        startFollowupStreamingMessage: current.startFollowupStreamingMessage,
         getCurrentChat: () => useChatStore.getState().chats.find((item) => item.id === current.chatId),
         getCurrentCharacters: () => useCharacterStore.getState().characters,
         ensureCharacterDetail: (characterId) => useCharacterStore.getState().loadCharacter(characterId),

@@ -9,7 +9,7 @@ import { EmptyGeneratedResponseError, generateSpeakerMessage, type LocalIntercep
 import { attachMessageToActiveBranch } from './messageBranching';
 import { GenerationCancelledError, isGenerationCancelledError } from './generationCancellation';
 import { hasRenderableStreamingContent } from './streamingContentGuard';
-import { getNextStreamingDisplayContent, STREAMING_DISPLAY_TICK_MS } from './streamingDisplayBuffer';
+import { createStreamingMessageDisplay } from './streamingMessageDisplay';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
 function ensureGenerationStillCurrent(params: { signal?: AbortSignal; shouldContinue?: () => boolean }) {
@@ -64,37 +64,12 @@ export async function generateAndCommitAiMessage(params: {
     emotion: 0,
   }), { timestamp: params.timestamp });
   let streamingMessage = { ...placeholder, isStreaming: true };
-  let displayedStreamingMessage = streamingMessage;
-  let streamingDisplayTimer: ReturnType<typeof setTimeout> | null = null;
-  const animateStreamingDisplay = useSettingsStore.getState().enableStreamingDisplayAnimation;
-  const stopStreamingDisplay = () => {
-    if (streamingDisplayTimer === null) return;
-    clearTimeout(streamingDisplayTimer);
-    streamingDisplayTimer = null;
-  };
-  const flushStreamingDisplay = () => {
-    streamingDisplayTimer = null;
-    if (displayedStreamingMessage.content === streamingMessage.content) return;
-    displayedStreamingMessage = {
-      ...streamingMessage,
-      content: getNextStreamingDisplayContent(displayedStreamingMessage.content, streamingMessage.content),
-      isStreaming: true,
-    };
-    params.upsertMessage(displayedStreamingMessage);
-    if (displayedStreamingMessage.content !== streamingMessage.content) {
-      streamingDisplayTimer = setTimeout(flushStreamingDisplay, STREAMING_DISPLAY_TICK_MS);
-    }
-  };
-  const scheduleStreamingDisplay = () => {
-    if (!animateStreamingDisplay) {
-      displayedStreamingMessage = streamingMessage;
-      params.upsertMessage(displayedStreamingMessage);
-      return;
-    }
-    if (streamingDisplayTimer !== null) return;
-    streamingDisplayTimer = setTimeout(flushStreamingDisplay, STREAMING_DISPLAY_TICK_MS);
-  };
-  params.upsertMessage(streamingMessage);
+  const display = createStreamingMessageDisplay({
+    upsertMessage: params.upsertMessage,
+    isAnimationEnabled: () => useSettingsStore.getState().enableStreamingDisplayAnimation,
+  });
+  display.update(streamingMessage, { immediate: true });
+  let commitStarted = false;
 
   try {
     const message = await generateSpeakerMessage({
@@ -111,20 +86,21 @@ export async function generateAndCommitAiMessage(params: {
         ensureGenerationStillCurrent(params);
         if (!hasRenderableStreamingContent(content)) return;
         streamingMessage = { ...streamingMessage, content, isStreaming: true };
-        scheduleStreamingDisplay();
+        display.update(streamingMessage);
         params.onChunk?.(content);
       },
     });
 
     ensureGenerationStillCurrent(params);
-    stopStreamingDisplay();
-    return commitGeneratedMessageTurn({
+    display.freeze();
+    commitStarted = true;
+    return await commitGeneratedMessageTurn({
       api: params.api,
       chatId: params.chatId,
       chat: params.chat,
       characters: params.characters,
       message,
-      streamingMessage: displayedStreamingMessage,
+      streamingMessage: display.getDisplayed(),
       currentMessages: params.currentMessages,
       onCommit: params.onCommit,
       upsertMessage: params.upsertMessage,
@@ -138,11 +114,12 @@ export async function generateAndCommitAiMessage(params: {
       aiProfiles: params.aiProfiles,
       getCurrentChat: params.getCurrentChat,
       getCurrentCharacters: params.getCurrentCharacters,
+      shouldContinue: () => !params.signal?.aborted && (params.shouldContinue?.() ?? true),
     });
   } catch (error) {
-    stopStreamingDisplay();
-    if (isGenerationCancelledError(error) || error instanceof EmptyGeneratedResponseError) {
-      params.upsertMessage({ ...displayedStreamingMessage, content: '', isDeleted: true, isStreaming: false });
+    display.freeze();
+    if (!commitStarted && (isGenerationCancelledError(error) || error instanceof EmptyGeneratedResponseError)) {
+      params.upsertMessage({ ...(display.getDisplayed() || streamingMessage), content: '', isDeleted: true, isStreaming: true });
     }
     throw error;
   }

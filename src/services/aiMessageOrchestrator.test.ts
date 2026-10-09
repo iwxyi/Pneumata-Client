@@ -142,7 +142,7 @@ describe('generateAndCommitAiMessage', () => {
     expect(upsertMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       content: '',
       isDeleted: true,
-      isStreaming: false,
+      isStreaming: true,
     }));
   });
 });

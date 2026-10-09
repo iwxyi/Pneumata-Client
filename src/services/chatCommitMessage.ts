@@ -75,16 +75,17 @@ async function revealLocalMessage(params: {
   tickMs?: number;
   startDelayMs?: number;
   initialContent?: string;
+  keepStreaming?: boolean;
   shouldContinue?: () => boolean;
 }) {
   let displayed = params.initialContent || '';
   const wait = params.delay || delayMs;
-  params.upsertMessage({ ...params.message, content: displayed, isStreaming: displayed !== params.message.content });
+  params.upsertMessage({ ...params.message, content: displayed, isStreaming: Boolean(params.keepStreaming || displayed !== params.message.content) });
   if (displayed !== params.message.content && params.startDelayMs) await wait(params.startDelayMs);
   while (displayed !== params.message.content) {
     if (params.shouldContinue?.() === false) throw new GenerationCancelledError();
     displayed = getNextStreamingDisplayContent(displayed, params.message.content);
-    params.upsertMessage({ ...params.message, content: displayed, isStreaming: displayed !== params.message.content });
+    params.upsertMessage({ ...params.message, content: displayed, isStreaming: Boolean(params.keepStreaming || displayed !== params.message.content) });
     if (displayed !== params.message.content) {
       await wait(params.tickMs ?? STREAMING_DISPLAY_TICK_MS);
     }
@@ -233,6 +234,8 @@ export async function revealMessageInPlace(params: {
   delay?: (ms: number) => Promise<void>;
   tickMs?: number;
   shouldContinue?: () => boolean;
+  initialContent?: string;
+  keepStreaming?: boolean;
 }) {
   const next = { ...params.message, content: params.content, isStreaming: false };
   await revealLocalMessage({
@@ -241,6 +244,8 @@ export async function revealMessageInPlace(params: {
     delay: params.delay,
     tickMs: params.tickMs,
     shouldContinue: params.shouldContinue,
+    initialContent: params.initialContent,
+    keepStreaming: params.keepStreaming,
   });
   return next;
 }
