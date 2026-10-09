@@ -182,6 +182,8 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('When messages[] is used');
     expect(contract).toContain('a thought can follow a beat later');
     expect(contract).toContain('typed in one sitting');
+    expect(contract).toContain('does not automatically require another send');
+    expect(contract).toContain('rather than a checklist of content types');
     expect(contract).toContain('most turns naturally settle into one send');
     expect(contract).toContain('need not be a self-contained point');
     expect(contract).toContain('Message count is a delivery choice');
@@ -250,7 +252,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('usual soft ceiling is 5');
     expect(contract).not.toContain('usual soft ceiling is 2');
     expect(contract).toContain('One bubble is appropriate when the thought would be typed in one sitting');
-    expect(contract).toContain('use separate messages[] items');
+    expect(contract).toContain('Use separate messages[] items only when');
     expect(contract).toContain('Do not merge those distinct sends into one paragraph merely to be tidy');
     expect(contract).toContain('do not split a single sentence mechanically');
   });

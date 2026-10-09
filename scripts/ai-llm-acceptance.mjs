@@ -2695,7 +2695,7 @@ async function loadRuntimeChatModules() {
       const { createServer } = await import('vite');
       const server = await createServer({
         configFile: resolve(process.cwd(), 'vite.config.ts'),
-        server: { middlewareMode: true },
+        server: { middlewareMode: true, hmr: false },
         appType: 'custom',
         logLevel: 'error',
       });
