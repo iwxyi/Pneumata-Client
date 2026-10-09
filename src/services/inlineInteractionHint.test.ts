@@ -249,6 +249,10 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     });
     expect(contract).toContain('usual soft ceiling is 5');
     expect(contract).not.toContain('usual soft ceiling is 2');
+    expect(contract).toContain('One bubble is appropriate when the thought would be typed in one sitting');
+    expect(contract).toContain('use separate messages[] items');
+    expect(contract).toContain('Do not merge those distinct sends into one paragraph merely to be tidy');
+    expect(contract).toContain('do not split a single sentence mechanically');
   });
 
   it('parses the messages protocol and keeps per-message media decisions', () => {

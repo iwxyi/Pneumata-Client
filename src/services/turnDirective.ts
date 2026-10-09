@@ -171,11 +171,11 @@ function describeEmotion(innerLife: InnerLifeProjection) {
     change_topic: 'wants to move away from the pressure',
     stay_silent: pressureValue >= 0.42
       ? 'holding the reaction back despite active feeling'
-      : 'low internal pressure',
+      : 'no strong carried feeling is currently recorded',
     send_emoji: 'small social signal',
     withdraw: 'pulling back',
   };
-  return `${pressure}: ${impulseMap[innerLife.impulse] || innerLife.impulse}; let it alter timing, omission, softness, edge, or brevity, not become a confession.`;
+  return `${pressure}: ${impulseMap[innerLife.impulse] || innerLife.impulse}; this describes carried state, not a verdict that the live exchange is emotionally neutral. Let any real reaction to the current words, history, status, and relationship alter timing, omission, softness, edge, or brevity; do not invent a reaction or explain it as a confession.`;
 }
 
 function describeRelationship(input: BuildTurnDirectiveInput, targetName?: string) {
@@ -211,7 +211,7 @@ function describeRequiredChange(input: BuildTurnDirectiveInput, hasNarrativePres
   if (repeatedPracticalAdvance) {
     return 'the room has already advanced the practical plan several times; an honest reaction, doubt, joke, refusal, side concern, or clean landing is more useful than another assignment';
   }
-  return 'no mandatory plot or task change; a specific reaction, partial answer, changed attention, or natural landing is enough';
+  return 'no mandatory plot or task change. Even a calm turn should carry this person’s human point of view: a preference, hesitation, private joke, status awareness, small courtesy, guarded omission, or slightly different way of agreeing. Read the live exchange for a real emotional or relational beat before settling into agreement, logistics, or a tidy landing; if nothing is at stake, let the moment stay calm but still distinctly theirs';
 }
 
 function describeExpression(input: BuildTurnDirectiveInput) {
@@ -232,7 +232,7 @@ function describeExpression(input: BuildTurnDirectiveInput) {
       : style === 'dramatic'
         ? 'allow tension and implication, but keep it spoken chat'
         : 'ordinary wording, uneven human rhythm, no meeting-style recap';
-  return `${depth}; ${styleLine}; natural presence can be biased, teasing, mildly annoyed, evasive, distracted, over-specific, or incomplete when the moment earns it; a statement, dodge, concession, gripe, pause, or question can all be the right move.`;
+  return `${depth}; ${styleLine}; natural presence can be biased, teasing, mildly annoyed, evasive, distracted, over-specific, or incomplete when the moment earns it. A calm line still needs a human angle rather than neutral information transfer: let personality, relationship, status, or an unspoken concern bend the wording. A statement, dodge, concession, gripe, pause, or question can all be the right move.`;
 }
 
 function describeUserConstraint(userGuidance?: UserGuidanceIntent | null) {
@@ -353,7 +353,7 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
 - Personal meaning: ${directive.characterDrive.stake}. The latest moment lands as ${directive.characterDrive.feltReaction}. They want to ${directive.characterDrive.immediateWant}, while risking ${directive.characterDrive.immediateRisk}.
 - Relationship pull: ${relationshipAction}. ${directive.relationshipEffect}. Do not announce or explain the relationship; let it bend what is noticed, forgiven, challenged, joked about, withheld, or remembered.
 - Attention: ${directive.characterDrive.attentionLens}. ${directive.socialJob} is one available move, not an obligation. They may answer only part, react to an earlier line, interrupt, tease, misunderstand, dodge, change footing, send a low-information social signal, or let the moment rest.
-- Emotional weather: ${directive.emotionalUndercurrent}.${affectBeat}
+- Emotional weather: ${directive.emotionalUndercurrent}.${affectBeat} The carried-state summary is not a substitute for reading the visible exchange: infer the present reaction from what was just said, this person's history and position in the room. A quiet baseline may still meet a line with amusement, irritation, pride, embarrassment, worry, fondness, guardedness, or no notable feeling; choose only what the situation supports. “No notable feeling” does not mean neutral assistant prose: personality and relationship should still leave a visible bias, texture, or choice when one is available.
 - Possible consequence, not a quota: ${directive.requiredChange}. Dramatic line: ${directive.narrativePressure || 'none; do not invent one'}.
 - Visible shape: ${directive.expressionShape}. Before writing, silently decide what this moment means to this person and what they would rather not say; write the imperfect line that escapes through their habits, not a complete explanation of the plan.${userLine}${situationalLine}
 - The labels above are private planning language, not dialogue. Never begin or frame the visible reply with a process label such as “先接住/我来回应/这句我认/接得稳/我补充一下” merely because the internal move is support, acknowledgement, or follow-up. Use those words only when this person would genuinely say them in this exact relationship and moment; otherwise let the feeling show through the actual wording, timing, interruption, question, joke, concession, refusal, or silence.

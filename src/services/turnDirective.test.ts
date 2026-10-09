@@ -71,7 +71,9 @@ function message(patch: Partial<Message> = {}): Message {
     id: 'm1',
     chatId: 'chat-1',
     senderId: 'chen',
+    senderName: '陈越',
     type: 'ai',
+    emotion: 0,
     content: '这次就按贵的订吧，省得麻烦。',
     timestamp: 1,
     isDeleted: false,
@@ -179,6 +181,9 @@ describe('turnDirective', () => {
         immediateRisk: '显得过分认真',
         attentionLens: '对方话里的犹豫',
         relationalAction: 'situated',
+        observableMove: '问一句具体的近况',
+        speakingNecessity: 'optional',
+        evidence: ['对方话里的犹豫'],
       },
       socialJob: 'show social support while keeping independent judgment',
       emotionalUndercurrent: 'subtle: protective warmth',
@@ -226,6 +231,60 @@ describe('turnDirective', () => {
     });
 
     expect(buildTurnDirectivePrompt(directive)).toContain('opening beat visibly carry this pressure');
+  });
+
+  it('does not treat an unrecorded emotion as proof that the live exchange is neutral', () => {
+    const calmInnerLife: InnerLifeProjection = {
+      ...innerLife,
+      impulse: 'stay_silent',
+      tone: 'casual',
+      reason: '没有强触发。',
+      pressure: 0.24,
+      evidence: [],
+      activeAffect: null,
+      dominantEmotion: null,
+    };
+    const directive = buildTurnDirective({
+      chat: chat(),
+      speaker: character('rui', '瑞瑞'),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message({ content: '你刚才当着所有人的面说我只会添乱。' })],
+      styleProfile: 'casual_room',
+      intent,
+      innerLife: calmInnerLife,
+      conversationMovePlan: movePlan,
+      turnPlan,
+    });
+    const prompt = buildTurnDirectivePrompt(directive);
+
+    expect(directive?.emotionalUndercurrent).toContain('no strong carried feeling is currently recorded');
+    expect(directive?.emotionalUndercurrent).not.toContain('low internal pressure');
+    expect(prompt).toContain('not a verdict that the live exchange is emotionally neutral');
+    expect(prompt).toContain('Read the live exchange for a real emotional or relational beat');
+    expect(prompt).toContain('choose only what the situation supports');
+  });
+
+  it('keeps calm turns emotionally legible through personality and relationship', () => {
+    const directive = buildTurnDirective({
+      chat: chat(),
+      speaker: character('rui', '瑞瑞', {
+        speakingStyle: '真正担心时会先挖苦一句。',
+        coreProfile: { coreDesire: '不让朋友独自承担代价' },
+      }),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message({ content: '那就按贵的订吧，省得麻烦。' })],
+      styleProfile: 'casual_room',
+      intent: { ...intent, emotionalTone: 'warm' },
+      innerLife: { ...innerLife, pressure: 0.24, impulse: 'stay_silent', tone: 'casual', activeAffect: null, dominantEmotion: null },
+      conversationMovePlan: { ...movePlan, socialPosture: { warmth: 'warm', directness: 'soft' } },
+      turnPlan,
+    });
+    const prompt = buildTurnDirectivePrompt(directive);
+
+    expect(directive?.requiredChange).toContain('human point of view');
+    expect(directive?.expressionShape).toContain('calm line still needs a human angle');
+    expect(prompt).toContain('“No notable feeling” does not mean neutral assistant prose');
+    expect(prompt).toContain('personality and relationship should still leave a visible bias');
   });
 
   it('keeps user guidance above AI-to-AI room momentum', () => {
@@ -283,7 +342,9 @@ describe('turnDirective', () => {
         relationships: [{
           characterId: 'chen',
           warmth: 72,
+          competence: 40,
           trust: 68,
+          threat: 0,
           attachment: 55,
           note: '记得陈越上次嘴上说没事，后来一个人在楼下坐到天亮。',
         }],
