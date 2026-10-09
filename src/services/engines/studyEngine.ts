@@ -12,6 +12,16 @@ function stableKnowledgeId(title: string) {
   return `knowledge:model:${(hash >>> 0).toString(36)}`;
 }
 
+function resolveKnownKnowledgeItem(items: LearningScenarioState['knowledgeItems'], reference: string | null | undefined) {
+  if (!reference) return undefined;
+  const exact = items.find((item) => item.id === reference);
+  if (exact) return exact;
+  const prefixed = items.filter((item) => reference.startsWith(`${item.id}: `));
+  if (prefixed.length === 1) return prefixed[0];
+  const short = items.filter((item) => item.id.split(':').at(-1) === reference);
+  return short.length === 1 ? short[0] : undefined;
+}
+
 function applyModelStudyUpdate(base: LearningScenarioState, message: Pick<Message, 'metadata'>): LearningScenarioState {
   const update = message.metadata?.studyUpdate;
   if (!base || !update?.knowledgeObservations?.length) return base;
@@ -23,7 +33,7 @@ function applyModelStudyUpdate(base: LearningScenarioState, message: Pick<Messag
   let changed = false;
   for (const observation of update.knowledgeObservations) {
     const key = observation.title.toLocaleLowerCase();
-    const previous = (observation.knowledgeItemId && byId.get(observation.knowledgeItemId)) || byTitle.get(key);
+    const previous = resolveKnownKnowledgeItem(Array.from(byId.values()), observation.knowledgeItemId) || byTitle.get(key);
     const status = previous && observation.status !== 'stale' && rank[previous.status] > rank[observation.status]
       ? previous.status
       : observation.status;
@@ -54,7 +64,7 @@ function applyModelStudyUpdate(base: LearningScenarioState, message: Pick<Messag
   if (!changed) return base;
   const nextLearning = {
     ...base,
-    knowledgeItems: Array.from(byTitle.values()).slice(0, 120),
+    knowledgeItems: Array.from(byId.values()).slice(0, 120),
     evidence: evidence.slice(-240),
     lastStudyAction: 'note' as const,
     lastStudyActionAt: now,
@@ -136,7 +146,9 @@ export const STUDY_ENGINE: SessionEngineDefinition = {
       styleProfile: 'task_room',
       additionalConstraints: [
         `This is a learning-progress room in phase ${phase}. Teaching mode: ${teachingMode}.`,
-        phase === 'mapping' ? 'Break the broad goal into a useful knowledge map before prescribing a long curriculum.' : 'Give one concrete next step and distinguish observed evidence from assumptions about mastery.',
+        phase === 'mapping'
+          ? 'Map the broad goal only when the learner asks for a learning plan; otherwise answer their current question first.'
+          : 'Choose the next teaching move from the learner\'s latest question or attempt. A clear explanation may finish the turn without another exercise. Keep observed evidence separate from assumptions about mastery.',
         'Never pretend that a single score fully measures an open-ended learning goal.',
       ],
     };

@@ -4301,7 +4301,7 @@ describe('chatEngine streaming preview', () => {
       undefined,
       {},
     );
-    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('knowledge:past-present: 过去时与现在完成时');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('knowledge:past-present | 过去时与现在完成时');
   });
 
   it('does not select away or deleted members for group scheduling', async () => {

@@ -137,13 +137,14 @@ describe('mode prompt adapters memory context', () => {
       character: speaker,
       chat: chat('classroom'),
       emotion: 0,
-      messages: [message('I have lost my keys 也是过去丢的啊，我又糊涂了。')],
+      messages: [{ ...message('I have lost my keys 也是过去丢的啊，我又糊涂了。'), type: 'user', senderId: 'user', senderName: '我' }],
       characters: new Map([[speaker.id, speaker]]),
     });
 
-    expect(prompt).toContain('Read the learner\'s latest turn before choosing the next teaching move');
-    expect(prompt).toContain('an earlier unanswered exercise remains optional when the learner changes focus');
-    expect(prompt).toContain('If they ask for practice, testing, feedback, or a deliverable');
+    expect(prompt).toContain('First identify whether the latest learner turn answers a particular exercise');
+    expect(prompt).toContain('do not grade it against a different exercise');
+    expect(prompt).toContain('Latest learner turn to answer first: I have lost my keys 也是过去丢的啊，我又糊涂了。');
+    expect(prompt).toContain('If the learner asks for practice, testing, feedback, or a deliverable');
     expect(prompt).toContain('Check that your examples and explanation support the same conclusion');
   });
 });
