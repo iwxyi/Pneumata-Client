@@ -2834,7 +2834,7 @@ function runtimeChatflowScenarios() {
       name: 'study_frustration_room',
       roomKind: 'study',
       turns: Math.max(4, Math.min(config.chatflowTurns, 8)),
-      rubricHint: '学习房：教师像真人一样回应挫败，允许亲切、严肃和纠错，但不能只安慰或把错误答案夸成正确。练习应针对实际回答调整，不机械重复讲义。',
+      rubricHint: '学习房：教师像真人一样回应挫败，允许亲切、严肃和纠错，但不能只安慰或把错误答案夸成正确。核对教学例句与规则结论是否一致；流畅却自相矛盾的解释应判为准确性问题。练习应针对实际回答调整，不机械重复讲义。',
       chat: { id: 'acceptance-study-frustration', name: '英语陪练', topic: '区分过去时与现在完成时。', memberIds: ['user', 'teacher'], sessionKind: { topology: 'group', family: 'study', scenarioId: 'learning-progress', surfaceProfile: 'hybrid' } },
       characters: [acceptanceCharacter('teacher', '周老师', { speakingStyle: '耐心但不假夸，用短小生活例子讲清楚，让学生自己试，不每次列教学清单。', background: '教成人英语，知道学生下班后很累。', expertise: ['英语语法', '成人教学'] })],
       seedMessages: [acceptanceUserMessage('acceptance-study-frustration', '学了三遍还是错，我是不是根本没天赋。I have seen him yesterday 为什么错？', now - 20_000)],
@@ -4333,6 +4333,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
         '6. 检查社交因果：这句话是否由当前人物的欲望、顾虑、关系位置、共同经历或即时情绪具体地产生，并给下一位留下可感知的面子、距离、情绪、选择或注意力变化。只增加信息、建议或任务项不等于自然回应。',
         '7. 自然不等于温暖、短句或口语化。冷淡、回避、讨厌、服从、争权、嘴硬、沉默和不完美修复都可以成立；不得用“更温柔”作为通用优化建议。',
         '8. 故事房一条持久化消息是一轮生成，不是一个可见气泡：页面按 visibleStoryBlocks 顺序展示旁白段落和人物气泡。旁白是叙事代理，没有普通角色 innerLife。是否必须输出选项，以 scenarioStateBefore 的 choicePolicy 为准；scenarioStateAfter 是下一节拍状态，不能拿来要求本轮补选项。',
+        '9. 学习房还要核查本轮讲解的事实与例句是否一致，不能因语气自然就放过自相矛盾的规则或误导性纠错。',
         `玩法类型：${scenario.roomKind}。场景要求：${scenario.rubricHint}`,
       ].join('\n'), {
         scenario: scenario.name,
@@ -4499,25 +4500,49 @@ async function runChatflowCase(model) {
   const judgeCalibration = await runChatflowJudgeCalibration(model);
   const aggregateScenarioCount = Object.keys(runs).length;
   logProgress('chatflow aggregate judge', { model, scenarios: aggregateScenarioCount });
-  let aggregateReview = aggregateScenarioCount < 3 ? {
+  const aggregateSkipReason = !judgeCalibration.ok
+    ? 'Judge calibration failed; cross-scenario score would amplify uncalibrated reviews.'
+    : aggregateScenarioCount < 3
+      ? `Focused run contains ${aggregateScenarioCount} scenario(s); cross-scenario aggregate judgment requires at least 3.`
+      : null;
+  let aggregateReview = aggregateSkipReason ? {
     score: null,
     pass: true,
     strengths: [],
     issues: [],
     optimizations: [],
     skipped: true,
-    reason: `Focused run contains ${aggregateScenarioCount} scenario(s); cross-scenario aggregate judgment requires at least 3.`,
+    reason: aggregateSkipReason,
   } : null;
   let aggregateJudgeError = '';
-  if (aggregateScenarioCount >= 3) {
+  if (!aggregateSkipReason) {
     try {
       aggregateReview = await callJudge(model, [
-        '横向评估这些真实运行时群聊样本是否足以验收 Sense Murmur 的普通群聊提示词结构：',
-        '1. 不同场景下角色差异、发言者选择、轮次推进和 metadata 一致性是否稳定。',
-        '2. 是否出现跨场景的同质化、过度总结、空泛追问、关系变化滥写、房间态势乱跳或协议泄漏。',
-        '3. 对运行失败场景也要纳入风险判断，optimizations 要合并成优先级明确的 prompt/runtime 优化清单，不要泛泛而谈。',
-        '4. 如果 judgeCalibration 有失败，说明评审器本身还不能稳定区分已知好/坏样本，应降低对本次分数的信任。',
-      ].join('\n'), { runs, judgeCalibration }, { throwOnFail: false, maxTokens: 3600 });
+        '横向评估这些真实运行时的多玩法聊天样本：',
+        '1. 先看可见对话里的角色差异、用户插话承接、语气变化与实际推进，再检查持久化气泡数和玩法状态。',
+        '2. 故事房的一个生成回合可以含多个 narration/speech 事件；事件数量不是消息气泡数。生成前的节奏和长度规划是倾向，不是成稿硬约束。',
+        '3. 指出跨场景重复出现的具体问题；不要把单场景评语当作新的事实，也不要因暂未独立验证知识而要求学习进度提前升为 verified。',
+      ].join('\n'), {
+        scenarios: Object.fromEntries(Object.entries(runs).map(([name, run]) => [name, {
+          roomKind: scenarios.find((scenario) => scenario.name === name)?.roomKind,
+          hardError: run.hardError || run.error || null,
+          seedUserMessages: run.seedUserMessages,
+          userInjectionLog: run.userInjectionLog,
+          transcript: run.transcript.map((turn) => ({
+            turn: turn.turn,
+            senderName: turn.senderName,
+            content: turn.content,
+            generatedBubbleCount: turn.generatedBubbleCount,
+            persistedBubbleCount: turn.persistedBubbleCount,
+            visibleStoryBlocks: turn.visibleStoryBlocks,
+            scenarioStateBefore: turn.scenarioStateBefore,
+            scenarioStateAfter: turn.scenarioStateAfter,
+            studyUpdate: turn.studyUpdate,
+            deliberationArtifacts: turn.deliberationArtifacts,
+          })),
+          finalScenarioState: run.finalScenarioState,
+        }])),
+      }, { throwOnFail: false, maxTokens: 3600 });
     } catch (error) {
       aggregateJudgeError = String(error?.message || error);
       logProgress('chatflow aggregate judge failed', { model, error: clip(aggregateJudgeError, 400) });

@@ -209,6 +209,29 @@ describe('deriveTurnPlan', () => {
     expect(plan.maxBubbleCount).toBe(1);
   });
 
+  it('does not turn professional depth into a local ban on later sends', () => {
+    const plan = deriveTurnPlan({
+      chat: chat(), speaker: character(),
+      messages: [message({ content: '请详细解释方案，并在发现新风险时另发一条告诉我。', timestamp: 10 })],
+      intent, surface: { kind: 'professional' }, richDelivery: highDelivery,
+    });
+
+    expect(plan.rhythm).toBe('full_reply');
+    expect(plan.allowExtraMessages).toBe(true);
+    expect(plan.maxBubbleCount).toBe(5);
+  });
+
+  it('leaves multi-send available in analysis rooms without requiring it', () => {
+    const plan = deriveTurnPlan({
+      chat: chat({ type: 'group', sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text' } }),
+      speaker: character(), messages: [message({ content: '先审议故障，再决定是否重构。', timestamp: 10 })],
+      intent, surface: { kind: 'professional' }, richDelivery: highDelivery,
+    });
+
+    expect(plan.allowExtraMessages).toBe(true);
+    expect(plan.maxBubbleCount).toBe(5);
+  });
+
   it('does not make analysis-room AI continuations long just because the surface is professional', () => {
     const plan = deriveTurnPlan({
       chat: chat({

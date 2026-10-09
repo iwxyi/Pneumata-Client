@@ -10,6 +10,7 @@ import {
 import type { Message } from '../../types/message';
 import type { MemoryItem } from '../memoryTypes';
 import { interviewPromptAdapter } from './interviewPromptAdapter';
+import { studyPromptAdapter } from './studyPromptAdapter';
 import { werewolfPromptAdapter } from './werewolfPromptAdapter';
 
 function memory(text: string): MemoryItem {
@@ -63,7 +64,7 @@ function character(layeredMemories: MemoryItem[] = []): AICharacter {
   };
 }
 
-function chat(mode: 'interview' | 'werewolf') {
+function chat(mode: 'interview' | 'werewolf' | 'classroom') {
   return normalizeConversation({
     id: 'chat-1',
     type: 'group',
@@ -128,5 +129,21 @@ describe('mode prompt adapters memory context', () => {
     });
 
     expect(prompt).toContain('上次悍跳');
+  });
+
+  it('lets the teacher interpret the latest learner turn without keyword routing', () => {
+    const speaker = character();
+    const prompt = studyPromptAdapter.buildSystemPrompt({
+      character: speaker,
+      chat: chat('classroom'),
+      emotion: 0,
+      messages: [message('I have lost my keys 也是过去丢的啊，我又糊涂了。')],
+      characters: new Map([[speaker.id, speaker]]),
+    });
+
+    expect(prompt).toContain('Read the learner\'s latest turn before choosing the next teaching move');
+    expect(prompt).toContain('an earlier unanswered exercise remains optional when the learner changes focus');
+    expect(prompt).toContain('If they ask for practice, testing, feedback, or a deliverable');
+    expect(prompt).toContain('Check that your examples and explanation support the same conclusion');
   });
 });
