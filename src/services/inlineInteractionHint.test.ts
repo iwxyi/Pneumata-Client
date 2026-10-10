@@ -180,22 +180,20 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('"messages":null');
     expect(contract).toContain('messages[] is the ordered list only when');
     expect(contract).toContain('When messages[] is used');
-    expect(contract).toContain('a thought can follow a beat later');
     expect(contract).toContain('typed in one sitting');
-    expect(contract).toContain('does not automatically require another send');
-    expect(contract).toContain('rather than a checklist of content types');
-    expect(contract).toContain('most turns naturally settle into one send');
-    expect(contract).toContain('need not be a self-contained point');
-    expect(contract).toContain('Message count is a delivery choice');
+    expect(contract).toContain('no content category automatically requires one');
+    expect(contract).toContain('one send is the usual default');
+    expect(contract).toContain('need not be self-contained');
+    expect(contract.match(/Send boundaries:/g)).toHaveLength(1);
+    expect(contract.match(/soft ceiling/g)).toHaveLength(1);
     expect(contract).not.toContain('rhythm=');
     expect(contract).not.toContain('independently sendable communicative act');
     expect(contract).not.toContain('Most ordinary turns stay in one bubble');
-    expect(contract).toContain('terminal punctuation is optional');
     expect(contract).toContain('this is chat even when the topic is serious');
-    expect(contract).toContain('Do not make every bubble a complete written sentence');
+    expect(contract).toContain('punctuation follows the voice and moment');
     expect(contract).toContain('set content equal to messages[0].content');
     expect(contract).toContain('Audio must be the only media in its item');
-    expect(contract).toContain('Do not split merely because the text has several sentences');
+    expect(contract).toContain('never split a sentence mechanically');
   });
 
   it('distinguishes reply targets from members who are only mentioned or affected', () => {
@@ -275,10 +273,21 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     });
     expect(contract).toContain('usual soft ceiling is 5');
     expect(contract).not.toContain('usual soft ceiling is 2');
-    expect(contract).toContain('One bubble is appropriate when the thought would be typed in one sitting');
-    expect(contract).toContain('Use separate messages[] items only when');
-    expect(contract).toContain('Do not merge those distinct sends into one paragraph merely to be tidy');
-    expect(contract).toContain('do not split a single sentence mechanically');
+    expect(contract).toContain('not a target or hard limit');
+    expect(contract).toContain('Preserve meaningful sends rather than merging them into paragraphs');
+    expect(contract).toContain('never split a sentence mechanically');
+  });
+
+  it('keeps a one-bubble turn policy consistent with the shared message format', () => {
+    const contract = buildInlineInteractionContract({
+      chat: { id: 'chat-1', type: 'direct', memberIds: ['speaker'], runtimeEventsV2: [] } as unknown as GroupChat,
+      speaker: { id: 'speaker', name: '说话人' } as AICharacter,
+      characters: [{ id: 'speaker', name: '说话人' } as AICharacter], recentMessages: [],
+      turnPlan: { rhythm: 'full_reply', maxBubbleCount: 1, lengthBand: 'long', allowExtraMessages: false, waitSensitive: false, reasons: ['test'] },
+    });
+    expect(contract).toContain('this turn uses one bubble');
+    expect(contract).not.toContain('soft ceiling');
+    expect(contract.match(/Send boundaries:/g)).toHaveLength(1);
   });
 
   it('parses the messages protocol and keeps per-message media decisions', () => {
@@ -389,8 +398,8 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       },
     });
 
-    expect(contract).toContain('one bubble is the default');
-    expect(contract).toContain('content may still contain paragraph breaks');
+    expect(contract).toContain('this turn uses one bubble');
+    expect(contract).toContain('paragraphs may organize related thoughts within it');
   });
 
   it('documents social outing fields and model-authored follow-up updates', () => {
