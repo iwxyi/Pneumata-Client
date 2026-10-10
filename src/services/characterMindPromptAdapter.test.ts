@@ -52,6 +52,20 @@ function projection(overrides: Partial<CharacterMindProjection> = {}): Character
 }
 
 describe('characterMindPromptAdapter', () => {
+  it('reports only identity values that survive the rendered core budget', () => {
+    const output = adaptCharacterMindProjectionForPrompt(projection(), {
+      chatType: 'group',
+      maxCoreLines: 2,
+      visibleMemoryRecall: 'off',
+    });
+
+    expect(output.renderedIdentityValues).toEqual([
+      '陪伴角色，重视长期相处。',
+      '自然、克制，偶尔嘴硬。',
+    ]);
+    expect(output.coreContinuityBlock).not.toContain('希望被理解');
+  });
+
   it('does not fall back to untyped projection prose when structured recall selection supplied no cues', () => {
     const value = projection();
     value.continuity.relationshipMemories = ['一段没有披露级别的关系细节'];

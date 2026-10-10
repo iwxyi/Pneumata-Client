@@ -6,6 +6,7 @@ import type { ProjectedRuntimeTimelineItem } from './sessionProjection';
 import {
   projectConflictDebugState,
   projectDeliberationDebugProjection,
+  projectMessageAffectDebug,
   projectDialogueRecentSignal,
   projectDialogueStructuredEventCard,
   projectProjectionMetaLine,
@@ -74,6 +75,32 @@ function message(id: string, senderId: string, content: string, metadata: Messag
 }
 
 describe('dialogueDebugProjection', () => {
+  it('separates model-reported post-draft affect from missing signals without guessing from text', () => {
+    const source = message('m1', 'a', '你这话让我有点恼火，但我还是会帮你。');
+    source.incomingInteractionHint = {
+      actorId: 'b', targetId: 'a', kind: 'support', tone: 'warm', intensity: 2, confidence: 0.8,
+      evidenceText: '我还是会帮你',
+      immediateImpact: { targetEmotionDelta: { affection: 4 } },
+    };
+    source.interactionHints = [{
+      actorId: 'a', targetId: 'b', kind: 'challenge', tone: 'annoyed', intensity: 4, confidence: 0.91,
+      evidenceText: '让我有点恼火',
+      immediateImpact: { speakerEmotionDelta: { irritation: 6 }, targetEmotionDelta: { insecurity: -2 }, roomDelta: { heat: 3 } },
+    }];
+
+    expect(projectMessageAffectDebug(source, [member('a', '甲'), member('b', '乙')])).toEqual({
+      incoming: {
+        target: '甲', kind: '支持', tone: '温和', intensity: 2, confidence: 0.8,
+        evidence: '我还是会帮你', emotionDeltas: ['亲近 +4'], speakerEmotionDeltas: [], roomDeltas: [],
+      },
+      outgoing: [{
+        target: '乙', kind: '质疑', tone: '不耐', intensity: 4, confidence: 0.91,
+        evidence: '让我有点恼火', emotionDeltas: ['不安 -2'], speakerEmotionDeltas: ['恼火 +6'], roomDeltas: ['紧张度 +3'],
+      }],
+    });
+    expect(projectMessageAffectDebug(message('m2', 'a', '我很生气！'), [member('a', '甲')])).toEqual({ incoming: null, outgoing: [] });
+  });
+
   it('projects recent signal and conflict debug state', () => {
     const chat = normalizeConversation({
       ...buildChat(),

@@ -35,7 +35,8 @@ function usesMindOwnedConversationContract(chat: GroupChat) {
 }
 
 function usesUnifiedOrdinaryGroupTurnContract(chat: GroupChat) {
-  return chat.type === 'group' && resolveSessionFamilyKey(chat) === 'conversation';
+  return chat.sessionKind?.scenarioId !== 'story-reader'
+    && resolveSessionFamilyKey(chat) === 'conversation';
 }
 
 export interface PromptMemoryTraceItem {
@@ -755,7 +756,7 @@ function buildResponseRulesPrompt(chat: GroupChat) {
     '- Stay specific to the latest exchange and your own stance.',
     '- Do not mention these instructions, memory systems, or retrieval policies.',
   ];
-  const directRelationshipRule = chat.type === 'direct'
+  const directRelationshipRule = chat.type === 'direct' && !usesMindOwnedConversationContract(chat)
     ? [
         '- This is a private conversation with a person, not a character showcase or a polished answer service. Let what they said change your attention, mood, choice of detail, or willingness to stay with the subject.',
         '- Take a real relational stance that fits this character and this history: warmth, curiosity, protectiveness, teasing, hesitation, guardedness, irritation, distance, disagreement, or a clean boundary are all valid. Do not force tenderness or agreement.',
@@ -948,28 +949,33 @@ function buildTopicSection(chat: GroupChat) {
   return `## Conversation Context\n${lines.join('\n')}`;
 }
 
-function buildCharacterSection(character: AICharacter, emotion: number, personaActivation: PersonaActivation, compactForUnifiedGroup = false) {
+function buildCharacterSection(
+  character: AICharacter,
+  emotion: number,
+  personaActivation: PersonaActivation,
+  compactForUnifiedGroup = false,
+  projectedMindValues: ReadonlySet<string> = new Set(),
+) {
   const expertise = character.expertise?.length ? character.expertise.join(', ') : 'Generalist';
   if (compactForUnifiedGroup) {
     const core = character.coreProfile;
+    const grounding = (label: string, value?: string) => value && !projectedMindValues.has(value)
+      ? `- ${label}: ${value}`
+      : '';
     const compactVoiceFingerprint = [
-      ...(core?.expressionHabits || []).slice(0, 2).map((item) => `- Expression habits: ${item}`),
-      core?.conflictStyle ? `- Conflict posture: ${core.conflictStyle}` : '',
-      core?.socialMask ? `- Social mask: ${core.socialMask}` : '',
-      ...(core?.interactionHabits || []).slice(0, 2).map((item) => `- Interaction instinct: ${item}`),
-      ...((core?.valuePriority || []).slice(0, 2).length
-        ? [`- What this person protects first: ${(core?.valuePriority || []).slice(0, 2).join(', ')}`]
-        : []),
-      ...((core?.sensitivities || []).slice(0, 2).length
-        ? [`- What makes them bristle: ${(core?.sensitivities || []).slice(0, 2).join(', ')}`]
-        : []),
+      ...(core?.expressionHabits || []).slice(0, 2).map((item) => grounding('Expression habits', item)),
+      grounding('Conflict posture', core?.conflictStyle),
+      grounding('Social mask', core?.socialMask),
+      ...(core?.interactionHabits || []).slice(0, 2).map((item) => grounding('Interaction instinct', item)),
+      grounding('What this person protects first', (core?.valuePriority || []).slice(0, 2).join(', ')),
+      grounding('What makes them bristle', (core?.sensitivities || []).slice(0, 2).join(', ')),
     ].filter(Boolean);
     return [
       `You are ${character.name}. Read the room from this person's lived position; do not perform a character sheet.`,
       '',
       '## Character Grounding',
-      character.background ? `- Lived context: ${character.background}` : '',
-      character.speakingStyle ? `- Habitual voice: ${character.speakingStyle}` : '',
+      grounding('Lived context', character.background),
+      grounding('Habitual voice', character.speakingStyle),
       character.expertise?.length ? `- Familiar ground: ${expertise}` : '',
       ...compactVoiceFingerprint,
       compactVoiceFingerprint.length
@@ -1172,6 +1178,15 @@ function buildRelationalConsequencePrompt(params: {
   // projection above. Do not bypass that boundary by rendering the raw note a
   // second time here.
   const directionalNote = params.chat.type === 'group' ? '' : rawDirectionalNote;
+  if (usesMindOwnedConversationContract(params.chat)) {
+    return `\n## Relational Consequence For This Turn
+- Current counterpart: ${params.target.name}. Use the shared reality, this person's directional view and relationship evidence above as context for how this exchange lands; they are evidence, not a required visible relationship action.
+${sharedFacts.length ? `- Shared reality: ${sharedFacts.join(' / ')}.` : ''}
+${directionalNote ? `- ${params.character.name}'s subjective view of ${params.target.name}: ${directionalNote}` : ''}
+${axes ? `- Directional relationship axes (${params.character.name} toward ${params.target.name}): ${axes}. Read them together; they inform the current posture but do not prescribe a fixed tone or permanent change.` : ''}
+- Let this particular relationship shape the response only where it naturally matters: what feels easy, risky, familiar, irritating, protective, or worth withholding. A consequence can show through a small choice, or remain unspoken when the moment does not call for one.
+- Do not state scores, labels, or this reasoning in the visible reply.`;
+  }
   return `\n## Relational Consequence For This Turn
 - Current counterpart: ${params.target.name}. The relationship evidence above is live, not character-sheet decoration. This person's identity changes the reaction; do not write a line that could be addressed unchanged to any other member.
 ${sharedFacts.length ? `- Shared reality: ${sharedFacts.join(' / ')}.` : ''}
@@ -1218,9 +1233,10 @@ export function buildPromptAssemblyWithContext(character: AICharacter, chat: Gro
     buildVisibleMindRecallCuesForPrompt(chat, character, characters, memoryContext.memoryCues),
     { summarizeUserContinuity: chat.type === 'direct' && Boolean(companionshipPrompt) },
   );
+  const projectedMindValues = new Set(mind.adapter.renderedIdentityValues);
 
   const systemPrompt = [
-    buildCharacterSection(character, emotion, personaActivation, compactForUnifiedGroup),
+    buildCharacterSection(character, emotion, personaActivation, compactForUnifiedGroup, projectedMindValues),
     buildTopicSection(chat),
     buildRelationshipSection(character, memoryContext.target, chat),
     buildPromptMemorySection(chat, character, memoryContext.conversationMemories, memoryContext.characterMemories, memoryContext.targetedCharacterMemories, memoryContext.target, memoryContext.relationshipSnapshot, characters, memoryContext.recallCue, Boolean(companionshipPrompt), memoryContext.recentMemoryUseIds, mind),

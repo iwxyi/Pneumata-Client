@@ -183,20 +183,11 @@ function countUnmetTurns(recentAiMessages: Message[], primaryTargetId: string, s
   return turns;
 }
 
-type ReplyWorthyInteractionHint = {
-  targetId?: string | null;
-  kind?: string | null;
-};
-
 function getReplyWorthyInteractionTargetIds(message: Message, characters: AICharacter[]) {
-  const candidate = message as Message & {
-    interactionHint?: ReplyWorthyInteractionHint | null;
-    interactionHints?: ReplyWorthyInteractionHint[] | null;
-  };
   const hints = [
-    candidate.interactionHint || null,
-    ...(Array.isArray(candidate.interactionHints) ? candidate.interactionHints : []),
-  ].filter((hint): hint is ReplyWorthyInteractionHint => Boolean(hint));
+    ...(message.interactionHint ? [message.interactionHint] : []),
+    ...(message.interactionHints || []),
+  ];
   return hints
     .filter((hint) => isReplyWorthyInteractionKind(hint.kind))
     .map((hint) => hint.targetId)

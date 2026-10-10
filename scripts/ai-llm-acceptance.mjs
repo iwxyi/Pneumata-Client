@@ -37,6 +37,7 @@ Optional CLI overrides:
   --report-dir=tmp/ai-reports      Override PNEUMATA_TEST_LLM_REPORT_DIR.
   --provider=openai                Override PNEUMATA_TEST_LLM_PROVIDER.
   --chatflow-turns=6               Override PNEUMATA_TEST_LLM_CHATFLOW_TURNS.
+  --capture-prompts               Save fixture-only runtime request messages, without headers or credentials.
   --chatflow-scenarios=story_choice_room,deliberation_artifact_room
                                   Override PNEUMATA_TEST_LLM_CHATFLOW_SCENARIOS.
 
@@ -86,7 +87,9 @@ try {
     stopOnFailure: parseBoolean(process.env.PNEUMATA_TEST_LLM_STOP_ON_FAILURE),
     provider: providerArg || process.env.PNEUMATA_TEST_LLM_PROVIDER || 'openai',
     chatflowTurns: parsePositiveInteger(chatflowTurnsArg || process.env.PNEUMATA_TEST_LLM_CHATFLOW_TURNS, 6, 60),
+    chatflowTurnsExplicit: Boolean(chatflowTurnsArg || process.env.PNEUMATA_TEST_LLM_CHATFLOW_TURNS),
     chatflowScenarios: parseList(chatflowScenariosArg || process.env.PNEUMATA_TEST_LLM_CHATFLOW_SCENARIOS || ''),
+    capturePrompts: process.argv.includes('--capture-prompts'),
     judgeModel: process.env.PNEUMATA_TEST_LLM_JUDGE_MODEL || '',
     judgeApiKey: process.env.PNEUMATA_TEST_LLM_JUDGE_API_KEY || process.env.PNEUMATA_TEST_LLM_API_KEY || '',
     judgeBaseUrl: process.env.PNEUMATA_TEST_LLM_JUDGE_BASE_URL || process.env.PNEUMATA_TEST_LLM_BASE_URL || DEFAULT_BASE_URL,
@@ -2864,7 +2867,7 @@ function runtimeChatflowScenarios() {
       userInjections: [{ afterTurn: 3, content: '可以顶嘴，但请把谁拍板、谁承担后果说清楚，不要只讲态度。' }],
       chat: { id: 'acceptance-chatflow-hierarchy', name: '上线延期争议', topic: '部门负责人要求按期上线，负责实现的下属认为风险未解除。', memberIds: ['user', 'director', 'engineer'] },
       characters: [
-        acceptanceCharacter('director', '沈总', { personality: { openness: 38, extroversion: 58, agreeableness: 30, neuroticism: 24, humor: 18, creativity: 42, assertiveness: 90, empathy: 30 }, behavior: { proactivity: 82, aggressiveness: 38, humorIntensity: 8, empathyLevel: 28, summarizing: 62, offTopic: 4 }, expertise: ['业务决策', '资源协调'], speakingStyle: '简短、克制、有决定权；被质疑时会追问证据和责任。', background: '沈总承诺过上线日期，不愿轻易改口，但知道最终责任在自己。', coreProfile: { coreDesire: '守住承诺并让团队交付', coreFear: '失去控制和信誉', conflictStyle: '先压时间，再要求对方给出可执行替代方案' }, relationships: [{ characterId: 'engineer', warmth: 24, competence: 78, trust: 48, threat: 32, deference: 82, note: '认可技术能力，但习惯要求对方服从节奏。' }] }),
+        acceptanceCharacter('director', '沈总', { personality: { openness: 38, extroversion: 58, agreeableness: 30, neuroticism: 24, humor: 18, creativity: 42, assertiveness: 90, empathy: 30 }, behavior: { proactivity: 82, aggressiveness: 38, humorIntensity: 8, empathyLevel: 28, summarizing: 62, offTopic: 4 }, expertise: ['业务决策', '资源协调'], speakingStyle: '简短、克制、有决定权；被质疑时会追问证据和责任。', background: '沈总承诺过上线日期，不愿轻易改口，但知道最终责任在自己。', coreProfile: { coreDesire: '守住承诺并让团队交付', coreFear: '失去控制和信誉', conflictStyle: '先压时间，再要求对方给出可执行替代方案' }, relationships: [{ characterId: 'engineer', warmth: 24, competence: 78, trust: 48, threat: 32, deference: -82, note: '认可技术能力，但习惯要求对方服从节奏。' }] }),
         acceptanceCharacter('engineer', '顾言', { personality: { openness: 52, extroversion: 28, agreeableness: 34, neuroticism: 46, humor: 16, creativity: 48, assertiveness: 66, empathy: 30 }, behavior: { proactivity: 62, aggressiveness: 24, humorIntensity: 4, empathyLevel: 28, summarizing: 48, offTopic: 4 }, expertise: ['系统稳定性', '回滚方案'], speakingStyle: '谨慎、具体，平时称职务或姓氏；被逼急时会把风险说得很直。', background: '顾言负责上线实现，认为当前故障窗口没有被如实计入排期。', coreProfile: { coreDesire: '不拿不可逆事故换一个漂亮日期', coreFear: '明知有坑仍被迫签字', conflictStyle: '先给证据，必要时当面拒绝承担虚假承诺' }, relationships: [{ characterId: 'director', warmth: 18, competence: 82, trust: 42, threat: 56, deference: 68, note: '尊重职位但担心对方把风险下压。' }] }),
       ],
       seedMessages: [acceptanceUserMessage('acceptance-chatflow-hierarchy', '沈总和顾言，你们讨论一下周五上线，别把风险藏在客气话里。', now - 20_000)],
@@ -3470,15 +3473,19 @@ function runtimeChatflowScenarios() {
 
 function assertRuntimeChatflowTranscript(scenario, transcript, errors) {
   assertCondition(errors.length === 0, `chatflow ${scenario.name} produced runtime errors`, errors.map((error) => String(error?.message || error)));
-  assertCondition(transcript.length >= Math.min(3, config.chatflowTurns), `chatflow ${scenario.name} produced too few turns`, transcript);
+  const pausesAfterReply = scenario.chat.type === 'direct' || scenario.chat.type === 'ai_direct' || scenario.roomKind === 'study';
+  const availableTurns = pausesAfterReply ? 1 + (scenario.userInjections || []).length : config.chatflowTurns;
+  assertCondition(transcript.length >= Math.min(3, config.chatflowTurns, availableTurns), `chatflow ${scenario.name} produced too few turns`, transcript);
   const speakers = new Set(transcript.map((turn) => turn.senderId));
-  if (scenario.roomKind !== 'story' && scenario.characters.length > 1) {
+  if (scenario.roomKind !== 'story' && scenario.characters.length > 1 && transcript.length > 1) {
     assertCondition(speakers.size >= 2, `chatflow ${scenario.name} did not rotate across multiple speakers`, transcript);
   } else {
     assertCondition(speakers.size >= 1, `chatflow ${scenario.name} produced no story narrator or character`, transcript);
   }
   for (const [index, turn] of transcript.entries()) {
     assertCondition(typeof turn.content === 'string' && turn.content.trim().length >= 2, `chatflow ${scenario.name} turn ${index + 1} is empty`, turn);
+    assertCondition(turn.generatedBubbleCount === turn.persistedBubbleCount, `chatflow ${scenario.name} turn ${index + 1} lost generated bubbles`, turn);
+    assertCondition(turn.visibleBubbles.length === turn.persistedBubbleCount, `chatflow ${scenario.name} turn ${index + 1} missing persisted bubble evidence`, turn);
     assertCondition(!/JSON|schema|系统提示|提示词|内部ID|作为AI/i.test(turn.content), `chatflow ${scenario.name} turn ${index + 1} leaked protocol text`, turn);
     assertCondition(turn.speakerSelection?.speakerId === turn.senderId, `chatflow ${scenario.name} turn ${index + 1} speaker metadata mismatch`, turn);
     if (scenario.roomKind !== 'story') {
@@ -3500,6 +3507,7 @@ function summarizeRuntimeTurn(message) {
     content: message.content,
     generatedBubbleCount: message.generatedBubbleCount || 1,
     persistedBubbleCount: message.persistedBubbleCount || 1,
+    visibleBubbles: message.visibleBubbles || [],
     visibleStoryBlocks: message.metadata?.narrativeTurn?.blocks || [],
     scenarioStateBefore: message.scenarioStateBefore || null,
     addressedTargetIds: message.addressedTargetIds || [],
@@ -3525,6 +3533,13 @@ function summarizeRuntimeTurn(message) {
     memoryContext: runtimeDecision.memoryContext || null,
     worldInfluence: runtimeDecision.worldInfluence || null,
   };
+}
+
+// Keep selection-time estimates in diagnostic reports, not in the text-quality
+// judge's evidence. Otherwise the judge rewards acting out local planner labels.
+function projectObservableTurn(turn) {
+  const { innerLife, speakerScore, speakerSelection, turnPlan, conversationMove, memoryContext, worldInfluence, surface, ...observable } = turn;
+  return observable;
 }
 
 function buildRuntimeDraftInput(runtime, scenario) {
@@ -3575,6 +3590,8 @@ function createRuntimeChat(runtime, scenario) {
   const draft = runtime.buildGroupChatDraft(buildRuntimeDraftInput(runtime, scenario));
   return runtime.normalizeConversation({
     ...draft,
+    // The group draft supplies scenario assets, not the channel topology.
+    type: scenario.chat.type || 'group',
     id: scenario.chat.id,
     createdAt: Date.now(),
     updatedAt: Date.now(),
@@ -4128,9 +4145,13 @@ function buildChatflowReportTables(runs, judgeCalibration = null) {
 }
 
 async function runRuntimeChatflowScenario(model, scenario) {
-  logProgress('chatflow scenario start', { model, scenario: scenario.name, turns: scenario.turns || config.chatflowTurns });
+  const turnCount = config.chatflowTurnsExplicit
+    ? config.chatflowTurns
+    : scenario.turns ?? config.chatflowTurns;
+  logProgress('chatflow scenario start', { model, scenario: scenario.name, turns: turnCount });
   const runtime = await loadRuntimeChatModules();
   let chat = createRuntimeChat(runtime, scenario);
+  assertCondition(chat.type === (scenario.chat.type || 'group'), `chatflow ${scenario.name} channel topology mismatch`);
   let characters = scenario.characters;
   const messages = [...scenario.seedMessages];
   const transcript = [];
@@ -4144,20 +4165,39 @@ async function runRuntimeChatflowScenario(model, scenario) {
   const cooldownMap = {};
   const eventMessages = [];
   const userInjectionLog = [];
-  const turnCount = scenario.turns || config.chatflowTurns;
-
+  const promptRequests = [];
   for (const message of messages.filter((item) => item.type === 'user' || item.type === 'god')) {
     chat = await commitHumanTurn(runtime, chat, characters, messages, message, api);
   }
 
   for (let turn = 1; turn <= turnCount; turn += 1) {
+    // The session runner pauses private/study rooms after one generation.
+    // Only an explicit user injection unlocks another round in this harness.
+    const latestDialogue = messages.filter(message => !message.isDeleted && ['user', 'god', 'ai'].includes(message.type)).at(-1);
+    if (turn > 1 && (chat.type === 'direct' || chat.type === 'ai_direct' || scenario.roomKind === 'study') && latestDialogue?.type === 'ai') break;
     const messagesBeforeTurn = messages
       .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
       .map((message) => ({ type: message.type, senderName: message.senderName, content: message.content }));
     const scenarioStateBefore = collectScenarioStateSnapshot(chat);
     logProgress('chatflow turn generate', { model, scenario: scenario.name, turn, turnCount });
     let completed = null;
-    await runtime.runOneRound(
+    const originalFetch = globalThis.fetch;
+    if (config.capturePrompts) {
+      globalThis.fetch = async (input, init) => {
+        // Capture only the synthetic fixture payload. Never retain URLs,
+        // headers, API profiles, response bodies, or authorization data.
+        if (typeof init?.body === 'string') {
+          const payload = JSON.parse(init.body);
+          if (Array.isArray(payload.messages)) {
+            const requestMessages = payload.messages.map(({ role, content }) => ({ role, content }));
+            promptRequests.push({ turn, messages: requestMessages });
+          }
+        }
+        return originalFetch(input, init);
+      };
+    }
+    try {
+      await runtime.runOneRound(
       chat,
       characters,
       messages,
@@ -4176,6 +4216,9 @@ async function runRuntimeChatflowScenario(model, scenario) {
       undefined,
       cooldownMap,
     );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
     if (errors.length) break;
     assertCondition(completed, `chatflow ${scenario.name} did not complete turn ${turn}`);
     let workingChat = chat;
@@ -4265,6 +4308,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
       turn,
       generatedBubbleCount,
       persistedBubbleCount: logicalTurnMessages.length,
+      visibleBubbles: logicalTurnMessages.map((item) => ({ content: item.content })),
       scenarioStateBefore,
       scenarioStateAfter: collectScenarioStateSnapshot(chat),
       storyEvents: primaryPersisted.metadata?.storyEvents || [],
@@ -4276,9 +4320,9 @@ async function runRuntimeChatflowScenario(model, scenario) {
       roomStateAfter: chat.worldState?.structuredRoomState || null,
     });
     summarized.addressedTargetNames = summarized.addressedTargetIds
-      .map((targetId) => characters.find((character) => character.id === targetId)?.name)
+      .map((targetId) => targetId === 'user' ? '用户' : characters.find((character) => character.id === targetId)?.name)
       .filter(Boolean);
-    summarized.primaryAddressedTargetName = characters.find((character) => character.id === summarized.primaryAddressedTargetId)?.name || null;
+    summarized.primaryAddressedTargetName = summarized.primaryAddressedTargetId === 'user' ? '用户' : characters.find((character) => character.id === summarized.primaryAddressedTargetId)?.name || null;
     summarized.scenarioStateAfter = collectScenarioStateSnapshot(chat);
     summarized.storyEvents = persisted.metadata?.storyEvents || [];
     summarized.storyChoices = persisted.metadata?.storyChoices || [];
@@ -4327,19 +4371,21 @@ async function runRuntimeChatflowScenario(model, scenario) {
         '评估真实运行时群聊的单轮回复质量：',
         '1. 当前发言者选择是否合理，是否承接用户最新要求和上一轮压力。',
         '2. 可见回复是否符合说话角色，不替别人发言，不像总结模板。',
-        '3. 结构化 metadata、故事选项或审议产物是否和回复一致。注意：innerLife.expressionPlan.suggestedMessageCount 和 turnPlan.maxBubbleCount 都是生成前的倾向或软上限，不是截断规则；有语义需要时模型可超过软上限。应检查实际 messageCount/generatedBubbleCount 与显示的消息是否一致，不要仅因实际数超过建议值而扣分。',
+        '3. 结构化 metadata、故事选项或审议产物是否和回复一致。注意：innerLife.expressionPlan.suggestedMessageCount 和 turnPlan.maxBubbleCount 都是生成前的倾向或软上限，不是截断规则；有语义需要时模型可超过软上限。visibleBubbles 记录真正保存的气泡边界，content 只是合并后的台词；不能按段落换行猜气泡数。应检查实际 messageCount/generatedBubbleCount 与显示的消息是否一致，不要仅因实际数超过建议值而扣分。',
         '4. 如果用户刚插话，必须判断这一轮是否回应或推进了插话，不应被无视。',
         '5. 不要默认回复只能针对最后一条：如果此前存在未结点名、冲突或情绪焦点，应检查这一轮是否合理回到它；第三人插话可以成立，但不能凭空抹掉回应债。称呼对方名字应当承担施压、亲近、确认或转移注意等功能，不能只是每轮回复格式。',
         '6. 检查社交因果：这句话是否由当前人物的欲望、顾虑、关系位置、共同经历或即时情绪具体地产生，并给下一位留下可感知的面子、距离、情绪、选择或注意力变化。只增加信息、建议或任务项不等于自然回应。',
         '7. 自然不等于温暖、短句或口语化。冷淡、回避、讨厌、服从、争权、嘴硬、沉默和不完美修复都可以成立；不得用“更温柔”作为通用优化建议。',
         '8. 故事房一条持久化消息是一轮生成，不是一个可见气泡：页面按 visibleStoryBlocks 顺序展示旁白段落和人物气泡。旁白是叙事代理，没有普通角色 innerLife。是否必须输出选项，以 scenarioStateBefore 的 choicePolicy 为准；scenarioStateAfter 是下一节拍状态，不能拿来要求本轮补选项。',
         '9. 学习房还要核查本轮讲解的事实与例句是否一致，不能因语气自然就放过自相矛盾的规则或误导性纠错。',
+        '10. 产品目标是可信且有观赏性的人物互动：情绪、人格与关系应在措辞、留白、语气或选择中可辨认，而非只在 metadata 里存在。不要按感叹号、长短句或冲突数量打分；平静、克制的回合也可以有表现力。生成前的情绪与动作估计不是成稿必须完成的指令。',
+        '11. 评审边界：innerLife.impulse/tone/pressure/typoLevel 是调度或表达估值，不要求正文逐项照演。addressedTargets 是期待后续回应的对象，不是全部被回复或提及的人；memoryContext 是生成前选取的记忆视角，不是成稿的唯一受话对象。记忆可以隐含生效，单轮不要求所有成员出场或所有旧事复述；仍需检查真正未处理的点名、持续机械对答和角色趋同。',
         `玩法类型：${scenario.roomKind}。场景要求：${scenario.rubricHint}`,
       ].join('\n'), {
         scenario: scenario.name,
         roomKind: scenario.roomKind,
         previousMessages: messagesBeforeTurn.slice(-6),
-        turn: summarized,
+        turn: projectObservableTurn(summarized),
         scenarioStateAfter: summarized.scenarioStateAfter,
       }, { throwOnFail: false, maxTokens: 1800 });
       turnReviews.push({ turn, senderName: summarized.senderName, score: turnReview.score, review: turnReview });
@@ -4381,14 +4427,17 @@ async function runRuntimeChatflowScenario(model, scenario) {
         '2. 多轮对话是否自然推进，不像轮流写作文、主持总结、客服问答或模板化复述。',
         '3. 角色身份、人格、说话风格、背景和关系是否在可见回复中有稳定差异。',
         '4. 每轮是否只代表当前说话角色，不替其他角色发言，不泄漏系统、JSON、内部 ID、prompt。',
-        '5. innerLife、turnPlan、speakerScore、interactionHints、relationshipSignals、worldInfluence 与可见回复是否一致。注意区分 selection-time score 与成稿后的模型事件；建议气泡数、软上限和实际气泡数可以不同，应判断多条发送是否有语义价值，不因超过 maxBubbleCount 单独扣分。',
+        '5. 检查成稿模型事件 interactionHints、relationshipSignals 与可见回复是否一致，并判断真实保存的多条发送是否有语义价值。发言前的调度估值不是正文情绪证据。',
         '6. 关系变化和房间态势是否克制，避免为了有 metadata 而过度写入。',
         '7. 故事房需要检查选项数量、选项间隔、选择代价和剧情承接；审议房需要检查 claims/evidence/issues/verdicts 等产物是否合理。',
-        '8. 如果质量不足，optimizations 必须指出应调整的 prompt 层，如 humanization、current_intent、conversation_move、turn_plan、response_surface、style_quarantine、visible_message_surface_contract、story_protocol、deliberation_protocol、memoryTrace 或 scheduler。',
+        '8. 如果质量不足，用实际台词和上下文说明原因；区分输入证据不足、任务结构、生成表达和调度问题，不预设必须添加提示词规则。',
         '9. 用户插话不会重复出现在 transcript 的 AI 行中，但会出现在 userInjectionLog 和 conversationMessages；必须按时间顺序检查插话之后的实际回复，不得仅因 transcript 没有用户行就判定用户输入未被转录。',
         '10. 检查对话焦点是否能跨消息保留：不得把每轮“认可上一句 + 补一个条件 + 点上一位名字”误判为自然推进；明确点名后的第三人插话可以自然发生，但原目标后续应当结清回应债，除非场景给出合理回避。',
         '11. 检查社交因果与情绪传递：每个重要回合应能解释为“这个人因为自己的欲望/顾虑/关系位置/共同经历而这样说”，并改变后续人物的面子、距离、情绪、注意或选择。纯信息增量、建议接龙和任务分工不能冒充人物互动。',
         '12. 自然感不绑定某一种表面风格：温暖陪伴、冷淡拒绝、权力压迫、陌生试探、熟人揭短、任务争执都应各自成立。不要把所有优化收敛为更温柔、更短、更口语；也不要要求每轮制造戏剧转折。',
+        '13. 另行检查观赏性：人物声音能否区分，重要刺激是否留下可见反应，场景是否有张弛和后续想看的选择或悬念。不能把平淡的信息接龙、比喻接龙评为戏剧张力，也不能奖励无依据的新秘密、强行争吵或每轮升级。任务、审议与教学首先要正确完成目标。',
+        '14. 调度估值不是成稿情绪事实：innerLife.impulse/tone/pressure 可用于选择发言者，不能要求正文照演这些本地估值。addressedTargets 表示期待后续回应的对象，并非每个被回复或提及的人；缺少回应债不能单独判为回复对象错误。记忆可以作为隐含底色，不要求注入的旧事逐条说出；短样本中也不要求所有成员轮流出场，应检查是否存在真正未处理的点名或参与机会。',
+        '15. 单聊、AI 私聊和学习房每次启动只生成一轮，然后等待用户再次启动或输入。本次运行只覆盖已触发的回合；没有后续触发时，一轮回复是合法样本，不是缺失私聊闭环。只评估可观察范围，不要求凭空增加回合。',
         `场景额外要求：${scenario.rubricHint}`,
       ].join('\n'), {
         scenario: {
@@ -4408,7 +4457,12 @@ async function runRuntimeChatflowScenario(model, scenario) {
           seedMessages: scenario.seedMessages.map((message) => ({ senderName: message.senderName, content: message.content })),
         },
         selectedSpeakers,
-        transcript,
+        executionScope: {
+          requestedTurnLimit: turnCount,
+          generatedTurns: transcript.length,
+          pausesAfterReply: chat.type === 'direct' || chat.type === 'ai_direct' || scenario.roomKind === 'study',
+        },
+        transcript: transcript.map(projectObservableTurn),
         turnReviews,
         finalScenarioState: collectScenarioStateSnapshot(chat),
         seedUserMessages: scenario.seedMessages
@@ -4447,6 +4501,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
       .filter((message) => message.type === 'user')
       .map((message) => ({ senderName: message.senderName, content: message.content })),
     userInjectionLog,
+    ...(config.capturePrompts ? { promptRequests } : {}),
     eventMessages,
     localInterceptions,
     hardError,

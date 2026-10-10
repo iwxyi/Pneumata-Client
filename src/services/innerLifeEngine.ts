@@ -399,7 +399,7 @@ export function getInnerLifeSpeakerBias(projection: InnerLifeProjection) {
   };
 }
 
-export function buildInnerLifePromptBlock(projection: InnerLifeProjection) {
+export function buildInnerLifePromptBlock(projection: InnerLifeProjection, options?: { stateOnly?: boolean }) {
   const residue = [
     projection.state.loneliness >= 62 ? 'unanswered loneliness' : '',
     projection.state.repression >= 62 ? 'suppressed words' : '',
@@ -410,6 +410,11 @@ export function buildInnerLifePromptBlock(projection: InnerLifeProjection) {
   const emotionLead = projection.dominantEmotion
     ? `${projection.dominantEmotion.kind} ${Math.round(projection.dominantEmotion.value)} (lead ${Math.round(projection.dominantEmotion.lead)})`
     : 'none clearly active';
+  if (options?.stateOnly) {
+    // Scheduler estimates are not emotional observations. In particular,
+    // being addressed by a close friend does not establish vulnerability.
+    return `\n## Inner Life\n- Recorded emotional lead: ${emotionLead}; carried state, not a verdict on the live exchange.\n- Recorded residue: ${residue || 'none strong enough to foreground'}.\n- Energy: ${round(projection.state.energy)}; room safety: ${round(projection.state.trustInRoom)}.\n- Infer this person's present feeling and way of expressing it from the exchange, personality and relationship; scheduler urgency is not emotional intensity.`;
+  }
   return `\n## Inner Life\n- Current impulse: ${projection.impulse}; tone: ${projection.tone}; pressure: ${projection.pressure.toFixed(2)}.\n- Fast emotional lead: ${emotionLead}. A fast emotion may jump after one line and ease after expression; show it through timing, wording, warmth, defensiveness, teasing, over-explaining, or a sudden stop rather than naming the score.\n- Inner reason: ${projection.reason}\n- Inner residue: ${residue || 'none strong enough to foreground'}.\n- Let this shape omissions, timing, defensiveness, vulnerability, and messiness. Choose whether to send one message or several from the meaning and room style of the whole turn, not from this emotional state alone. Do not explain these fields in the reply.\n- For repair, shame, face-saving, or attention-seeking pressure, keep the character’s social mask and habits alive. Do not turn the pressure into a clean apology, clean confession, generic vulnerability, or generic defiance.\n- For time-limited or mortality-colored pressure, prefer concrete risk judgment, practical care, changed priority, or passing on a usable distinction. Avoid farewell tone, death monologue, and polished aphorisms.\n- Only let wistfulness or fragile hope leak into the message when the current residue or conversation actually earns it; never turn every turn into poetry or farewell.`;
 }
 

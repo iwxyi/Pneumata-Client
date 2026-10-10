@@ -1,4 +1,5 @@
 import type { CompanionshipRuntimeTrace } from './companionship';
+import type { InteractionEventPayload } from './runtimeEvent';
 
 export type MessageType = 'ai' | 'user' | 'system' | 'god' | 'event';
 
@@ -556,6 +557,9 @@ export interface Message {
   senderName: string;
   content: string;
   metadata?: MessageMetadata;
+  interactionHint?: InteractionEventPayload | null;
+  interactionHints?: InteractionEventPayload[] | null;
+  incomingInteractionHint?: InteractionEventPayload | null;
   emotion: number;           // -1 to 1
   timestamp: number;
   isDeleted: boolean;

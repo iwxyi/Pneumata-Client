@@ -1,5 +1,7 @@
 import { Box, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Button, Divider, Stack, Typography } from '@mui/material';
+import type { AICharacter } from '../../types/character';
 import type { Message } from '../../types/message';
+import { projectMessageAffectDebug } from '../../services/dialogueDebugProjection';
 
 type Snapshot = NonNullable<NonNullable<Message['metadata']>['turnParameters']>;
 
@@ -19,8 +21,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const toneLabels: Record<string, string> = { casual: '平常', defensive: '防御', teasing: '调侃', serious: '认真', tired: '疲惫', vulnerable: '脆弱' };
 const hotspotLabels: Record<string, string> = { clear: '平稳', warm: '升温', hot: '紧张' };
 
-export default function MessageParametersDialog({ message, open, onClose }: { message: Message; open: boolean; onClose: () => void }) {
+export default function MessageParametersDialog({ message, members = [], open, onClose }: { message: Message; members?: AICharacter[]; open: boolean; onClose: () => void }) {
   const snapshot = message.metadata?.turnParameters;
+  const affect = projectMessageAffectDebug(message, members);
   return <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
     <DialogTitle>发言参数 · {message.senderName}</DialogTitle>
     <DialogContent dividers sx={{ maxHeight: 'min(70vh, 700px)' }}>
@@ -59,7 +62,36 @@ export default function MessageParametersDialog({ message, open, onClose }: { me
           {snapshot.room.topicDrift !== undefined ? <Value label="话题偏移" value={snapshot.room.topicDrift} /> : null}
         </Section></> : null}
       </>}
+      <Divider />
+      <Section title="成稿后的模型判断">
+        <Typography variant="caption" color="text.secondary">以下是模型随可见发言返回的即时互动信号，不是本地从文字推测；未提供时不会自动补判。</Typography>
+        <Box sx={{ pt: 0.5 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>收到的即时影响</Typography>
+          {affect.incoming ? <AffectItem item={affect.incoming} /> : <Typography variant="body2" color="text.secondary">模型未提供即时影响判断。</Typography>}
+        </Box>
+        <Box sx={{ pt: 0.5 }}>
+          <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>发言造成的即时影响</Typography>
+          {affect.outgoing.length ? affect.outgoing.map((item, index) => <AffectItem key={`${item.target || 'target'}-${index}`} item={item} />) : <Typography variant="body2" color="text.secondary">模型未提供定向即时影响判断。</Typography>}
+        </Box>
+      </Section>
     </DialogContent>
     <DialogActions><Button onClick={onClose}>关闭</Button></DialogActions>
   </Dialog>;
+}
+
+function AffectItem({ item }: { item: NonNullable<ReturnType<typeof projectMessageAffectDebug>['incoming']> }) {
+  if (!item) return null;
+  const confidence = item.confidence === null ? null : `${Math.round(item.confidence * 100)}%`;
+  return <Box sx={{ borderLeft: '2px solid', borderColor: 'divider', pl: 1, py: 0.5, mb: 0.5 }}>
+    <Stack direction="row" useFlexGap spacing={0.5} sx={{ flexWrap: 'wrap', mb: 0.5 }}>
+      {item.target ? <Chip size="small" label={item.target} /> : null}
+      <Chip size="small" variant="outlined" label={item.kind} />
+      <Chip size="small" variant="outlined" label={`${item.tone} · 强度 ${item.intensity}`} />
+      {confidence ? <Chip size="small" variant="outlined" label={`置信度 ${confidence}`} /> : null}
+    </Stack>
+    {item.evidence ? <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>依据：「{item.evidence}」</Typography> : <Typography variant="body2" color="text.secondary">没有成稿证据摘录。</Typography>}
+    {item.emotionDeltas.length ? <Value label="对象情绪变化" value={item.emotionDeltas.join('、')} /> : null}
+    {item.speakerEmotionDeltas.length ? <Value label="发言者情绪变化" value={item.speakerEmotionDeltas.join('、')} /> : null}
+    {item.roomDeltas.length ? <Value label="房间态势变化" value={item.roomDeltas.join('、')} /> : null}
+  </Box>;
 }

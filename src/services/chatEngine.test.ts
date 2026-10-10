@@ -229,7 +229,7 @@ describe('chatEngine streaming preview', () => {
 
   it('keeps a natural multi-clause reply intact when finalizing the committed message', () => {
     const content = '谁站你这边了？我只是看喜羊羊不顺眼。';
-    expect(__chatEngineTestUtils.finalizeResponse(content, defaultIntent, speaker, [])).toBe(content);
+    expect(__chatEngineTestUtils.finalizeResponse(content, speaker)).toBe(content);
   });
 
   it('builds world event context prompt from attention, calendar, and moments', () => {
@@ -646,10 +646,15 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('明显烦躁');
     expect(prompt).toContain('轻微戒备');
     expect(prompt).toContain('## Inner Life');
-    expect(prompt).toContain('## Natural Chat Rhythm');
+    expect(prompt).toContain('Recorded emotional lead:');
+    expect(prompt).not.toContain('Current impulse:');
+    expect(prompt).not.toContain('## Natural Chat Rhythm');
+    expect(prompt).not.toContain('## Style Quarantine');
+    expect(prompt).not.toContain('## Turn Plan');
+    expect(prompt).toContain('believable, watchable character interaction');
     expect(prompt).not.toContain('## Expression Surface Choice');
     expect(prompt).toContain('阎君统辖幽都，牛头受其差遣并负责夜巡');
-    expect(prompt).toContain('Relationship pull: answer_upward');
+    expect(prompt).toContain('Relationship pull: not predetermined');
     expect(prompt).toContain('Possible consequence, not a quota:');
     expect(prompt).not.toContain('## Current speaking intent');
     expect(prompt.match(/## Turn Directive/g)).toHaveLength(1);
@@ -910,7 +915,7 @@ describe('chatEngine streaming preview', () => {
 
     expect(prompt).toContain('## Turn Directive');
     expect(prompt).toContain('## Character Grounding');
-    expect(prompt).toContain('Read the exchange from inside this person');
+    expect(prompt).toContain("speak from this person's position");
     expect(prompt).toContain('do not sprawl to keep airtime');
     expect(prompt).not.toContain('## Persona Activation');
     expect(prompt).not.toContain('## Live Presence');
@@ -3172,11 +3177,10 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('Mode: direct_private');
     expect(prompt).toContain('## Private Turn Priority');
     expect(prompt).toContain('This is a user direct chat');
-    expect(prompt).toContain('Response surface: live chat');
-    expect(prompt).toContain('Let the situation decide length');
-    expect(prompt).toContain('must not override a user request');
-    expect(prompt).toContain('The length tendency is not a cap');
-    expect(prompt).toContain('user tasks and scene obligations still need complete answers');
+    expect(prompt).toContain('## Turn Directive');
+    expect(prompt).not.toContain('Response surface: live chat');
+    expect(prompt).toContain('The primary job is to answer the user directly');
+    expect(prompt).toContain('Established facts and task correctness come first');
     expect(prompt).not.toContain('Usually write one sentence');
     expect(prompt).not.toContain('prefer concise, non-intrusive wording');
     expect(message.content).toContain('合同违约责任');
@@ -3252,9 +3256,9 @@ describe('chatEngine streaming preview', () => {
 
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
-    expect(prompt).toContain('## Style Quarantine');
-    expect(prompt).toContain('use your own opening, rhythm, sentence architecture, and ending');
-    expect(prompt).toContain('Prefer sentence breaks, commas, or plain full stops over em dash');
+    expect(prompt).not.toContain('## Style Quarantine');
+    expect(prompt).toContain('the transcript supplies events, not sentence patterns');
+    expect(prompt).not.toContain('Prefer sentence breaks, commas, or plain full stops over em dash');
     expect(prompt).toContain('The complete recent transcript is provided separately as chat messages');
     expect(prompt).not.toContain('这话扎心');
     expect(prompt).not.toContain('镜头到底对着谁');
@@ -3296,8 +3300,8 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('write the imperfect line that escapes through their habits');
-    expect(prompt).toContain('opening-frame history');
+    expect(prompt).toContain("Use this person's own voice, not a shared acknowledgement template");
+    expect(prompt).toContain('the transcript supplies events, not sentence patterns');
     expect(prompt).not.toContain('## Turn Length Variety');
     expect(prompt).not.toContain('你这个问题问到了实务中的痛点');
     expect(prompt).not.toContain('你这个问题问到了实务中的另一个关键点');
@@ -3663,7 +3667,11 @@ describe('chatEngine streaming preview', () => {
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('## Companionship Context');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('Mode: direct_private');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('## Private Turn Priority');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('complete that job first');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).not.toContain('make a real relationship move');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('明天面试');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('Recorded emotional lead:');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).not.toContain('Current impulse:');
   });
 
   it('uses private prompt arbitration for AI private threads', async () => {
@@ -3691,7 +3699,11 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('Mode: direct_private');
     expect(prompt).toContain('## Private Turn Priority');
     expect(prompt).toContain('This is an AI private thread');
+    expect(prompt).toContain('complete that job first');
+    expect(prompt).not.toContain('make a real relationship move');
     expect(prompt).not.toContain('Mode: general_group');
+    expect(prompt).toContain('Recorded emotional lead:');
+    expect(prompt).not.toContain('Current impulse:');
   });
 
   it('does not retry plain topic shifts as persistent guidance tasks', async () => {

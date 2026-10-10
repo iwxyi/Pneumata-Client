@@ -837,7 +837,7 @@ function MessageBubble({ message, continuesPreviousSender = false, character, ch
           </MenuItem>
         ) : null}
       </Menu>
-      {developerMode && parametersDialogOpen ? <MessageParametersDialog message={message} open onClose={() => setParametersDialogOpen(false)} /> : null}
+      {developerMode && parametersDialogOpen ? <MessageParametersDialog message={message} members={characters} open onClose={() => setParametersDialogOpen(false)} /> : null}
       <Dialog open={promptDialogOpen && Boolean(promptAttachment)} onClose={closePromptDialog} maxWidth="sm" fullWidth>
         <DialogTitle>图片提示词</DialogTitle>
         <DialogContent sx={{ pt: 0.5 }}>

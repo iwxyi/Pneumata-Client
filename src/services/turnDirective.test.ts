@@ -133,9 +133,44 @@ const turnPlan: TurnPlan = {
 };
 
 describe('turnDirective', () => {
-  it('only applies to ordinary group conversation rooms', () => {
+  it('does not prescribe expression from scheduler pressure or planned rhythm', () => {
+    const input = {
+      chat: chat(), speaker: character('rui', '瑞瑞'),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message()], styleProfile: 'casual_room', intent,
+      innerLife, conversationMovePlan: movePlan, turnPlan,
+    };
+    const base = buildTurnDirectivePrompt(buildTurnDirective(input));
+    const changed = buildTurnDirectivePrompt(buildTurnDirective({
+      ...input,
+      innerLife: { ...innerLife, pressure: 0, tone: 'casual', impulse: 'stay_silent' },
+      turnPlan: { ...turnPlan, rhythm: 'multi_bubble', maxBubbleCount: 4 },
+    }));
+    expect(changed).toBe(base);
+  });
+
+  it('keeps a live dramatic question without requiring every turn to escalate it', () => {
+    const directive = buildTurnDirective({
+      chat: chat(), speaker: character('rui', '瑞瑞'), members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message()], styleProfile: 'dramatic_room', intent, innerLife, conversationMovePlan: movePlan, turnPlan,
+      narrativeLines: [{
+        id: 'line-1', conversationId: 'chat-1', type: 'conflict', title: '谁承担代价', summary: '订餐费用让两个人都不愿先松口',
+        participantIds: ['rui', 'chen'], visibility: 'public', status: 'active', tension: 0.6, momentum: 0.5, salience: 0.8,
+        sourceEventIds: [], lastTouchedAt: 1, openQuestions: ['陈越是否愿意承认瑞瑞的预算顾虑？'], possibleNextBeats: [],
+      }],
+    });
+    const prompt = buildTurnDirectivePrompt(directive);
+    expect(prompt).toContain('陈越是否愿意承认瑞瑞的预算顾虑');
+    expect(prompt).toContain('not a quota');
+    expect(prompt).not.toContain('make one observable state change');
+    expect(prompt).not.toContain('Advancing the task with one more fact or assignment is not enough');
+    expect(prompt.length).toBeLessThan(4000);
+  });
+
+  it('shares ordinary conversation expression across public and private rooms', () => {
     expect(shouldUseUnifiedTurnDirective(chat())).toBe(true);
-    expect(shouldUseUnifiedTurnDirective(chat({ type: 'direct' }))).toBe(false);
+    expect(shouldUseUnifiedTurnDirective(chat({ type: 'direct' }))).toBe(true);
+    expect(shouldUseUnifiedTurnDirective(chat({ type: 'ai_direct' }))).toBe(true);
     expect(shouldUseUnifiedTurnDirective(chat({
       mode: 'werewolf',
       sessionKind: { topology: 'group', family: 'deduction', scenarioId: 'werewolf-classic', surfaceProfile: 'hybrid' },
@@ -161,11 +196,12 @@ describe('turnDirective', () => {
 
     expect(directive?.targetName).toBe('陈越');
     expect(directive?.socialJob).toContain('condition');
-    expect(directive?.relationshipEffect).toContain('weak surface fallback');
+    expect(directive?.relationshipEffect).toContain('not a fixed tone');
+    expect(directive?.relationshipEffect).not.toContain('warm warmth');
     expect(directive?.relationshipEffect).toContain('relational consequence');
     expect(directive?.situationalConstraints).toEqual([]);
     const prompt = buildTurnDirectivePrompt(directive);
-    expect(prompt).toContain('Read the exchange from inside this person');
+    expect(prompt).toContain('believable, watchable character interaction');
     expect(prompt).toContain('live attention is on 陈越');
     expect(prompt).toContain('only if saying it performs a real social action');
     expect(prompt).not.toContain('Active target: 陈越');
@@ -195,8 +231,10 @@ describe('turnDirective', () => {
     });
 
     expect(prompt).toContain('private planning language, not dialogue');
-    expect(prompt).toContain('先接住/我来回应/这句我认');
-    expect(prompt).toContain('calm does not mean generic or emotionless');
+    expect(prompt).toContain('not a shared acknowledgement template');
+    expect(prompt).not.toContain('先接住/我来回应/这句我认');
+    expect(prompt).toContain('Quiet moments can have personality');
+    expect(prompt.length).toBeLessThan(2800);
   });
 
   it('treats scalar social posture as subordinate to concrete relationship evidence', () => {
@@ -213,11 +251,12 @@ describe('turnDirective', () => {
     });
 
     const prompt = buildTurnDirectivePrompt(directive);
-    expect(prompt).toContain('close, unequal, competitive, indebted, wounded, desired, feared, or professional relationship');
-    expect(prompt).toContain('friendly teamwork');
+    expect(prompt).toContain('relationship continuity');
+    expect(prompt).toContain('not a fixed tone');
+    expect(prompt).not.toContain('warm warmth and soft directness');
   });
 
-  it('keeps a visible emotional spike in the opening beat even without a directed runtime event', () => {
+  it('does not promote scheduler face-saving estimates to observed emotion', () => {
     const directive = buildTurnDirective({
       chat: chat(),
       speaker: character('rui', '瑞瑞'),
@@ -230,7 +269,9 @@ describe('turnDirective', () => {
       turnPlan,
     });
 
-    expect(buildTurnDirectivePrompt(directive)).toContain('opening beat visibly carry this pressure');
+    expect(buildTurnDirectivePrompt(directive)).not.toContain('visible: saving face');
+    expect(buildTurnDirectivePrompt(directive)).not.toContain('answer because addressed');
+    expect(buildTurnDirectivePrompt(directive)).not.toContain('opening beat');
   });
 
   it('does not treat an unrecorded emotion as proof that the live exchange is neutral', () => {
@@ -259,9 +300,9 @@ describe('turnDirective', () => {
 
     expect(directive?.emotionalUndercurrent).toContain('no strong carried feeling is currently recorded');
     expect(directive?.emotionalUndercurrent).not.toContain('low internal pressure');
-    expect(prompt).toContain('not a verdict that the live exchange is emotionally neutral');
-    expect(prompt).toContain('Read the live exchange for a real emotional or relational beat');
-    expect(prompt).toContain('choose only what the situation supports');
+    expect(prompt).toContain('not a verdict on the live exchange');
+    expect(prompt).toContain('infer the present reaction');
+    expect(prompt).toContain('important words land');
   });
 
   it('keeps calm turns emotionally legible through personality and relationship', () => {
@@ -281,10 +322,9 @@ describe('turnDirective', () => {
     });
     const prompt = buildTurnDirectivePrompt(directive);
 
-    expect(directive?.requiredChange).toContain('human point of view');
-    expect(directive?.expressionShape).toContain('calm line still needs a human angle');
-    expect(prompt).toContain('“No notable feeling” does not mean neutral assistant prose');
-    expect(prompt).toContain('personality and relationship should still leave a visible bias');
+    expect(directive?.requiredChange).toContain('no mandatory plot or task change');
+    expect(prompt).toContain('Quiet moments can have personality');
+    expect(prompt).toContain('wording, timing, omissions and choices');
   });
 
   it('keeps user guidance above AI-to-AI room momentum', () => {
@@ -329,7 +369,8 @@ describe('turnDirective', () => {
 
     expect(prompt).toContain('不让朋友在众人面前被当成可牺牲的那一个');
     expect(prompt).toContain('先看谁在替别人吞下代价');
-    expect(prompt).toContain('Relationship pull: protect');
+    expect(prompt).toContain('Relationship pull: not predetermined');
+    expect(prompt).toContain('warmth 30');
     expect(prompt).toContain('Personal meaning:');
   });
 
@@ -360,9 +401,8 @@ describe('turnDirective', () => {
     const prompt = buildTurnDirectivePrompt(directive);
 
     expect(prompt).toContain('一个人在楼下坐到天亮');
-    expect(prompt).toContain('what this moment means to this person');
-    expect(prompt).toContain('what they would rather not say');
-    expect(prompt).toContain('one available move, not an obligation');
+    expect(prompt).toContain('not a moderator');
+    expect(prompt).toContain('Infer what this person wants to say');
     expect(prompt).not.toContain('make it visible as');
     expect(prompt).not.toContain('Required state change:');
   });
@@ -400,8 +440,8 @@ describe('turnDirective', () => {
     });
 
     const prompt = buildTurnDirectivePrompt(directive);
-    expect(prompt).toContain('state one concrete preference or shortlist first');
-    expect(prompt).toContain('do not pass the choice back to the room');
+    expect(prompt).not.toContain('state one concrete preference or shortlist first');
+    expect(prompt).not.toContain('do not pass the choice back to the room');
   });
 
   it('does not repeat broad clarification after a user asked the room to choose', () => {
@@ -426,8 +466,8 @@ describe('turnDirective', () => {
     });
 
     const prompt = buildTurnDirectivePrompt(directive);
-    expect(prompt).toContain('previous AI already pushed a broad clarification');
-    expect(prompt).toContain('add a concrete option');
+    expect(prompt).not.toContain('previous AI already pushed a broad clarification');
+    expect(prompt).not.toContain('add a concrete option');
   });
 
   it('folds situational floor and handoff pressure into the directive', () => {
@@ -446,8 +486,8 @@ describe('turnDirective', () => {
       turnPlan,
     });
 
-    expect(directive?.situationalConstraints.join('\n')).toContain('name someone else');
-    expect(directive?.situationalConstraints.join('\n')).toContain('short clean handoff');
+    expect(directive?.situationalConstraints.join('\n')).not.toContain('name someone else');
+    expect(directive?.situationalConstraints.join('\n')).not.toContain('short clean handoff');
     expect(directive?.situationalConstraints.join('\n')).toContain('recent own visible line');
     expect(buildTurnDirectivePrompt(directive)).toContain('Situational constraints');
   });
@@ -469,9 +509,8 @@ describe('turnDirective', () => {
     expect(prompt).not.toContain('impulse:');
     expect(prompt).not.toContain('pressure:');
     expect(prompt).not.toContain('policyHits');
-    expect(prompt).toContain('Keep only essential constraints');
-    expect(prompt).toContain('expose internal fields');
-    expect(prompt).toContain('not automatically the only target');
+    expect(prompt).toContain('private planning language, not dialogue');
+    expect(prompt).toContain('earlier unresolved moments remain available');
   });
 
   it('folds long-run and name-addressing drift into situational constraints', () => {
@@ -494,7 +533,7 @@ describe('turnDirective', () => {
     const constraints = directive?.situationalConstraints.join('\n') || '';
 
     expect(constraints).toContain('recent room replies are getting long');
-    expect(constraints).toContain('overusing visible name-addressing');
+    expect(constraints).not.toContain('overusing visible name-addressing');
     expect(buildTurnDirectivePrompt(directive)).toContain('Situational constraints');
   });
 });

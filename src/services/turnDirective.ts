@@ -42,70 +42,6 @@ export interface BuildTurnDirectiveInput {
   narrativeLines?: NarrativeLineProjection[];
 }
 
-function latestVisible(messages: Message[]) {
-  return messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event').at(-1) || null;
-}
-
-function latestHumanPressure(messages: Message[], speakerName?: string) {
-  const latestHuman = messages
-    .filter((message) => !message.isDeleted && (message.type === 'user' || message.type === 'god') && message.content.trim())
-    .at(-1);
-  const text = latestHuman?.content || '';
-  return {
-    asksDecision: /帮我选|替我选|你们帮我选|直接选|别再问|不用问|给个结论|推荐一个|定一个|怎么选|怎么办/.test(text),
-    namesCurrent: Boolean(speakerName && text.includes(speakerName)),
-    namesSomeone: /[^\s，。！？、]{1,12}[，,、 ]*(你怎么看|你来说|你说|想听你|直接说)/.test(text) || /我想听/.test(text),
-    allowsIntentionalRepeat: /复读|重复|照着说|原话|一起说|接下一句|下一句|口号|喊出来|call[- ]?and[- ]?response/i.test(text),
-  };
-}
-
-function looksLikeBroadUserClarification(text?: string | null) {
-  const normalized = (text || '').trim();
-  if (!normalized) return false;
-  return /[？?]/.test(normalized)
-    || /你先(说|定|选)|你是哪种|你要的是哪种|先把.+定了|再看/.test(normalized);
-}
-
-function visibleLength(text: string) {
-  return text.replace(/（[^）]{0,80}）|\([^)]{0,80}\)/g, '').trim().length;
-}
-
-function nameAddressVariants(name?: string | null) {
-  const trimmed = (name || '').trim();
-  if (!trimmed) return [];
-  const variants = new Set<string>([trimmed]);
-  if (/[\u4e00-\u9fff]/.test(trimmed) && trimmed.length >= 3) {
-    variants.add(trimmed.slice(-2));
-    if (trimmed.length >= 4) variants.add(trimmed.slice(-3));
-  }
-  return [...variants].filter((item) => item.length >= 2);
-}
-
-function startsWithNameAddress(content: string, names: Set<string>) {
-  const trimmed = content.trimStart();
-  if (!trimmed) return false;
-  for (const name of names) {
-    if (trimmed.startsWith(name) && /^[\s,，、:：]/.test(trimmed.slice(name.length, name.length + 1))) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function nameAddressingDrift(messages: Message[]) {
-  const recentAi = messages
-    .filter((message) => message.type === 'ai' && !message.isDeleted && message.content.trim())
-    .slice(-6);
-  if (recentAi.length < 3) return false;
-  const names = new Set<string>();
-  for (const message of recentAi) {
-    for (const variant of nameAddressVariants(message.senderName)) names.add(variant);
-  }
-  if (!names.size) return false;
-  const addressOpeners = recentAi.filter((message) => startsWithNameAddress(message.content, names));
-  return addressOpeners.length >= 3 && addressOpeners.length >= Math.ceil(recentAi.length * 0.5);
-}
-
 function speakerName(members: AICharacter[], id?: string) {
   if (!id || id === 'group') return undefined;
   if (id === 'user') return '用户';
@@ -114,14 +50,14 @@ function speakerName(members: AICharacter[], id?: string) {
 
 /**
  * Hybrid prompt architecture boundary:
- * - Use the unified directive only for ordinary public group conversation turns.
- * - Keep direct/AI-private companionship, analysis rooms, story/mystery/gameplay,
- *   and other scenario engines on their dedicated legacy contracts.
+ * - Ordinary public, direct and AI-private conversations share expression ownership.
+ * - Analysis, story/mystery/gameplay retain their dedicated scenario contracts.
  * - This directive replaces scattered per-turn behavior instructions only; full
  *   character, relationship, memory, companionship, and scenario fact blocks stay intact.
  */
 export function shouldUseUnifiedTurnDirective(chat: Pick<GroupChat, 'type' | 'mode' | 'sessionKind'>) {
-  return chat.type === 'group' && resolveSessionFamilyKey(chat) === 'conversation';
+  return chat.sessionKind?.scenarioId !== 'story-reader'
+    && resolveSessionFamilyKey(chat) === 'conversation';
 }
 
 function normalizeRoomStyle(styleProfile?: ChatStyleProfile | string | null): TurnDirective['roomStyle'] {
@@ -147,42 +83,16 @@ function describeSocialJob(plan: ConversationMovePlan, intent: SpeakIntent) {
 }
 
 function describeEmotion(innerLife: InnerLifeProjection) {
-  // A strong stored affect or directed interaction is itself pressure. The
-  // old threshold used only the generic impulse pressure, so a character with
-  // visible irritation could be described as "low pressure / stay silent" in
-  // the same prompt. That contradiction made the model average the signals
-  // into the detached, agreeable voice users were seeing.
-  const affectPressure = innerLife.activeAffect?.pressure || 0;
-  const emotionPressure = innerLife.dominantEmotion
-    ? Math.min(1, Math.max(0, innerLife.dominantEmotion.value) / 100)
-    : 0;
-  const pressureValue = Math.max(innerLife.pressure, affectPressure, emotionPressure * 0.9);
-  const pressure = pressureValue >= 0.65 ? 'visible' : pressureValue >= 0.42 ? 'subtle' : 'background';
-  const impulseMap: Record<string, string> = {
-    answer: 'answer because addressed',
-    show_off: 'wants a little room authority',
-    take_control: 'wants to take control of the room, assign consequence, or draw a boundary',
-    defend_face: 'saving face',
-    seek_attention: 'wants to be noticed without saying so',
-    comfort: 'protective warmth',
-    repair: 'awkward repair',
-    mock: 'teasing or needling',
-    avoid: 'low-energy avoidance',
-    change_topic: 'wants to move away from the pressure',
-    stay_silent: pressureValue >= 0.42
-      ? 'holding the reaction back despite active feeling'
-      : 'no strong carried feeling is currently recorded',
-    send_emoji: 'small social signal',
-    withdraw: 'pulling back',
-  };
-  return `${pressure}: ${impulseMap[innerLife.impulse] || innerLife.impulse}; this describes carried state, not a verdict that the live exchange is emotionally neutral. Let any real reaction to the current words, history, status, and relationship alter timing, omission, softness, edge, or brevity; do not invent a reaction or explain it as a confession.`;
+  const emotion = innerLife.dominantEmotion;
+  const recorded = emotion
+    ? `recorded ${emotion.kind} ${Math.round(emotion.value)} (lead ${Math.round(emotion.lead)})`
+    : 'no strong carried feeling is currently recorded';
+  return `${recorded}; carried state, not a verdict on the live exchange`;
 }
 
-function describeRelationship(input: BuildTurnDirectiveInput, targetName?: string) {
-  const posture = input.conversationMovePlan.socialPosture;
+function describeRelationship(targetName?: string) {
   const target = targetName ? `with ${targetName} in mind` : 'toward the room';
-  const fallback = `${posture.warmth} warmth and ${posture.directness} directness`;
-  return `treat ${fallback} ${target} as a weak surface fallback only. The current Character Mind relationship continuity and relational consequence are more specific evidence: let them decide what this speaker risks, permits, withholds, protects, tests, resents, or needs from this person. Do not reduce a close, unequal, competitive, indebted, wounded, desired, feared, or professional relationship to that scalar, friendly teamwork, or neutral professionalism`;
+  return `relationship continuity ${target} provides history and stakes, not a fixed tone; infer the present relational consequence from the live exchange`;
 }
 
 function describeNarrativePressure(input: BuildTurnDirectiveInput, targetActorId?: string) {
@@ -199,32 +109,17 @@ function describeNarrativePressure(input: BuildTurnDirectiveInput, targetActorId
 }
 
 function describeRequiredChange(input: BuildTurnDirectiveInput, hasNarrativePressure: boolean) {
-  const recentAi = input.messages.filter((message) => message.type === 'ai' && !message.isDeleted).slice(-5);
-  const repeatedPracticalAdvance = recentAi.length >= 4
-    && recentAi.every((message) => message.content.length >= 24);
   if (hasNarrativePressure) {
-    return 'make one observable state change: shift who has leverage, expose a preference or vulnerability, impose or accept a cost, deepen or strain a bond, force a choice, or make the prior plan emotionally harder to carry out. Advancing the task with one more fact or assignment is not enough';
+    return 'the unresolved line offers stakes for this reaction, not a quota for conflict, revelation or progress';
   }
-  if (input.innerLife.pressure >= 0.58 || (input.innerLife.activeAffect?.pressure || 0) >= 0.35) {
-    return 'let the active feeling cause one perceptible change in timing, confidence, closeness, face, permission, or choice; do not replace it with another task summary';
+  if ((input.innerLife.activeAffect?.pressure || 0) >= 0.35) {
+    return 'active feeling may affect confidence, closeness, face or choice; expression can ease it without resolving everything';
   }
-  if (repeatedPracticalAdvance) {
-    return 'the room has already advanced the practical plan several times; an honest reaction, doubt, joke, refusal, side concern, or clean landing is more useful than another assignment';
-  }
-  return 'no mandatory plot or task change. Even a calm turn should carry this person’s human point of view: a preference, hesitation, private joke, status awareness, small courtesy, guarded omission, or slightly different way of agreeing. Read the live exchange for a real emotional or relational beat before settling into agreement, logistics, or a tidy landing; if nothing is at stake, let the moment stay calm but still distinctly theirs';
+  return 'no mandatory plot or task change; a quiet reaction, shared pleasure or natural landing is valid';
 }
 
 function describeExpression(input: BuildTurnDirectiveInput) {
-  const latest = latestVisible(input.messages);
-  const latestFromHuman = latest?.type === 'user' || latest?.type === 'god';
   const style = normalizeRoomStyle(input.styleProfile);
-  const depth = latestFromHuman && (latest.content || '').trim().length >= 40
-    ? 'answer with enough substance for the user'
-    : input.turnPlan.rhythm === 'micro_ack'
-      ? 'a tiny reaction is valid'
-      : input.turnPlan.rhythm === 'multi_bubble'
-        ? 'a real afterthought may change the turn, but rhythm does not decide message count'
-        : 'one compact live-chat move by default';
   const styleLine = style === 'analytical'
     ? 'use distinctions or tradeoffs only when they advance the point'
     : style === 'discovery'
@@ -232,7 +127,7 @@ function describeExpression(input: BuildTurnDirectiveInput) {
       : style === 'dramatic'
         ? 'allow tension and implication, but keep it spoken chat'
         : 'ordinary wording, uneven human rhythm, no meeting-style recap';
-  return `${depth}; ${styleLine}; natural presence can be biased, teasing, mildly annoyed, evasive, distracted, over-specific, or incomplete when the moment earns it. A calm line still needs a human angle rather than neutral information transfer: let personality, relationship, status, or an unspoken concern bend the wording. A statement, dodge, concession, gripe, pause, or question can all be the right move.`;
+  return `use the depth this person's live situation and the user's need warrant; ${styleLine}`;
 }
 
 function describeUserConstraint(userGuidance?: UserGuidanceIntent | null) {
@@ -250,26 +145,17 @@ function describeSituationalConstraints(input: BuildTurnDirectiveInput) {
   const recentAiLengths = visible
     .filter((message) => message.type === 'ai')
     .slice(-6)
-    .map((message) => visibleLength(message.content))
+    .map((message) => message.content.trim().length)
     .filter((length) => length > 0);
   const longCount = recentAiLengths.filter((length) => length >= 120).length;
   const longRunRisk = recentAiLengths.length >= 3 && longCount >= Math.ceil(recentAiLengths.length * 0.5);
   const recentOwnCount = visible
     .filter((message) => message.type === 'ai' && message.senderId === input.speaker.id)
     .slice(-3).length;
-  const latestHuman = latestHumanPressure(visible, input.speaker.name);
-  const previousAskedUserFollowup = latestHuman.asksDecision
-    && previous?.type === 'ai'
-    && looksLikeBroadUserClarification(previous.content);
   const constraints = [
     previousSpeakerSame ? 'the previous visible speaker was also this character; continue only if the situation has moved' : '',
-    latestHuman.asksDecision ? 'the latest user asks for a decision or recommendation; state one concrete preference or shortlist first, and do not pass the choice back to the room before giving the user something usable' : '',
-    previousAskedUserFollowup ? 'the previous AI already pushed a broad clarification back to the user; do not repeat that move, add a concrete option, condition, or recommendation instead' : '',
-    latestHuman.namesSomeone && !latestHuman.namesCurrent ? 'the latest user appears to name someone else; if this character is not that person, make a short clean handoff instead of taking over' : '',
-    latestHuman.allowsIntentionalRepeat ? 'the latest user allows deliberate repeat, quote, chant, fixed answer, or call-and-response when that is the natural move' : '',
     recentOwnCount ? `this character has ${recentOwnCount} recent own visible line(s); use them only as no-repeat evidence` : '',
     longRunRisk ? `recent room replies are getting long (${recentAiLengths.join(' / ')} chars); it is natural to cool back down with one concrete line if the current need allows it` : '',
-    nameAddressingDrift(visible) ? 'recent room replies are overusing visible name-addressing at the start; do not open with a participant name unless it changes attention, disambiguates the thread, applies pressure, repairs, hands off, or makes a deliberate social move' : '',
   ].filter(Boolean);
   if (constraints.length) {
     constraints.push('preserve the current unresolved need; do not switch to a fresh logistical action, new fact, deadline, or softening move merely to be different');
@@ -323,7 +209,7 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
     emotionalUndercurrent: input.innerLife.activeAffect && input.innerLife.activeAffect.counterpartId === targetActorId
       ? `${describeEmotion(input.innerLife)} Directed ${input.innerLife.activeAffect.role} ${input.innerLife.activeAffect.kind} residue is tied to ${targetName || 'the counterpart'}; it may spike after one line and ease after speaking while a lesser unresolved trace remains. Their relationship changes only with durable evidence.`
       : describeEmotion(input.innerLife),
-    relationshipEffect: describeRelationship(input, targetName),
+    relationshipEffect: describeRelationship(targetName),
     narrativePressure,
     requiredChange: describeRequiredChange(input, Boolean(narrativePressure)),
     expressionShape: describeExpression(input),
@@ -343,21 +229,13 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
   const relationshipAction = directive.characterDrive.relationalAction === 'situated'
     ? 'not predetermined; infer it from the target-specific evidence below'
     : directive.characterDrive.relationalAction;
-  const affectBeat = directive.emotionalUndercurrent.includes('Directed')
-    ? '\n- Fast-emotion beat: make the first visible beat acknowledge the spike through a choice of wording, interruption, defensiveness, warmth, or a sudden stop. If the speaker expresses it, let the pressure ease somewhat afterward, but leave one specific residue that can affect the next turn; do not resolve it with a polished apology or generic reassurance.'
-    : directive.emotionalUndercurrent.startsWith('visible:')
-      ? '\n- Fast-emotion beat: let the opening beat visibly carry this pressure before facts, repair, or logistics take over. If the turn softens, make that change of footing perceptible instead of beginning at the already-calm conclusion.'
-    : '';
   return `\n## Turn Directive — This Person in This Moment
-- Read the exchange from inside this person, not as a moderator planning the next useful contribution.${targetLine}
-- Personal meaning: ${directive.characterDrive.stake}. The latest moment lands as ${directive.characterDrive.feltReaction}. They want to ${directive.characterDrive.immediateWant}, while risking ${directive.characterDrive.immediateRisk}.
-- Relationship pull: ${relationshipAction}. ${directive.relationshipEffect}. Do not announce or explain the relationship; let it bend what is noticed, forgiven, challenged, joked about, withheld, or remembered.
-- Attention: ${directive.characterDrive.attentionLens}. ${directive.socialJob} is one available move, not an obligation. They may answer only part, react to an earlier line, interrupt, tease, misunderstand, dodge, change footing, send a low-information social signal, or let the moment rest.
-- Emotional weather: ${directive.emotionalUndercurrent}.${affectBeat} The carried-state summary is not a substitute for reading the visible exchange: infer the present reaction from what was just said, this person's history and position in the room. A quiet baseline may still meet a line with amusement, irritation, pride, embarrassment, worry, fondness, guardedness, or no notable feeling; choose only what the situation supports. “No notable feeling” does not mean neutral assistant prose: personality and relationship should still leave a visible bias, texture, or choice when one is available.
+- Aim for believable, watchable character interaction: speak from this person's position, from inside their lived situation, not a moderator. Let important words land through wording, timing, omissions and choices. Quiet moments can have personality; scene-level tension can rise, ease or linger without escalation every turn.${targetLine}
+- Personal meaning: ${directive.characterDrive.stake}. The latest moment lands as ${directive.characterDrive.feltReaction}. They may want to ${directive.characterDrive.immediateWant}, while risking ${directive.characterDrive.immediateRisk}.
+- Relationship pull: ${relationshipAction}. ${directive.relationshipEffect}
+- Attention: ${directive.characterDrive.attentionLens}. Infer what this person wants to say from the whole exchange; earlier unresolved moments remain available, not only the last line.
+- Emotional weather: ${directive.emotionalUndercurrent}; infer the present reaction from the exchange, history and relationship. Expression may sharpen, soften, conceal or ease feeling; an empty stored state does not decide the live reaction.
 - Possible consequence, not a quota: ${directive.requiredChange}. Dramatic line: ${directive.narrativePressure || 'none; do not invent one'}.
-- Visible shape: ${directive.expressionShape}. Before writing, silently decide what this moment means to this person and what they would rather not say; write the imperfect line that escapes through their habits, not a complete explanation of the plan.${userLine}${situationalLine}
-- The labels above are private planning language, not dialogue. Never begin or frame the visible reply with a process label such as “先接住/我来回应/这句我认/接得稳/我补充一下” merely because the internal move is support, acknowledgement, or follow-up. Use those words only when this person would genuinely say them in this exact relationship and moment; otherwise let the feeling show through the actual wording, timing, interruption, question, joke, concession, refusal, or silence.
-- There is no shared room vocabulary for agreement or support. Do not let the same few acknowledgement verbs become everyone's voice. This person's own habits, social mask, conflict posture, status, relationship, and immediate feeling should choose the wording: they may agree by moving on, sharpening a detail, making a joke, yielding reluctantly, offering help, changing the subject, or saying almost nothing.
-- Do not make every turn a complete statement. A real person may answer sideways, leave a thought unfinished, change their mind mid-line, ask instead of explain, or let a small reaction stand. Choose that only when the character's current pressure and habits support it; calm does not mean generic or emotionless.
-- Keep only essential constraints: do not copy a recent sentence frame, expose internal fields, or use a name as automatic reply formatting. Other recent lines remain available as social history; the last line is not automatically the only target.`;
+- Visible shape: ${directive.expressionShape}.${userLine}${situationalLine}
+- These labels are private planning language, not dialogue. Use this person's own voice, not a shared acknowledgement template; the transcript supplies events, not sentence patterns. Established facts and task correctness come first: no invented shared history, secrets or forced emotional confession.`;
 }

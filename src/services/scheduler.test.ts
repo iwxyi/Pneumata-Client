@@ -236,16 +236,15 @@ describe('scheduler speaker scoring', () => {
   });
 
   it('treats strong interaction hints as pending replies for the target actor', () => {
-    const challengedMessage = buildMessage({ senderId: 'a', senderName: '甲', content: '乙，这个方案你得解释。' }) as Message & {
-      interactionHints: Array<{ targetId: string; kind: string; tone: string; intensity: number; confidence: number; reason: string }>;
-    };
+    const challengedMessage = buildMessage({ senderId: 'a', senderName: '甲', content: '乙，这个方案你得解释。' });
     challengedMessage.interactionHints = [{
+      actorId: 'a',
       targetId: 'b',
       kind: 'challenge',
       tone: 'cold',
       intensity: 3,
       confidence: 0.86,
-      reason: '甲要求乙解释方案',
+      evidenceText: challengedMessage.content,
     }];
 
     const pending = resolvePendingReplyContext(
@@ -380,16 +379,15 @@ describe('scheduler speaker scoring', () => {
 
   it('lets an unspoken member break a two-actor pending-reply loop', () => {
     const now = Date.now();
-    const latest = buildMessage({ id: 'm3', senderId: 'a', senderName: '甲', content: '乙，那你的规矩是什么？', timestamp: now - 5_000 }) as Message & {
-      interactionHints: Array<{ targetId: string; kind: string; tone: string; intensity: number; confidence: number; reason: string }>;
-    };
+    const latest = buildMessage({ id: 'm3', senderId: 'a', senderName: '甲', content: '乙，那你的规矩是什么？', timestamp: now - 5_000 });
     latest.interactionHints = [{
+      actorId: 'a',
       targetId: 'b',
       kind: 'probe',
       tone: 'cold',
       intensity: 3,
       confidence: 0.82,
-      reason: '甲追问乙',
+      evidenceText: latest.content,
     }];
     const messages = [
       buildMessage({ id: 'm1', senderId: 'a', senderName: '甲', content: '先说我的规矩。', timestamp: now - 25_000 }),
@@ -424,16 +422,15 @@ describe('scheduler speaker scoring', () => {
 
   it('keeps an explicit user-directed target even during a two-actor exchange loop', () => {
     const now = Date.now();
-    const latest = buildMessage({ id: 'm3', senderId: 'a', senderName: '甲', content: '乙，那你的规矩是什么？', timestamp: now - 5_000 }) as Message & {
-      interactionHints: Array<{ targetId: string; kind: string; tone: string; intensity: number; confidence: number; reason: string }>;
-    };
+    const latest = buildMessage({ id: 'm3', senderId: 'a', senderName: '甲', content: '乙，那你的规矩是什么？', timestamp: now - 5_000 });
     latest.interactionHints = [{
+      actorId: 'a',
       targetId: 'b',
       kind: 'probe',
       tone: 'cold',
       intensity: 3,
       confidence: 0.82,
-      reason: '甲追问乙',
+      evidenceText: latest.content,
     }];
     const messages = [
       buildMessage({ id: 'm1', senderId: 'a', senderName: '甲', content: '先说我的规矩。', timestamp: now - 25_000 }),

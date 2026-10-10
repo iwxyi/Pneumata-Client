@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-// Requires a dedicated browser: this harness seeds local-only test conversations.
+// Test storage lives in an isolated browser context, never the user's profile.
 const clientUrl = process.env.PNEUMATA_CLIENT_URL;
 const cdpUrl = process.env.PNEUMATA_CDP_URL;
 const apiKey = process.env.PNEUMATA_TEST_LLM_API_KEY;
@@ -12,9 +12,31 @@ if (!process.argv.includes('--run') || !clientUrl || !cdpUrl || !apiKey || !base
 }
 const reportDir = resolve(process.env.PNEUMATA_BROWSER_REPORT_DIR || '/tmp/mirage-bubble-acceptance');
 await mkdir(reportDir, { recursive: true });
-const targetResponse = await fetch(`${cdpUrl}/json/new?${encodeURIComponent(clientUrl)}`, { method: 'PUT' });
-if (!targetResponse.ok) throw new Error(`Could not create isolated test tab: ${targetResponse.status}`);
-const target = await targetResponse.json();
+const browserVersion = await (await fetch(`${cdpUrl}/json/version`)).json();
+const browserSocket = new WebSocket(browserVersion.webSocketDebuggerUrl);
+await new Promise((res, rej) => { browserSocket.addEventListener('open', res, { once: true }); browserSocket.addEventListener('error', rej, { once: true }); });
+let browserCommandId = 0;
+async function browserCommand(method, params = {}) {
+  const id = ++browserCommandId;
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => { browserSocket.removeEventListener('message', handler); reject(new Error(`Browser CDP timeout: ${method}`)); }, 10000);
+    const handler = ({data}) => {
+      const response = JSON.parse(data.toString());
+      if (response.id !== id) return;
+      clearTimeout(timeout);
+      browserSocket.removeEventListener('message', handler);
+      if (response.error) reject(new Error(JSON.stringify(response.error)));
+      else resolve(response.result);
+    };
+    browserSocket.addEventListener('message', handler);
+    browserSocket.send(JSON.stringify({id, method, params}));
+  });
+}
+const {browserContextId} = await browserCommand('Target.createBrowserContext');
+const {targetId} = await browserCommand('Target.createTarget', {url: clientUrl, browserContextId});
+const targets = await (await fetch(`${cdpUrl}/json/list`)).json();
+const target = targets.find(item => item.id === targetId);
+if (!target) throw new Error('Isolated test target missing');
 const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((res, rej) => { socket.addEventListener('open', res, { once: true }); socket.addEventListener('error', rej, { once: true }); });
 let nextId = 0;
@@ -42,7 +64,16 @@ function send(method, params = {}) {
   });
 }
 async function evaluate(expression) {
-  const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+  // Vite's HMR graph can contain timestamped store modules. Use the module
+  // already loaded by the application instead of creating a second Zustand store.
+  const wrapped = `(async () => {
+    const importLive = (path) => {
+      const loaded = performance.getEntriesByType('resource').filter(entry => new URL(entry.name).pathname === path).at(-1);
+      return import(loaded?.name || path);
+    };
+    return await (${expression});
+  })()`;
+  const result = await send('Runtime.evaluate', { expression: wrapped, awaitPromise: true, returnByValue: true });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
   return result.result?.value;
 }
@@ -66,14 +97,15 @@ try {
   await waitFor('document.querySelector("#root")?.children.length > 0');
   await evaluate(`(async () => {
     const [{useAuthStore}, {useSettingsStore}, {useChatStore}, {useCharacterStore}, {useMessageStore}, {useSchedulerStore}, {flushBufferedPersistenceWrites}, {normalizeConversation}, types, init, {useUIStore}] = await Promise.all([
-      import('/src/stores/useAuthStore.ts'), import('/src/stores/useSettingsStore.ts'), import('/src/stores/useChatStore.ts'),
-      import('/src/stores/useCharacterStore.ts'), import('/src/stores/useMessageStore.ts'), import('/src/stores/useSchedulerStore.ts'),
-      import('/src/stores/storePersistenceScope.ts'), import('/src/types/chat.ts'), import('/src/types/character.ts'), import('/src/services/conversationInitialization.ts'), import('/src/stores/useUIStore.ts')
+      importLive('/src/stores/useAuthStore.ts'), importLive('/src/stores/useSettingsStore.ts'), importLive('/src/stores/useChatStore.ts'),
+      importLive('/src/stores/useCharacterStore.ts'), importLive('/src/stores/useMessageStore.ts'), importLive('/src/stores/useSchedulerStore.ts'),
+      importLive('/src/stores/storePersistenceScope.ts'), importLive('/src/types/chat.ts'), importLive('/src/types/character.ts'), importLive('/src/services/conversationInitialization.ts'), importLive('/src/stores/useUIStore.ts')
     ]);
     await useAuthStore.getState().enterLocalMode();
     for (const store of [useSettingsStore, useChatStore, useCharacterStore, useMessageStore, useUIStore]) {
       if (!store.persist.hasHydrated()) await store.persist.rehydrate();
     }
+    await Promise.all([useChatStore.getState().loadChats(), useCharacterStore.getState().loadCharacters()]);
     useSchedulerStore.getState().stop();
     useSchedulerStore.getState().pause();
     useSettingsStore.setState({enableStreamingDisplayAnimation: true, developerMode: false});
@@ -100,15 +132,15 @@ try {
   })()`);
   for (const type of ['direct', 'ai_direct', 'group']) {
     const chatId = `bubble-acceptance-${type}`;
-    await evaluate(`history.pushState({}, '', ${JSON.stringify('/chats/' + chatId)}); window.dispatchEvent(new PopStateEvent('popstate'));`);
+    await evaluate(`(() => { history.pushState({}, '', ${JSON.stringify('/chats/' + chatId)}); window.dispatchEvent(new PopStateEvent('popstate')); })()`);
     await wait(300);
     await waitFor(`location.pathname === ${JSON.stringify('/chats/' + chatId)} && document.querySelector('[data-chat-message-list]')`);
     await waitFor('document.querySelector("[data-chat-message-list]")');
     const result = await evaluate(`(async () => {
       const [{generateAndCommitAiMessage}, {useMessageStore}, {useChatStore}, {useCharacterStore}, {useSchedulerStore}, {loadSessionEngine}, {persistLocalFirstMessage}, {buildRuntimeEventMessageContent}] = await Promise.all([
-        import('/src/services/aiMessageOrchestrator.ts'), import('/src/stores/useMessageStore.ts'), import('/src/stores/useChatStore.ts'),
-        import('/src/stores/useCharacterStore.ts'), import('/src/stores/useSchedulerStore.ts'), import('/src/services/sessionEngineLoader.ts'),
-        import('/src/services/chatCommitMessage.ts'), import('/src/services/runtimeEventFactory.ts')
+        importLive('/src/services/aiMessageOrchestrator.ts'), importLive('/src/stores/useMessageStore.ts'), importLive('/src/stores/useChatStore.ts'),
+        importLive('/src/stores/useCharacterStore.ts'), importLive('/src/stores/useSchedulerStore.ts'), importLive('/src/services/sessionEngineLoader.ts'),
+        importLive('/src/services/chatCommitMessage.ts'), importLive('/src/services/runtimeEventFactory.ts')
       ]);
       const chatId = ${JSON.stringify(chatId)};
       const api = ${JSON.stringify(profile)};
@@ -170,9 +202,9 @@ try {
     await send('Page.reload');
     await wait(1000);
     await evaluate(`(async () => {
-      const [{useChatStore}, {useCharacterStore}] = await Promise.all([import('/src/stores/useChatStore.ts'), import('/src/stores/useCharacterStore.ts')]);
+      const [{useChatStore}, {useCharacterStore}] = await Promise.all([importLive('/src/stores/useChatStore.ts'), importLive('/src/stores/useCharacterStore.ts')]);
       await Promise.all([useChatStore.getState().loadChats(), useCharacterStore.getState().loadCharacters()]);
-      const {useMessageStore} = await import('/src/stores/useMessageStore.ts');
+      const {useMessageStore} = await importLive('/src/stores/useMessageStore.ts');
       await useMessageStore.getState().hydrateMessagesFromCache(${JSON.stringify(chatId)});
     })()`);
     await waitFor('document.querySelector("[data-chat-message-list]")');
@@ -184,9 +216,23 @@ try {
   }
 } catch (error) {
   errors.push(error instanceof Error ? error.message : String(error));
+  try {
+    const diagnostic = await evaluate(`(async () => {
+      const {useChatStore} = await importLive('/src/stores/useChatStore.ts');
+      const {useAuthStore} = await importLive('/src/stores/useAuthStore.ts');
+      return {url: location.href, text: document.body.innerText.slice(-2500),
+        chats: useChatStore.getState().chats.map(c => ({id: c.id, type: c.type})),
+        workspaceReady: useAuthStore.getState().isWorkspaceReady};
+    })()`);
+    await writeFile(resolve(reportDir, 'failure.json'), JSON.stringify(diagnostic, null, 2));
+  } catch (diagnosticError) {
+    errors.push(`Failure diagnostic: ${diagnosticError.message}`);
+  }
   process.exitCode = 1;
 } finally {
   await writeFile(resolve(reportDir, 'report.json'), JSON.stringify({results, errors}, null, 2));
   socket.close();
+  await browserCommand('Target.disposeBrowserContext', {browserContextId});
+  browserSocket.close();
 }
 if (errors.length || results.some(r => r.failures.length) || results.length !== 3) process.exitCode = 1;

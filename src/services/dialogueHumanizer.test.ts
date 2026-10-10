@@ -84,6 +84,35 @@ function character(): AICharacter {
 }
 
 describe('dialogueHumanizer', () => {
+  it.each(['group', 'direct', 'ai_direct'])('keeps voice evidence and model-owned reactions in %s', (type) => {
+    const speaker = character();
+    const messages = [message('这句我认，接住了')];
+    const support = buildHumanizationPrompt(speaker, backingIntent(), messages, null, { family: 'conversation', type });
+    const challenge = buildHumanizationPrompt(speaker, questionOnlyIntent(), messages, null, { family: 'conversation', type });
+    expect(support).toBe(challenge);
+    expect(support).not.toContain('Preferred archetype');
+    expect(support).not.toContain('Selective response mode');
+    expect(support).not.toContain('Inner residue style');
+  });
+  it('projects ordinary-group speech evidence without a second action checklist', () => {
+    const speaker = { ...character(), speakingStyle: '心疼时先挖苦一句', speechProfile: { ...character().speechProfile!, catchphrases: ['哎哟'], tabooPhrases: ['尊敬的用户'] } };
+    const prompt = buildHumanizationPrompt(speaker, backingIntent(), [message('没事，你们先睡')], null, { family: 'conversation', type: 'group' });
+
+    expect(prompt).toContain('心疼时先挖苦一句');
+    expect(prompt).toContain('哎哟');
+    expect(prompt).toContain('尊敬的用户');
+    expect(prompt).not.toContain('Preferred archetype');
+    expect(prompt).not.toContain('Selective response mode');
+    expect(prompt).not.toContain('Carry-over rule');
+    expect(prompt.length).toBeLessThan(900);
+  });
+
+  it('preserves the first-turn context boundary in the compact group projection', () => {
+    const prompt = buildHumanizationPrompt(character(), fragmentIntent(), [], null, { family: 'conversation', type: 'group' });
+    expect(prompt).toContain('first visible message');
+    expect(prompt).toContain('no invented earlier exchange');
+  });
+
   it('treats a topic guidance seed as opening context rather than prior dialogue', () => {
     const prompt = buildHumanizationPrompt(
       character(),
@@ -112,11 +141,9 @@ describe('dialogueHumanizer', () => {
       [message('你能不能把这个问题完整解释一下？')],
     );
 
-    expect(prompt).toContain('Selective focus is an attention prior only');
-    expect(prompt).toContain('must not cap answer length');
-    expect(prompt).toContain('任务需要时要继续说完整');
-    expect(prompt).toContain('Natural group chat often leaves part of the previous message untouched');
-    expect(prompt).toContain('Do not prove you understood every metaphor, acronym, or example');
+    expect(prompt).not.toContain('Selective response mode');
+    expect(prompt).not.toContain('Terse bias');
+    expect(prompt).not.toContain('当前这个点');
     expect(prompt).not.toContain('不要自成完整段落');
   });
 
@@ -135,8 +162,8 @@ describe('dialogueHumanizer', () => {
       [message('这个外部 watchdog 要是没人维护，定时器本身也会失效。')],
     );
 
-    expect(prompt).toContain('Do not prove you understood every metaphor, acronym, or example');
-    expect(prompt).toContain('承认没接住其中的术语');
+    expect(prompt).not.toContain('watchdog');
+    expect(prompt).not.toContain('Carry-over rule');
   });
 
   it('does not latch onto repeated agreement phrases when the room is echoing', () => {
@@ -153,7 +180,7 @@ describe('dialogueHumanizer', () => {
 
     expect(prompt).not.toContain('agreement echo');
     expect(prompt).not.toContain('Stop restating the shared conclusion');
-    expect(prompt).toContain('Preferred archetype: 护住关系');
+    expect(prompt).not.toContain('Preferred archetype:');
     expect(prompt).not.toContain('Preferred archetype: 顺手站边');
     expect(prompt).not.toContain('Latch onto this phrase or point if useful: 这回我站他');
   });
@@ -162,7 +189,6 @@ describe('dialogueHumanizer', () => {
     expect(
       postProcessHumanChat(
         '谁站你这边了？我只是看喜羊羊不顺眼，而且你刚才那句“大家都一样”本来就站不住脚；要是真一样，为什么每次出事都只让一个人出来背锅？',
-        questionOnlyIntent(),
       ),
     ).toBe('谁站你这边了？我只是看喜羊羊不顺眼，而且你刚才那句“大家都一样”本来就站不住脚；要是真一样，为什么每次出事都只让一个人出来背锅？');
   });
@@ -171,23 +197,14 @@ describe('dialogueHumanizer', () => {
     expect(
       postProcessHumanChat(
         '笑死，这话说得好像你刚才没在旁边拱火一样。先别急着装无辜，把你自己那半句解释清楚再说。',
-        fragmentIntent(),
       ),
     ).toBe('笑死，这话说得好像你刚才没在旁边拱火一样。先别急着装无辜，把你自己那半句解释清楚再说。');
   });
 
   it('does not remove a repeated opening phrase from the generated message', () => {
-    const recent = [
-      message('我先说结论，这个办法能用。'),
-      message('我先说结论，你们现在的问题不在这里。'),
-    ];
-
     expect(
       postProcessHumanChat(
         '我先说结论，这里不能再靠本地规则截断，否则流式结束后就会丢前半句。',
-        fragmentIntent(),
-        undefined,
-        recent,
       ),
     ).toBe('我先说结论，这里不能再靠本地规则截断，否则流式结束后就会丢前半句。');
   });
@@ -196,7 +213,6 @@ describe('dialogueHumanizer', () => {
     expect(
       postProcessHumanChat(
         '我觉得，这句话前面的三个字不能被本地后处理吃掉。',
-        questionOnlyIntent(),
       ),
     ).toBe('我觉得，这句话前面的三个字不能被本地后处理吃掉。');
   });
@@ -205,7 +221,6 @@ describe('dialogueHumanizer', () => {
     expect(
       postProcessHumanChat(
         '等等，等等，这不是重复废话，是角色真的急了！！',
-        fragmentIntent(),
       ),
     ).toBe('等等，等等，这不是重复废话，是角色真的急了！！');
   });

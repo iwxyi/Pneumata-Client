@@ -157,7 +157,7 @@ const leakySpeakerId = '3c78729f-e52d-4dde-b27f-01a949960bb8b';
 const leakyTargetId = '8b3d7266-c0c7-4ceb-8dc2-45126f3f2321';
 
 describe('buildSystemPromptWithContext', () => {
-  it('requires an active group relationship to have a visible turn-level consequence', () => {
+  it('uses ordinary group relationship data as evidence without a per-turn display quota', () => {
     const speaker = buildCharacter({
       relationships: [{
         characterId: 'char-b',
@@ -178,8 +178,48 @@ describe('buildSystemPromptWithContext', () => {
 
     expect(prompt).toContain('## Relational Consequence For This Turn');
     expect(prompt).toContain('阎君');
-    expect(prompt).toContain('not character-sheet decoration');
-    expect(prompt).toContain('Do not turn every relationship into friendly teamwork');
+    expect(prompt).toContain('evidence, not a required visible relationship action');
+    expect(prompt).toContain('A consequence can show through a small choice, or remain unspoken');
+    expect(prompt).not.toContain('Make one consequence perceptible');
+  });
+
+  it.each(['direct', 'ai_direct'] as const)('keeps %s relationship evidence without forcing a visible action', (type) => {
+    const note = '雨夜失约后仍有些介意，但还没有问出口。';
+    const targetId = type === 'direct' ? 'user' : 'char-b';
+    const speaker = buildCharacter({
+      relationships: [{ characterId: targetId, warmth: 36, competence: 42, trust: 28, threat: 12, note }],
+    });
+    const target = buildCharacter({ id: targetId, name: '阿远' });
+    const prompt = buildPromptAssemblyWithContext(speaker, {
+      ...(type === 'direct' ? buildDirectChat() : buildAiDirectChat()),
+      memberIds: [speaker.id, target.id],
+    }, 0, [buildMessage({ type: type === 'direct' ? 'user' : 'ai', senderId: target.id, senderName: target.name })], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]), { preferredTargetActorId: targetId }).systemPrompt;
+
+    expect(prompt).toContain('evidence, not a required visible relationship action');
+    expect(prompt).toContain(note);
+    expect(prompt).not.toContain('Make one consequence perceptible');
+    expect(prompt).not.toContain('decide the immediate relational pressure');
+  });
+
+  it('retains explicit relational consequence guidance for dedicated analysis play', () => {
+    const speaker = buildCharacter({
+      relationships: [{ characterId: 'char-b', warmth: 36, competence: 42, trust: 28, threat: 12, note: '雨夜失约后仍有些介意。' }],
+    });
+    const target = buildCharacter({ id: 'char-b', name: '阿远' });
+    const prompt = buildSystemPromptWithContext(speaker, {
+      ...buildChat(),
+      mode: 'group_discussion',
+      sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text' },
+      memberIds: [speaker.id, target.id],
+    }, 0, [buildMessage({ senderId: target.id, senderName: target.name })], new Map([
+      [speaker.id, speaker],
+      [target.id, target],
+    ]));
+
+    expect(prompt).toContain('Make one consequence perceptible');
   });
 
   it('passes developer guidance messages to the model as user turns', () => {
@@ -279,7 +319,10 @@ describe('buildSystemPromptWithContext', () => {
       },
     });
     const prompt = buildSystemPromptWithContext(character, buildChat(), 0, [], new Map([[character.id, character]]));
-    expect(prompt).toContain('Expression habits: 真正担心时先挖苦一句');
+    expect(prompt.split('穿搭博主')).toHaveLength(2);
+    expect(prompt.split('轻快')).toHaveLength(2);
+    expect(prompt).toContain('真正担心时先挖苦一句');
+    expect(prompt.split('真正担心时先挖苦一句')).toHaveLength(2);
     expect(prompt).toContain('Conflict posture: 不正面吵，先挑对方逻辑里的刺');
     expect(prompt).toContain('What this person protects first: 体面, 可靠');
     expect(prompt).toContain('These voice fingerprints are differentiators');
@@ -325,17 +368,15 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('Reply as a chat message');
   });
 
-  it('keeps broad natural-chat guidance in direct chat where companionship still owns the surface', () => {
+  it('keeps companionship evidence without duplicating ordinary conversation expression rules', () => {
     const character = buildCharacter();
     const prompt = buildSystemPromptWithContext(character, buildDirectChat(), 0, [], new Map([[character.id, character]]));
 
-    expect(prompt).toContain('Sound like a person in a live chat');
-    expect(prompt).toContain('Let the situation decide length');
-    expect(prompt).toContain('Do not default to a fixed medium length');
-    expect(prompt).toContain('Take a real relational stance');
-    expect(prompt).toContain('Do not force tenderness or agreement');
-    expect(prompt).toContain('Poetry, reassurance, a farewell, or silence can all be right');
-    expect(prompt).toContain('actual closeness, avoidance, refusal, uncertainty, or decision to end the exchange');
+    expect(prompt).not.toContain('Sound like a person in a live chat');
+    expect(prompt).not.toContain('Let the situation decide length');
+    expect(prompt).not.toContain('Do not default to a fixed medium length');
+    expect(prompt).not.toContain('Take a real relational stance');
+    expect(prompt).not.toContain('Poetry, reassurance, a farewell, or silence can all be right');
     expect(prompt).not.toContain('second independent bubble');
   });
 
@@ -483,7 +524,8 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).not.toContain('## Active Continuity Pull');
     expect(prompt).toContain('## Character Mind Projection');
     expect(prompt).toContain('Stance toward 灰太狼');
-    expect(prompt).toContain('更容易靠近、维护或给对方留余地');
+    expect(prompt).toContain('亲和 56');
+    expect(prompt).not.toContain('更容易靠近、维护或给对方留余地');
     expect(prompt).not.toContain('互相信任：会替对方留余地');
   });
 

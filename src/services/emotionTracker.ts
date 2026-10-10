@@ -1,37 +1,4 @@
-// Simple emotion tracking for MVP
-// Values range from -1 (very negative) to 1 (very positive)
-
-const POSITIVE_WORDS = new Set([
-  'good', 'great', 'excellent', 'amazing', 'wonderful', 'fantastic',
-  'love', 'like', 'agree', 'yes', 'happy', 'brilliant', 'awesome',
-  'interesting', 'perfect', 'nice', 'thank', 'thanks', 'beautiful',
-  '好', '棒', '赞', '对', '喜欢', '同意', '优秀', '精彩', '厉害',
-  '开心', '高兴', '有趣', '感谢', '谢谢', '不错', '完美', '妙',
-]);
-
-const NEGATIVE_WORDS = new Set([
-  'bad', 'terrible', 'awful', 'hate', 'disagree', 'no', 'wrong',
-  'stupid', 'boring', 'annoying', 'frustrated', 'angry', 'sad',
-  'horrible', 'worst', 'never', 'impossible', 'fail', 'ugly',
-  '差', '糟', '烂', '不', '错', '讨厌', '反对', '无聊', '生气',
-  '难过', '失败', '垃圾', '废', '恶心', '蠢', '笨',
-]);
-
-export const analyzeEmotion = (text: string): number => {
-  const words = text.toLowerCase().split(/[\s,。，！!？?；;：:]+/);
-  let positiveCount = 0;
-  let negativeCount = 0;
-
-  for (const word of words) {
-    if (POSITIVE_WORDS.has(word)) positiveCount++;
-    if (NEGATIVE_WORDS.has(word)) negativeCount++;
-  }
-
-  const total = positiveCount + negativeCount;
-  if (total === 0) return 0;
-
-  return (positiveCount - negativeCount) / total;
-};
+import type { InteractionEventPayload, ModelImmediateImpact } from '../types/runtimeEvent';
 
 export const updateEmotion = (
   currentEmotion: number,
@@ -42,13 +9,54 @@ export const updateEmotion = (
   return Math.max(-1, Math.min(1, newEmotion));
 };
 
-export const deriveRelationshipDelta = (text: string) => {
-  const emotion = analyzeEmotion(text);
-  if (emotion >= 0.35) {
-    return { warmth: 8, competence: 3, trust: 5, threat: -2 };
+const EMOTION_AXIS_POLARITY = {
+  irritation: -1,
+  affection: 1,
+  insecurity: -1,
+  excitement: 1,
+  embarrassment: -1,
+} as const;
+
+type EmotionDelta = NonNullable<ModelImmediateImpact['speakerEmotionDelta']>;
+
+export const collectModelEmotionDeltas = (
+  speakerId: string,
+  interactions: InteractionEventPayload[],
+  incomingEmotionDelta?: ModelImmediateImpact['targetEmotionDelta'],
+): Map<string, EmotionDelta> => {
+  const updates = new Map<string, EmotionDelta>();
+  const speakerDelta: EmotionDelta = { ...(incomingEmotionDelta || {}) };
+  for (const interaction of interactions) {
+    for (const [axis, value] of Object.entries(interaction.immediateImpact?.speakerEmotionDelta || {})) {
+      const key = axis as keyof EmotionDelta;
+      speakerDelta[key] = (speakerDelta[key] || 0) + value;
+    }
+    if (!interaction.targetId || !interaction.immediateImpact?.targetEmotionDelta) continue;
+    const targetDelta = updates.get(interaction.targetId) || {};
+    for (const [axis, value] of Object.entries(interaction.immediateImpact.targetEmotionDelta)) {
+      const key = axis as keyof EmotionDelta;
+      targetDelta[key] = (targetDelta[key] || 0) + value;
+    }
+    updates.set(interaction.targetId, targetDelta);
   }
-  if (emotion <= -0.35) {
-    return { warmth: -6, competence: -2, trust: -5, threat: 8 };
-  }
-  return { warmth: 1, competence: 0, trust: 1, threat: 0 };
+  if (Object.keys(speakerDelta).length) updates.set(speakerId, speakerDelta);
+  return updates;
+};
+
+/** Projects explicit model-authored affect changes onto the legacy scalar mood value. */
+export const updateEmotionFromModelDelta = (
+  currentEmotion: number,
+  delta?: EmotionDelta,
+  decay = 0.7,
+): number => {
+  const entries = Object.entries(EMOTION_AXIS_POLARITY).flatMap(([axis, polarity]) => {
+    const value = delta?.[axis as keyof EmotionDelta];
+    return typeof value === 'number' && Number.isFinite(value) && value !== 0
+      ? [value * polarity]
+      : [];
+  });
+  if (!entries.length) return currentEmotion;
+
+  const score = Math.max(-1, Math.min(1, entries.reduce((total, entry) => total + entry, 0) / 40));
+  return updateEmotion(currentEmotion, score, decay);
 };

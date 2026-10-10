@@ -234,6 +234,35 @@ function buildLoopParams(chat: GroupChat) {
 }
 
 describe('runSessionLoop', () => {
+  it.each(['direct', 'ai_direct'] as const)('pauses %s after committing every bubble from one generation', async (type) => {
+    runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
+    runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
+      hooks.onSpeakerSelected('a', { id: 'a', name: '甲' });
+      for (const [index, content] of ['第一条', '第二条'].entries()) {
+        await hooks.onMessageComplete({ id: `msg-${index}`, chatId: 'chat-1', type: 'ai', senderId: 'a', senderName: '甲', content, emotion: 0 });
+      }
+    });
+    const params = buildLoopParams(buildChat({
+      type,
+      mode: 'open_chat',
+      sessionKind: { topology: type === 'direct' ? 'direct' : 'thread', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' },
+    }));
+    const pauseLoop = vi.fn(params.pauseLoop);
+    params.pauseLoop = pauseLoop;
+
+    await runSessionLoop(params as never);
+
+    expect(runOneRoundMock).toHaveBeenCalledTimes(1);
+    expect(runSessionCommitPipelineMock).toHaveBeenCalledTimes(2);
+    const committedReplies = runSessionCommitPipelineMock.mock.calls
+      .map(([args]) => args.message as Message);
+    expect(committedReplies.map((message) => message.content)).toEqual(['第一条', '第二条']);
+    expect(params.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ content: '第一条' }));
+    expect(params.upsertMessage).toHaveBeenCalledWith(expect.objectContaining({ content: '第二条' }));
+    expect(pauseLoop).toHaveBeenCalledTimes(1);
+    expect(params.onLoopError).not.toHaveBeenCalled();
+  });
+
   it('passes model stream chunks directly to the live message callback', async () => {
     runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
     runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {

@@ -81,7 +81,9 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
   if (chat.type === 'direct' || chat.type === 'ai_direct') {
     return {
       id: 'direct_private',
-      disabledBlocks: [],
+      disabledBlocks: resolveSessionFamilyKey(chat) === 'conversation'
+        ? resolvePromptPlayMode({ ...chat, type: 'group' }).disabledBlocks
+        : [],
       notes: [
         'Direct rooms prioritize the current user or private counterpart request before ambient banter.',
         'Companionship and relationship memory shape care, restraint, and wording; they must not override a concrete task.',
@@ -93,9 +95,8 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
       return {
         id: 'general_group',
         // Ordinary group chat uses the Turn Directive as its social spine.
-        // Keep only the small lived-expression blocks that change wording and
-        // timing; broader contracts are folded into the directive to avoid
-        // competing checklists and prompt bloat.
+        // Speech and inner-life blocks carry evidence; the directive owns
+        // expression guidance and the inline contract owns send boundaries.
         disabledBlocks: [
           'current_intent',
           'response_surface',
@@ -108,6 +109,9 @@ export function resolvePromptPlayMode(chat: GroupChat): PromptPlayModePolicy {
           // instead of speaking from the character's actual position.
           'conversation_move',
           'expression_surface_choice',
+          'natural_chat_rhythm',
+          'turn_plan',
+          'style_quarantine',
           'turn_length_variety',
           'turn_format_variety',
         ],

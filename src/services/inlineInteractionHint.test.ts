@@ -187,6 +187,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('most turns naturally settle into one send');
     expect(contract).toContain('need not be a self-contained point');
     expect(contract).toContain('Message count is a delivery choice');
+    expect(contract).not.toContain('rhythm=');
     expect(contract).not.toContain('independently sendable communicative act');
     expect(contract).not.toContain('Most ordinary turns stay in one bubble');
     expect(contract).toContain('terminal punctuation is optional');
@@ -218,6 +219,29 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('addressedTargets tracks reply debt');
     expect(contract).toContain('not every person mentioned or emotionally affected');
     expect(contract).toContain('merely affected by the line is not addressed');
+  });
+
+  it('shortens conversation guidance without removing the shared runtime protocol', () => {
+    const params = {
+      chat: { id: 'chat-1', type: 'group', memberIds: ['speaker'], runtimeEventsV2: [] } as unknown as GroupChat,
+      speaker: { id: 'speaker', name: '说话人' } as AICharacter,
+      characters: [{ id: 'speaker', name: '说话人' } as AICharacter],
+      recentMessages: [],
+    };
+    const contract = buildInlineInteractionContract(params);
+    expect(contract).not.toContain("Before writing, appraise the latest visible human turn's immediate effect");
+    expect(contract).toContain('"primary":interaction,"secondary":[]');
+    expect(contract).toContain('speakerEmotionDelta/targetEmotionDelta');
+    expect(contract).toContain('Short-term emotion is not a lasting relationship change');
+    expect(contract).toContain('"presenceUpdate":null');
+    expect(contract).toContain('"conflictFocus":null');
+    expect(contract).toContain('"messages":null');
+    const analysisContract = buildInlineInteractionContract({
+      ...params,
+      chat: { ...params.chat, sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text' } } as GroupChat,
+    });
+    expect(analysisContract).toContain("Before writing, appraise the latest visible human turn's immediate effect");
+    expect(contract.length).toBeLessThan(analysisContract.length);
   });
 
   it('exposes room delivery policy without turning it into a media quota', () => {

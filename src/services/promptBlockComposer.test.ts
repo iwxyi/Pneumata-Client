@@ -65,7 +65,7 @@ describe('promptBlockComposer', () => {
     expect(prompt).toBe('[core][humanization][inner life]');
   });
 
-  it('uses the unified directive together with lived-expression delivery inputs', () => {
+  it('keeps situation inputs and output protocol without duplicate expression instructions', () => {
     const policy = resolvePromptPlayMode(chat());
     const prompt = composePromptBlocks([
       { id: 'core', layer: 'core', priority: 0, content: '[core]' },
@@ -77,12 +77,14 @@ describe('promptBlockComposer', () => {
       { id: 'conversation_move', layer: 'task', priority: 1, content: '[move]' },
       { id: 'response_surface', layer: 'style', priority: 2, content: '[surface]' },
       { id: 'turn_plan', layer: 'runtime', priority: 0, content: '[turn plan]' },
+      { id: 'style_quarantine', layer: 'style', priority: 3, content: '[quarantine]' },
+      { id: 'inline_interaction_contract', layer: 'output', priority: 2, content: '[protocol]' },
       { id: 'focused_situational_job_contract', layer: 'output', priority: 0, content: '[focused job]' },
       { id: 'natural_chat_surface_contract', layer: 'output', priority: 1, content: '[natural surface]' },
     ], policy);
 
     expect(policy.id).toBe('general_group');
-    expect(prompt).toBe('[core][humanization][inner life][directive][turn plan][chat rhythm]');
+    expect(prompt).toBe('[core][humanization][inner life][directive][protocol]');
     expect(prompt).not.toContain('[move]');
     expect(prompt).not.toContain('[surface]');
   });
@@ -114,6 +116,9 @@ describe('promptBlockComposer', () => {
   it('selects direct-private play mode for user and AI private rooms', () => {
     expect(resolvePromptPlayMode(chat({ type: 'direct' })).id).toBe('direct_private');
     expect(resolvePromptPlayMode(chat({ type: 'ai_direct' })).id).toBe('direct_private');
+    for (const type of ['direct', 'ai_direct'] as const) {
+      expect(resolvePromptPlayMode(chat({ type })).disabledBlocks).toEqual(resolvePromptPlayMode(chat()).disabledBlocks);
+    }
   });
 
   it('skips lower-priority blocks that conflict with accepted blocks', () => {

@@ -580,5 +580,15 @@ describe('innerLifeEngine', () => {
     expect(prompt).toContain('Do not turn the pressure into a clean apology');
     expect(prompt).toContain('prefer concrete risk judgment, practical care, changed priority');
     expect(prompt).toContain('Avoid farewell tone, death monologue, and polished aphorisms');
+    const stateOnly = buildInnerLifePromptBlock(projection, { stateOnly: true });
+    expect(stateOnly).not.toContain(projection.reason);
+    expect(stateOnly).not.toContain(`tone: ${projection.tone}`);
+    expect(stateOnly).not.toContain('Current impulse:');
+    expect(stateOnly).toContain('Recorded emotional lead:');
+    expect(stateOnly).toContain('Recorded residue:');
+    expect(stateOnly).toContain('scheduler urgency is not emotional intensity');
+    expect(stateOnly).not.toContain('Do not turn the pressure');
+    expect(stateOnly).not.toContain('Choose whether to send');
+    expect(stateOnly.length).toBeLessThan(prompt.length);
   });
 });

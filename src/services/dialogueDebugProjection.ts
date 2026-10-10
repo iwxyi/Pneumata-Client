@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
+import type { InteractionEventPayload } from '../types/runtimeEvent';
 import { sanitizeUserFacingText } from './displayTextSanitizer';
 import { formatConflictHookLabels, formatConflictPressureLabel, formatConflictStageLabel, formatConflictTypeLabel } from './runtimeEventFactory';
 import type { ProjectedRuntimeTimelineItem } from './sessionProjection';
@@ -13,6 +14,23 @@ export interface DialogueRecentSignal {
   recentEvent: string;
   focus: string;
   mood: string;
+}
+
+export interface MessageAffectDebugProjection {
+  incoming: ProjectedInteractionAffect | null;
+  outgoing: ProjectedInteractionAffect[];
+}
+
+export interface ProjectedInteractionAffect {
+  target: string | null;
+  kind: string;
+  tone: string;
+  intensity: number;
+  confidence: number | null;
+  evidence: string | null;
+  emotionDeltas: string[];
+  speakerEmotionDeltas: string[];
+  roomDeltas: string[];
 }
 
 export interface ConflictDebugState {
@@ -115,6 +133,58 @@ function compactDebugText(value: string | null | undefined, members: AICharacter
 
 function safeConfidence(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : null;
+}
+
+const interactionLabels: Record<string, string> = {
+  support: '支持', challenge: '质疑', mock: '嘲讽', dismiss: '冷落', defend: '维护',
+  evade: '回避', probe: '追问', pile_on: '围攻', redirect: '转移', apologize: '道歉',
+  concede: '让步', take_responsibility: '承担责任', include: '纳入', exclude: '排斥',
+  boundary: '设限', side_comment: '旁评',
+};
+
+const toneLabels: Record<string, string> = {
+  warm: '温和', annoyed: '不耐', defensive: '防御', excited: '兴奋', sarcastic: '讽刺', cold: '冷淡',
+};
+
+const emotionAxisLabels: Record<string, string> = {
+  irritation: '恼火', affection: '亲近', insecurity: '不安', excitement: '兴奋', embarrassment: '难堪',
+};
+
+const roomAxisLabels: Record<string, string> = { heat: '紧张度', cohesion: '凝聚度', topicDrift: '话题偏移' };
+
+function projectDeltas(deltas: Record<string, number> | undefined, labels: Record<string, string>) {
+  return Object.entries(deltas || {}).flatMap(([axis, value]) => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value === 0) return [];
+    return [`${labels[axis] || axis} ${value > 0 ? '+' : ''}${value}`];
+  });
+}
+
+function projectInteractionAffect(hint: InteractionEventPayload | null | undefined, members: AICharacter[]): ProjectedInteractionAffect | null {
+  if (!hint) return null;
+  const target = hint.targetId === 'user'
+    ? '我'
+    : members.find((member) => member.id === hint.targetId)?.name || null;
+  const impact = hint.immediateImpact;
+  return {
+    target,
+    kind: interactionLabels[hint.kind] || hint.kind,
+    tone: toneLabels[hint.tone] || hint.tone,
+    intensity: Number.isFinite(hint.intensity) ? hint.intensity : 0,
+    confidence: safeConfidence(hint.confidence),
+    evidence: hint.evidenceText ? compactDebugText(hint.evidenceText, members, 180) || null : null,
+    emotionDeltas: projectDeltas(impact?.targetEmotionDelta, emotionAxisLabels),
+    speakerEmotionDeltas: projectDeltas(impact?.speakerEmotionDelta, emotionAxisLabels),
+    roomDeltas: projectDeltas(impact?.roomDelta, roomAxisLabels),
+  };
+}
+
+export function projectMessageAffectDebug(message: Message, members: AICharacter[] = []): MessageAffectDebugProjection {
+  return {
+    incoming: projectInteractionAffect(message.incomingInteractionHint, members),
+    outgoing: (message.interactionHints || (message.interactionHint ? [message.interactionHint] : []))
+      .map((hint) => projectInteractionAffect(hint, members))
+      .filter((hint): hint is ProjectedInteractionAffect => Boolean(hint)),
+  };
 }
 
 function categoryLabel(category: DeliberationDebugItem['category'], isZh: boolean) {

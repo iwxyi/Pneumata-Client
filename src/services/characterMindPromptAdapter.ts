@@ -21,6 +21,7 @@ export interface CharacterMindPromptAdapterOptions {
 export interface CharacterMindPromptAdapterOutput {
   promptBlock: string;
   coreContinuityBlock: string;
+  renderedIdentityValues: string[];
   currentRoomBlock: string;
   visibleRecallInput: string[];
   trace: {
@@ -111,10 +112,13 @@ function buildCoreContinuityLines(
   const selfContinuity = cleanValues(rawSelfContinuity, visibility, 4);
   const rawTargetStance = projection.relationship.stance;
   const targetStance = cleanValues(rawTargetStance, visibility, 3);
-  const identityLines = [
-    bullet('Stable self', cleanValues(projection.identity.selfModel, visibility, 3)),
-    bullet('Voice and habits', cleanValues(projection.identity.stableVoice, visibility, 3)),
-  ].filter(Boolean);
+  const identityEntries = [
+    { label: 'Stable self', values: cleanValues(projection.identity.selfModel, visibility, 3) },
+    { label: 'Voice and habits', values: cleanValues(projection.identity.stableVoice, visibility, 3) },
+    { label: 'Desires', values: cleanValues(projection.identity.desires, visibility, 2) },
+    { label: 'Fears and sensitivities', values: cleanValues(projection.identity.fears, visibility, 2) },
+  ];
+  const identityLines = identityEntries.slice(0, 2).map(({ label, values }) => bullet(label, values)).filter(Boolean);
   const targetRelationshipLine = projection.relationship.targetName
     ? bullet(`Stance toward ${stripInternalIds(projection.relationship.targetName)}`, [
       ...targetStance,
@@ -132,17 +136,22 @@ function buildCoreContinuityLines(
     immediatePressureLine,
   ].filter(Boolean);
   const continuityLines = [
-    bullet('Desires', cleanValues(projection.identity.desires, visibility, 2)),
-    bullet('Fears and sensitivities', cleanValues(projection.identity.fears, visibility, 2)),
+    ...identityEntries.slice(2).map(({ label, values }) => bullet(label, values)),
     bullet('Self continuity', selfContinuity),
     bullet('User continuity', userContinuity),
     !projection.relationship.targetName ? bullet('Relationship continuity', relationshipContinuity) : '',
     !projection.relationship.targetName ? bullet('Shared history', sharedHistory) : '',
     projection.currentState.selfAppraisal ? `- Self-appraisal: ${stripInternalIds(compactText(projection.currentState.selfAppraisal))}` : '',
   ].filter(Boolean);
-  return [...priorityLines, ...continuityLines]
+  const lines = [...priorityLines, ...continuityLines]
     .filter((line, index, lines) => lines.indexOf(line) === index)
     .slice(0, maxLines);
+  return {
+    lines,
+    renderedIdentityValues: identityEntries
+      .filter(({ label, values }) => values.length && lines.includes(bullet(label, values)))
+      .flatMap(({ values }) => values),
+  };
 }
 
 function buildRoomLines(
@@ -209,7 +218,7 @@ export function adaptCharacterMindProjectionForPrompt(
   const visibility = options.visibility
     || (options.chatType === 'direct' || options.chatType === 'ai_direct' ? 'private' : 'public');
   const visibleMemoryRecall = options.visibleMemoryRecall || 'implicit';
-  const coreLines = buildCoreContinuityLines(
+  const core = buildCoreContinuityLines(
     projection,
     visibility,
     options.maxCoreLines || DEFAULT_CORE_LINES,
@@ -233,7 +242,7 @@ export function adaptCharacterMindProjectionForPrompt(
   const recallLines = options.renderVisibleRecallCues !== false && visibleRecallInput.length
     ? ['## Visible Recall Cues', ...visibleRecallInput.map((cue) => `- ${cue}`)]
     : [];
-  const coreContinuityBlock = coreLines.length ? `## Core Character Continuity\n${coreLines.join('\n')}` : '';
+  const coreContinuityBlock = core.lines.length ? `## Core Character Continuity\n${core.lines.join('\n')}` : '';
   const currentRoomBlock = roomLines.length ? `## Current Situation\n${roomLines.join('\n')}` : '';
   const promptParts = [
     coreContinuityBlock,
@@ -244,6 +253,7 @@ export function adaptCharacterMindProjectionForPrompt(
   return {
     promptBlock: promptParts.length ? `\n## Character Mind Projection\n${promptParts.join('\n')}` : '',
     coreContinuityBlock,
+    renderedIdentityValues: core.renderedIdentityValues,
     currentRoomBlock,
     visibleRecallInput,
     trace: {

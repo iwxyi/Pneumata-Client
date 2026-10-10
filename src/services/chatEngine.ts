@@ -21,7 +21,7 @@ import { getCurrentRetentionLimits } from './retentionLimits';
 function getSessionEngine(chat: Pick<GroupChat, 'mode' | 'sessionKind'>) {
   return loadSessionEngine(chat);
 }
-import { analyzeEmotion, updateEmotion } from './emotionTracker';
+import { collectModelEmotionDeltas, updateEmotionFromModelDelta } from './emotionTracker';
 import { calculateWeights, getSpeakerSelectionResult, isChatMemberMuted, resolvePendingReplyContext, selectSpeaker } from './scheduler';
 import { deriveSpeakIntentFromContext, describeIntentForPrompt, type SpeakIntent } from './intentEngine';
 import { describeDirectorIntent, type DirectorIntent } from './directorIntent';
@@ -43,7 +43,7 @@ import { buildGenerationRuntimeBundle } from './generationRuntime';
 import { buildConversationMovePrompt, planConversationMove } from './conversationMovePlanner';
 import { captureTurnParameters, finishTurnParameters } from './messageTurnParameters';
 import { buildPromptPlayModeBlock, composePromptBlocks, resolvePromptPlayMode, type PromptBlock } from './promptBlockComposer';
-import { buildTurnDirective, buildTurnDirectivePrompt } from './turnDirective';
+import { buildTurnDirective, buildTurnDirectivePrompt, shouldUseUnifiedTurnDirective } from './turnDirective';
 import { resolveSessionEngineKey, resolveSessionFamilyKey } from './sessionEngineKeys';
 import { isCharacterAvailableForScheduling } from './characterPresence';
 import { enrichRuntimeBundleWithHumanAppraisal } from './humanAppraisal';
@@ -625,11 +625,11 @@ function salvageEmptyResponse(raw: string, speakerName: string, showRoleActions?
   return normalizeForComparison(fallback) ? fallback : '';
 }
 
-function finalizeResponse(content: string, intent: ReturnType<typeof deriveSpeakIntentFromContext>, speaker: AICharacter, recentMessages: Message[], showRoleActions?: boolean, intentionalRepeat = false, surface?: ResponseSurface) {
+function finalizeResponse(content: string, speaker: AICharacter, showRoleActions?: boolean, surface?: ResponseSurface) {
   const withoutPrefix = trimSpeakerPrefix(content, speaker.name);
   const sanitized = stripLeakedInlineProtocol(trimHumanChatStyle(showRoleActions === false ? stripRoleActions(withoutPrefix) : withoutPrefix, surface?.preserveParagraphs));
   if (surface?.kind !== 'chat' && normalizeForComparison(sanitized)) return sanitizeUserFacingText(sanitized, [], { preserveLineBreaks: true });
-  const processed = postProcessHumanChat(sanitized, intent, speaker, recentMessages, intentionalRepeat);
+  const processed = postProcessHumanChat(sanitized);
   if (normalizeForComparison(processed)) return sanitizeUserFacingText(processed, [], { preserveLineBreaks: true });
   return sanitizeUserFacingText(salvageEmptyResponse(content, speaker.name, showRoleActions), [], { preserveLineBreaks: true });
 }
@@ -772,7 +772,7 @@ function normalizeExtraMessages(params: {
   const seen = new Set<string>(normalizedContent ? [normalizedContent] : []);
   const cleaned = params.extraMessages
     .map((item) => (typeof item === 'string'
-      ? finalizeResponse(item, params.intent, params.speaker, params.recentMessages, params.showRoleActions, false, params.surface)
+      ? finalizeResponse(item, params.speaker, params.showRoleActions, params.surface)
       : ''))
     .filter((item) => {
       const normalized = normalizeForComparison(item);
@@ -1667,6 +1667,9 @@ function buildAnalysisRoomContractPrompt(chat: GroupChat) {
 }
 
 function buildGenerationConstraints(chat: GroupChat, messages: Message[], speakerId: string, surface: ResponseSurface) {
+  if (surface.kind === 'chat' && shouldUseUnifiedTurnDirective(chat)) {
+    return `\nHard constraints for this reply:\n- Write one speaker turn only, never another actor's line or internal planning fields.\n- Stay compact enough for ordinary group flow unless the current task clearly needs depth.`;
+  }
   const recentLines = collectRecentConstraintLines(messages, speakerId);
   const forbiddenBlock = recentLines.length ? `\nForbidden semantic overlap:\n${recentLines.join('\n')}` : '';
   if (surface.kind !== 'chat') {
@@ -1743,12 +1746,13 @@ function buildPrivateTurnPriorityPrompt(chat: GroupChat) {
   const counterpartLine = chat.type === 'ai_direct'
     ? '- This is an AI private thread: respond to the counterpart as a situated private partner, not as a group performer.'
     : '- This is a user direct chat: answer or care for the user-facing need before drifting into ambient companionship.';
+  const companionshipRule = shouldUseUnifiedTurnDirective(chat)
+    ? ''
+    : '\n- If the moment is only companionship, make a real relationship move rather than performing generic care: lean closer, ask because you want to know, admit something, tease, resist, disagree, go quiet for a reason, set a boundary, or let the other person see that their words landed. The direction must come from this character, not a default requirement to be warm.\n- Poetry, comfort, distance, or a farewell are valid when they reveal this character\'s real reaction or boundary. Do not use a generic version of them as a substitute for reacting to the other person.';
   return `\n## Private Turn Priority
 ${counterpartLine}
 - If the current turn contains a concrete task, question, requested format, or requested deliverable, complete that job first in this character's voice.
-- Relationship memory, warmth, teasing, protectiveness, or distance can change tone and omissions; it must not replace the current private-room job.
-- If the moment is only companionship, make a real relationship move rather than performing generic care: lean closer, ask because you want to know, admit something, tease, resist, disagree, go quiet for a reason, set a boundary, or let the other person see that their words landed. The direction must come from this character, not a default requirement to be warm.
-- Poetry, comfort, distance, or a farewell are valid when they reveal this character's real reaction or boundary. Do not use a generic version of them as a substitute for reacting to the other person.`;
+- Relationship memory, warmth, teasing, protectiveness, or distance can change tone and omissions; it must not replace the current private-room job.${companionshipRule}`;
 }
 
 function buildVisibleMessageSurfaceContractPrompt(chat: GroupChat, showRoleActions?: boolean) {
@@ -3243,7 +3247,7 @@ async function generateWithPrompt(params: {
     })();
   const rawContent = storyEventContent || (messageParts?.[0]?.content || (parsedEnvelope ? parsedEnvelope.content : isLikelyInlineEnvelopeResponse(response) ? '' : response));
   const rawNarrativeText = typeof parsedEnvelope?.narrativeText === 'string' ? parsedEnvelope.narrativeText : '';
-  const finalizedResponse = finalizeResponse(rawContent, params.intent, params.speaker, params.activeMessages, params.showRoleActions, Boolean(parsedEnvelope?.intentionalRepeat), params.surface);
+  const finalizedResponse = finalizeResponse(rawContent, params.speaker, params.showRoleActions, params.surface);
   const finalizedNarrativeText = rawNarrativeText ? trimHumanChatStyle(rawNarrativeText, true) : '';
   const narrativeBlocks = normalizeStoryNarrativeBlocks({
     blocks: parsedEnvelope?.narrativeBlocks,
@@ -3761,13 +3765,19 @@ function buildCompletedMessage(params: {
   };
 }
 
-function updateAllEmotions(chatMembers: AICharacter[], speakerId: string, msgEmotion: number, emotion: number) {
-  setEmotion(speakerId, updateEmotion(emotion, msgEmotion));
+function updateAllEmotions(
+  chatMembers: AICharacter[],
+  speakerId: string,
+  currentSpeakerEmotion: number,
+  interactions: InteractionEventPayload[],
+  incomingEmotionDelta?: NonNullable<InteractionEventPayload['immediateImpact']>['targetEmotionDelta'],
+) {
+  const emotionDeltas = collectModelEmotionDeltas(speakerId, interactions, incomingEmotionDelta);
   for (const member of chatMembers) {
-    if (member.id !== speakerId) {
-      const otherEmotion = getEmotion(member.id);
-      setEmotion(member.id, updateEmotion(otherEmotion, msgEmotion, 0.85));
-    }
+    const delta = emotionDeltas.get(member.id);
+    if (!delta) continue;
+    const current = member.id === speakerId ? currentSpeakerEmotion : getEmotion(member.id);
+    setEmotion(member.id, updateEmotionFromModelDelta(current, delta));
   }
 }
 
@@ -4167,7 +4177,9 @@ export async function generateSpeakerMessage(params: {
   });
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const promptPlayMode = resolvePromptPlayMode(params.chat);
-  const usesUnifiedGroupTurn = promptPlayMode.id === 'general_group' && resolveSessionFamilyKey(params.chat) === 'conversation';
+  const usesUnifiedGroupTurn = shouldUseUnifiedTurnDirective(params.chat);
+  const usesObservedInnerState = resolveSessionFamilyKey(params.chat) === 'conversation'
+    && (promptPlayMode.id === 'general_group' || promptPlayMode.id === 'direct_private');
   const webSearchEnabled = Boolean(params.chat.modeState.assistantCapabilities?.webSearch) && !isStoryReader;
   const speakerSystemPrompt = buildSpeakerSystemPrompt({
     speaker: params.speaker,
@@ -4182,10 +4194,10 @@ export async function generateSpeakerMessage(params: {
     { id: 'engine_prefix', layer: 'core', priority: -100, content: promptPrefix },
     { id: 'speaker_identity', layer: 'core', priority: 0, content: speakerSystemPrompt },
     buildPromptPlayModeBlock(promptPlayMode),
-    // The unified group turn directive decides the social job; inner life,
-    // rhythm, and surface choice decide how that job leaks through the voice.
+    // Ordinary groups supply speech/state evidence here; the unified directive
+    // owns expression guidance. Dedicated modes keep their existing contracts.
     { id: 'humanization', layer: 'character', priority: 20, content: buildHumanizationPrompt(params.speaker, intent, activeMessages, userGuidance, { family: resolveSessionFamilyKey(params.chat), type: params.chat.type }) },
-    { id: 'inner_life', layer: 'character', priority: 30, content: buildInnerLifePromptBlock(innerLife) },
+    { id: 'inner_life', layer: 'character', priority: 30, content: buildInnerLifePromptBlock(innerLife, { stateOnly: usesObservedInnerState }) },
     { id: 'pending_reply', layer: 'task', priority: 10, content: pendingReplyPrompt },
     { id: 'user_guidance', layer: 'task', priority: 20, content: buildUserGuidancePrompt(userGuidance, params.speaker, effectiveMembers, mediaCapabilities, priorGuidanceReplies) },
     { id: 'room_floor_state', layer: 'task', priority: 25, content: buildGuidanceFloorPrompt(guidanceFloorState) },
@@ -4307,8 +4319,31 @@ export async function generateSpeakerMessage(params: {
     soleConversationPartnerId,
   );
 
-  const msgEmotion = analyzeEmotion(generatedStoryResponse);
-  updateAllEmotions(effectiveMembers, params.speaker.id, msgEmotion, emotion);
+  const emotionSource = generated.fullResponse || generated.rawResponse || generatedStoryResponse;
+  const modelInteractions = normalizeInteractionHintCollection(
+    generated.parsedEnvelope?.interactionHints || null,
+    params.speaker.id,
+    emotionSource,
+  );
+  const previousVisibleMessage = activeMessages
+    .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
+    .at(-1);
+  const incomingImpact = previousVisibleMessage
+    && (previousVisibleMessage.type === 'user' || previousVisibleMessage.type === 'god')
+    && generated.parsedEnvelope?.incomingImpact
+    ? normalizeInteractionHintPayload(
+      { ...generated.parsedEnvelope.incomingImpact, targetId: params.speaker.id, relationship: undefined },
+      previousVisibleMessage.senderId,
+      previousVisibleMessage.content,
+    )
+    : null;
+  updateAllEmotions(
+    effectiveMembers,
+    params.speaker.id,
+    emotion,
+    modelInteractions,
+    incomingImpact?.immediateImpact?.targetEmotionDelta,
+  );
   const modelMediaDecision = generated.parsedEnvelope?.mediaDecision;
   const explicitMediaRequests = {
     image: Boolean(userGuidance?.mediaRequest),
