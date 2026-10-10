@@ -4,7 +4,7 @@ import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
 import { DEFAULT_CONVERSATION_DIRECTOR_CONTROLS, DEFAULT_CONVERSATION_DRAMA_RULES, DEFAULT_CONVERSATION_GOVERNANCE, DEFAULT_CONVERSATION_WORLD_STATE } from '../types/chat';
 import { calculateWeights, resolvePendingReplyContext } from './scheduler';
-import type { DirectorIntent } from './directorIntent';
+import { resolveDirectorIntent, type DirectorIntent } from './directorIntent';
 
 const realMathRandom = Math.random;
 Math.random = () => 0;
@@ -411,6 +411,7 @@ describe('scheduler speaker scoring', () => {
       0,
       pending,
       { ...buildChat(), memberIds: ['a', 'b', 'c'] },
+      resolveDirectorIntent({ chat: buildChat(), characters, messages, pendingReplyContext: pending }),
     );
 
     const b = candidates.find((candidate) => candidate.characterId === 'b');
@@ -418,6 +419,7 @@ describe('scheduler speaker scoring', () => {
     expect(candidates.map((candidate) => candidate.characterId)).toEqual(['c']);
     expect(b).toBeUndefined();
     expect(c?.scoreBreakdown?.reasons).toContain('unspoken_member');
+    expect(c?.scoreBreakdown?.reasons).not.toContain('direct_user_address');
   });
 
   it('keeps an explicit user-directed target even during a two-actor exchange loop', () => {

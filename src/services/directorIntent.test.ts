@@ -85,7 +85,7 @@ describe('resolveDirectorIntent', () => {
         strength: 'strong',
       },
     });
-    expect(intent.source).toBe('user_message');
+    expect(intent.source).toBe('conversation_reply');
     expect(intent.beatType).toBe('answer');
     expect(intent.targetActorIds).toEqual(['b']);
     expect(intent.pressure).toBeGreaterThan(0.8);

@@ -8,6 +8,7 @@ import { resolveSessionFamilyKey } from './sessionEngineKeys';
 
 export type DirectorIntentSource =
   | 'user_message'
+  | 'conversation_reply'
   | 'narrative_line'
   | 'conflict'
   | 'relationship'
@@ -168,7 +169,8 @@ export function resolveDirectorIntent(params: {
 
   if (pending?.targetIds.length) {
     return finalize({
-      source: 'user_message',
+      // AI-to-AI reply debt must not acquire user guidance locks.
+      source: 'conversation_reply',
       beatType: 'answer',
       targetActorIds: pending.targetIds,
       pressure: clampPressure((pending.strength === 'strong' ? 0.82 : 0.58) + Math.min(0.16, pending.unmetTurns * 0.04)),

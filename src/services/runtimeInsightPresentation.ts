@@ -95,6 +95,7 @@ export function formatBeatType(type: NarrativeBeat['beatType']) {
 export function formatDirectorSource(source: DirectorIntent['source']) {
   const labels: Record<DirectorIntent['source'], string> = {
     user_message: '用户干预',
+    conversation_reply: '对话回应',
     narrative_line: '叙事线',
     conflict: '矛盾',
     relationship: '关系',
