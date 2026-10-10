@@ -9,8 +9,6 @@ export interface CharacterTurnDrive {
   stake: string;
   relationalAction: CharacterRelationalAction;
   feltReaction: string;
-  immediateWant: string;
-  immediateRisk: string;
   observableMove: string;
   attentionLens: string;
   speakingNecessity: SpeakingNecessity;
@@ -92,11 +90,13 @@ export function deriveCharacterTurnDrive(input: {
     stake,
     relationalAction: 'situated',
     feltReaction,
-    immediateWant: core?.coreDesire || 'respond from their own understanding of this moment',
-    immediateRisk: core?.coreFear || 'no specific personal risk is established',
     observableMove: 'infer a response from this person and the exchange, not an axis threshold or scheduler impulse',
-    attentionLens: core?.interactionHabits?.[0] || core?.perceptionBiases?.[0] || core?.sensitivities?.[0]
-      || core?.valuePriority?.[0] || core?.values?.[0] || 'the live exchange and any earlier unresolved moments',
+    attentionLens: [
+      core?.interactionHabits?.length ? `Interaction habits: ${core.interactionHabits.join(' / ')}` : '',
+      core?.perceptionBiases?.length ? `Perception biases: ${core.perceptionBiases.join(' / ')}` : '',
+      core?.sensitivities?.length ? `Sensitivities: ${core.sensitivities.join(' / ')}` : '',
+      (core?.valuePriority?.length || core?.values?.length) ? `Values: ${(core.valuePriority?.length ? core.valuePriority : core.values)?.join(' / ')}` : '',
+    ].filter(Boolean).join('; ') || 'no authored attention pattern',
     speakingNecessity,
     evidence,
   };

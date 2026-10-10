@@ -231,9 +231,9 @@ export function buildTurnDirectivePrompt(directive: TurnDirective | null | undef
     : directive.characterDrive.relationalAction;
   return `\n## Turn Directive — This Person in This Moment
 - Aim for believable, watchable character interaction: speak from this person's position, from inside their lived situation, not a moderator. Let important words land through wording, timing, omissions and choices. Quiet moments can have personality; scene-level tension can rise, ease or linger without escalation every turn.${targetLine}
-- Personal meaning: ${directive.characterDrive.stake}. The latest moment lands as ${directive.characterDrive.feltReaction}. They may want to ${directive.characterDrive.immediateWant}, while risking ${directive.characterDrive.immediateRisk}.
+- Personal meaning: ${directive.characterDrive.stake}. Recorded feeling: ${directive.characterDrive.feltReaction}. Standing desires and fears are background, not this turn's assigned goal or reaction.
 - Relationship pull: ${relationshipAction}. ${directive.relationshipEffect}
-- Attention: ${directive.characterDrive.attentionLens}. Infer what this person wants to say from the whole exchange; earlier unresolved moments remain available, not only the last line.
+- Authored attention patterns: ${directive.characterDrive.attentionLens}. Infer what this person wants to say from the whole exchange; choose which habits matter now rather than executing one every turn; earlier unresolved moments remain available, not only the last line.
 - Emotional weather: ${directive.emotionalUndercurrent}; infer the present reaction from the exchange, history and relationship. Expression may sharpen, soften, conceal or ease feeling; an empty stored state does not decide the live reaction.
 - Possible consequence, not a quota: ${directive.requiredChange}. Dramatic line: ${directive.narrativePressure || 'none; do not invent one'}.
 - Visible shape: ${directive.expressionShape}.${userLine}${situationalLine}

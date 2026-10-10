@@ -355,34 +355,10 @@ function formatNarrativeLine(line: NarrativeLineProjection) {
 function emotionSignals(character: AICharacter) {
   const emotional = character.emotionalState;
   const soul = character.soulState;
-  const intensity = (value: number) => value >= 65 ? '强烈' : value >= 38 ? '明显' : '轻微';
-  const activeEmotions = emotional ? [
-    emotional.irritation >= 15 ? `${intensity(emotional.irritation)}烦躁：耐心变短，更容易顶回、挑刺或突然收口` : '',
-    emotional.affection >= 15 ? `${intensity(emotional.affection)}亲近：更留意在意之人的反应，可能袒护、心软或主动靠近` : '',
-    emotional.insecurity >= 15 ? `${intensity(emotional.insecurity)}戒备：担心失去面子、位置或理解，容易试探和防御` : '',
-    emotional.excitement >= 15 ? `${intensity(emotional.excitement)}兴奋：注意力被抓住，更容易抢先、追问或冒险推进` : '',
-    emotional.embarrassment >= 15 ? `${intensity(emotional.embarrassment)}尴尬：真实反应已经被碰到，可能嘴硬、停顿、转移或说漏一点` : '',
-  ] : [];
-  const emotionalConflict = emotional && emotional.affection >= 24 && (emotional.irritation >= 24 || emotional.insecurity >= 24)
-    ? '亲近与恼火或戒备同时存在：不要平均成平静，可表现为护短却嘴硬、在意所以更容易被刺到。'
-    : '';
-  return uniqueText([
-    ...activeEmotions,
-    emotionalConflict,
-    soul && soul.energy < 35 ? '精力偏低，不适合长篇完整表达' : '',
-    soul && soul.loneliness > 60 ? '有被接住或获得回应的需要' : '',
-    soul && soul.repression > 60 ? '有内容压着没有直接说出口' : '',
-  ], 7);
-}
-
-function selfAppraisal(character: AICharacter) {
-  const soul = character.soulState;
-  if (!soul?.lastImpulse) return undefined;
-  if (soul.lastImpulse === 'repair') return '刚才或近期的表达留下了需要找补的余波。';
-  if (soul.lastImpulse === 'seek_attention' && soul.ignoredStreak >= 2) return '没有被接住时，会在意自己是否被忽略。';
-  if (soul.lastImpulse === 'defend_face' && soul.shame >= 52) return '被触及面子时，可能意识到自己正在嘴硬。';
-  if (soul.lastImpulse === 'withdraw' || soul.lastImpulse === 'avoid') return '此刻更倾向先退开，不急着把话说满。';
-  return undefined;
+  return [
+    emotional ? `Recorded emotion axes: irritation ${emotional.irritation}, affection ${emotional.affection}, insecurity ${emotional.insecurity}, excitement ${emotional.excitement}, embarrassment ${emotional.embarrassment}.` : '',
+    soul ? `Recorded state: energy ${soul.energy}, loneliness ${soul.loneliness}, repression ${soul.repression}, shame ${soul.shame}, envy ${soul.envy}.` : '',
+  ].filter(Boolean);
 }
 
 function buildRoomPressure(params: {
@@ -491,18 +467,12 @@ export function buildCharacterMindProjection(params: {
   const identity = params.character.coreProfile;
   const roomPressure = buildRoomPressure({ chat: params.chat, targetId: target?.id });
   const emotionalUndercurrent = emotionSignals(params.character);
-  const activeNeeds = uniqueText([
-    identity?.coreDesire,
-    identity?.unmetNeeds?.join('、'),
-    params.character.soulState?.lastImpulseReason,
-  ], 4);
   const privacyGuards = uniqueText([
     ...companionship.privacyGuards,
     params.chat.type === 'group' && memories.userProfile.length ? '用户相关私密事实只能影响克制和关心，不要在公开房间直接说出。' : '',
     params.character.memory?.secrets?.length ? '角色有未公开的自有内容，只能影响回避、克制或防御，不要主动揭露正文。' : '',
   ], 5);
   const conflictReasons = uniqueText([
-    params.character.soulState && params.character.soulState.repression >= 60 ? '有被压住的内容，不一定直接表达。' : '',
     ...narrativeLines.filter((line) => line.tension >= 0.55).slice(0, 3).map((line) => `${line.title}正在和普通聊天节奏竞争。`),
   ], 5);
 
@@ -520,7 +490,7 @@ export function buildCharacterMindProjection(params: {
         identity?.expressionHabits?.join('、'),
         params.character.speechProfile?.sentenceLengthBias ? `表达长度倾向：${params.character.speechProfile.sentenceLengthBias}` : '',
       ], 5),
-      desires: uniqueText([identity?.coreDesire, ...(identity?.hiddenSoftSpots || [])], 4),
+      desires: uniqueText([identity?.coreDesire, ...(identity?.unmetNeeds || []), ...(identity?.hiddenSoftSpots || [])], 4),
       fears: uniqueText([identity?.coreFear, ...(identity?.sensitivities || [])], 4),
     },
     continuity: {
@@ -541,8 +511,9 @@ export function buildCharacterMindProjection(params: {
     },
     currentState: {
       emotionalUndercurrent,
-      activeNeeds,
-      selfAppraisal: selfAppraisal(params.character),
+      // No model-authored current need is recorded here. Authored lifelong needs
+      // belong to identity; scheduler impulse reasons are not emotional evidence.
+      activeNeeds: [],
     },
     room: {
       topic: compactText(params.chat.topic, 160) || undefined,

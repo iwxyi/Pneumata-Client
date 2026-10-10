@@ -126,14 +126,14 @@ function buildCoreContinuityLines(
       ...sharedHistory.map((item) => `Shared history: ${item}`),
     ].slice(0, 5))
     : '';
-  const immediatePressureLine = bullet('Immediate inner pressure', cleanValues([
+  const recordedStateLine = bullet('Recorded emotional state', cleanValues([
     ...projection.currentState.emotionalUndercurrent,
     ...projection.currentState.activeNeeds,
   ], visibility, 4));
   const priorityLines = [
     ...identityLines,
     targetRelationshipLine,
-    immediatePressureLine,
+    recordedStateLine,
   ].filter(Boolean);
   const continuityLines = [
     ...identityEntries.slice(2).map(({ label, values }) => bullet(label, values)),

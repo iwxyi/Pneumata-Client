@@ -18,6 +18,19 @@ const innerLife: InnerLifeProjection = {
 };
 
 describe('characterTurnDrive', () => {
+  it('keeps the full authored attention evidence instead of choosing a permanent first habit', () => {
+    const drive = deriveCharacterTurnDrive({ speaker: character('a', { coreProfile: {
+      coreDesire: '保护朋友', coreFear: '被朋友忘记',
+      interactionHabits: ['先开玩笑', '认真时少说话'], perceptionBiases: ['留意别人是否在硬撑'], sensitivities: ['讨厌被替自己做决定'],
+    } }), messages: [], innerLife });
+    expect(drive.stake).toContain('Standing desire: 保护朋友');
+    expect(drive.stake).toContain('Standing fear: 被朋友忘记');
+    expect(drive).not.toHaveProperty('immediateWant');
+    expect(drive).not.toHaveProperty('immediateRisk');
+    for (const evidence of ['先开玩笑', '认真时少说话', '留意别人是否在硬撑', '讨厌被替自己做决定']) {
+      expect(drive.attentionLens).toContain(evidence);
+    }
+  });
   it('gives the same moment distinct stakes and lenses without hard-coding one-axis reactions', () => {
     const message = { id: 'm', chatId: 'c', senderId: 'zhang', type: 'ai' as const, content: '地界和收成明天再慢慢问，先把摊子支起来。', timestamp: 1, isDeleted: false };
     const protective = deriveCharacterTurnDrive({ speaker: character('guan', { coreProfile: { coreDesire: '不让自己人替别人吞下代价', interactionHabits: ['先看最后是谁吃亏'] }, relationships: [{ characterId: 'zhang', warmth: 28, trust: 20, competence: 12, threat: 2 }] }), messages: [message], innerLife });

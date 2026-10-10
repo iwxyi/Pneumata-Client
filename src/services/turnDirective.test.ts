@@ -213,8 +213,6 @@ describe('turnDirective', () => {
       characterDrive: {
         stake: '不想让对方一个人扛着',
         feltReaction: '有点心软又嘴硬',
-        immediateWant: '让对方知道自己在听',
-        immediateRisk: '显得过分认真',
         attentionLens: '对方话里的犹豫',
         relationalAction: 'situated',
         observableMove: '问一句具体的近况',
@@ -372,6 +370,9 @@ describe('turnDirective', () => {
     expect(prompt).toContain('Relationship pull: not predetermined');
     expect(prompt).toContain('warmth 30');
     expect(prompt).toContain('Personal meaning:');
+    expect(prompt).toContain('Standing desires and fears are background');
+    expect(prompt).not.toContain('They may want to');
+    expect(prompt).not.toContain('while risking');
   });
 
   it('turns shared history into subjective meaning instead of a required-move checklist', () => {

@@ -163,6 +163,7 @@ describe('characterMindProjection', () => {
         trustInRoom: 60,
         ignoredStreak: 0,
         lastImpulse: 'comfort',
+        lastImpulseReason: '本地调度判断应该立即安慰',
         updatedAt: 1,
       },
     });
@@ -178,7 +179,16 @@ describe('characterMindProjection', () => {
     expect(projection.hidden.memorySource).toBe('fallback_retrieval');
     expect(projection.relationship.targetName).toBe('用户');
     expect(projection.relationship.stance.join('')).toContain('长期关系底色');
-    expect(projection.currentState.activeNeeds).toContain('希望被理解');
+    expect(projection.identity.desires).toContain('希望被理解');
+    expect(projection.currentState.activeNeeds).toEqual([]);
+    expect(JSON.stringify(projection)).not.toContain('本地调度判断应该立即安慰');
+  });
+
+  it('keeps authored unmet needs in standing identity rather than immediate pressure', () => {
+    const speaker = character({ coreProfile: { coreDesire: '希望被理解', unmetNeeds: ['想有自己的空间'] } });
+    const projection = buildCharacterMindProjection({ chat: chat('group'), character: speaker, characters: [speaker], messages: [message('今晚喝什么？')], now: 2000 });
+    expect(projection.identity.desires).toEqual(['希望被理解', '想有自己的空间']);
+    expect(projection.currentState.activeNeeds).toEqual([]);
   });
 
   it('does not treat shared anchors or artifacts as ordinary user profile facts', () => {
@@ -468,7 +478,7 @@ describe('characterMindProjection', () => {
     expect(block).not.toContain('score');
   });
 
-  it('projects moderate and conflicting fast emotions into actionable inner pressure', () => {
+  it('preserves every recorded emotion axis without prescribing a behavioral reaction', () => {
     const speaker = character({
       emotionalState: { irritation: 44, affection: 38, insecurity: 31, excitement: 8, embarrassment: 18 },
     });
@@ -480,12 +490,28 @@ describe('characterMindProjection', () => {
       now: 2000,
     });
 
-    expect(projection.currentState.emotionalUndercurrent).toEqual(expect.arrayContaining([
-      expect.stringContaining('明显烦躁'),
-      expect.stringContaining('明显亲近'),
-      expect.stringContaining('轻微戒备'),
-      expect.stringContaining('亲近与恼火或戒备同时存在'),
-    ]));
+    const evidence = projection.currentState.emotionalUndercurrent.join('\n');
+    for (const [axis, value] of Object.entries(speaker.emotionalState!)) {
+      expect(evidence).toContain(`${axis} ${value}`);
+    }
+    expect(evidence).not.toContain('顶回');
+    expect(evidence).not.toContain('护短');
+    const prompt = buildCharacterMindProjectionPromptBlock(projection, { visibility: 'private' });
+    expect(prompt).toContain('excitement 8');
+    expect(prompt).toContain('embarrassment 18');
+  });
+
+  it('does not turn scheduler impulses into a model-facing self-appraisal', () => {
+    const speaker = character({ soulState: {
+      mood: { pleasure: 50, arousal: 40, dominance: 40 }, energy: 72, attention: 65, loneliness: 20,
+      repression: 20, shame: 10, envy: 0, trustInRoom: 60, ignoredStreak: 0, updatedAt: 1,
+      lastImpulse: 'repair', lastImpulseReason: '调度估值',
+    } });
+    const input = { chat: chat('group'), character: speaker, characters: [speaker], messages: [message('喝茶吗？')], now: 2000 };
+    const base = buildCharacterMindProjection(input);
+    const changed = buildCharacterMindProjection({ ...input, character: { ...speaker, soulState: { ...speaker.soulState!, lastImpulse: 'withdraw', lastImpulseReason: '另一种调度估值' } } });
+    expect(changed.currentState).toEqual(base.currentState);
+    expect(changed.currentState.selfAppraisal).toBeUndefined();
   });
 
   it('defaults model-facing blocks to public-safe continuity without raw private facts or transcript text', () => {
