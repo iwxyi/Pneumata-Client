@@ -124,6 +124,31 @@ function chat(type: 'direct' | 'group' = 'direct') {
 }
 
 describe('characterMindProjection', () => {
+  it.each([80, -80])('preserves all six relationship axes without prescribing tone (%s)', (value) => {
+    const target = character({ id: 'char-b', name: '小铁' });
+    const speaker = character({ relationships: [{
+      characterId: target.id,
+      warmth: value,
+      competence: value,
+      trust: value,
+      threat: value,
+      attachment: value,
+      deference: value,
+      note: '彼此共事多年，刚为一件事意见不合。',
+    }] });
+    const projection = buildCharacterMindProjection({
+      chat: chat('group'), character: speaker, characters: [speaker, target],
+      messages: [message('这次我不同意。', target.id)], now: 2000,
+    });
+    const evidence = projection.relationship.stance.join('');
+    for (const axis of ['亲和', '能力', '信任', '威胁', '在意', '让位']) {
+      expect(evidence).toContain(`${axis} ${value}`);
+    }
+    expect(projection.expression.temperature).toContain('长期关系不是固定口吻');
+    expect(projection.hidden.conflictReasons).not.toContain('想靠近与想防备同时存在。');
+    expect(projection.continuity.relationshipMemories).toContain('长期关系：彼此共事多年，刚为一件事意见不合。');
+  });
+
   it('keeps persistent user continuity available without current-chat profile events', () => {
     const speaker = character({
       relationships: [{ characterId: 'user', warmth: 24, competence: 0, trust: 30, threat: 4, note: '愿意照顾用户，但不喜欢被强迫表态。' }],
@@ -152,7 +177,7 @@ describe('characterMindProjection', () => {
     expect(projection.continuity.userProfile).toContain('用户不喜欢太甜的饮料。');
     expect(projection.hidden.memorySource).toBe('fallback_retrieval');
     expect(projection.relationship.targetName).toBe('用户');
-    expect(projection.relationship.stance).toContain('更容易靠近、维护或给对方留余地');
+    expect(projection.relationship.stance.join('')).toContain('长期关系底色');
     expect(projection.currentState.activeNeeds).toContain('希望被理解');
   });
 
@@ -231,7 +256,7 @@ describe('characterMindProjection', () => {
     });
 
     expect(projection.relationship.targetName).toBe('小铁');
-    expect(projection.relationship.stance).toContain('会验证、保留或不轻易相信');
+    expect(projection.relationship.stance.join('')).toContain('信任 -24');
     expect(projection.relationship.currentRoomPressure).toContain('目标正在承受房间里的集中压力。');
     expect(projection.room.activeLines.length).toBeGreaterThan(0);
     expect(projection.expression.omissions).toContain('内部状态分数');
@@ -276,14 +301,12 @@ describe('characterMindProjection', () => {
       now: 2000,
     });
 
-    expect(projection.relationship.stance).toEqual(expect.arrayContaining([
-      '更容易靠近、维护或给对方留余地',
-      '更愿意配合或透露',
-    ]));
-    expect(projection.relationship.stance).not.toContain('保持戒备，避免把主动权交出去');
+    expect(projection.relationship.stance.join('')).toContain('亲和 58');
+    expect(projection.relationship.stance.join('')).toContain('信任 64');
+    expect(projection.relationship.stance.join('')).not.toContain('威胁 48');
     expect(projection.continuity.relationshipMemories).toContain('长期关系：长期愿意替小铁留余地。');
     expect(projection.continuity.relationshipMemories).not.toContain('当前关系：紧张对峙：戒备');
-    expect(projection.expression.temperature).toBe('更容易柔和');
+    expect(projection.expression.temperature).toContain('长期关系不是固定口吻');
   });
 
   it('uses an upstream resolved target instead of re-picking the latest speaker', () => {
@@ -302,7 +325,7 @@ describe('characterMindProjection', () => {
     });
 
     expect(projection.relationship.targetName).toBe('林北');
-    expect(projection.relationship.stance).toContain('更容易靠近、维护或给对方留余地');
+    expect(projection.relationship.stance.join('')).toContain('亲和 28');
     expect(projection.expression.attention).toContain('林北');
   });
 

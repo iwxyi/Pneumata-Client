@@ -184,15 +184,10 @@ function resolveRelationshipInputs(params: {
 
 function formatRelationshipStance(relationship: RelationshipProjectionSource | null) {
   if (!relationship) return [];
-  const stance = [
-    relationship.warmth >= 12 ? '更容易靠近、维护或给对方留余地' : relationship.warmth <= -12 ? '不主动给温度，倾向保持距离' : '',
-    relationship.trust >= 12 ? '更愿意配合或透露' : relationship.trust <= -12 ? '会验证、保留或不轻易相信' : '',
-    relationship.competence >= 12 ? '认可对方的判断能力' : relationship.competence <= -12 ? '容易挑战对方的判断' : '',
-    relationship.threat >= 20 ? '保持戒备，避免把主动权交出去' : '',
-    (relationship.attachment || 0) >= 20 ? '会更在意对方的反应，不容易彻底抽身' : '',
-    (relationship.deference || 0) >= 20 ? '会让出一部分表达主动权或更谨慎地顶撞' : (relationship.deference || 0) <= -20 ? '不愿被对方压住，容易争取解释权' : '',
+  // Preserve evidence rather than turning axis thresholds into mandatory behavior.
+  return [
+    `长期关系底色（-100 至 100）：亲和 ${relationship.warmth}、能力 ${relationship.competence}、信任 ${relationship.trust}、威胁 ${relationship.threat}、在意 ${relationship.attachment ?? 0}、让位 ${relationship.deference ?? 0}。`,
   ];
-  return uniqueText(stance, 6);
 }
 
 function formatMergedRelationshipStance(inputs: RelationshipProjectionInputs) {
@@ -465,7 +460,6 @@ export function buildCharacterMindProjection(params: {
     chat: params.chat,
     targetId: target?.id,
   });
-  const activeRelationship = relationship.authored || relationship.ledger;
   const relationshipContinuity = collectRelationshipContinuity({
     chat: params.chat,
     character: params.character,
@@ -508,8 +502,6 @@ export function buildCharacterMindProjection(params: {
     params.character.memory?.secrets?.length ? '角色有未公开的自有内容，只能影响回避、克制或防御，不要主动揭露正文。' : '',
   ], 5);
   const conflictReasons = uniqueText([
-    activeRelationship && activeRelationship.threat >= 20 ? '关系中的戒备与当前对话目标可能冲突。' : '',
-    activeRelationship && activeRelationship.warmth >= 12 && activeRelationship.threat >= 20 ? '想靠近与想防备同时存在。' : '',
     params.character.soulState && params.character.soulState.repression >= 60 ? '有被压住的内容，不一定直接表达。' : '',
     ...narrativeLines.filter((line) => line.tension >= 0.55).slice(0, 3).map((line) => `${line.title}正在和普通聊天节奏竞争。`),
   ], 5);
@@ -564,7 +556,7 @@ export function buildCharacterMindProjection(params: {
     },
     expression: {
       socialMove: conflictReasons.length ? '先处理当前关系或矛盾压力，再决定是否回答完整。' : '对当前最有注意力的对象做一个具体、自然的回应。',
-      temperature: activeRelationship?.threat && activeRelationship.threat >= 20 ? '克制或带防备' : activeRelationship?.warmth && activeRelationship.warmth >= 12 ? '更容易柔和' : '由当前情绪和房间压力决定',
+      temperature: '由当前事件、人物经历和已记录情绪决定；长期关系不是固定口吻。',
       attention: target ? `注意力暂时落在${target.name}及其刚才的发言上。` : '注意力落在当前话题和最新变化上。',
       length: params.character.soulState?.energy !== undefined && params.character.soulState.energy < 35 ? '允许短、半句或不完整回应。' : '不要为了完整而补齐所有观点，按当下注意力自然决定长度。',
       omissions: [

@@ -24,7 +24,8 @@ describe('characterTurnDrive', () => {
     const suspicious = deriveCharacterTurnDrive({ speaker: character('liu', { coreProfile: { coreFear: '好听的承诺最后又变成空话', perceptionBiases: ['听见含糊的安排就想先看人心'] }, relationships: [{ characterId: 'zhang', warmth: 8, trust: 4, competence: 18, threat: 16 }] }), messages: [message], innerLife });
     const detached = deriveCharacterTurnDrive({ speaker: character('li', { coreProfile: { values: ['不拿别人的焦灼当自己的差事'], sensitivities: ['讨厌被推去替大家收场'] } }), messages: [message], innerLife });
 
-    expect(protective.relationalAction).toBe('protect');
+    expect(protective.relationalAction).toBe('situated');
+    expect(protective.stake).toContain('warmth 28');
     expect(protective.attentionLens).toContain('最后是谁吃亏');
     expect(suspicious.relationalAction).toBe('situated');
     expect(suspicious.attentionLens).toContain('含糊的安排');
@@ -36,6 +37,27 @@ describe('characterTurnDrive', () => {
     const drive = deriveCharacterTurnDrive({ speaker: character('plain'), messages: [], innerLife });
     expect(drive.stake).toContain('no invented private stake');
     expect(drive.evidence).not.toContain('core_desire');
+  });
+
+  it('changes scheduling urgency without changing the supplied psychological evidence', () => {
+    const input = { speaker: character('a'), messages: [], innerLife };
+    const quiet = deriveCharacterTurnDrive(input);
+    const urgent = deriveCharacterTurnDrive({ ...input, innerLife: { ...innerLife, impulse: 'mock', tone: 'annoyed', pressure: 0.9 } });
+    expect(quiet.speakingNecessity).toBe('let_silence_stand');
+    expect(urgent.speakingNecessity).toBe('strong');
+    const { speakingNecessity: quietUrgency, ...quietEvidence } = quiet;
+    const { speakingNecessity: urgentUrgency, ...urgentEvidence } = urgent;
+    expect(quietUrgency).not.toBe(urgentUrgency);
+    expect(urgentEvidence).toEqual(quietEvidence);
+  });
+
+  it('retains explicit model-addressed scheduling priority without inventing a feeling', () => {
+    const message = { id: 'm', chatId: 'c', senderId: 'b', senderName: '乙', type: 'ai' as const, content: '你怎么想？', emotion: 0, timestamp: 1, isDeleted: false, addressedTargetIds: ['a'] };
+    const drive = deriveCharacterTurnDrive({ speaker: character('a'), messages: [message], innerLife });
+    expect(drive.speakingNecessity).toBe('strong');
+    expect(drive.evidence).toContain('direct_address');
+    expect(drive.feltReaction).toContain('No strong carried feeling');
+    expect(drive.relationalAction).toBe('situated');
   });
 
   it('does not make ordinary warmth a permanent obligation to keep talking', () => {
@@ -50,11 +72,11 @@ describe('characterTurnDrive', () => {
       targetName: '乙',
     });
 
-    expect(drive.relationalAction).toBe('protect');
+    expect(drive.relationalAction).toBe('situated');
     expect(drive.speakingNecessity).toBe('let_silence_stand');
   });
 
-  it('turns hierarchy and directional deference into a live target-specific drive', () => {
+  it('preserves hierarchy evidence without deciding the subordinate reaction', () => {
     const superior = character('yan');
     const subordinate = character('niu', {
       relationships: [{
@@ -71,13 +93,14 @@ describe('characterTurnDrive', () => {
       sharedRelationshipFacts: ['阎君统辖幽都，牛头受其差遣并负责夜巡。'],
     });
 
-    expect(drive.relationalAction).toBe('answer_upward');
+    expect(drive.relationalAction).toBe('situated');
+    expect(drive.stake).toContain('deference 68');
     expect(drive.stake).toContain('敬畏阎君的裁决权');
     expect(drive.stake).toContain('阎君统辖幽都');
     expect(drive.evidence).toContain('shared_relationship_structure');
   });
 
-  it('makes authority visible from the superior side without losing it to a generic impulse', () => {
+  it('preserves reciprocal deference without turning scheduler impulse into authority', () => {
     const subordinate = character('niu', {
       relationships: [{ characterId: 'yan', warmth: 8, competence: 40, trust: 25, threat: 18, attachment: 5, deference: 60 }],
     });
@@ -94,11 +117,13 @@ describe('characterTurnDrive', () => {
       targetName: '牛头',
     });
 
-    expect(drive.relationalAction).toBe('exercise_authority');
-    expect(drive.observableMove).toContain('hierarchy');
+    expect(drive.relationalAction).toBe('situated');
+    expect(drive.stake).toContain("From 牛头's perspective");
+    expect(drive.stake).toContain('deference 60');
+    expect(drive.feltReaction).not.toContain('show_off');
   });
 
-  it('lets fast irritation leak through hierarchy as controlled resistance', () => {
+  it('preserves fast irritation without choosing a controlled resistance performance', () => {
     const superior = character('yan');
     const subordinate = character('niu', {
       personality: { openness: 50, extroversion: 35, agreeableness: 45, neuroticism: 55, humor: 30, creativity: 40, assertiveness: 38, empathy: 45 },
@@ -121,8 +146,9 @@ describe('characterTurnDrive', () => {
       targetName: '阎君',
     });
 
-    expect(drive.relationalAction).toBe('answer_upward');
+    expect(drive.relationalAction).toBe('situated');
     expect(drive.feltReaction).toContain('irritation');
-    expect(drive.observableMove).toContain('controlled edge');
+    expect(drive.feltReaction).toContain('52');
+    expect(drive.observableMove).not.toContain('controlled edge');
   });
 });
