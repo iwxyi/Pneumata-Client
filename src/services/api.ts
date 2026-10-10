@@ -580,6 +580,7 @@ class ApiClient {
   private aiBalanceCache = new Map<string, { value: Record<string, unknown>; expiresAt: number }>();
   private aiBalanceInFlight = new Map<string, Promise<Record<string, unknown>>>();
   private authRefreshInFlight: Promise<boolean> | null = null;
+  private authRefreshFailure: { reason: 'refresh_token_missing' | 'refresh_rejected' | 'refresh_network_error' | 'refresh_response_invalid'; status?: number; diagnostic?: string } | null = null;
 
   private getToken(): string | null {
     return localStorage.getItem(storageKey('token'));
@@ -624,9 +625,13 @@ class ApiClient {
   }
 
   private async refreshAuthSession(): Promise<boolean> {
-    const refreshToken = localStorage.getItem(storageKey('refresh-token'));
-    if (!refreshToken) return false;
     if (this.authRefreshInFlight) return this.authRefreshInFlight;
+    const refreshToken = localStorage.getItem(storageKey('refresh-token'));
+    this.authRefreshFailure = null;
+    if (!refreshToken) {
+      this.authRefreshFailure = { reason: 'refresh_token_missing', diagnostic: 'refresh token is not present in local storage' };
+      return false;
+    }
     this.authRefreshInFlight = (async () => {
       try {
         const response = await fetch(backendUrl(`${API_BASE}/auth/refresh`), {
@@ -635,16 +640,38 @@ class ApiClient {
         if (!response.ok) {
           // Another tab may have rotated the token while this request was in flight.
           // Re-read storage before treating the session as expired.
-          return localStorage.getItem(storageKey('refresh-token')) !== refreshToken;
+          const currentRefreshToken = localStorage.getItem(storageKey('refresh-token'));
+          const rotated = Boolean(currentRefreshToken && currentRefreshToken !== refreshToken && this.getToken());
+          if (!rotated) {
+            const payload = await response.json().catch(() => ({})) as { code?: unknown };
+            const code = typeof payload.code === 'string' && AUTH_EXPIRED_CODES.has(payload.code.toUpperCase()) ? payload.code.toUpperCase() : '';
+            this.authRefreshFailure = {
+              reason: 'refresh_rejected',
+              status: response.status,
+              diagnostic: code || `HTTP ${response.status}`,
+            };
+          }
+          return rotated;
         }
         const result = await this.parseJsonResponse<{ token: string; refreshToken: string; user?: AuthUserResponse }>(response);
-        if (!result.token || !result.refreshToken) return false;
+        if (!result.token || !result.refreshToken) {
+          this.authRefreshFailure = { reason: 'refresh_response_invalid', status: response.status, diagnostic: 'refresh response did not contain token fields' };
+          return false;
+        }
         localStorage.setItem(storageKey('token'), result.token);
         localStorage.setItem(storageKey('refresh-token'), result.refreshToken);
         if (result.user) localStorage.setItem(storageKey('user'), JSON.stringify(result.user));
         return true;
-      } catch {
-        return localStorage.getItem(storageKey('refresh-token')) !== refreshToken;
+      } catch (error) {
+        const currentRefreshToken = localStorage.getItem(storageKey('refresh-token'));
+        const rotated = Boolean(currentRefreshToken && currentRefreshToken !== refreshToken && this.getToken());
+        if (!rotated) {
+          this.authRefreshFailure = {
+            reason: error instanceof ApiError ? 'refresh_response_invalid' : 'refresh_network_error',
+            diagnostic: error instanceof ApiError ? 'refresh endpoint returned an invalid response' : 'refresh request could not complete',
+          };
+        }
+        return rotated;
       } finally {
         this.authRefreshInFlight = null;
       }
@@ -659,7 +686,9 @@ class ApiClient {
     const expiresAt = this.getAccessTokenExpiresAt(token);
     if (expiresAt === null) return false;
     if (!options.force && expiresAt !== null && expiresAt - Date.now() > 5 * 60_000) return false;
-    return this.refreshAuthSession();
+    const refreshed = await this.refreshAuthSession();
+    if (!refreshed && this.authRefreshFailure) console.warn('[auth] session refresh failed', this.authRefreshFailure);
+    return refreshed;
   }
 
   getAuthRefreshDelayMs() {
@@ -692,7 +721,19 @@ class ApiClient {
         if (!retried && path !== '/auth/refresh' && await this.refreshAuthSession()) {
           return this.requestWithRetry<T>(method, path, body, true);
         }
-        dispatchAuthSessionExpired({ status: response.status, path });
+        const failure = retried ? null : this.authRefreshFailure;
+        if (failure && (failure.reason === 'refresh_network_error' || failure.reason === 'refresh_response_invalid'
+          || (failure.reason === 'refresh_rejected' && failure.status !== 401 && failure.status !== 403))) {
+          console.warn('[auth] session refresh unavailable; retaining login', failure);
+          throw new ApiError('登录续期暂时失败，请稍后重试', { code: 'AUTH_REFRESH_UNAVAILABLE', status: 503 });
+        }
+        dispatchAuthSessionExpired({
+          status: response.status,
+          path,
+          refreshStatus: failure?.status,
+          reason: failure?.reason || 'access_token_rejected',
+          diagnostic: failure?.diagnostic || (error.code && AUTH_EXPIRED_CODES.has(error.code.toUpperCase()) ? error.code.toUpperCase() : undefined),
+        });
       }
       throw new ApiError(`${error.error || `HTTP ${response.status}`}${detail}`, { code: error.code, status: response.status });
     }

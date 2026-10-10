@@ -178,7 +178,7 @@ export default function LoginPage() {
 
         {loginReason === 'expired' && !error && !loginAttempted ? (
           <Alert severity="warning" sx={{ mb: 2 }}>
-            登录已过期，请重新获取验证码登录。
+            登录已过期，请重新登录。
           </Alert>
         ) : null}
 

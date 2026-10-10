@@ -290,7 +290,7 @@ function AuthBootstrap() {
       const delay = api.getAuthRefreshDelayMs();
       // Unknown/non-JWT tokens are left to the normal request/401 fallback.
       if (delay === null) return;
-      timer = window.setTimeout(() => { void refresh(); }, delay);
+      timer = window.setTimeout(() => { void refresh(); }, Math.max(30_000, delay));
     };
     const onResume = () => { void refresh(); };
     window.addEventListener('focus', onResume);

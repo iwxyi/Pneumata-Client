@@ -13,7 +13,10 @@ let lastAuthExpiredDispatchAt = 0;
 export interface AuthSessionExpiredDetail {
   from?: string;
   status?: number;
+  refreshStatus?: number;
   path?: string;
+  reason?: 'access_token_rejected' | 'refresh_token_missing' | 'refresh_rejected' | 'refresh_network_error' | 'refresh_response_invalid' | 'unknown';
+  diagnostic?: string;
 }
 
 function hasActiveCloudSession() {
@@ -46,11 +49,23 @@ export function dispatchAuthSessionExpired(detail: AuthSessionExpiredDetail = {}
   const now = Date.now();
   if (now - lastAuthExpiredDispatchAt < AUTH_EXPIRED_DISPATCH_THROTTLE_MS) return;
   lastAuthExpiredDispatchAt = now;
+  const eventDetail: AuthSessionExpiredDetail = {
+    from: detail.from || `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    status: detail.status,
+    refreshStatus: detail.refreshStatus,
+    path: detail.path,
+    reason: detail.reason || 'access_token_rejected',
+    diagnostic: detail.diagnostic,
+  };
+  // Keep the user-facing message generic, but leave a safe, actionable reason
+  // in the console. Tokens and response bodies are intentionally excluded.
+  console.warn('[auth] cloud session expired', {
+    reason: eventDetail.reason,
+    status: eventDetail.status,
+    refreshStatus: eventDetail.refreshStatus,
+    diagnostic: eventDetail.diagnostic,
+  });
   window.dispatchEvent(new CustomEvent<AuthSessionExpiredDetail>(AUTH_SESSION_EXPIRED_EVENT, {
-    detail: {
-      from: detail.from || `${window.location.pathname}${window.location.search}${window.location.hash}`,
-      status: detail.status,
-      path: detail.path,
-    },
+    detail: eventDetail,
   }));
 }

@@ -126,7 +126,7 @@ describe('api sync changes', () => {
     await expect(api.getMe()).rejects.toBeInstanceOf(ApiError);
 
     expect(events).toEqual([
-      expect.objectContaining({ status: 401, path: '/auth/me' }),
+      expect.objectContaining({ status: 401, path: '/auth/me', reason: 'refresh_token_missing' }),
     ]);
   });
 
@@ -159,6 +159,62 @@ describe('api sync changes', () => {
     await expect(api.getMe()).rejects.toBeInstanceOf(ApiError);
 
     expect(events).toEqual([]);
+  });
+
+  it.each(['network', 'server', 'invalid-response'])('retains credentials when refresh has a temporary %s failure', async (failure) => {
+    installLocalStorage({
+      'pneumata-auth-mode': 'cloud',
+      'pneumata-token': 'expired-token',
+      'pneumata-refresh-token': 'refresh-token-1',
+    });
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ code: 'TOKEN_EXPIRED' }), {
+      status: 401, headers: { 'Content-Type': 'application/json' },
+    }));
+    if (failure === 'network') fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    else if (failure === 'server') fetchMock.mockResolvedValueOnce(new Response('{}', { status: 500 }));
+    else fetchMock.mockResolvedValueOnce(jsonResponse({}));
+    vi.stubGlobal('fetch', fetchMock);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(api.getMe()).rejects.toMatchObject({ code: 'AUTH_REFRESH_UNAVAILABLE', status: 503 });
+
+    expect(localStorage.getItem('pneumata-token')).toBe('expired-token');
+    expect(localStorage.getItem('pneumata-refresh-token')).toBe('refresh-token-1');
+    expect(warn).toHaveBeenCalledWith('[auth] session refresh unavailable; retaining login', expect.objectContaining({
+      reason: failure === 'network' ? 'refresh_network_error' : failure === 'server' ? 'refresh_rejected' : 'refresh_response_invalid',
+    }));
+  });
+
+  it('reports refresh rejection with its status and safe server code', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 2000);
+    installLocalStorage({
+      'pneumata-auth-mode': 'cloud',
+      'pneumata-token': 'expired-token',
+      'pneumata-refresh-token': 'refresh-token-1',
+    });
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(new Response('{}', { status: 401, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 'TOKEN_EXPIRED', error: 'private response text' }), {
+        status: 401, headers: { 'Content-Type': 'application/json' },
+      })));
+    vi.stubGlobal('CustomEvent', class<T = unknown> extends Event {
+      detail: T;
+      constructor(type: string, init?: CustomEventInit<T>) {
+        super(type);
+        this.detail = init?.detail as T;
+      }
+    });
+    const target = new EventTarget();
+    Object.defineProperty(target, 'location', { value: { pathname: '/', search: '', hash: '' } });
+    vi.stubGlobal('window', target);
+    const events: unknown[] = [];
+    target.addEventListener(AUTH_SESSION_EXPIRED_EVENT, (event) => events.push((event as CustomEvent).detail));
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await expect(api.getMe()).rejects.toMatchObject({ status: 401 });
+    expect(events).toEqual([expect.objectContaining({ reason: 'refresh_rejected', diagnostic: 'TOKEN_EXPIRED' })]);
+    expect(JSON.stringify(events)).not.toContain('private response text');
+    expect(JSON.stringify(events)).not.toContain('refresh-token-1');
   });
 
   it('refreshes an expired access token and retries the original request', async () => {
