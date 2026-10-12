@@ -643,8 +643,9 @@ describe('chatEngine streaming preview', () => {
     });
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
 
-    expect(prompt).toContain('明显烦躁');
-    expect(prompt).toContain('轻微戒备');
+    expect(prompt).toContain('irritation 46');
+    expect(prompt).toContain('insecurity 34');
+    expect(prompt).not.toContain('Expression guidance:');
     expect(prompt).toContain('## Inner Life');
     expect(prompt).toContain('Recorded emotional lead:');
     expect(prompt).not.toContain('Current impulse:');

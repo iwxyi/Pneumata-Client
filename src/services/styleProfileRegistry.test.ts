@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getStyleProfile, resolveChatStyleProfile, resolveDefaultStyleProfile } from './styleProfileRegistry';
+import { getStyleProfile, resolveChatStyleProfile, resolveDefaultStyleProfile, resolveRichDeliveryPolicy } from './styleProfileRegistry';
 
 describe('styleProfileRegistry', () => {
   it('keeps direct and AI-private companionship low-pressure without making it a short-answer rule', () => {
@@ -25,5 +25,12 @@ describe('styleProfileRegistry', () => {
     expect(getStyleProfile('analytical_room')?.promptContext.styleProfile).toBe('analytical_room');
     expect(getStyleProfile('discovery_room')?.promptContext.styleProfile).toBe('discovery_room');
     expect(getStyleProfile('dramatic_room')?.promptContext.styleProfile).toBe('dramatic_room');
+  });
+
+  it('keeps conversational extra sends available without making them the default tendency', () => {
+    for (const profile of ['casual_room', 'companion_room']) {
+      const delivery = resolveRichDeliveryPolicy(profile);
+      expect(delivery.multiBubble).toMatchObject({ proactivity: 'low', maxBubbles: 5, organization: 'conversational' });
+    }
   });
 });

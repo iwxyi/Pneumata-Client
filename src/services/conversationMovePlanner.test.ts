@@ -378,4 +378,32 @@ describe('conversationMovePlanner', () => {
     expect(prompt).toContain('nearby everyday angle');
   });
 
+  it('keeps ordinary thread focus optional while preserving explicit reply debt', () => {
+    const ordinary = buildConversationMovePrompt({
+      speakerId: 'a',
+      targetActorId: 'b',
+      targetClaimText: '今晚还去不去？',
+      moveType: 'react_lightly',
+      socialPosture: { warmth: 'neutral', directness: 'plain' },
+      reason: 'default_room_move',
+      confidence: 0.55,
+    }, chat('conversation'), '乙');
+    expect(ordinary).toContain('Attention cue only');
+    expect(ordinary).toContain('not a required reply');
+    expect(ordinary).not.toContain('Reply obligation');
+
+    const direct = buildConversationMovePrompt({
+      speakerId: 'a',
+      targetActorId: 'b',
+      targetClaimText: '今晚还去不去？',
+      moveType: 'answer_unresolved_question',
+      socialPosture: { warmth: 'neutral', directness: 'plain' },
+      reason: 'pending_direct_address',
+      confidence: 0.96,
+    }, chat('conversation'), '乙');
+    expect(direct).toContain('Reply obligation');
+    expect(direct).toContain('real direct question');
+    expect(direct).not.toContain('Attention cue only');
+  });
+
 });

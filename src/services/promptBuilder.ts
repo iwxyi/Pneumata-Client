@@ -705,6 +705,7 @@ function buildCharacterMindAdapterOutput(character: AICharacter, chat: GroupChat
     maxRoomLines: 5,
     includeActiveRoomLineSummaries: false,
     includeRoomTopic: false,
+    includeExpressionGuidance: !usesUnifiedOrdinaryGroupTurnContract(chat),
     renderVisibleRecallCues: isOrdinaryGroup,
   });
   return { projection, adapter };

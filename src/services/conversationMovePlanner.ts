@@ -400,8 +400,13 @@ export function buildConversationMovePrompt(
     ask_evidence: 'ask what evidence or condition would make the claim hold',
     name_tradeoff: 'name a tradeoff the room has not made explicit',
   };
+  const hasExplicitReplyDebt = plan.moveType === 'answer_unresolved_question'
+    || plan.reason === 'pending_direct_address'
+    || plan.reason === 'user_guidance_lock';
   const targetLine = plan.targetClaimText
-    ? `\n- Thread focus: engage the selected prior thread from the transcript without copying its wording.${targetName ? ` The thread is associated with ${targetName}; address them directly only when the social moment calls for it.` : ''}`
+    ? hasExplicitReplyDebt
+      ? `\n- Reply obligation: address the selected unresolved thread from the transcript. This is a real direct question, handoff, or explicit request; answer it in the character's own way, and do not pad the answer with a second generic acknowledgement.${targetName ? ` The thread is associated with ${targetName}.` : ''}`
+      : `\n- Attention cue only: the selected prior thread is available as context, not a required reply. You may pick up one detail, react indirectly, return to an older thread, introduce your own nearby thought, or leave it untouched if the character's attention is elsewhere.${targetName ? ` It is associated with ${targetName}; do not address them by name unless that is a natural social act.` : ''}`
     : '';
   const analysisLine = analysis
     ? '\n- In analysis rooms, warmth is interpersonal tone only. It does not mean viewpoint agreement.'

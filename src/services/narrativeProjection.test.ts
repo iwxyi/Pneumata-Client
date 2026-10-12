@@ -442,6 +442,7 @@ describe('projectNarrativeLines', () => {
     expect(goalLine?.type).toBe('goal');
     expect(goalLine?.title).toBe('推进目标');
     expect(goalLine?.participantIds).toEqual(['a']);
+    expect(goalLine?.openQuestions).toEqual([]);
     expect(goalLine?.possibleNextBeats[0]?.beatType).toBe('invite');
   });
 

@@ -180,10 +180,11 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('"messages":null');
     expect(contract).toContain('messages[] is the ordered list only when');
     expect(contract).toContain('When messages[] is used');
-    expect(contract).toContain('typed in one sitting');
-    expect(contract).toContain('no content category automatically requires one');
-    expect(contract).toContain('one send is the usual default');
-    expect(contract).toContain('need not be self-contained');
+    expect(contract).toContain('first compose the complete thing this person would send now');
+    expect(contract).toContain('A second bubble is not a second paragraph');
+    expect(contract).toContain('the person sends, then sends again');
+    expect(contract).toContain('One send is the usual default');
+    expect(contract).not.toContain('need not be self-contained');
     expect(contract.match(/Send boundaries:/g)).toHaveLength(1);
     expect(contract.match(/soft ceiling/g)).toHaveLength(1);
     expect(contract).not.toContain('rhythm=');
@@ -193,7 +194,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('punctuation follows the voice and moment');
     expect(contract).toContain('set content equal to messages[0].content');
     expect(contract).toContain('Audio must be the only media in its item');
-    expect(contract).toContain('never split a sentence mechanically');
+    expect(contract).toContain('splitting mechanically');
   });
 
   it('distinguishes reply targets from members who are only mentioned or affected', () => {
@@ -271,11 +272,11 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       richDelivery: { multiBubble: { proactivity: 'high', maxBubbles: 5 }, image: { proactivity: 'off', explicitRequest: true }, audio: { proactivity: 'off', explicitRequest: true }, sticker: { proactivity: 'off', explicitRequest: true } },
       turnPlan: { rhythm: 'multi_bubble', maxBubbleCount: 2, lengthBand: 'short', allowExtraMessages: true, waitSensitive: false, reasons: ['test'] },
     });
-    expect(contract).toContain('usual soft ceiling is 5');
+    expect(contract).toContain("soft ceiling is 5");
     expect(contract).not.toContain('usual soft ceiling is 2');
     expect(contract).toContain('not a target or hard limit');
-    expect(contract).toContain('Preserve meaningful sends rather than merging them into paragraphs');
-    expect(contract).toContain('never split a sentence mechanically');
+    expect(contract).toContain('preserve meaningful sends rather than splitting mechanically');
+    expect(contract).toContain('splitting mechanically');
   });
 
   it('keeps a one-bubble turn policy consistent with the shared message format', () => {

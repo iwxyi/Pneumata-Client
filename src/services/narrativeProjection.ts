@@ -464,7 +464,7 @@ function buildGoalLines(chat: GroupChat, characters: AICharacter[], now: number)
         salience,
         sourceEventIds: [event.id],
         lastTouchedAt: event.createdAt,
-        openQuestions: ['这个目标会被接住、转向还是被新的互动覆盖？'],
+        openQuestions: [],
         possibleNextBeats: [{
           beatType: intent === 'summarize' ? 'summarize' : intent === 'redirect' ? 'deflect' : intent === 'force_reply' ? 'answer' : 'invite',
           targetActorIds,

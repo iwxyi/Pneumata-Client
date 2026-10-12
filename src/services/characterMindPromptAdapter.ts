@@ -15,6 +15,7 @@ export interface CharacterMindPromptAdapterOptions {
   maxRecallCues?: number;
   includeActiveRoomLineSummaries?: boolean;
   includeRoomTopic?: boolean;
+  includeExpressionGuidance?: boolean;
   renderVisibleRecallCues?: boolean;
 }
 
@@ -160,6 +161,7 @@ function buildRoomLines(
   maxLines: number,
   includeActiveRoomLineSummaries: boolean,
   includeRoomTopic: boolean,
+  includeExpressionGuidance: boolean,
 ) {
   const activeRoomLines = includeActiveRoomLineSummaries
     ? cleanValues(projection.room.activeLines, visibility, 3)
@@ -171,12 +173,12 @@ function buildRoomLines(
     bullet('Room pressure and constraints', cleanValues(projection.room.constraints, visibility, 4)),
     bullet('Active room lines', activeRoomLines),
     bullet('World, scenario, or growth context', cleanValues(projection.room.worldActivities, visibility, 4)),
-    bullet('Expression guidance', cleanValues([
+    includeExpressionGuidance ? bullet('Expression guidance', cleanValues([
       projection.expression.socialMove,
       projection.expression.temperature,
       projection.expression.attention,
       projection.expression.length,
-    ], visibility, 4)),
+    ], visibility, 4)) : '',
     projection.expression.omissions.length ? `- Keep implicit or omit unless naturally triggered: ${projection.expression.omissions.join(' / ')}.` : '',
   ].filter(Boolean);
   return lines.slice(0, maxLines);
@@ -230,6 +232,7 @@ export function adaptCharacterMindProjectionForPrompt(
     options.maxRoomLines || DEFAULT_ROOM_LINES,
     options.includeActiveRoomLineSummaries ?? false,
     options.includeRoomTopic ?? true,
+    options.includeExpressionGuidance ?? true,
   );
   const visibleRecallInput = selectRecallCues(
     projection,

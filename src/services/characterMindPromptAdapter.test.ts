@@ -220,6 +220,19 @@ describe('characterMindPromptAdapter', () => {
     expect(output.coreContinuityBlock.split('\n').length).toBeLessThanOrEqual(5);
   });
 
+  it('can leave expression planning to the unified turn directive without dropping room evidence', () => {
+    const output = adaptCharacterMindProjectionForPrompt(projection(), {
+      chatType: 'group',
+      visibility: 'public',
+      includeExpressionGuidance: false,
+    });
+
+    expect(output.currentRoomBlock).toContain('Room pressure and constraints');
+    expect(output.currentRoomBlock).toContain('Active room lines');
+    expect(output.currentRoomBlock).not.toContain('Expression guidance');
+    expect(output.currentRoomBlock).not.toContain('注意力暂时落在阿远');
+  });
+
   it('reserves relationship and recorded-state evidence inside a small core budget', () => {
     const value = projection();
     value.relationship.targetName = '阿远';

@@ -1778,7 +1778,8 @@ function buildNaturalChatRhythmPrompt(messages: Message[], innerLife: InnerLifeP
   return `\n## Natural Chat Rhythm
 - Real chat is uneven; choose size from the moment, not a fixed template.
 - A live-chat turn does not always need a new argument or task result. Low-information social signals are valid when they change stance, consent, resistance, timing, face, attention, or emotional temperature.
-- A short reaction, an unfinished thought, a compact practical answer, and a fuller explanation are all legitimate shapes. Do not polish every turn into the same complete mini-essay.`;
+- A short reaction, an unfinished thought, a compact practical answer, and a fuller explanation are all legitimate shapes. Do not polish every turn into the same complete mini-essay.
+- A thread focus is an attention cue, not a requirement to visibly answer the latest speaker. Acknowledgement is implicit by default: it may be a small reaction, a half-sentence, a turn into your own thought, a pause, or no direct acknowledgement at all. Name the other person or explicitly agree only when that naming or agreement is itself a real social act; do not narrate the act of replying before saying what you mean.`;
 }
 
 function isBracketedLine(line: string) {
