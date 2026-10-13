@@ -37,7 +37,7 @@ import type { Message, MessageAttachment } from '../types/message';
 import type { AICharacter } from '../types/character';
 import { buildExpressionFeedbackPatch, getExpressionFeedbackLabel, type ExpressionFeedbackKind } from '../services/characterExpressionFeedback';
 import { useAuthStore } from '../stores/useAuthStore';
-import { useManualInputQueue } from '../hooks/useManualInputQueue';
+import { runInterruptedManualInput, useManualInputQueue } from '../hooks/useManualInputQueue';
 import { useStreamingMessageState } from '../hooks/useStreamingMessageState';
 import { getConversationLoopStartBlockReason, useChatRunLoop } from '../hooks/useChatRunLoop';
 import { useChatSidebarProjection } from '../hooks/useChatSidebarProjection';
@@ -909,6 +909,7 @@ export default function ChatDetailPage() {
   const directReplyAbortRef = useRef<AbortController | null>(null);
   const pendingHtmlSubmissionKeysRef = useRef(new Set<string>());
   const directReplyEpochRef = useRef(0);
+  const regenerationResumeRef = useRef<{ epoch: number; shouldResume: boolean } | null>(null);
   const composerDockRef = useRef<HTMLDivElement | null>(null);
   const pendingAppCommandChoiceRef = useRef(false);
   const assistantTitleRetryKeyRef = useRef<string | null>(null);
@@ -2372,59 +2373,87 @@ export default function ChatDetailPage() {
     directReplyAbortRef.current?.abort();
     directReplyEpochRef.current += 1;
     const epoch = directReplyEpochRef.current;
-    await enqueueManualInput(async () => {
-      if (isRunningRef.current) cancelActiveConversationLoop('message_regenerate');
-      const sourceNode = resolveMessageBranchNodes(currentChatAllMessages)
-        .find((node) => node.message.id === sourceMessage.id || node.nodeId === sourceMessage.id);
-      if (!sourceNode) return;
-      const activeMessages = projectActiveBranchMessages(chat, currentChatAllMessages);
-      const sourceIndex = activeMessages.findIndex((message) => message.id === sourceMessage.id);
-      const contextMessages = sourceIndex >= 0 ? activeMessages.slice(0, sourceIndex) : activeMessages;
-      const state = chat.messageBranchState;
-      const activeName = state?.activeBranchName || 'main';
-      const activeRefHead = state?.refs?.[activeName]?.headNodeId || activeMessages.at(-1)?.metadata?.branching?.nodeId || activeMessages.at(-1)?.id || null;
-      let nextState = state;
-      if (activeRefHead && activeRefHead !== sourceNode.parentNodeId) {
-        nextState = forkBranchState(nextState, activeRefHead, `${activeName}-before-regenerate-${Date.now()}`);
-      }
-      nextState = buildBranchStateWithHead(nextState, sourceNode.parentNodeId, activeName);
-      const nextChat: GroupChat = { ...chat, messageBranchState: nextState };
-      await updateChat(id, { messageBranchState: nextState });
-      const controller = new AbortController();
-      directReplyAbortRef.current = controller;
-      setIsDirectReplyPending(true);
-      try {
-        const { runAssistantChatReplyFlow } = await import('../services/assistantChatFlow');
-        const regenerated = await runAssistantChatReplyFlow({
-          api,
-          aiProfiles,
-          chatId: id,
-          chat: nextChat,
-          currentMessages: contextMessages,
-          selectedArtifactId: selectedAssistantArtifactId,
-          timestamp: getNextMessageTimestamp(),
-          upsertMessage: upsertMessageStable,
-          updateChat,
-          signal: controller.signal,
-          replySender: { id: sourceMessage.senderId, name: sourceMessage.senderName },
-          revisionOfNodeId: sourceNode.nodeId,
-          shouldContinue: () => !controller.signal.aborted && directReplyEpochRef.current === epoch,
-        });
-        const regeneratedNodeId = regenerated.metadata?.branching?.nodeId || regenerated.clientKey || regenerated.id;
-        await updateChat(id, {
-          messageBranchState: buildBranchStateWithHead(nextState, regeneratedNodeId, activeName),
-          lastMessageAt: regenerated.timestamp,
-          latestMessage: regenerated,
-        });
-        setSnackbar({ open: true, message: '已重新回答', severity: 'success' });
-      } catch (error) {
-        if (!isGenerationCancelledError(error)) showErrorToast(error instanceof Error ? error.message : String(error));
-      } finally {
+    const shouldResume = (regenerationResumeRef.current?.epoch === epoch - 1 && regenerationResumeRef.current.shouldResume)
+      || (isRunningRef.current && !isPausedRef.current);
+    regenerationResumeRef.current = { epoch, shouldResume };
+    // Rewinding to an empty branch must not trigger a new-room opening on failure.
+    openingLoopRef.current = true;
+    const controller = new AbortController();
+    directReplyAbortRef.current = controller;
+    setIsDirectReplyPending(true);
+    const shouldContinue = () => !controller.signal.aborted && directReplyEpochRef.current === epoch;
+    try {
+      await runInterruptedManualInput({
+        enqueueManualInput,
+        interrupt: () => {
+          if (isRunningRef.current) cancelActiveConversationLoop('message_regenerate');
+        },
+        shouldContinue,
+        resumeOnCompleted: shouldResume,
+        task: async () => {
+          const sourceNode = resolveMessageBranchNodes(currentChatAllMessages)
+            .find((node) => node.message.id === sourceMessage.id || node.nodeId === sourceMessage.id);
+          if (!sourceNode) return;
+          const activeMessages = projectActiveBranchMessages(chat, currentChatAllMessages);
+          const sourceIndex = activeMessages.findIndex((message) => message.id === sourceMessage.id);
+          const contextMessages = sourceIndex >= 0 ? activeMessages.slice(0, sourceIndex) : activeMessages;
+          const state = chat.messageBranchState;
+          const activeName = state?.activeBranchName || 'main';
+          const activeRefHead = state?.refs?.[activeName]?.headNodeId || activeMessages.at(-1)?.metadata?.branching?.nodeId || activeMessages.at(-1)?.id || null;
+          let nextState = state;
+          if (activeRefHead && activeRefHead !== sourceNode.parentNodeId) {
+            nextState = forkBranchState(nextState, activeRefHead, `${activeName}-before-regenerate-${Date.now()}`);
+          }
+          nextState = buildBranchStateWithHead(nextState, sourceNode.parentNodeId, activeName);
+          const nextChat: GroupChat = { ...chat, messageBranchState: nextState };
+          await updateChat(id, { messageBranchState: nextState });
+          if (!shouldContinue()) return;
+          const { runAssistantChatReplyFlow } = await import('../services/assistantChatFlow');
+          const regenerated = await runAssistantChatReplyFlow({
+            api,
+            aiProfiles,
+            chatId: id,
+            chat: nextChat,
+            currentMessages: contextMessages,
+            selectedArtifactId: selectedAssistantArtifactId,
+            timestamp: getNextMessageTimestamp(),
+            upsertMessage: upsertMessageStable,
+            updateChat,
+            signal: controller.signal,
+            replySender: { id: sourceMessage.senderId, name: sourceMessage.senderName },
+            revisionOfNodeId: sourceNode.nodeId,
+            shouldContinue,
+          });
+          if (!shouldContinue()) return;
+          const regeneratedNodeId = regenerated.metadata?.branching?.nodeId || regenerated.clientKey || regenerated.id;
+          const branchUpdates: Partial<GroupChat> = {
+            messageBranchState: buildBranchStateWithHead(nextState, regeneratedNodeId, activeName),
+            lastMessageAt: regenerated.timestamp,
+            latestMessage: regenerated,
+          };
+          await updateChat(id, branchUpdates);
+          if (!shouldContinue()) return;
+          setSnackbar({ open: true, message: '已重新回答', severity: 'success' });
+          return { ...nextChat, ...branchUpdates };
+        },
+        onCompleted: (nextChat) => {
+          const latestChat = useChatStore.getState().chats.find((item) => item.id === id) || nextChat;
+          const blockReason = startConversationLoopIfNeeded(latestChat, { immediate: true });
+          if (blockReason === 'waiting_story_choice') {
+            setSnackbar({ open: true, message: '已重新回答，请先选择一个剧情走向', severity: 'info' });
+          }
+        },
+      });
+    } catch (error) {
+      if (shouldContinue() && !isGenerationCancelledError(error)) showErrorToast(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (directReplyEpochRef.current === epoch) {
+        regenerationResumeRef.current = null;
         if (directReplyAbortRef.current === controller) directReplyAbortRef.current = null;
         setIsDirectReplyPending(false);
       }
-    });
-  }, [aiProfiles, api, chat, chatInteractionDisabled, chatReadOnlyReason, currentChatAllMessages, enqueueManualInput, getNextMessageTimestamp, id, selectedAssistantArtifactId, setSnackbar, showErrorToast, cancelActiveConversationLoop, updateChat, upsertMessageStable]);
+    }
+  }, [aiProfiles, api, chat, chatInteractionDisabled, chatReadOnlyReason, currentChatAllMessages, enqueueManualInput, getNextMessageTimestamp, id, selectedAssistantArtifactId, setSnackbar, showErrorToast, cancelActiveConversationLoop, startConversationLoopIfNeeded, updateChat, upsertMessageStable]);
 
   const handleSwitchMessageRevision = useCallback(async (sourceMessage: Message, direction: -1 | 1) => {
     // A streaming placeholder is not a revision yet. It must be finalized
@@ -2866,6 +2895,7 @@ export default function ChatDetailPage() {
     directReplyAbortRef.current?.abort();
     directReplyAbortRef.current = null;
     directReplyEpochRef.current += 1;
+    regenerationResumeRef.current = null;
     setIsDirectReplyPending(false);
   }, []);
 
@@ -4108,6 +4138,10 @@ export default function ChatDetailPage() {
 
   const handleHeaderPrimaryAction = useCallback(() => {
     if (!chat || !id || !canAutoRunConversation) return;
+    if (isDirectReplyPending) {
+      handleStopDirectReply();
+      return;
+    }
     logDeveloperDiagnostic('chat-run:button', {
       chatId: id,
       phase: chat.scenarioState?.phase || null,
@@ -4155,11 +4189,12 @@ export default function ChatDetailPage() {
       if (isStoryRoom) setIsStoryGenerationCancelled(true);
       cancelActiveConversationLoop(isStoryRoom ? 'story_header_cancelled' : 'header_cancelled');
     }
-  }, [canAutoRunConversation, cancelActiveConversationLoop, chat, id, isPaused, isRunning, isStoryRoom, isStoryWaitingForChoice, resume, setSnackbar, startConversationLoopIfNeeded, stop, storyChoiceGate, updateChat, visibleStoryBranchOptions.length]);
+  }, [canAutoRunConversation, cancelActiveConversationLoop, chat, handleStopDirectReply, id, isDirectReplyPending, isPaused, isRunning, isStoryRoom, isStoryWaitingForChoice, resume, setSnackbar, startConversationLoopIfNeeded, stop, storyChoiceGate, updateChat, visibleStoryBranchOptions.length]);
 
   const headerPrimaryActionButton = canAutoRunConversation && !isStoryRoom && !isStudyRoom ? (
-    <IconButton onClick={handleHeaderPrimaryAction} color={isRunning && !isPaused ? 'primary' : 'default'}>
-      {isRunning && !isPaused ? <PauseIcon /> : <PlayIcon />}
+    <IconButton onClick={handleHeaderPrimaryAction} color={isDirectReplyPending || (isRunning && !isPaused) ? 'primary' : 'default'}
+      aria-label={isDirectReplyPending ? '停止回复' : isRunning && !isPaused ? '暂停群聊' : '继续群聊'}>
+      {isDirectReplyPending || (isRunning && !isPaused) ? <PauseIcon /> : <PlayIcon />}
     </IconButton>
   ) : null;
 

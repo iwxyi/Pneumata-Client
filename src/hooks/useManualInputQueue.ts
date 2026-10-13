@@ -6,6 +6,24 @@ export interface ManualInputQueueController {
   isManualInputPending: () => boolean;
 }
 
+export async function runInterruptedManualInput<T>(params: {
+  enqueueManualInput: ManualInputQueueController['enqueueManualInput'];
+  interrupt: () => void;
+  shouldContinue: () => boolean;
+  task: () => Promise<T | undefined>;
+  resumeOnCompleted: boolean;
+  onCompleted: (result: T) => void;
+}) {
+  params.interrupt();
+  let result: T | undefined;
+  await params.enqueueManualInput(async () => {
+    if (!params.shouldContinue()) return;
+    result = await params.task();
+  });
+  // Resume only after the queue has released its manual-input gate.
+  if (params.resumeOnCompleted && result !== undefined && params.shouldContinue()) params.onCompleted(result);
+}
+
 export function useManualInputQueue(params: {
   isRunningRef: React.MutableRefObject<boolean>;
   isPausedRef: React.MutableRefObject<boolean>;
