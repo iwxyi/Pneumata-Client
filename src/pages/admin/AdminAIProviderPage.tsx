@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Alert, Autocomplete, Box, Button, Dialog, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead, TablePagination, TableRow, Tabs, TextField, Typography } from '@mui/material';
-import { useParams } from 'react-router-dom';
+import { Alert, Autocomplete, Box, Button, Checkbox, Chip, Dialog, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead, TablePagination, TableRow, Tabs, TextField, Typography } from '@mui/material';
+import { Navigate, useParams } from 'react-router-dom';
 import AdminAiUserUsageDialog from '../../components/admin/AdminAiUserUsageDialog';
-import AceImageModelFields from '../../components/admin/AceImageModelFields';
 import { toAceImageModelsForm } from '../../components/admin/aceImageModelForm';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { AdminSection, AdminTableFrame } from '../../components/admin/AdminSurface';
@@ -43,6 +42,29 @@ const NANOBANANA_ASPECT_RATIOS = ['1:1', '2:3', '3:2', '3:4', '4:3', '4:5', '5:4
 const NANOBANANA_IMAGE_SIZES = ['1K', '2K', '4K'];
 const DEFAULT_NANOBANANA_POINT_VALUE = '0.01';
 const DEFAULT_NANOBANANA_BILLING_MULTIPLIER = '1.5';
+const ACE_MODEL_TABS = [
+  { value: 'all', label: '全部' },
+  { value: 'chat', label: '文字' },
+  { value: 'image', label: '图片' },
+  { value: 'video', label: '视频' },
+  { value: 'audio', label: '音频' },
+  { value: 'embedding', label: '向量' },
+  { value: 'search', label: '搜索' },
+] as const;
+
+function formatAcePrice(row: Record<string, unknown>) {
+  const pricing = getRecord(row.pricing);
+  if (pricing.kind === 'tokens') return `输入 ${String(pricing.input_credits ?? '-')}${pricing.output_credits == null ? '' : ` / 输出 ${String(pricing.output_credits)}`} 积分/百万 token`;
+  if (pricing.min_credits == null && pricing.max_credits == null) return 'ACE 未提供价格';
+  const lower = String(pricing.min_credits ?? pricing.max_credits);
+  const upper = String(pricing.max_credits ?? pricing.min_credits);
+  const units: Record<string, string> = {
+    'per generation': '次', 'per second': '秒', 'per image': '张', 'per query': '次查询',
+    'per 1M bytes': '百万字节', 'per 1M characters': '百万字符', '1M tokens': '百万 token',
+  };
+  const unit = String(row.unit || '次');
+  return `${lower === upper ? lower : `${lower}–${upper}`} 积分/${units[unit] || unit}${pricing.estimated ? '（估价）' : ''}`;
+}
 
 const USER_USAGE_PAGE_SIZE = 100;
 const USAGE_STATS_PAGE_SIZE = 100;
@@ -660,7 +682,7 @@ export default function AdminAIProviderPage() {
   const isAceNanoBanana = providerCode === 'ace-nanobanana';
   const isAce = providerCode === 'acedata';
   const isImageProvider = isNanoBanana || isAceNanoBanana;
-  const providerDisplayName = isApi2d ? 'API2D' : isDeepSeek ? 'DeepSeek' : providerCode === 'moacode' ? 'Moacode' : providerCode === 'moacode-team' ? 'Moacode Team' : isNanoBanana ? 'NanoBanana' : isAceNanoBanana ? 'Ace-NanoBanana' : providerCode.toUpperCase();
+  const providerDisplayName = isApi2d ? 'API2D' : isDeepSeek ? 'DeepSeek' : providerCode === 'moacode' ? 'Moacode' : providerCode === 'moacode-team' ? 'Moacode Team' : isNanoBanana ? 'NanoBanana' : isAceNanoBanana ? 'Ace-NanoBanana' : isAce ? 'ACE' : providerCode.toUpperCase();
   const canQueryAccountBalance = isApi2d || isDeepSeek || isMoacode || isNanoBanana;
   const accountBalanceTitle = isMoacode ? '主账号余额与用量' : isNanoBanana ? '主账号余额与请求' : '主账号总余额';
   const [tab, setTab] = useState(0);
@@ -736,6 +758,12 @@ export default function AdminAIProviderPage() {
   const [publicModelTotal, setPublicModelTotal] = useState(0);
   const [publicModelLoading, setPublicModelLoading] = useState(false);
   const [publicModelError, setPublicModelError] = useState<string | null>(null);
+  const [aceModelCategory, setAceModelCategory] = useState('all');
+  const [aceModelSaving, setAceModelSaving] = useState<string | null>(null);
+  const [aceConnection, setAceConnection] = useState({ status: 'inactive', apiBaseUrl: '', apiKey: '', apiKeyConfigured: false });
+  const [aceConnectionLoading, setAceConnectionLoading] = useState(false);
+  const [aceConnectionError, setAceConnectionError] = useState<string | null>(null);
+  const [aceConnectionSaved, setAceConnectionSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveWarning, setSaveWarning] = useState<string | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
@@ -747,7 +775,10 @@ export default function AdminAIProviderPage() {
   const nanobananaBalanceSummary = isNanoBanana ? getNanoBananaBalanceSummary(accountBalance) : {};
   const publicModelGroups = buildPublicModelGroups(publicModels);
   const publicModelOptions = buildPublicModelOptions(publicModels);
-  const hasPublicModelPricing = isMoacode || isNanoBanana || isAce;
+  const visibleAceModels = aceModelCategory === 'all' ? publicModels : publicModels.filter((row) => row.modality === aceModelCategory);
+  const selectableAceModels = visibleAceModels.filter((row) => row.callable === true);
+  const enabledAceModelCount = selectableAceModels.filter((row) => row.enabled === true).length;
+  const hasPublicModelPricing = isMoacode || isNanoBanana || isAce || isAceNanoBanana;
   const publicModelTabIndex = hasPublicModelPricing ? 1 : -1;
   const userManagementTabIndex = hasPublicModelPricing ? 2 : 1;
   const usageStatsTabIndex = hasPublicModelPricing ? 3 : 2;
@@ -767,6 +798,67 @@ export default function AdminAIProviderPage() {
       setPublicModelError(getAdminErrorMessage(loadError));
     } finally {
       setPublicModelLoading(false);
+    }
+  };
+
+  const toggleAceModel = async (model: string, enabled: boolean) => {
+    setAceModelSaving(model);
+    setPublicModelError(null);
+    try {
+      const result = await adminApi.setAceModelEnabled(model, enabled);
+      setPublicModels((previous) => previous.map((row) => row.modelName === model ? { ...row, enabled: result.enabled } : row));
+    } catch (saveError) {
+      setPublicModelError(getAdminErrorMessage(saveError));
+    } finally {
+      setAceModelSaving(null);
+    }
+  };
+
+  const toggleVisibleAceModels = async (enabled: boolean) => {
+    const models = selectableAceModels.filter((row) => row.enabled !== enabled).map((row) => String(row.modelName));
+    if (!models.length) return;
+    setAceModelSaving('bulk');
+    setPublicModelError(null);
+    try {
+      const result = await adminApi.setAceModelsEnabled(models, enabled);
+      const changed = new Set(result.models);
+      setPublicModels((previous) => previous.map((row) => changed.has(String(row.modelName)) ? { ...row, enabled: result.enabled } : row));
+    } catch (saveError) {
+      setPublicModelError(getAdminErrorMessage(saveError));
+    } finally {
+      setAceModelSaving(null);
+    }
+  };
+
+  const loadAceConnection = async () => {
+    setAceConnectionLoading(true);
+    setAceConnectionError(null);
+    try {
+      const result = await adminApi.getAceConnection();
+      setAceConnection({ ...result, apiKey: '' });
+    } catch (loadError) {
+      setAceConnectionError(getAdminErrorMessage(loadError));
+    } finally {
+      setAceConnectionLoading(false);
+    }
+  };
+
+  const saveAceConnection = async () => {
+    setAceConnectionLoading(true);
+    setAceConnectionError(null);
+    setAceConnectionSaved(false);
+    try {
+      const result = await adminApi.updateAceConnection({
+        status: aceConnection.status,
+        apiBaseUrl: aceConnection.apiBaseUrl,
+        ...(aceConnection.apiKey.trim() ? { apiKey: aceConnection.apiKey.trim() } : {}),
+      });
+      setAceConnection({ ...result, apiKey: '' });
+      setAceConnectionSaved(true);
+    } catch (saveError) {
+      setAceConnectionError(getAdminErrorMessage(saveError));
+    } finally {
+      setAceConnectionLoading(false);
     }
   };
 
@@ -838,6 +930,9 @@ export default function AdminAIProviderPage() {
   useEffect(() => {
     setTab(0);
     void loadConfig();
+    if (isAce) void loadAceConnection();
+    setAceModelCategory('all');
+    setAceConnectionSaved(false);
     setKeys([]);
     setUserBalances([]);
     setUserBalancePage(0);
@@ -897,7 +992,7 @@ export default function AdminAIProviderPage() {
       };
       if (isImageProvider) {
         payload.tokenPricing = buildNanoBananaPricing(form.nanobananaPricing);
-        if (isAceNanoBanana) (payload.tokenPricing as Record<string, unknown>).models = Object.fromEntries(form.acedataModels.map((model) => [model.code.trim(), { requestCost: Number(model.prices[form.nanobananaImageSize] || 0) }]));
+        if (isAceNanoBanana) payload.tokenPricing = { billingMultiplier: Number(form.nanobananaPricing.billingMultiplier), pointValueCny: 100 };
       }
       else if (isAce) payload.tokenPricing = { billingMultiplier: Number(form.deepseekPricing.billingMultiplier) };
       else if (usesInternalLedger) payload.tokenPricing = buildInternalLedgerTokenPricing(providerCode, form.deepseekPricing);
@@ -907,7 +1002,7 @@ export default function AdminAIProviderPage() {
           moacodeImageModelsEnabled: form.moacodeImageModelsEnabled,
         };
       }
-      if (isImageProvider) {
+      if (isImageProvider || isAce) {
         payload.metadata = {
           ...getRecord(payload.metadata || providerConfig?.metadata),
           nanobananaDefaults: {
@@ -915,7 +1010,6 @@ export default function AdminAIProviderPage() {
             imageSize: form.nanobananaImageSize || '1K',
             accountUserId: form.nanobananaAccountUserId.trim(),
           },
-          ...(isAceNanoBanana ? { acedataModels: form.acedataModels.map((model) => ({ code: model.code, displayName: model.displayName, prices: Object.fromEntries(Object.entries(model.prices).map(([size, price]) => [size, Number(price)])) })) } : {}),
         };
       }
       const nextAdminToken = form.adminToken.trim();
@@ -1196,11 +1290,13 @@ export default function AdminAIProviderPage() {
     setUpdateDialogOpen(true);
   };
 
+  if (isAceNanoBanana) return <Navigate to="/admin/platform/ai/providers/acedata" replace />;
+
   return (
     <Stack spacing={2} sx={{ pb: 10 }}>
-      <Tabs value={tab} onChange={(_event, value) => setTab(value)}>
-        <Tab label="配置" />
-        {hasPublicModelPricing ? <Tab label="模型价格" /> : null}
+      <Tabs value={tab} onChange={(_event, value) => setTab(value)} variant="scrollable" allowScrollButtonsMobile>
+        <Tab label={isAce ? '通用配置' : '配置'} />
+        {hasPublicModelPricing ? <Tab label={isAce ? '模型列表与价格' : '模型价格'} /> : null}
         <Tab label={usesInternalLedger ? '通用点数' : 'Key 查询'} />
         <Tab label="用量统计" />
       </Tabs>
@@ -1337,7 +1433,7 @@ export default function AdminAIProviderPage() {
                   />
                 ) : null}
               </Box> : null}
-              {isImageProvider ? (
+              {isImageProvider || isAce ? (
                 <Box sx={shortConfigGridSx}>
                   <TextField
                     select
@@ -1364,7 +1460,7 @@ export default function AdminAIProviderPage() {
                       <MenuItem key={value} value={value}>{value}</MenuItem>
                     ))}
                   </TextField>
-                  {!isAceNanoBanana ? <TextField
+                  {isNanoBanana ? <TextField
                     label="余额查询用户 ID"
                     value={form.nanobananaAccountUserId}
                     onChange={(e) => setForm((prev) => ({ ...prev, nanobananaAccountUserId: e.target.value }))}
@@ -1379,7 +1475,7 @@ export default function AdminAIProviderPage() {
                 onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
                 fullWidth
                 sx={compactTextFieldSx}
-              /> : <Button href="/admin/platform?tab=other" variant="outlined" sx={{ alignSelf: 'flex-start' }}>AceData 通用接口配置</Button>}
+              /> : isAceNanoBanana ? <Button href="/admin/platform/ai/providers/acedata" variant="outlined" sx={{ alignSelf: 'flex-start' }}>ACE 共享连接配置</Button> : null}
               {isApi2d || isMoacode || isNanoBanana ? (
                 <TextField
                   label={isMoacode
@@ -1558,13 +1654,45 @@ export default function AdminAIProviderPage() {
               </Stack>
           </AdminSection>
 
+          {isAce ? (
+            <AdminSection title="ACE 连接">
+              <Stack spacing={1.25}>
+                {aceConnectionError ? <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => void loadAceConnection()} disabled={aceConnectionLoading}>重新加载</Button>}>{aceConnectionError}</Alert> : null}
+                {aceConnectionSaved ? <Alert severity="success">连接配置已保存</Alert> : null}
+                <Box sx={endpointGridSx}>
+                  <TextField
+                    label="API Base URL"
+                    value={aceConnection.apiBaseUrl}
+                    onChange={(event) => { setAceConnection((prev) => ({ ...prev, apiBaseUrl: event.target.value })); setAceConnectionSaved(false); }}
+                    disabled={aceConnectionLoading}
+                    fullWidth
+                    sx={compactTextFieldSx}
+                  />
+                  <TextField
+                    label="API Key"
+                    type="password"
+                    value={aceConnection.apiKey}
+                    onChange={(event) => { setAceConnection((prev) => ({ ...prev, apiKey: event.target.value })); setAceConnectionSaved(false); }}
+                    placeholder={aceConnection.apiKeyConfigured ? '已配置，留空则保持原密钥' : '填写 ACE API Key'}
+                    disabled={aceConnectionLoading}
+                    fullWidth
+                    sx={compactTextFieldSx}
+                  />
+                </Box>
+                <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+                  <FormControlLabel control={<Switch checked={aceConnection.status === 'active'} onChange={(event) => { setAceConnection((prev) => ({ ...prev, status: event.target.checked ? 'active' : 'inactive' })); setAceConnectionSaved(false); }} disabled={aceConnectionLoading} />} label="启用连接" />
+                  <Button variant="outlined" onClick={() => void saveAceConnection()} disabled={aceConnectionLoading || !aceConnection.apiBaseUrl.trim() || (aceConnection.status === 'active' && !aceConnection.apiKeyConfigured && !aceConnection.apiKey.trim())}>保存连接</Button>
+                </Stack>
+              </Stack>
+            </AdminSection>
+          ) : null}
+
           {usesInternalLedger ? (
             <AdminSection title={`${providerDisplayName} 扣费配置`}>
               {isAce ? (
                 <TextField label="计费倍率" type="number" slotProps={{ htmlInput: { min: 0.01, step: 0.1 } }} value={form.deepseekPricing.billingMultiplier} onChange={(event) => updateDeepSeekPricing('billingMultiplier', event.target.value)} sx={compactTextFieldSx} />
               ) : isImageProvider ? (
                 <Stack spacing={1.25}>
-                  {isAceNanoBanana ? <AceImageModelFields models={form.acedataModels} disabled={saving} onChange={(acedataModels) => setForm((prev) => ({ ...prev, acedataModels }))} /> : null}
                   <Box sx={shortConfigGridSx}>
                     {!isAceNanoBanana ? <TextField
                       label="1P 等于多少美元"
@@ -1704,7 +1832,7 @@ export default function AdminAIProviderPage() {
         </Stack>
       ) : hasPublicModelPricing && tab === publicModelTabIndex ? (
         <Stack spacing={1.5}>
-          <AdminSection title="模型价格">
+          <AdminSection title={isAce ? '模型列表与价格' : '模型价格'}>
             <Stack spacing={1.25}>
               <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
                 <TextField
@@ -1739,19 +1867,25 @@ export default function AdminAIProviderPage() {
                   刷新
                 </Button>
               </Stack>
+              {isAce ? (
+                <Tabs value={aceModelCategory} onChange={(_event, value: string) => setAceModelCategory(value)} variant="scrollable" allowScrollButtonsMobile>
+                  {ACE_MODEL_TABS.map((item) => <Tab key={item.value} value={item.value} label={`${item.label} (${item.value === 'all' ? publicModels.length : publicModels.filter((model) => model.modality === item.value).length})`} />)}
+                </Tabs>
+              ) : null}
               {publicModelError ? <Alert severity="error">{publicModelError}</Alert> : null}
               {!publicModels.length && !publicModelLoading && !publicModelError ? <Alert severity="info">暂无模型价格</Alert> : null}
+              {isAce && publicModels.length > 0 && visibleAceModels.length === 0 ? <Alert severity="info">此分类暂无模型</Alert> : null}
               {publicModels.length && isAce ? (
                 <AdminTableFrame minWidth={850}>
                   <Table size="small">
-                    <TableHead><TableRow><TableCell>模型</TableCell><TableCell>分类</TableCell><TableCell>品牌</TableCell><TableCell>ACE 价格（积分）</TableCell><TableCell>状态</TableCell><TableCell>更新时间</TableCell></TableRow></TableHead>
-                    <TableBody>{publicModels.map((row) => {
-                      const pricing = getRecord(row.pricing);
+                    <TableHead><TableRow><TableCell>模型</TableCell><TableCell>分类</TableCell><TableCell>品牌</TableCell><TableCell>ACE 价格（积分）</TableCell><TableCell><Checkbox size="small" checked={selectableAceModels.length > 0 && enabledAceModelCount === selectableAceModels.length} indeterminate={enabledAceModelCount > 0 && enabledAceModelCount < selectableAceModels.length} disabled={selectableAceModels.length === 0 || aceModelSaving !== null || publicModelLoading} onChange={(_event, checked) => void toggleVisibleAceModels(checked)} slotProps={{ input: { 'aria-label': '启用当前筛选的全部可用模型' } }} />启用</TableCell><TableCell>状态</TableCell><TableCell>更新时间</TableCell></TableRow></TableHead>
+                    <TableBody>{visibleAceModels.map((row) => {
                       return <TableRow key={String(row.modelName)}>
                         <TableCell sx={{ overflowWrap: 'anywhere', maxWidth: 330 }}>{String(row.displayName)}<Typography variant="caption" sx={{ display: 'block' }}>{String(row.modelName)}</Typography></TableCell>
-                        <TableCell>{String(row.modality)}</TableCell><TableCell>{String(row.providerName)}</TableCell>
-                        <TableCell>{pricing.kind === 'tokens' ? `输入 ${String(pricing.input_credits ?? '-')}; 输出 ${String(pricing.output_credits ?? '-')} / 百万 token` : `${String(pricing.min_credits ?? '-')} ~ ${String(pricing.max_credits ?? '-')} / ${String(row.unit || '次')}`}</TableCell>
-                        <TableCell>{row.callable ? '可用' : '未提供接口或价格'}</TableCell><TableCell>{row.pricingUpdatedAt ? new Date(Number(row.pricingUpdatedAt)).toLocaleString() : '-'}</TableCell>
+                        <TableCell>{ACE_MODEL_TABS.find((item) => item.value === row.modality)?.label || String(row.modality)}</TableCell><TableCell>{String(row.providerName || '-')}</TableCell>
+                        <TableCell>{formatAcePrice(row)}</TableCell>
+                        <TableCell><Checkbox size="small" checked={row.callable === true && row.enabled === true} disabled={row.callable !== true || aceModelSaving !== null || publicModelLoading} onChange={(_event, checked) => void toggleAceModel(String(row.modelName), checked)} slotProps={{ input: { 'aria-label': `启用 ${String(row.displayName)}` } }} /></TableCell>
+                        <TableCell><Chip size="small" variant="outlined" color={!row.callable ? 'error' : !row.enabled ? 'warning' : 'success'} label={!row.callable ? '不可用' : !row.enabled ? '已禁用' : '可用'} title={!row.callable ? '目录已下架或缺少受支持的接口、价格' : undefined} /></TableCell><TableCell>{row.pricingUpdatedAt ? new Date(Number(row.pricingUpdatedAt)).toLocaleString() : '-'}</TableCell>
                       </TableRow>;
                     })}</TableBody>
                   </Table>

@@ -72,7 +72,6 @@ const PROVIDER_POPULARITY: Record<string, number> = {
   'email:console': 90,
   'search:bocha': 10,
   'other:alapi': 10,
-  'other:acedata': 20,
   'tts:minimax': 10,
   'tts:volcengine': 20,
   'tts:openai': 30,
@@ -346,10 +345,6 @@ const FIELD_DEFS: Record<string, FieldDef[]> = {
     { key: 'doutuEnabled', label: '启用表情包搜索', type: 'boolean' },
     { key: 'doutuPointCost', label: '表情包搜索单次扣点（P）', type: 'number' },
   ],
-  'other:acedata': [
-    { key: 'apiBaseUrl', label: 'API Base URL', required: true },
-    { key: 'apiKey', label: 'API Key', secret: true, required: true },
-  ],
 };
 
 function integrationKey(item: Record<string, unknown>) {
@@ -501,7 +496,7 @@ export default function AdminPlatformPage() {
 
   const visibleItems = useMemo(
     () => items
-      .filter((item) => String(item.category || '') === category)
+      .filter((item) => String(item.category || '') === category && integrationKey(item) !== 'other:acedata')
       .slice()
       .sort(comparePlatformIntegration),
     [items, category],

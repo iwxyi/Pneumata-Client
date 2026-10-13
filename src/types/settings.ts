@@ -497,9 +497,12 @@ export function normalizeAIProfiles(aiProfiles?: AIModelProfile[], api?: APIConf
     const type = profile.type || 'text';
     const isDefault = Boolean(profile.isDefault) && !seenDefaultTypes.has(type);
     if (isDefault) seenDefaultTypes.add(type);
-    const provider = profile.provider || DEFAULT_AI_PROFILE.provider;
+    const migrateDefaultImage = profile.id === 'default-image' && type === 'image' && profile.isDefault === true
+      && profile.provider === 'official-nanobanana' && profile.baseUrl === '/api/ai'
+      && profile.model === 'gemini-3-pro-image-preview';
+    const provider = migrateDefaultImage ? DEFAULT_IMAGE_AI_PROFILE.provider : profile.provider || DEFAULT_AI_PROFILE.provider;
     const baseUrl = profile.baseUrl || DEFAULT_AI_PROFILE.baseUrl;
-    const model = normalizeDeepSeekModelName(provider, baseUrl, profile.model || DEFAULT_AI_PROFILE.model);
+    const model = normalizeDeepSeekModelName(provider, baseUrl, migrateDefaultImage ? DEFAULT_IMAGE_AI_PROFILE.model : profile.model || DEFAULT_AI_PROFILE.model);
     return {
       ...DEFAULT_AI_PROFILE,
       ...profile,
@@ -1092,10 +1095,10 @@ export const DEFAULT_IMAGE_AI_PROFILE: AIModelProfile = {
   name: '官方图片',
   type: 'image',
   isDefault: true,
-  provider: 'official-nanobanana',
+  provider: 'official-acedata',
   apiKey: '',
   baseUrl: '/api/ai',
-  model: 'gemini-3-pro-image-preview',
+  model: 'ace:image:nano-banana-pro',
   imageCapabilities: DEFAULT_IMAGE_CAPABILITIES,
   defaultImageSize: '1K',
 };

@@ -2,6 +2,16 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_IMAGE_AI_PROFILE, inferTextInputCapabilities, normalizeAIProfiles } from './settings';
 
 describe('normalizeAIProfiles', () => {
+  it('migrates the old default image preset to ACE and preserves a customized model', () => {
+    const oldPreset = { ...DEFAULT_IMAGE_AI_PROFILE, provider: 'official-nanobanana' as const, model: 'gemini-3-pro-image-preview' };
+    expect(normalizeAIProfiles([oldPreset]).find((profile) => profile.id === 'default-image')).toMatchObject({
+      provider: 'official-acedata', model: 'ace:image:nano-banana-pro', isDefault: true,
+    });
+    expect(normalizeAIProfiles([{ ...oldPreset, model: 'gemini-2.5-flash-image' }]).find((profile) => profile.id === 'default-image')).toMatchObject({
+      provider: 'official-nanobanana', model: 'gemini-2.5-flash-image',
+    });
+  });
+
   it('preserves image defaults and backfills missing or invalid resolution with 1K', () => {
     for (const size of [undefined, 'invalid', '1K', '2K', '4K']) {
       const profile = { ...DEFAULT_IMAGE_AI_PROFILE, defaultImageSize: size };
@@ -32,7 +42,7 @@ describe('normalizeAIProfiles', () => {
       }),
       expect.objectContaining({
         type: 'image',
-        provider: 'official-nanobanana',
+        provider: 'official-acedata',
         model: DEFAULT_IMAGE_AI_PROFILE.model,
         isDefault: true,
       }),
@@ -57,7 +67,7 @@ describe('normalizeAIProfiles', () => {
       isDefault: true,
     }));
     expect(profiles.find((profile) => profile.type === 'image')).toEqual(expect.objectContaining({
-      provider: 'official-nanobanana',
+      provider: 'official-acedata',
       model: DEFAULT_IMAGE_AI_PROFILE.model,
       isDefault: true,
     }));

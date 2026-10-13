@@ -31,6 +31,7 @@ import ExpandableFab from '../components/common/ExpandableFab';
 import { AI_PROVIDER_CATALOG, getPopularModels, getProviderCatalogEntry, getProvidersForType, inferImageCapabilities, type AIProviderCatalogEntry } from '../constants/aiModelCatalog';
 import { motion, transition } from '../styles/motion';
 import { formatAiAmount } from '../utils/aiPoints';
+import { compareModelVersionsDescending } from '../utils/modelOrder';
 
 type AiBalanceView =
   | { status: 'idle' | 'loading' }
@@ -240,7 +241,7 @@ const ModelAutocomplete = memo(function ModelAutocomplete({
 }: ModelAutocompleteProps) {
   const centeredForCurrentOpenRef = useRef(false);
   const selectedModelOption = options.find((item) => item.value === model) || null;
-  const selectedModelLabel = selectedModelOption?.label || model;
+  const selectedModelLabel = selectedModelOption?.label || (model.startsWith('ace:') ? model.split(':').slice(2).join(':') : model);
   const [inputValue, setInputValue] = useState(selectedModelLabel);
   const firstModelGroup = options[0]?.group || '';
   const showModelPriceColumn = options.some((item) => Boolean(item.priceLabel));
@@ -470,6 +471,13 @@ function isImageModelInfo(model: AvailableModelInfo) {
 
 function filterModelsForType(models: AvailableModelInfo[], type: AIModelType) {
   return models.filter((model) => {
+    const metadata = getModelMetadata(model);
+    if (typeof metadata.aceModality === 'string') {
+      if (type === 'text') return metadata.aceModality === 'chat';
+      if (type === 'image') return metadata.aceModality === 'image';
+      if (type === 'tts' || type === 'stt' || type === 'audio') return metadata.aceModality === 'audio';
+      return false;
+    }
     if (type === 'image') return isImageModelInfo(model);
     if (type === 'text' || type === 'document') return !isImageModelInfo(model) && !isEmbeddingModelName(model.id);
     if (type === 'audio') {
@@ -516,7 +524,8 @@ function buildRemoteModelOption(model: AvailableModelInfo, type: AIModelType, pr
   // Keep the model name independent from billing metadata. The autocomplete
   // renders prices in their own column; appending them here makes the price
   // look like part of the model name and also leaks into the input value.
-  const label = model.id;
+  const label = model.id.startsWith('ace:') ? model.label : model.id;
+  const aceGroup = typeof raw.aceModality === 'string' ? String(raw.aceProvider || (isZh ? 'ACE 模型' : 'ACE models')) : '';
   if (type === 'image' && provider === 'official-nanobanana') {
     return {
       value: model.id,
@@ -533,7 +542,7 @@ function buildRemoteModelOption(model: AvailableModelInfo, type: AIModelType, pr
     priceLabel: priceLabel || undefined,
     inputPriceLabel: inputPriceLabel || undefined,
     outputPriceLabel: outputPriceLabel || undefined,
-    group: usesOfficialProxy ? getOfficialModelGroupLabel(model.id, isZh) : (isZh ? '远程可用模型' : 'Available from provider'),
+    group: aceGroup || (usesOfficialProxy ? getOfficialModelGroupLabel(model.id, isZh) : (isZh ? '远程可用模型' : 'Available from provider')),
   };
 }
 
@@ -563,12 +572,7 @@ function compareOfficialModels(left: string, right: string) {
   const leftGroupIndex = OFFICIAL_MODEL_GROUP_ORDER.indexOf(leftGroup);
   const rightGroupIndex = OFFICIAL_MODEL_GROUP_ORDER.indexOf(rightGroup);
   if (leftGroupIndex !== rightGroupIndex) return leftGroupIndex - rightGroupIndex;
-  if (leftGroup === 'gpt' || leftGroup === 'claude' || leftGroup === 'gemini') {
-    const version = (value: string) => Number(value.match(/^(?:gpt-|codex-|claude-|gemini-|o)(\d+(?:\.\d+)?)/i)?.[1] || -1);
-    const versionDelta = version(right) - version(left);
-    if (versionDelta !== 0) return versionDelta;
-  }
-  return left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' });
+  return compareModelVersionsDescending(left, right);
 }
 
 function resolveAiBalanceView(balance: Record<string, unknown> | null, loading: boolean): AiBalanceView {
@@ -696,6 +700,10 @@ function providerSupportsType(option: AIProviderOption, type: AIModelType) {
 
 function resolveSelectableProviderKey(provider: string, type: AIModelType, providerOptions: AIProviderOption[] = getProvidersForType(type)) {
   const catalogType = type === 'tts' || type === 'stt' ? 'audio' : type;
+  if (provider === 'official-acedata') {
+    const aceProvider = providerOptions.find((item) => !item.unavailableReason && item.defaults.image?.model.startsWith('ace:'));
+    if (aceProvider?.defaults[catalogType]) return aceProvider.key;
+  }
   const exactProvider = providerOptions.find((item) => item.key === provider);
   if (exactProvider?.defaults[catalogType]) return exactProvider.key;
   if (isOfficialProviderKey(provider)) {
@@ -860,7 +868,10 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
             || isSelected
           ) && (!item.hidden || isSelected);
         });
-    const resolvedSelectedProvider = selectedProvider ? resolveLegacyOfficialProviderKey(selectedProvider) : '';
+    const aceDefaultProvider = selectedProvider === 'official-acedata'
+      ? onlineOfficialProviderOptions.find((item) => item.defaults.image?.model.startsWith('ace:'))?.key
+      : undefined;
+    const resolvedSelectedProvider = aceDefaultProvider || (selectedProvider ? resolveLegacyOfficialProviderKey(selectedProvider) : '');
     const selectedOfficialKey = selectedProvider && (isOfficialProviderKey(selectedProvider) || onlineOfficialProviderKeySet.has(resolvedSelectedProvider as AIProvider))
       ? resolvedSelectedProvider
       : '';
@@ -1217,9 +1228,16 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
       const uniqueModels = Array.from(new Map(models.filter((item) => Boolean(item.id)).map((item) => [item.id, item])).values());
       const options = filterModelsForType(uniqueModels, activeType)
         .map((item) => buildRemoteModelOption(item, activeType, effectiveProfile.provider, profileUsesOfficialProxy, i18n.language.startsWith('zh')));
-      if (profileUsesOfficialProxy) {
-        options.sort((left, right) => compareOfficialModels(left.value, right.value));
-      }
+      options.sort((left, right) => {
+        if (left.value.startsWith('ace:') && right.value.startsWith('ace:')) {
+          const groupOrder = left.group.localeCompare(right.group);
+          if (groupOrder) return groupOrder;
+          return compareModelVersionsDescending(left.value, right.value);
+        }
+        return profileUsesOfficialProxy
+          ? compareOfficialModels(left.value, right.value)
+          : compareModelVersionsDescending(left.value, right.value);
+      });
       setRemoteModelOptions((prev) => ({ ...prev, [profileId]: options }));
       setFetchedModelKeys((prev) => ({ ...prev, [profileId]: fetchKey }));
       if (!silent) {
@@ -1289,13 +1307,8 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
         sx={{
           display: 'grid',
           width: '100%',
-          maxWidth: { xs: 560, md: 1080, xl: 'none' },
           mx: 'auto',
-          gridTemplateColumns: {
-            xs: 'minmax(0, min(100%, 560px))',
-            md: 'repeat(auto-fit, minmax(min(100%, 520px), 520px))',
-            xl: 'repeat(auto-fit, minmax(min(100%, 416px), 416px))',
-          },
+          gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 360px), 1fr))',
           justifyContent: 'center',
           gap: 2,
         }}

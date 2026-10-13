@@ -143,6 +143,18 @@ export const AI_PROVIDER_CATALOG: AIProviderCatalogEntry[] = [
     },
   },
   {
+    key: 'official-acedata',
+    label: 'ACE',
+    family: '官方模型',
+    hidden: true,
+    defaults: {
+      image: { baseUrl: '/api/ai', model: 'ace:image:nano-banana-pro' },
+    },
+    popularModels: {
+      image: ['ace:image:nano-banana-pro'],
+    },
+  },
+  {
     key: 'official-gpt',
     label: '官方4（API2D）',
     family: '官方模型',

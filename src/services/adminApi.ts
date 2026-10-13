@@ -416,6 +416,22 @@ class AdminApiClient {
     return this.request<{ count: number }>('POST', '/ai/providers/acedata/catalog/refresh');
   }
 
+  getAceConnection() {
+    return this.request<{ status: string; apiBaseUrl: string; apiKeyConfigured: boolean }>('GET', '/ai/providers/acedata/connection');
+  }
+
+  setAceModelEnabled(model: string, enabled: boolean) {
+    return this.request<{ modelName: string; enabled: boolean }>('PUT', `/ai/providers/acedata/models/${encodeURIComponent(model)}/enabled`, { enabled });
+  }
+
+  setAceModelsEnabled(models: string[], enabled: boolean) {
+    return this.request<{ models: string[]; enabled: boolean }>('PUT', '/ai/providers/acedata/models/enabled', { models, enabled });
+  }
+
+  updateAceConnection(payload: { status: string; apiBaseUrl: string; apiKey?: string }) {
+    return this.request<{ status: string; apiBaseUrl: string; apiKeyConfigured: boolean }>('PUT', '/ai/providers/acedata/connection', payload);
+  }
+
   getAiProviderKeys(providerCode: string, params?: { typeId?: string; keyword?: string }) {
     return this.request<{ items: Array<Record<string, unknown>>; raw?: Record<string, unknown> }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/keys${this.buildQuery({ typeId: params?.typeId, keyword: params?.keyword })}`);
   }

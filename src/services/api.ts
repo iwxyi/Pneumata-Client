@@ -88,6 +88,17 @@ export interface OfficialAiModelInfo {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface AiMediaTask {
+  task_id: string;
+  model: string;
+  status: 'submitting' | 'running' | 'submission_unknown' | 'billing_pending' | 'succeeded' | 'failed';
+  result: unknown;
+  chargedAmount: number | null;
+  reservedAmount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface VipEntitlementInfo {
   description?: string;
   benefitsMarkdown?: string;
@@ -903,6 +914,14 @@ class ApiClient {
 
   async authorizeImageGenerationBatch(count: number) {
     return this.request<{ authorized: true; limit: number | null; requested: number; tierCode: string }>('POST', '/ai/images/batches/authorize', { count });
+  }
+
+  async generateAiMedia(input: { model: string; provider?: string; operation?: string; [parameter: string]: unknown }) {
+    return this.request<AiMediaTask>('POST', '/ai/media/generations', input);
+  }
+
+  async getAiMediaTask(taskId: string) {
+    return this.request<AiMediaTask>('GET', `/ai/media/tasks/${encodeURIComponent(taskId)}`);
   }
 
   async claimBillingVipPoints(kind: 'daily' | 'monthly') {
