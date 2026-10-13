@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { Alert, Autocomplete, Box, Button, Dialog, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Switch, Tab, Table, TableBody, TableCell, TableHead, TablePagination, TableRow, Tabs, TextField, Typography } from '@mui/material';
 import { useParams } from 'react-router-dom';
 import AdminAiUserUsageDialog from '../../components/admin/AdminAiUserUsageDialog';
+import AceImageModelFields from '../../components/admin/AceImageModelFields';
+import { toAceImageModelsForm } from '../../components/admin/aceImageModelForm';
 import AdminRequestState, { getAdminErrorMessage } from '../../components/admin/AdminRequestState';
 import { AdminSection, AdminTableFrame } from '../../components/admin/AdminSurface';
 import { adminApi } from '../../services/adminApi';
@@ -655,7 +657,9 @@ export default function AdminAIProviderPage() {
   const isMoacodeTeam = providerCode === 'moacode-team';
   const isMoacode = providerCode === 'moacode' || providerCode === 'moacode-team';
   const isNanoBanana = providerCode === 'nanobanana';
-  const providerDisplayName = isApi2d ? 'API2D' : isDeepSeek ? 'DeepSeek' : providerCode === 'moacode' ? 'Moacode' : providerCode === 'moacode-team' ? 'Moacode Team' : isNanoBanana ? 'NanoBanana' : providerCode.toUpperCase();
+  const isAceNanoBanana = providerCode === 'ace-nanobanana';
+  const isImageProvider = isNanoBanana || isAceNanoBanana;
+  const providerDisplayName = isApi2d ? 'API2D' : isDeepSeek ? 'DeepSeek' : providerCode === 'moacode' ? 'Moacode' : providerCode === 'moacode-team' ? 'Moacode Team' : isNanoBanana ? 'NanoBanana' : isAceNanoBanana ? 'Ace-NanoBanana' : providerCode.toUpperCase();
   const canQueryAccountBalance = isApi2d || isDeepSeek || isMoacode || isNanoBanana;
   const accountBalanceTitle = isMoacode ? '主账号余额与用量' : isNanoBanana ? '主账号余额与请求' : '主账号总余额';
   const [tab, setTab] = useState(0);
@@ -681,6 +685,7 @@ export default function AdminAIProviderPage() {
     nanobananaAspectRatio: '',
     nanobananaImageSize: '1K',
     nanobananaAccountUserId: '',
+    acedataModels: toAceImageModelsForm({}),
     moacodeImageModelsEnabled: false,
     nanobananaPricing: {
       pointValue: DEFAULT_NANOBANANA_POINT_VALUE,
@@ -796,7 +801,8 @@ export default function AdminAIProviderPage() {
         publicId: String(config.publicId || ''),
         publicName: String(config.publicName || ''),
         publicFamily: String(config.publicFamily || ''),
-        publicDefaultModel: String(config.publicDefaultModel || ''),
+        publicDefaultModel: isAceNanoBanana && !toAceImageModelsForm(providerMetadata).some((model) => model.code === config.publicDefaultModel)
+          ? 'nano-banana-pro' : String(config.publicDefaultModel || ''),
         publicSortOrder: String(config.publicSortOrder ?? 100),
         publicHidden: Boolean(config.publicHidden),
         baseUrl: String(config.baseUrl || ''),
@@ -814,6 +820,7 @@ export default function AdminAIProviderPage() {
         nanobananaAspectRatio: nanobananaDefaults.aspectRatio,
         nanobananaImageSize: nanobananaDefaults.imageSize,
         nanobananaAccountUserId: nanobananaDefaults.accountUserId,
+        acedataModels: toAceImageModelsForm(providerMetadata),
         moacodeImageModelsEnabled: providerMetadata.moacodeImageModelsEnabled === true,
         nanobananaPricing: toNanoBananaPricingForm(config.tokenPricing),
       });
@@ -889,7 +896,10 @@ export default function AdminAIProviderPage() {
           ? JSON.parse(form.quotaTransferBodyTemplate)
           : null,
       };
-      if (isNanoBanana) payload.tokenPricing = buildNanoBananaPricing(form.nanobananaPricing);
+      if (isImageProvider) {
+        payload.tokenPricing = buildNanoBananaPricing(form.nanobananaPricing);
+        if (isAceNanoBanana) (payload.tokenPricing as Record<string, unknown>).models = Object.fromEntries(form.acedataModels.map((model) => [model.code.trim(), { requestCost: Number(model.prices[form.nanobananaImageSize] || 0) }]));
+      }
       else if (usesInternalLedger) payload.tokenPricing = buildInternalLedgerTokenPricing(providerCode, form.deepseekPricing);
       if (isMoacode) {
         payload.metadata = {
@@ -897,7 +907,7 @@ export default function AdminAIProviderPage() {
           moacodeImageModelsEnabled: form.moacodeImageModelsEnabled,
         };
       }
-      if (isNanoBanana) {
+      if (isImageProvider) {
         payload.metadata = {
           ...getRecord(payload.metadata || providerConfig?.metadata),
           nanobananaDefaults: {
@@ -905,6 +915,7 @@ export default function AdminAIProviderPage() {
             imageSize: form.nanobananaImageSize || '1K',
             accountUserId: form.nanobananaAccountUserId.trim(),
           },
+          ...(isAceNanoBanana ? { acedataModels: form.acedataModels.map((model) => ({ code: model.code, displayName: model.displayName, prices: Object.fromEntries(Object.entries(model.prices).map(([size, price]) => [size, Number(price)])) })) } : {}),
         };
       }
       const nextAdminToken = form.adminToken.trim();
@@ -934,6 +945,7 @@ export default function AdminAIProviderPage() {
         nanobananaAspectRatio: updatedNanoBananaDefaults.aspectRatio,
         nanobananaImageSize: updatedNanoBananaDefaults.imageSize,
         nanobananaAccountUserId: updatedNanoBananaDefaults.accountUserId,
+        acedataModels: toAceImageModelsForm(getRecord(updated.metadata)),
         moacodeImageModelsEnabled: getRecord(updated.metadata).moacodeImageModelsEnabled === true,
         nanobananaPricing: toNanoBananaPricingForm(updated.tokenPricing),
       }));
@@ -1313,7 +1325,7 @@ export default function AdminAIProviderPage() {
                   label="启用图片模型"
                 />
               ) : null}
-              <Box sx={endpointGridSx}>
+              {!isAceNanoBanana ? <Box sx={endpointGridSx}>
                 <TextField label="AI 调用 Base URL" value={form.baseUrl} onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))} fullWidth sx={compactTextFieldSx} />
                 {isApi2d || isMoacode ? (
                   <TextField
@@ -1324,8 +1336,8 @@ export default function AdminAIProviderPage() {
                     sx={compactTextFieldSx}
                   />
                 ) : null}
-              </Box>
-              {isNanoBanana ? (
+              </Box> : null}
+              {isImageProvider ? (
                 <Box sx={shortConfigGridSx}>
                   <TextField
                     select
@@ -1352,22 +1364,22 @@ export default function AdminAIProviderPage() {
                       <MenuItem key={value} value={value}>{value}</MenuItem>
                     ))}
                   </TextField>
-                  <TextField
+                  {!isAceNanoBanana ? <TextField
                     label="余额查询用户 ID"
                     value={form.nanobananaAccountUserId}
                     onChange={(e) => setForm((prev) => ({ ...prev, nanobananaAccountUserId: e.target.value }))}
                     helperText="new-api-user"
                     sx={compactTextFieldSx}
-                  />
+                  /> : null}
                 </Box>
               ) : null}
-              <TextField
+              {!isAceNanoBanana ? <TextField
                 label={isApi2d ? 'API2D 主账号管理 Token（不是模型调用 Key）' : `${providerDisplayName} 主账号 API Key`}
                 value={form.adminToken}
                 onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
                 fullWidth
                 sx={compactTextFieldSx}
-              />
+              /> : <Button href="/admin/platform?tab=other" variant="outlined" sx={{ alignSelf: 'flex-start' }}>AceData 通用接口配置</Button>}
               {isApi2d || isMoacode || isNanoBanana ? (
                 <TextField
                   label={isMoacode
@@ -1548,21 +1560,22 @@ export default function AdminAIProviderPage() {
 
           {usesInternalLedger ? (
             <AdminSection title={`${providerDisplayName} 扣费配置`}>
-              {isNanoBanana ? (
+              {isImageProvider ? (
                 <Stack spacing={1.25}>
+                  {isAceNanoBanana ? <AceImageModelFields models={form.acedataModels} disabled={saving} onChange={(acedataModels) => setForm((prev) => ({ ...prev, acedataModels }))} /> : null}
                   <Box sx={shortConfigGridSx}>
-                    <TextField
+                    {!isAceNanoBanana ? <TextField
                       label="1P 等于多少美元"
                       value={form.nanobananaPricing.pointValue}
                       onChange={(e) => updateNanoBananaPricing('pointValue', e.target.value)}
                       helperText="默认 0.01"
                       sx={compactTextFieldSx}
-                    />
+                    /> : null}
                     <TextField
-                      label="扣点倍率"
+                      label={isAceNanoBanana ? '统一扣点倍率' : '扣点倍率'}
                       value={form.nanobananaPricing.billingMultiplier}
                       onChange={(e) => updateNanoBananaPricing('billingMultiplier', e.target.value)}
-                      helperText="价格 * 倍率 / P价值"
+                      helperText={isAceNanoBanana ? '积分价格 × 100P × 倍率；默认 1.5' : '价格 × 倍率 / P价值'}
                       sx={compactTextFieldSx}
                     />
                   </Box>

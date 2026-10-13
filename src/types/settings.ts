@@ -43,6 +43,12 @@ export interface AIModelAdvancedOptions {
   reasoningMode: AIReasoningMode;
 }
 
+export type ImageGenerationSize = '1K' | '2K' | '4K';
+
+export function normalizeImageGenerationSize(value: unknown): ImageGenerationSize {
+  return value === '2K' || value === '4K' ? value : '1K';
+}
+
 export interface AIModelProfile extends APIConfig {
   id: string;
   name: string;
@@ -50,6 +56,7 @@ export interface AIModelProfile extends APIConfig {
   audioCapability?: AudioModelCapability;
   isDefault?: boolean;
   imageCapabilities?: Partial<AIModelImageCapabilities>;
+  defaultImageSize?: ImageGenerationSize;
   inputCapabilities?: Partial<AIModelInputCapabilities>;
   advancedOptions?: Partial<AIModelAdvancedOptions>;
 }
@@ -505,6 +512,7 @@ export function normalizeAIProfiles(aiProfiles?: AIModelProfile[], api?: APIConf
       type,
       isDefault,
       imageCapabilities: type === 'image' ? normalizeImageCapabilities(profile.imageCapabilities) : undefined,
+      defaultImageSize: type === 'image' ? normalizeImageGenerationSize(profile.defaultImageSize) : undefined,
       inputCapabilities: type === 'text' ? resolveAIModelInputCapabilities(profile) : undefined,
       advancedOptions: type === 'text' ? normalizeAIModelAdvancedOptions(provider, model, profile.advancedOptions) : undefined,
     };
@@ -1089,6 +1097,7 @@ export const DEFAULT_IMAGE_AI_PROFILE: AIModelProfile = {
   baseUrl: '/api/ai',
   model: 'gemini-3-pro-image-preview',
   imageCapabilities: DEFAULT_IMAGE_CAPABILITIES,
+  defaultImageSize: '1K',
 };
 
 export const DEFAULT_TTS_AI_PROFILE: AIModelProfile = {

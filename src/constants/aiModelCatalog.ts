@@ -383,7 +383,7 @@ export function inferImageCapabilities(provider: AIProvider, model: string): AIM
     return base;
   }
 
-  if (provider === 'official-nanobanana' || normalizedModel.includes('image-preview') || normalizedModel.includes('nanobanana')) {
+  if (provider === 'official-nanobanana' || provider === 'official-ace-nanobanana' || normalizedModel.includes('image-preview') || normalizedModel.includes('nanobanana') || normalizedModel.includes('nano-banana')) {
     return { ...base, referenceImage: true, multiReferenceImage: true };
   }
 

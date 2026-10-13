@@ -4,6 +4,17 @@ import { generateImage, generateResponse } from './aiClient';
 const fetchMock = globalThis.fetch;
 
 describe('aiClient multimodal requests', () => {
+  it('routes a custom Ace-NanoBanana model ID through the Gemini image proxy', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: 'AQID' } }] } }] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+    const images = await generateImage({ provider: 'official-ace-nanobanana', apiKey: '', baseUrl: '/api/ai', model: 'custom-image-id' }, { prompt: 'a tea cup' });
+    expect(calls[0].url).toContain('generateContent');
+    expect(JSON.parse(String(calls[0].init?.body))).toMatchObject({ provider: 'official-ace-nanobanana', contents: [{ parts: [{ text: 'a tea cup' }] }] });
+    expect(images).toHaveLength(1);
+  });
   afterEach(() => {
     globalThis.fetch = fetchMock;
   });

@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_IMAGE_AI_PROFILE, inferTextInputCapabilities, normalizeAIProfiles } from './settings';
 
 describe('normalizeAIProfiles', () => {
+  it('preserves image defaults and backfills missing or invalid resolution with 1K', () => {
+    for (const size of [undefined, 'invalid', '1K', '2K', '4K']) {
+      const profile = { ...DEFAULT_IMAGE_AI_PROFILE, defaultImageSize: size };
+      const profiles = normalizeAIProfiles([profile as typeof DEFAULT_IMAGE_AI_PROFILE]);
+      expect(profiles.find((item) => item.type === 'image')?.defaultImageSize).toBe(size === '2K' || size === '4K' ? size : '1K');
+    }
+  });
+
   it('treats official GPT text providers as vision-capable even without a GPT model alias', () => {
     expect(inferTextInputCapabilities('official-2', 'official-2')).toMatchObject({
       imageInput: true,

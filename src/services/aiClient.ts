@@ -279,7 +279,7 @@ function buildOpenAICompatibleImageEditUrl(baseUrl: string) {
 
 function isNanoBananaImageModel(model: unknown) {
   const normalized = String(model || '').trim().toLowerCase();
-  return normalized.includes('image-preview') || normalized.includes('nanobanana');
+  return normalized.includes('image-preview') || normalized.includes('nanobanana') || normalized.includes('nano-banana');
 }
 
 function imageSizeToGeminiConfig(size: unknown, aspectRatioOverride?: string, imageSizeOverride?: string) {
@@ -1125,6 +1125,9 @@ export async function listAvailableModels(config: APIConfig): Promise<AvailableM
 async function generateOpenAICompatibleImage(config: APIConfig, options: ImageGenerationOptions): Promise<GeneratedImage[]> {
   const officialProxy = usesOfficialProxy(config);
   const provider = officialProxy ? resolveOfficialBackendProvider(config.provider) : undefined;
+  const resolution = options.imageSize?.trim().toUpperCase();
+  const pixelSize = resolution === '4K' ? '4096x4096' : resolution === '2K' ? '2048x2048' : resolution === '1K' ? '1024x1024' : undefined;
+  const size = pixelSize || options.size || '1024x1024';
   const timed = withTimeoutSignal(options.signal, DEFAULT_IMAGE_REQUEST_TIMEOUT_MS, '图片生成超时，请稍后重试。');
   if (options.referenceImages?.length) {
     const formData = new FormData();
@@ -1132,7 +1135,7 @@ async function generateOpenAICompatibleImage(config: APIConfig, options: ImageGe
     if (provider) formData.append('provider', provider);
     formData.append('prompt', options.prompt);
     formData.append('n', String(options.count || 1));
-    formData.append('size', options.size || '1024x1024');
+    formData.append('size', size);
     formData.append('response_format', 'b64_json');
     if (officialProxy && options.aiUsage) formData.append('metadata', JSON.stringify({ aiUsage: options.aiUsage }));
 
@@ -1196,7 +1199,7 @@ async function generateOpenAICompatibleImage(config: APIConfig, options: ImageGe
         model: config.model,
         prompt: options.prompt,
         n: options.count || 1,
-        size: options.size || '1024x1024',
+        size,
         response_format: 'b64_json',
         negative_prompt: options.negativePrompt || undefined,
         seed: options.seed ?? undefined,
@@ -1300,7 +1303,7 @@ async function generateGeminiImage(config: APIConfig, options: ImageGenerationOp
 }
 
 export async function generateImage(config: APIConfig, options: ImageGenerationOptions): Promise<GeneratedImage[]> {
-  if (usesOfficialProxy(config) && isNanoBananaImageModel(config.model)) {
+  if (usesOfficialProxy(config) && (config.provider === 'official-ace-nanobanana' || isNanoBananaImageModel(config.model))) {
     return generateGeminiImage(config, options);
   }
   if (isOpenAICompatibleEndpoint(config)) {

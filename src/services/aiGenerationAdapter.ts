@@ -1,6 +1,6 @@
 import type { AICharacter, CharacterVisualReferenceImage } from '../types/character';
 import type { APIConfig, AIModelProfile } from '../types/settings';
-import { normalizeImageCapabilities } from '../types/settings';
+import { normalizeImageCapabilities, normalizeImageGenerationSize } from '../types/settings';
 import {
   generateImage,
   generateJsonResponse,
@@ -165,7 +165,7 @@ export function resolveImageGenerationRequest(params: ImageGenerationAdapterOpti
     count: params.count,
     size: params.size,
     aspectRatio: params.aspectRatio,
-    imageSize: params.imageSize,
+    imageSize: params.imageSize || (params.size ? undefined : normalizeImageGenerationSize(params.profile.defaultImageSize)),
     signal: params.signal,
     referenceImages: canUseReferences ? referenceImages.map(({ url, mimeType }) => ({ url, mimeType })) : undefined,
     negativePrompt: capabilities.negativePrompt ? params.negativePrompt : undefined,

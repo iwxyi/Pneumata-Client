@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type Clipboard
 import {
   Box, Typography, TextField, Button,
   FormControl, InputLabel, Select, MenuItem, ListSubheader,
-  Alert, IconButton, InputAdornment, Autocomplete, Checkbox, Tooltip, FormControlLabel, Divider,
+  Alert, IconButton, InputAdornment, Autocomplete, Checkbox, Tooltip, FormControlLabel, Divider, ToggleButton, ToggleButtonGroup,
 } from '@mui/material';
 import type { Theme } from '@mui/material/styles';
 import Visibility from '@mui/icons-material/Visibility';
@@ -20,7 +20,7 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { isLikelyBrowserCorsError, listAvailableModels, testConnection, type AIConnectionTestResult, type AvailableModelInfo } from '../services/aiClient';
 import { synthesizeSpeechWithAdapter, transcribeAudioWithAdapter } from '../services/aiGenerationAdapter';
 import { api, type OfficialAiProviderInfo } from '../services/api';
-import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType, AIProvider } from '../types/settings';
+import type { AIModelImageCapabilities, AIModelInputCapabilities, AIModelType, AIProvider, ImageGenerationSize } from '../types/settings';
 import { normalizeImageCapabilities, normalizeInputCapabilities, inferTextInputCapabilities, buildTextInputCapabilityPatch, getInputCapabilityLockState, getAttachmentUiCapabilitySummary, getInputCapabilityBadge, getInputCapabilityWarning, shouldShowInputCapabilityWarning, getReasoningModeUiMeta, normalizeAIModelAdvancedOptions } from '../types/settings';
 import { normalizeCharacterModelProfileIds } from '../types/character';
 import ConfirmDialog from '../components/common/ConfirmDialog';
@@ -452,7 +452,7 @@ function getOfficialModelGroupKey(model: string) {
 
 function isImageModelName(model: string) {
   const normalized = model.trim().toLowerCase();
-  return normalized.includes('image') || normalized.includes('dall-e') || normalized.includes('seedream');
+  return normalized.includes('image') || normalized.includes('dall-e') || normalized.includes('seedream') || normalized.startsWith('nano-banana');
 }
 
 function isEmbeddingModelName(model: string) {
@@ -591,8 +591,8 @@ function getAiBalanceLabel(view: AiBalanceView, providerKey: string, zh: boolean
   if (view.status === 'ready') return formatAiAmount(view.points, resolveOfficialBackendProvider(providerKey));
   if (view.status === 'guest') return zh ? '登录后查看点数' : 'Sign in to view points';
   if (view.status === 'unassigned') return zh ? '未分配点数' : 'No points assigned';
-  if (view.status === 'error') return zh ? '登录后查看点数' : 'Sign in to view points';
-  return zh ? '登录后查看点数' : 'Sign in to view points';
+  if (view.status === 'error') return zh ? '点数读取失败，点击重试' : 'Failed to load points. Retry';
+  return zh ? '点击查看点数' : 'View points';
 }
 
 function isOfficialProviderKey(provider: string) {
@@ -977,7 +977,7 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
       setAiBalanceStatuses((prev) => ({ ...prev, [providerKey]: typeof raw === 'number' && Number.isFinite(raw) ? 'idle' : 'unassigned' }));
     } catch {
       setAiBalances((prev) => ({ ...prev, [providerKey]: null }));
-      setAiBalanceStatuses((prev) => ({ ...prev, [providerKey]: 'guest' }));
+      setAiBalanceStatuses((prev) => ({ ...prev, [providerKey]: 'error' }));
     } finally {
       setAiBalanceLoadingIds((prev) => {
         const next = { ...prev };
@@ -1726,6 +1726,24 @@ export function AIModelsPanel({ embedded = false }: { embedded?: boolean } = {})
                         <Typography variant="body2" sx={{ fontWeight: 600 }}>
                           {i18n.language.startsWith('zh') ? '图片能力' : 'Image capabilities'}
                         </Typography>
+                        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+                          <Typography variant="body2">
+                            {i18n.language.startsWith('zh') ? '默认分辨率' : 'Default resolution'}
+                          </Typography>
+                          <ToggleButtonGroup
+                            exclusive
+                            size="small"
+                            value={profile.defaultImageSize || '1K'}
+                            aria-label={i18n.language.startsWith('zh') ? '默认分辨率' : 'Default resolution'}
+                            onChange={(_event, value: ImageGenerationSize | null) => {
+                              if (value) updateAIProfile(profile.id, { defaultImageSize: value });
+                            }}
+                          >
+                            {(['1K', '2K', '4K'] as const).map((size) => (
+                              <ToggleButton key={size} value={size} sx={{ minWidth: 52 }}>{size}</ToggleButton>
+                            ))}
+                          </ToggleButtonGroup>
+                        </Box>
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                           {imageCapabilityLabels.map((item) => {
                             const capabilities = normalizeImageCapabilities(profile.imageCapabilities);

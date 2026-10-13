@@ -257,6 +257,7 @@ function GlobalPointConfigPanel({
   onRetry,
 }: {
   form: {
+    aiEnabled: boolean;
     defaultProvisionEnabled: boolean;
     defaultGrantAmount: string;
   };
@@ -266,6 +267,7 @@ function GlobalPointConfigPanel({
   onRetry: () => void;
 }) {
   const metricItems: AdminMetricItem[] = [
+    buildOpsMetricItem({ label: 'AI 平台', value: form.aiEnabled ? '开启' : '关闭', tone: form.aiEnabled ? 'success' : 'warning' }),
     buildOpsMetricItem({
       label: '注册默认点数',
       value: formatConfigPoints(form.defaultGrantAmount),
@@ -280,8 +282,8 @@ function GlobalPointConfigPanel({
   ];
   return (
     <AdminSection
-      title="通用点数配置"
-      action={<Button variant="outlined" size="small" onClick={onOpen}>编辑点数配置</Button>}
+      title="AI 全局配置"
+      action={<Button variant="outlined" size="small" onClick={onOpen}>编辑全局配置</Button>}
     >
       <Stack spacing={1.25}>
         <AdminRequestState loading={loading} error={error} onRetry={onRetry} />
@@ -519,6 +521,7 @@ export default function AdminAIPage() {
   const [opsSummary, setOpsSummary] = useState<Record<string, unknown> | null>(null);
   const [globalDialogOpen, setGlobalDialogOpen] = useState(false);
   const [globalForm, setGlobalForm] = useState({
+    aiEnabled: true,
     defaultProvisionEnabled: true,
     defaultGrantAmount: '',
     defaultDailyQuota: '',
@@ -642,6 +645,7 @@ export default function AdminAIPage() {
       const result = await adminApi.getPlatformGlobalConfig();
       const ai = result.ai || {};
       setGlobalForm({
+        aiEnabled: ai.aiEnabled !== false,
         defaultProvisionEnabled: ai.defaultProvisionEnabled == null ? true : Boolean(ai.defaultProvisionEnabled),
         defaultGrantAmount: ai.defaultGrantAmount == null ? '' : String(ai.defaultGrantAmount),
         defaultDailyQuota: ai.defaultDailyQuota == null ? '' : String(ai.defaultDailyQuota),
@@ -666,6 +670,7 @@ export default function AdminAIPage() {
     try {
       await adminApi.updatePlatformGlobalConfig({
         ai: {
+          aiEnabled: globalForm.aiEnabled,
           defaultProvisionEnabled: globalForm.defaultProvisionEnabled,
           defaultGrantAmount: globalForm.defaultGrantAmount ? Number(globalForm.defaultGrantAmount) : 0,
           defaultDailyQuota: globalForm.defaultDailyQuota ? Number(globalForm.defaultDailyQuota) : 0,
@@ -744,10 +749,14 @@ export default function AdminAIPage() {
       </AdminSection>
 
       <Dialog open={globalDialogOpen} onClose={() => setGlobalDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>通用点数配置</DialogTitle>
+        <DialogTitle>AI 全局配置</DialogTitle>
         <DialogContent>
           <Stack spacing={1.5} sx={{ pt: 1 }}>
             <AdminRequestState loading={globalLoading} error={globalError} onRetry={() => void loadGlobalConfig()} />
+            <FormControlLabel
+              control={<Switch checked={globalForm.aiEnabled} disabled={globalLoading || globalSaving} onChange={(event) => setGlobalForm((prev) => ({ ...prev, aiEnabled: event.target.checked }))} />}
+              label="启用 AI 平台"
+            />
             <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
               <Stack spacing={1.25}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>新用户默认发放</Typography>
@@ -758,7 +767,7 @@ export default function AdminAIPage() {
                 <TextField label="默认点数" value={globalForm.defaultGrantAmount} onChange={(event) => setGlobalForm((prev) => ({ ...prev, defaultGrantAmount: event.target.value }))} fullWidth />
               </Stack>
             </Paper>
-            <Button variant="contained" disabled={globalSaving || globalLoading} onClick={() => void saveGlobalConfig()}>保存点数配置</Button>
+            <Button variant="contained" disabled={globalSaving || globalLoading} onClick={() => void saveGlobalConfig()}>保存全局配置</Button>
           </Stack>
         </DialogContent>
       </Dialog>
