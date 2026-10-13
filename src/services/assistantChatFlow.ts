@@ -1539,10 +1539,7 @@ export async function runAssistantChatReplyFlow(params: {
     const latestChat = useChatStore.getState().chats.find((item) => item.id === params.chatId) || params.chat;
     const persistedNodeId = persisted.metadata?.branching?.nodeId || persisted.clientKey || persisted.id;
     await params.updateChat(params.chatId, {
-      messageBranchState: buildBranchStateWithHead(
-        params.revisionOfNodeId ? params.chat.messageBranchState : latestChat.messageBranchState,
-        persistedNodeId,
-      ),
+      messageBranchState: buildBranchStateWithHead(latestChat.messageBranchState, persistedNodeId),
       lastMessageAt: persisted.timestamp,
       latestMessage: persisted,
     });

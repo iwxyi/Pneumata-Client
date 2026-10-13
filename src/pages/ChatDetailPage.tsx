@@ -2389,6 +2389,7 @@ export default function ChatDetailPage() {
       }
       nextState = buildBranchStateWithHead(nextState, sourceNode.parentNodeId, activeName);
       const nextChat: GroupChat = { ...chat, messageBranchState: nextState };
+      await updateChat(id, { messageBranchState: nextState });
       const controller = new AbortController();
       directReplyAbortRef.current = controller;
       setIsDirectReplyPending(true);
@@ -2409,7 +2410,6 @@ export default function ChatDetailPage() {
           revisionOfNodeId: sourceNode.nodeId,
           shouldContinue: () => !controller.signal.aborted && directReplyEpochRef.current === epoch,
         });
-        if (controller.signal.aborted || directReplyEpochRef.current !== epoch) return;
         const regeneratedNodeId = regenerated.metadata?.branching?.nodeId || regenerated.clientKey || regenerated.id;
         await updateChat(id, {
           messageBranchState: buildBranchStateWithHead(nextState, regeneratedNodeId, activeName),

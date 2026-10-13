@@ -117,7 +117,7 @@ function resolveNode(message: Message): ResolvedBranchingNode {
 }
 
 export function resolveMessageBranchNodes(messages: Message[]) {
-  const nodes = messages.filter((message) => !message.isDeleted).slice().sort(compareMessageOrder).map(resolveNode);
+  const nodes = messages.filter((message) => !message.isDeleted).map(resolveNode);
   const aliases = new Map<string, string>();
   for (const node of nodes) {
     aliases.set(node.nodeId, node.nodeId);
@@ -125,12 +125,9 @@ export function resolveMessageBranchNodes(messages: Message[]) {
     if (node.message.clientKey) aliases.set(node.message.clientKey, node.nodeId);
     if (node.message.serverId) aliases.set(node.message.serverId, node.nodeId);
   }
-  return nodes.map((node, index) => ({
+  return nodes.map((node) => ({
     ...node,
-    // Legacy messages form a chronological timeline; an explicit null parent
-    // still means a true branch root.
-    parentNodeId: node.parentNodeId ? aliases.get(node.parentNodeId) || node.parentNodeId
-      : node.parentNodeExplicit ? null : nodes[index - 1]?.nodeId || null,
+    parentNodeId: node.parentNodeId ? aliases.get(node.parentNodeId) || node.parentNodeId : null,
     rootNodeId: aliases.get(node.rootNodeId) || node.rootNodeId,
     revisionRootId: aliases.get(node.revisionRootId) || node.revisionRootId,
     revisionOfMessageId: node.revisionOfMessageId ? aliases.get(node.revisionOfMessageId) || node.revisionOfMessageId : null,
@@ -152,15 +149,9 @@ function defaultHead(nodes: ResolvedBranchingNode[]) {
   return nodes.slice().sort(compareNodeOrder).at(-1)?.nodeId || null;
 }
 
-function getActiveHeadNodeId(chat: BranchableChat | null | undefined, nodes: ResolvedBranchingNode[], recoverEmptyRegeneration = false) {
+function getActiveHeadNodeId(chat: BranchableChat | null | undefined, nodes: ResolvedBranchingNode[]) {
   const state = normalizeBranchState(chat?.messageBranchState);
   const activeRef = state.refs?.[state.activeBranchName || 'main'];
-  if (recoverEmptyRegeneration && activeRef && activeRef.headNodeId === null && !state.activeLeafNodeId) {
-    const recoveryRef = Object.values(state.refs || {})
-      .filter((ref) => ref.name.startsWith(`${state.activeBranchName}-before-regenerate-`) && ref.headNodeId)
-      .sort((left, right) => right.updatedAt - left.updatedAt)[0];
-    if (recoveryRef) return normalizeId(recoveryRef.headNodeId);
-  }
   return normalizeId(activeRef?.headNodeId) || normalizeId(state.activeLeafNodeId) || defaultHead(nodes);
 }
 
@@ -230,20 +221,16 @@ export function projectActiveBranchMessages(
   // otherwise the default head (the latest message) would make every other
   // historical message disappear from the conversation.
   const branchingMessageCount = visible.filter((message) => isRecord(message.metadata?.branching)).length;
-  const hasExplicitRevision = visible.some((message) => {
-    const metadata = getBranchingMetadata(message);
-    return Boolean(normalizeId(metadata?.revisionOfNodeId) || normalizeId(metadata?.revisionOfMessageId));
-  });
   // A single branch-marked message is not enough evidence to hide an ordinary
   // timeline. This occurs when a sync window contains one newer message but
   // older messages/metadata have not arrived yet.
-  if (!hasExplicitRevision && branchingMessageCount <= 1 && visible.length > branchingMessageCount) {
+  if (branchingMessageCount <= 1 && visible.length > branchingMessageCount) {
     return visible.slice().sort(compareMessageOrder);
   }
   const nodes = resolveMessageBranchNodes(visible);
   if (!nodes.length) return [];
   const byId = nodeLookup(nodes);
-  const headId = getActiveHeadNodeId(chat, nodes, true);
+  const headId = getActiveHeadNodeId(chat, nodes);
   if (!headId) return [];
 
   const path: ResolvedBranchingNode[] = [];
