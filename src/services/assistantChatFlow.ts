@@ -1490,66 +1490,79 @@ export async function runAssistantChatReplyFlow(params: {
   params.upsertMessage(streamingMessage);
   const promptImageState = getAssistantPromptImageState(params.currentMessages, inputCapabilities);
   const shouldStreamVisibleReply = !promptImageState.projectedImageAttachments;
-  const generated = await generateResponse(
-    resolvedApi,
-    [
-      buildAssistantSystemPrompt(),
-      buildAssistantImageInputPromptBlock(promptImageState),
-    ].filter(Boolean).join('\n\n'),
-    promptImageState.messages,
-    shouldStreamVisibleReply
-      ? (content) => {
-        ensureAssistantReplyStillCurrent(params);
-        streamingMessage = { ...streamingMessage, content, isStreaming: true };
-        params.upsertMessage(streamingMessage);
-      }
-      : undefined,
-    {
-      responseFormat: 'text',
-      signal: params.signal,
-      aiUsage: {
-        type: 'assistant_chat',
-        label: '助手回复',
-        scope: 'chat',
-        resourceId: params.chatId,
+  let replyPersisted = false;
+  try {
+    const generated = await generateResponse(
+      resolvedApi,
+      [
+        buildAssistantSystemPrompt(),
+        buildAssistantImageInputPromptBlock(promptImageState),
+      ].filter(Boolean).join('\n\n'),
+      promptImageState.messages,
+      shouldStreamVisibleReply
+        ? (content) => {
+          ensureAssistantReplyStillCurrent(params);
+          streamingMessage = { ...streamingMessage, content, isStreaming: true };
+          params.upsertMessage(streamingMessage);
+        }
+        : undefined,
+      {
+        responseFormat: 'text',
+        signal: params.signal,
+        aiUsage: {
+          type: 'assistant_chat',
+          label: '助手回复',
+          scope: 'chat',
+          resourceId: params.chatId,
+        },
       },
-    },
-  );
-  ensureAssistantReplyStillCurrent(params);
-  const visionReply = parseAssistantVisionReply(
-    generated,
-    latestUserMessage(params.currentMessages) || params.currentMessages.at(-1) || streamingMessage,
-    promptImageState.projectedImageAttachments,
-  );
-  const content = visionReply.content.trim();
-  if (!content) throw new Error('助手没有生成有效内容');
-  const persisted = await persistLocalFirstMessage({
-    message: {
-      ...streamingMessage,
-      content,
-      isStreaming: false,
-    },
-    existingLocalMessage: streamingMessage,
-    upsertMessage: params.upsertMessage,
-  });
-  const latestChat = useChatStore.getState().chats.find((item) => item.id === params.chatId) || params.chat;
-  const persistedNodeId = persisted.metadata?.branching?.nodeId || persisted.clientKey || persisted.id;
-  await params.updateChat(params.chatId, {
-    messageBranchState: buildBranchStateWithHead(latestChat.messageBranchState, persistedNodeId),
-    lastMessageAt: persisted.timestamp,
-    latestMessage: persisted,
-  });
-  await persistUserImageSemanticSummary({
-    userMessage: latestUserMessage(params.currentMessages) || params.currentMessages.at(-1) || streamingMessage,
-    imageSummaries: visionReply.imageSummaries,
-    upsertMessage: params.upsertMessage,
-  });
-  void maybeGenerateAssistantChatTitle({
-    api: resolvedApi,
-    chat: params.chat,
-    chatId: params.chatId,
-    currentMessages: [...params.currentMessages, persisted],
-    updateChat: params.updateChat,
-  });
-  return persisted;
+    );
+    ensureAssistantReplyStillCurrent(params);
+    const visionReply = parseAssistantVisionReply(
+      generated,
+      latestUserMessage(params.currentMessages) || params.currentMessages.at(-1) || streamingMessage,
+      promptImageState.projectedImageAttachments,
+    );
+    const content = visionReply.content.trim();
+    if (!content) throw new Error('助手没有生成有效内容');
+    const persisted = await persistLocalFirstMessage({
+      message: {
+        ...streamingMessage,
+        content,
+        isStreaming: false,
+      },
+      existingLocalMessage: streamingMessage,
+      upsertMessage: params.upsertMessage,
+    });
+    replyPersisted = true;
+    ensureAssistantReplyStillCurrent(params);
+    const latestChat = useChatStore.getState().chats.find((item) => item.id === params.chatId) || params.chat;
+    const persistedNodeId = persisted.metadata?.branching?.nodeId || persisted.clientKey || persisted.id;
+    await params.updateChat(params.chatId, {
+      messageBranchState: buildBranchStateWithHead(
+        params.revisionOfNodeId ? params.chat.messageBranchState : latestChat.messageBranchState,
+        persistedNodeId,
+      ),
+      lastMessageAt: persisted.timestamp,
+      latestMessage: persisted,
+    });
+    await persistUserImageSemanticSummary({
+      userMessage: latestUserMessage(params.currentMessages) || params.currentMessages.at(-1) || streamingMessage,
+      imageSummaries: visionReply.imageSummaries,
+      upsertMessage: params.upsertMessage,
+    });
+    void maybeGenerateAssistantChatTitle({
+      api: resolvedApi,
+      chat: params.chat,
+      chatId: params.chatId,
+      currentMessages: [...params.currentMessages, persisted],
+      updateChat: params.updateChat,
+    });
+    return persisted;
+  } catch (error) {
+    if (!replyPersisted) {
+      params.upsertMessage({ ...streamingMessage, content: '', isStreaming: true, isDeleted: true });
+    }
+    throw error;
+  }
 }

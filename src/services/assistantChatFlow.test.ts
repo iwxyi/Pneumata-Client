@@ -6,6 +6,7 @@ import { useChatStore } from '../stores/useChatStore';
 import { buildAssistantChatDraft } from './chatDraftBuilder';
 import { generateResponse } from './aiClient';
 import { api } from './api';
+import { buildBranchStateWithHead, forkBranchState, projectActiveBranchMessages } from './messageBranching';
 import { buildAgentArtifactReplyContent, markAssistantMediaAttachmentsFailed, maybeGenerateAssistantChatTitle, runAssistantChatReplyFlow } from './assistantChatFlow';
 
 const agentOrchestratorMock = vi.hoisted(() => ({
@@ -67,6 +68,63 @@ beforeEach(() => {
   agentOrchestratorMock.writeAssistantAgentPatchSet.mockReset();
   networkTransferMock.executeNetworkTransferTask.mockReset();
   useChatStore.setState({ chats: [] });
+});
+
+describe('assistantChatFlow failed regeneration', () => {
+  it.each(['unavailable', 'partial', 'cancelled', 'empty'])('removes the transient reply and preserves history when generation fails (%s)', async (failure) => {
+    const chat = assistantChat();
+    chat.modeState.assistantCapabilities = { ...chat.modeState.assistantCapabilities, agent: false, artifacts: false };
+    const original: Message = { id: 'original', chatId: chat.id, type: 'ai', senderId: 'actor', senderName: '角色',
+      content: '原来的回答', emotion: 0, timestamp: 1001, isDeleted: false };
+    const visible = new Map<string, Message>([[original.id, original]]);
+    const upsertMessage = vi.fn((message: Message) => {
+      if (message.isDeleted) visible.delete(message.id);
+      else visible.set(message.id, message);
+    });
+    const updateChat = vi.fn(async () => undefined);
+    const controller = new AbortController();
+    generateResponseMock.mockImplementation(async (_api, _prompt, _messages, onStream) => {
+      if (failure === 'empty') return '   ';
+      if (failure === 'partial') onStream?.('尚未完成');
+      if (failure === 'cancelled') {
+        controller.abort();
+        return '已被取消的迟到回复';
+      }
+      throw new Error('AI 服务不可用');
+    });
+    await expect(runAssistantChatReplyFlow({
+      api: { provider: 'openai', apiKey: 'test', model: 'test' }, aiProfiles: [], chat, chatId: chat.id,
+      currentMessages: [], upsertMessage, updateChat, revisionOfNodeId: original.id, signal: controller.signal,
+    })).rejects.toThrow();
+    expect(Array.from(visible.values())).toEqual([original]);
+    expect(updateChat).not.toHaveBeenCalled();
+    expect(upsertMessage.mock.calls.at(-1)?.[0]).toMatchObject({ isStreaming: true, isDeleted: true });
+  });
+
+  it('commits a successful root regeneration while preserving the original branch', async () => {
+    const chat = assistantChat();
+    chat.modeState.assistantCapabilities = { ...chat.modeState.assistantCapabilities, agent: false, artifacts: false };
+    const original: Message = { id: 'original', chatId: chat.id, type: 'ai', senderId: 'actor', senderName: '角色',
+      content: '原来的回答', emotion: 0, timestamp: 1001, isDeleted: false };
+    chat.messageBranchState = buildBranchStateWithHead({ enabled: true }, original.id);
+    useChatStore.setState({ chats: [chat] });
+    const archiveName = 'main-before-regenerate-1000';
+    const preparedState = buildBranchStateWithHead(forkBranchState(chat.messageBranchState, original.id, archiveName), null, 'main');
+    generateResponseMock.mockResolvedValue('新的回答');
+    const updateChat = vi.fn(async (_id: string, patch: Partial<GroupChat>) => {
+      useChatStore.setState({ chats: [{ ...chat, ...patch }] });
+    });
+    const regenerated = await runAssistantChatReplyFlow({
+      api: { provider: 'openai', apiKey: 'test', model: 'test' }, aiProfiles: [],
+      chat: { ...chat, messageBranchState: preparedState }, chatId: chat.id, currentMessages: [],
+      upsertMessage: vi.fn(), updateChat, revisionOfNodeId: original.id,
+    });
+    const committedChat = useChatStore.getState().chats[0];
+    expect(regenerated.metadata?.branching?.parentNodeId).toBeNull();
+    expect(committedChat.messageBranchState?.refs?.[archiveName]?.headNodeId).toBe(original.id);
+    expect(projectActiveBranchMessages(committedChat, [original, regenerated]).map((message) => message.id))
+      .toEqual([regenerated.id]);
+  });
 });
 
 describe('assistantChatFlow network download discovery', () => {

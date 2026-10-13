@@ -121,6 +121,27 @@ describe('messageBranching v2', () => {
     expect(projectActiveBranchMessages(plainChat, messages).map((item) => item.id)).toEqual(['first', 'middle', 'latest']);
   });
 
+  it('preserves a legacy prefix after multiple branched replies and regeneration', () => {
+    const first = { ...message('first', 'user', null, 1), metadata: undefined };
+    const source = { ...message('source', 'ai', null, 2), metadata: undefined };
+    const messages = [first, source, message('next', 'ai', 'source', 3),
+      message('revised', 'ai', 'first', 4, '新回答', 'source')];
+    const state = buildBranchStateWithHead({ enabled: true }, 'revised');
+    expect(resolveMessageBranchNodes(messages).find((node) => node.nodeId === 'source')?.parentNodeId).toBe('first');
+    expect(projectActiveBranchMessages(chat({ messageBranchState: state }), messages).map((item) => item.id)).toEqual(['first', 'revised']);
+    expect(projectActiveBranchMessages(chat({ messageBranchState: buildBranchStateWithHead(state, 'next') }), messages)
+      .map((item) => item.id)).toEqual(['first', 'source', 'next']);
+  });
+
+  it('recovers the saved branch when an older failed regeneration persisted an empty cursor', () => {
+    const messages = [message('original', 'ai', null, 1), message('tail', 'ai', 'original', 2)];
+    let state = forkBranchState({ enabled: true }, 'tail', 'main-before-regenerate-1000');
+    state = buildBranchStateWithHead(state, null, 'main');
+    const restored = JSON.parse(JSON.stringify(state));
+    expect(projectActiveBranchMessages(chat({ messageBranchState: restored }), messages).map((item) => item.id))
+      .toEqual(['original', 'tail']);
+  });
+
   it('assigns a node id before persisting a new draft message', () => {
     const plainChat = chat({ messageBranchState: { enabled: true } });
     const draft = attachMessageToActiveBranch(plainChat, [], {
