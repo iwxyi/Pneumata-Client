@@ -29,8 +29,6 @@ import { buildSharedPhraseEventsFromCompanionshipEvents } from './companionshipS
 const { chatGap: CHAT_DISTILLATION_TURN_COUNT, characterGap: CHARACTER_DISTILLATION_TURN_COUNT } = getLocalDistillationPolicy();
 const PRIMARY_CONFLICT_DECAY_STEP = 0.06;
 const SECONDARY_CONFLICT_DECAY_STEP = 0.04;
-const CONFLICT_ACTIVE_THRESHOLD = 0.24;
-const CONFLICT_COOLING_THRESHOLD = 0.62;
 
 function resolveMessageTimestamp(message: { timestamp?: number }, fallback: number) {
   return typeof message.timestamp === 'number' && Number.isFinite(message.timestamp)
@@ -165,19 +163,22 @@ function normalizeConflictFocus(
   referenceTimestamp: number,
 ): ConflictFocusState | null {
   if (!payload?.present || !payload.type || !payload.summary) return null;
+  const known = [conversation.worldState.conflictState?.primaryConflict, ...(conversation.worldState.conflictState?.activeConflicts || [])]
+    .find((conflict) => conflict && conflict.id === payload.conflictId);
+  if (payload.conflictId && !known) return null;
   const summary = payload.summary.trim();
   if (summary.length < 8) return null;
   const severity = typeof payload.severity === 'number' && Number.isFinite(payload.severity) ? Math.max(0, Math.min(1, payload.severity)) : 0;
-  if (severity < 0.55) return null;
+  if (severity < 0.55 && !known) return null;
   const whyText = typeof payload.why === 'string' ? payload.why.trim() : '';
   if (severity >= 0.75 && whyText.length < 6) return null;
   const participantIds = (payload.participantIds || [message.senderId]).filter((id) => conversation.memberIds.includes(id));
   if (!participantIds.length) return null;
   const targetIds = (payload.primaryTargetIds || []).filter((id) => conversation.memberIds.includes(id));
   return {
-    id: `conflict-${referenceTimestamp}-${message.senderId}-${payload.type}`,
+    id: known?.id || `conflict-${referenceTimestamp}-${message.senderId}-${payload.type}`,
     scope: conversation.type,
-    type: payload.type,
+    type: known?.type || payload.type,
     severity,
     stage: payload.stage || (severity >= 0.85 ? 'escalating' : severity >= 0.7 ? 'open' : 'emerging'),
     summary,
@@ -185,7 +186,7 @@ function normalizeConflictFocus(
     targetIds,
     nextPressure: payload.nextPressure || 'stabilize',
     developmentHooks: payload.developmentHooks || [],
-    sourceEventIds: [],
+    sourceEventIds: known?.sourceEventIds || [],
     updatedAt: referenceTimestamp,
   };
 }
@@ -216,27 +217,26 @@ function hasMeaningfulConflictChange(previous: ConflictFocusState | null | undef
 }
 
 function sameConflictBranch(left: ConflictFocusState | null | undefined, right: ConflictFocusState | null | undefined) {
+  if (left && right && left.id === right.id) return true;
   const leftIdentity = buildConflictIdentity(left);
   const rightIdentity = buildConflictIdentity(right);
   return Boolean(leftIdentity && rightIdentity && JSON.stringify(leftIdentity) === JSON.stringify(rightIdentity));
 }
 
-function decayConflictFocus(conflict: ConflictFocusState, step: number, now: number): ConflictFocusState | null {
+function decayConflictFocus(conflict: ConflictFocusState, step: number): ConflictFocusState | null {
+  if (conflict.stage === 'resolved') return null;
   const severity = Math.max(0, Number((conflict.severity - step).toFixed(2)));
-  if (severity < CONFLICT_ACTIVE_THRESHOLD) return null;
   return {
     ...conflict,
     severity,
-    stage: severity <= CONFLICT_COOLING_THRESHOLD ? 'cooling' : conflict.stage === 'escalating' ? 'open' : conflict.stage,
-    nextPressure: severity <= CONFLICT_COOLING_THRESHOLD ? 'cool' : conflict.nextPressure,
-    updatedAt: now,
   };
 }
 
 function updateConflictRuntimeState(previous: ConflictRuntimeState | null | undefined, nextConflict: ConflictFocusState | null, now: number): ConflictRuntimeState | null {
   if (!nextConflict) {
-    const decayedActiveConflicts = (previous?.activeConflicts || [])
-      .map((item) => decayConflictFocus(item, PRIMARY_CONFLICT_DECAY_STEP, now))
+    const decayedActiveConflicts = [...new Map([previous?.primaryConflict, ...(previous?.activeConflicts || [])]
+      .filter((item): item is ConflictFocusState => Boolean(item)).map((item) => [item.id, item])).values()]
+      .map((item) => decayConflictFocus(item, PRIMARY_CONFLICT_DECAY_STEP))
       .filter((item): item is ConflictFocusState => Boolean(item))
       .slice(0, 6);
     if (!decayedActiveConflicts.length) return null;
@@ -251,15 +251,17 @@ function updateConflictRuntimeState(previous: ConflictRuntimeState | null | unde
     };
   }
 
-  const decayedPreviousConflicts = (previous?.activeConflicts || [])
+  const decayedPreviousConflicts = [...new Map([previous?.primaryConflict, ...(previous?.activeConflicts || [])]
+    .filter((item): item is ConflictFocusState => Boolean(item)).map((item) => [item.id, item])).values()]
     .filter((item) => !sameConflictBranch(item, nextConflict))
-    .map((item) => decayConflictFocus(item, SECONDARY_CONFLICT_DECAY_STEP, now))
+    .map((item) => decayConflictFocus(item, SECONDARY_CONFLICT_DECAY_STEP))
     .filter((item): item is ConflictFocusState => Boolean(item));
-  const activeConflicts = [nextConflict, ...decayedPreviousConflicts].slice(0, 6);
+  const activeConflicts = [...(nextConflict.stage === 'resolved' ? [] : [nextConflict]), ...decayedPreviousConflicts].slice(0, 6);
+  const primaryConflict = activeConflicts[0] || null;
   return {
-    primaryConflict: nextConflict,
+    primaryConflict,
     activeConflicts,
-    developmentHooks: nextConflict.developmentHooks,
+    developmentHooks: primaryConflict?.developmentHooks || [],
     volatility: Math.max(nextConflict.severity, Math.max(0, Number(((previous?.volatility || 0) - 0.06).toFixed(2)))),
     cooling: nextConflict.nextPressure === 'cool' ? Math.min(1, (previous?.cooling || 0) + 0.2) : Math.max(0, (previous?.cooling || 0) - 0.1),
     updatedAt: now,

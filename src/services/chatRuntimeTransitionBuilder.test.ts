@@ -659,7 +659,7 @@ describe('buildWorldRuntimeEvents', () => {
     expect(events[0]?.createdAt).toBe(777);
   });
 
-  it('decays stale conflict state when no new conflict focus appears', () => {
+  it('cools heat without deleting an unresolved conflict and accepts an explicit low-heat resolution', () => {
     const developmentHooks: ConflictDevelopmentHook[] = ['invite_target_response'];
     const chat = buildChat({
       worldState: {
@@ -713,7 +713,23 @@ describe('buildWorldRuntimeEvents', () => {
     });
 
     expect(result.worldState.conflictState?.primaryConflict?.severity).toBeLessThan(0.66);
-    expect(result.worldState.conflictState?.primaryConflict?.stage).toBe('cooling');
+    expect(result.worldState.conflictState?.primaryConflict?.stage).toBe('open');
+    let next = result.worldState;
+    for (let i = 0; i < 30; i += 1) {
+      next = buildNextWorldState({ ...chat, worldState: next }, {
+        type: 'ai', senderId: 'char-c', content: '别的话题。', conflictFocus: null,
+      }).worldState;
+    }
+    expect(next.conflictState?.primaryConflict?.id).toBe('conflict-1');
+    expect(next.conflictState?.primaryConflict?.severity).toBe(0);
+    const resolved = buildNextWorldState({ ...chat, worldState: next }, {
+      type: 'ai', senderId: 'char-a', content: '这次越权的事说清楚了。',
+      conflictFocus: { present: true, conflictId: 'conflict-1', type: 'authority_challenge', severity: 0.1,
+        stage: 'resolved', summary: '这次越权的事说清楚了。', participantIds: ['char-a', 'char-b'],
+        primaryTargetIds: ['char-b'], nextPressure: 'cool' },
+    });
+    expect(resolved.worldState.conflictState?.primaryConflict).toBeNull();
+    expect(resolved.worldState.conflictState?.activeConflicts).toEqual([]);
   });
 
   it('does not adopt high-severity conflict focus into world state without evidence reason', () => {

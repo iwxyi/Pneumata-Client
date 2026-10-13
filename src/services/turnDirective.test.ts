@@ -133,6 +133,23 @@ const turnPlan: TurnPlan = {
 };
 
 describe('turnDirective', () => {
+  it('uses the director focus even for a roomwide line or a speaker outside its participants', () => {
+    const focused = { id: 'current', conversationId: 'chat-1', type: 'goal' as const, title: '等授权', summary: '只接受了分工，未决定开战',
+      participantIds: ['chen'], visibility: 'public' as const, status: 'active' as const, tension: 0, momentum: 0.5, salience: 0.5,
+      sourceEventIds: [], lastTouchedAt: 1, openQuestions: ['何时能动身尚未定'], possibleNextBeats: [] };
+    for (const participantIds of [[], ['chen']]) {
+      const directive = buildTurnDirective({ chat: chat(), speaker: character('rui', '瑞瑞'),
+        members: [character('rui', '瑞瑞'), character('chen', '陈越')], messages: [message()],
+        intent, innerLife, conversationMovePlan: movePlan, turnPlan,
+        directorIntent: { source: 'conversation_reply', targetLineId: 'current', beatType: 'answer', targetActorIds: ['rui'], pressure: 0.8, reason: '回应债' },
+        narrativeLines: [{ ...focused, participantIds }, { ...focused, id: 'unrelated', summary: '另一个更高热度的事项', salience: 0.9, participantIds: ['rui'] },
+          { ...focused, id: 'private', summary: '私密事实', visibility: 'pair_private', salience: 1, participantIds: ['rui'] }],
+      });
+      expect(directive?.narrativePressure).toContain('未决定开战');
+      expect(directive?.narrativePressure).not.toContain('私密事实');
+      expect(directive?.narrativePressure).not.toContain('另一个');
+    }
+  });
   it('does not prescribe expression from scheduler pressure or planned rhythm', () => {
     const input = {
       chat: chat(), speaker: character('rui', '瑞瑞'),

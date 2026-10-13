@@ -11,6 +11,8 @@ import type { TurnPlan } from './turnPlanner';
 import type { UserGuidanceIntent } from './userGuidanceIntent';
 import { deriveCharacterTurnDrive, type CharacterTurnDrive } from './characterTurnDrive';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
+import type { DirectorIntent } from './directorIntent';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface TurnDirective {
   roomStyle: 'casual' | 'analytical' | 'discovery' | 'dramatic';
@@ -20,6 +22,7 @@ export interface TurnDirective {
   emotionalUndercurrent: string;
   relationshipEffect: string;
   narrativePressure?: string;
+  continuityEvidence?: string[];
   requiredChange: string;
   expressionShape: string;
   userConstraint?: string;
@@ -40,6 +43,7 @@ export interface BuildTurnDirectiveInput {
   runtimeBundle?: SessionGenerationRuntimeBundle | null;
   userGuidance?: UserGuidanceIntent | null;
   narrativeLines?: NarrativeLineProjection[];
+  directorIntent?: DirectorIntent | null;
 }
 
 function speakerName(members: AICharacter[], id?: string) {
@@ -100,15 +104,19 @@ function describeNarrativePressure(input: BuildTurnDirectiveInput, targetActorId
     // Relationship lines are numeric projections, not established live plot.
     // The relationship context already supplies their underlying evidence.
     .filter((line) => line.type !== 'relationship')
-    .filter((line) => line.participantIds.includes(input.speaker.id))
+    .filter((line) => line.visibility === 'public' || line.visibility === 'derived_public')
+    .filter((line) => line.status !== 'resolved' && line.status !== 'abandoned')
+    .filter((line) => line.id === input.directorIntent?.targetLineId || !line.participantIds.length || line.participantIds.includes(input.speaker.id))
     .sort((left, right) => {
+      const leftFocus = left.id === input.directorIntent?.targetLineId ? 1 : 0;
+      const rightFocus = right.id === input.directorIntent?.targetLineId ? 1 : 0;
       const leftTargets = targetActorId && left.participantIds.includes(targetActorId) ? 1 : 0;
       const rightTargets = targetActorId && right.participantIds.includes(targetActorId) ? 1 : 0;
-      return rightTargets - leftTargets || right.salience - left.salience;
+      return rightFocus - leftFocus || rightTargets - leftTargets || right.salience - left.salience;
     })[0];
   if (!relevant) return undefined;
   const open = relevant.openQuestions[0] ? ` Unresolved dramatic question: ${relevant.openQuestions[0]}` : '';
-  return `${relevant.type} line "${relevant.title}": ${relevant.summary}.${open}`;
+  return sanitizeUserFacingText(`${relevant.type} line "${relevant.title}": ${relevant.summary}.${open}`, input.members);
 }
 
 function describeRequiredChange(input: BuildTurnDirectiveInput, hasNarrativePressure: boolean) {
@@ -206,6 +214,11 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
       : describeEmotion(input.innerLife),
     relationshipEffect: describeRelationship(targetName),
     narrativePressure,
+    continuityEvidence: (input.chat.worldState.conversationContinuity?.items || [])
+      .filter((item) => !item.participantIds.length || item.participantIds.includes(input.speaker.id)
+        || item.participantIds.includes(targetActorId || '') || `continuity:${item.key}` === input.directorIntent?.targetLineId)
+      .sort((a, b) => Number(b.status === 'open') - Number(a.status === 'open') || b.updatedAt - a.updatedAt)
+      .slice(0, 6).map((item) => sanitizeUserFacingText(`${item.kind}/${item.status}: ${item.summary}; spoken evidence: ${item.evidenceText}`, input.members)),
     requiredChange: describeRequiredChange(input, Boolean(narrativePressure)),
     expressionShape: describeExpression(input),
     userConstraint: describeUserConstraint(input.userGuidance),
@@ -217,6 +230,8 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
 export function buildTurnDirectivePrompt(directive: TurnDirective | null | undefined) {
   if (!directive) return '';
   const userLine = directive.userConstraint ? `\n- User constraint: ${directive.userConstraint}.` : '';
+  const continuityLine = directive.continuityEvidence?.length
+    ? `\n- Established situation and unfinished matters: ${directive.continuityEvidence.join(' / ')}. Keep the scope of each commitment or decision; completed points may rest, unfinished matters may be deferred.` : '';
   const situationalLine = directive.situationalConstraints.length
     ? `\n- Situational constraints: ${directive.situationalConstraints.join('; ')}.`
     : '';
@@ -226,6 +241,6 @@ Speak as this person among people who share this exchange. Choose what catches t
 - Personal meaning: ${directive.characterDrive.stake}. Felt residue: ${directive.characterDrive.feltReaction}.
 - Attention habits: ${directive.characterDrive.attentionLens}.
 - Emotional and dramatic context: ${directive.emotionalUndercurrent}. ${directive.narrativePressure ? `An unresolved line is present: ${directive.narrativePressure}.` : 'No dramatic escalation is required.'} ${directive.requiredChange}.
-- Relationship context: ${directive.relationshipEffect}. This is available history, not an assigned recipient. Choose from the whole exchange, including earlier unfinished moments.${userLine}${situationalLine}
+- Relationship context: ${directive.relationshipEffect}. This is available history, not an assigned recipient. Choose from the whole exchange, including earlier unfinished moments.${continuityLine}${userLine}${situationalLine}
 Established facts and explicit user requests still apply. These are private context, not dialogue.`;
 }

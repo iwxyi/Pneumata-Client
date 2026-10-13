@@ -15,6 +15,14 @@ import { isGenerationCancelledError } from './generationCancellation';
 import { logDeveloperDiagnostic } from './developerDiagnostics';
 import { isAutoRunnableSessionAction } from './conversationCapabilities';
 import { applyAnalysisRunPolicy, buildAnalysisRunPolicyEvent, type SessionLoopDecision } from './analysisRunPolicy';
+import { resolvePendingReplyContext } from './scheduler';
+
+export function shouldPauseSettledConversation(before: GroupChat, after: GroupChat, characters: AICharacter[], messages: Message[]) {
+  const settledAt = after.worldState.conversationContinuity?.settledAt;
+  return after.type === 'group' && resolveSessionFamilyKey(after) === 'conversation'
+    && Boolean(settledAt && settledAt !== before.worldState.conversationContinuity?.settledAt)
+    && !resolvePendingReplyContext(characters, messages);
+}
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -583,6 +591,11 @@ export async function runSessionLoop(params: {
       // one teacher turn. Pause immediately after the turn so a stale message
       // snapshot cannot launch a duplicate second generation.
       if (resolveSessionFamilyKey(currentChat) === 'study' || currentChat.type === 'direct' || currentChat.type === 'ai_direct') {
+        params.pauseLoop?.();
+      }
+      const committedChat = params.getCurrentChat?.();
+      if (committedChat && shouldPauseSettledConversation(currentChat, committedChat,
+        params.getCurrentCharacters?.() || params.characters, params.getCurrentMessages())) {
         params.pauseLoop?.();
       }
 

@@ -232,6 +232,7 @@ export interface StoryAssetMetadata {
 }
 
 export interface MessageMetadata {
+  conversationUpdate?: import('./conversationContinuity').ConversationUpdate;
   voice?: {
     url: string;
     mimeType?: string;

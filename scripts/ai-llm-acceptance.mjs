@@ -2703,13 +2703,14 @@ async function loadRuntimeChatModules() {
         logLevel: 'error',
       });
       try {
-        const [chatEngine, chatTypes, chatDraftBuilder, generatedTurnCommit, sessionEngineLoader, sessionActionExecutors] = await Promise.all([
+        const [chatEngine, chatTypes, chatDraftBuilder, generatedTurnCommit, sessionEngineLoader, sessionActionExecutors, sessionRunner] = await Promise.all([
           server.ssrLoadModule('/src/services/chatEngine.ts'),
           server.ssrLoadModule('/src/types/chat.ts'),
           server.ssrLoadModule('/src/services/chatDraftBuilder.ts'),
           server.ssrLoadModule('/src/services/generatedMessageTurnCommit.ts'),
           server.ssrLoadModule('/src/services/sessionEngineLoader.ts'),
           server.ssrLoadModule('/src/services/sessionActionExecutors/sessionActionExecutorRegistry.ts'),
+          server.ssrLoadModule('/src/services/sessionRunner.ts'),
         ]);
         return {
           server,
@@ -2720,6 +2721,7 @@ async function loadRuntimeChatModules() {
           commitGeneratedMessageTurn: generatedTurnCommit.commitGeneratedMessageTurn,
           loadSessionEngine: sessionEngineLoader.loadSessionEngine,
           runSessionActionExecutor: sessionActionExecutors.runSessionActionExecutor,
+          shouldPauseSettledConversation: sessionRunner.shouldPauseSettledConversation,
         };
       } catch (error) {
         await server.close();
@@ -2803,6 +2805,19 @@ function acceptanceAiMessage(chatId, senderId, senderName, content, timestamp, p
 function runtimeChatflowScenarios() {
   const now = Date.now();
   const scenarios = [
+    {
+      name: 'longzhong_continuity_room',
+      roomKind: 'group',
+      turns: 8,
+      rubricHint: '三顾茅庐归来后的普通群聊。隆中之策是长期谋划，眼下没有既定攻城目标或开战命令。观察三兄弟对新军师、彼此位置和大哥信任的不同反应；自然相处可以有嘴硬、试探、揭短和留白，但不得人为制造军情。分工讨论不能冒充战事已定，已接受事项不得反复宣誓确认。允许自然收束。',
+      chat: { id: 'acceptance-longzhong', name: '三顾归来', topic: '三顾茅庐归来后：隆中之策如何落到眼前的三步。', memberIds: ['bei', 'yu', 'fei'], style: 'roleplay' },
+      characters: [
+        acceptanceCharacter('bei', '刘备', { background: '刚请得诸葛亮出山，仍依附刘表。尚无取荆州的军事决定。与关羽、张飞情同手足，既倚重新军师也在意兄弟的心。', speakingStyle: '温厚但有主见，熟悉兄弟脾性，会不露声色地试探，也会露出疲惫和私心。', coreProfile: { coreDesire: '终于有可立足的事业，也不失兄弟的心', coreFear: '又辜负追随自己的人', valuePriority: ['仁义', '成事'], socialMask: '厚道长兄', biases: [], interactionHabits: ['知道三弟嘴硬'] } }),
+        acceptanceCharacter('yu', '关羽', { background: '敬重大哥，熟悉张飞，不轻易把心里对新军师的疑虑说透。', speakingStyle: '简洁、克制、傲气，和三弟会有熟人之间的刺，不把每句话变成军令。', coreProfile: { coreDesire: '守住兄弟情义和自己的尊严', coreFear: '兄弟被新来的人轻看', valuePriority: ['义', '尊严'], socialMask: '沉稳', biases: [], interactionHabits: ['在意却不直说'] } }),
+        acceptanceCharacter('fei', '张飞', { background: '两次扑空才请得诸葛亮，嘴上愿听大哥，心里想看这先生到底有何本事。', speakingStyle: '直率、好胜、嘴硬，会亲近地顶二哥，绝非只会拍胸脯听令。', coreProfile: { coreDesire: '在大哥面前有用、被当作能动脑子的兄弟', coreFear: '被当成只会抡矛的莽夫', valuePriority: ['兄弟', '痛快'], socialMask: '粗豪', biases: [], interactionHabits: ['用玩笑藏不服'] } }),
+      ],
+      seedMessages: [acceptanceAiMessage('acceptance-longzhong', 'fei', '张飞', '大哥，俺是个粗人，听不懂那些文绉绉的大道理。卧龙先生既然肯出山，那咱就听他的！你说三步就三步，说先打哪俺就打哪，俺张飞绝不含糊！', now - 20_000, { addressedTargetIds: ['bei'], primaryAddressedTargetId: 'bei' })],
+    },
     {
       name: 'direct_emotional_repair_room',
       roomKind: 'direct',
@@ -3499,11 +3514,11 @@ function runtimeChatflowScenarios() {
   return scenarios;
 }
 
-function assertRuntimeChatflowTranscript(scenario, transcript, errors) {
+function assertRuntimeChatflowTranscript(scenario, transcript, errors, naturallySettled = false) {
   assertCondition(errors.length === 0, `chatflow ${scenario.name} produced runtime errors`, errors.map((error) => String(error?.message || error)));
   const pausesAfterReply = scenario.chat.type === 'direct' || scenario.chat.type === 'ai_direct' || scenario.roomKind === 'study';
   const availableTurns = pausesAfterReply ? 1 + (scenario.userInjections || []).length : config.chatflowTurns;
-  assertCondition(transcript.length >= Math.min(3, config.chatflowTurns, availableTurns), `chatflow ${scenario.name} produced too few turns`, transcript);
+  assertCondition(transcript.length >= (naturallySettled ? 1 : Math.min(3, config.chatflowTurns, availableTurns)), `chatflow ${scenario.name} produced too few turns`, transcript);
   const speakers = new Set(transcript.map((turn) => turn.senderId));
   if (scenario.roomKind !== 'story' && scenario.characters.length > 1 && transcript.length > 1) {
     assertCondition(speakers.size >= 2, `chatflow ${scenario.name} did not rotate across multiple speakers`, transcript);
@@ -3549,6 +3564,8 @@ function summarizeRuntimeTurn(message) {
       || message.metadata?.deliberationArtifacts?.verdicts
       || [],
     roomStateAfter: message.roomStateAfter || null,
+    conversationContinuityAfter: message.conversationContinuityAfter || null,
+    conversationUpdates: message.conversationUpdates || [],
     roomShiftSignals: message.committedRoomShiftSignals || [],
     speakerSelection: runtimeDecision.speakerSelection || null,
     speakerScore: runtimeDecision.speakerScore || null,
@@ -4188,6 +4205,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
   const errors = [];
   const judgeErrors = [];
   const localInterceptions = [];
+  let naturallySettled = false;
   const profiles = runtimeProfile(model);
   const api = profiles[0];
   const cooldownMap = {};
@@ -4207,6 +4225,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
       .filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event')
       .map((message) => ({ type: message.type, senderName: message.senderName, content: message.content }));
     const scenarioStateBefore = collectScenarioStateSnapshot(chat);
+    const chatBeforeTurn = chat;
     logProgress('chatflow turn generate', { model, scenario: scenario.name, turn, turnCount });
     let completed = null;
     const originalFetch = globalThis.fetch;
@@ -4346,6 +4365,8 @@ async function runRuntimeChatflowScenario(model, scenario) {
       committedRelationshipSignals,
       committedRoomShiftSignals,
       roomStateAfter: chat.worldState?.structuredRoomState || null,
+      conversationContinuityAfter: chat.worldState?.conversationContinuity || null,
+      conversationUpdates: logicalTurnMessages.map((item) => item.metadata?.conversationUpdate).filter(Boolean),
     });
     summarized.addressedTargetNames = summarized.addressedTargetIds
       .map((targetId) => targetId === 'user' ? '用户' : characters.find((character) => character.id === targetId)?.name)
@@ -4434,11 +4455,17 @@ async function runRuntimeChatflowScenario(model, scenario) {
       chat = await commitHumanTurn(runtime, chat, characters, messages, message, api);
       userInjectionLog.push({ afterTurn: turn, content: injection.content });
     }
+    if (runtime.shouldPauseSettledConversation(chatBeforeTurn, chat, characters, messages)
+      && !injections.length) {
+      naturallySettled = true;
+      logProgress('chatflow naturally settled', { model, scenario: scenario.name, turn });
+      break;
+    }
   }
 
   let hardError = '';
   try {
-    assertRuntimeChatflowTranscript(scenario, transcript, errors);
+    assertRuntimeChatflowTranscript(scenario, transcript, errors, naturallySettled);
     assertScenarioSpecificChatflow(scenario, transcript, chat);
   } catch (error) {
     hardError = String(error?.message || error);
@@ -4521,6 +4548,7 @@ async function runRuntimeChatflowScenario(model, scenario) {
     ok: !hardError && judgeErrors.length === 0,
     scenario: scenario.name,
     turnCount: transcript.length,
+    naturallySettled,
     selectedSpeakers,
     transcript,
     turnReviews,

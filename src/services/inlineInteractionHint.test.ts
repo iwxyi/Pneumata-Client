@@ -5,6 +5,19 @@ import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 
 describe('parseInlineInteractionEnvelope story events', () => {
+  it('preserves normalized continuity writeback from the production messages envelope', () => {
+    const parsed = parseInlineInteractionEnvelope(JSON.stringify({
+      messages: [{ content: '每天戌时我来点粮。' }],
+      conversationUpdate: {
+        items: [{ key: 'count-grain', kind: 'commitment', status: 'established', summary: '每天戌时点粮', participantIds: ['speaker'], evidenceText: '每天戌时我来点粮' }],
+        settled: { evidenceText: '每天戌时我来点粮' },
+      },
+    }));
+    expect(parsed?.content).toBe('每天戌时我来点粮。');
+    expect(parsed?.conversationUpdate?.items[0]).toMatchObject({ key: 'count-grain', participantIds: ['speaker'] });
+    expect(parsed?.conversationUpdate?.settled).toEqual({ evidenceText: '每天戌时我来点粮' });
+  });
+
   it('keeps immediate social effects even when no relationship delta is warranted', () => {
     const hints = normalizeInteractionHintCollection({
       primary: { targetId: 'target', kind: 'probe', tone: 'cold', intensity: 4, confidence: 0.93, evidenceText: '为什么不敢看我', relationship: undefined },

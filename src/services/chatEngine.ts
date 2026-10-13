@@ -2570,6 +2570,7 @@ function buildMessageMetadata(params: {
   runtimeDecision?: MessageMetadata['runtimeDecision'];
   deliberationArtifacts?: MessageMetadata['deliberationArtifacts'] | null;
   presenceUpdate?: MessageMetadata['presenceUpdate'] | null;
+  conversationUpdate?: MessageMetadata['conversationUpdate'] | null;
   studyUpdate?: MessageMetadata['studyUpdate'] | null;
   storyEvents?: MessageMetadata['storyEvents'] | null;
   storyAssets?: MessageMetadata['storyAssets'] | null;
@@ -2584,7 +2585,7 @@ function buildMessageMetadata(params: {
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
   const storyEvents = params.storyEventsNormalized ? (params.storyEvents || []) : [];
   const storyQuality = params.storyQuality || null;
-  if (!decision && !params.runtimeDecision && !params.deliberationArtifacts && !params.presenceUpdate && !params.studyUpdate && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length && !params.storyAssets) return undefined;
+  if (!decision && !params.runtimeDecision && !params.deliberationArtifacts && !params.presenceUpdate && !params.conversationUpdate && !params.studyUpdate && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length && !params.storyAssets) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const contextText = params.narrativeTurn?.blocks.map((block) => block.text).filter(Boolean).join('\n\n') || params.content;
   const attachments: MessageAttachment[] = [];
@@ -2659,6 +2660,7 @@ function buildMessageMetadata(params: {
     ...(params.runtimeDecision ? { runtimeDecision: params.runtimeDecision } : {}),
     ...(params.deliberationArtifacts ? { deliberationArtifacts: params.deliberationArtifacts } : {}),
     ...(params.presenceUpdate ? { presenceUpdate: params.presenceUpdate } : {}),
+    ...(params.conversationUpdate ? { conversationUpdate: params.conversationUpdate } : {}),
     ...(params.studyUpdate ? { studyUpdate: params.studyUpdate } : {}),
   };
 }
@@ -4181,6 +4183,7 @@ export async function generateSpeakerMessage(params: {
     runtimeBundle: runtimeBundleWithMovePlan,
     userGuidance,
     narrativeLines: params.narrativeLines,
+    directorIntent: effectiveDirectorIntent,
   });
   const isStoryReader = params.chat.sessionKind?.scenarioId === 'story-reader';
   const promptPlayMode = resolvePromptPlayMode(params.chat);
@@ -4480,6 +4483,7 @@ export async function generateSpeakerMessage(params: {
     storyChoices,
     deliberationArtifacts: generated.parsedEnvelope?.deliberationArtifacts || null,
     presenceUpdate: generated.parsedEnvelope?.presenceUpdate || null,
+    conversationUpdate: generated.parsedEnvelope?.conversationUpdate || null,
     studyUpdate: generated.parsedEnvelope?.studyUpdate || null,
     runtimeDecision: runtimeDecisionMetadata,
     ...(turnParameters ? { turnParameters } : {}),
@@ -4502,6 +4506,7 @@ export async function generateSpeakerMessage(params: {
       storyChoices: index === 0 ? storyChoices : null,
       deliberationArtifacts: index === 0 ? generated.parsedEnvelope?.deliberationArtifacts || null : null,
       presenceUpdate: index === 0 ? generated.parsedEnvelope?.presenceUpdate || null : null,
+      conversationUpdate: index === 0 ? generated.parsedEnvelope?.conversationUpdate || null : null,
       studyUpdate: index === 0 ? generated.parsedEnvelope?.studyUpdate || null : null,
       runtimeDecision: index === 0 ? runtimeDecisionMetadata : undefined,
       ...(turnParameters ? { turnParameters } : {}),

@@ -26,6 +26,7 @@ import { orchestrateWorldDecision } from '../worldDecisionOrchestrator';
 import { buildMomentPostText } from '../momentTextBuilder';
 import { isCharacterFeatureEnabled } from '../characterGenerationPolicy';
 import { isPostMomentDelaySourceEventKind, resolvePostMomentPublishGuard } from '../postMomentPublishPolicy';
+import { applyConversationUpdate } from '../conversationContinuity';
 
 const MAX_OPEN_CHAT_RUNTIME_EVENTS = 120;
 
@@ -59,7 +60,7 @@ function buildRuntimeContextBundle(params: { conversation: GroupChat; speaker: {
   };
 }
 
-type OpenChatCommittedMessage = Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & {
+type OpenChatCommittedMessage = Pick<Message, 'content' | 'type' | 'senderId' | 'metadata'> & Partial<Pick<Message, 'id' | 'timestamp'>> & {
   interactionHint?: InteractionEventPayload | null;
   interactionHints?: InteractionEventPayload[] | null;
   incomingInteractionHint?: InteractionEventPayload | null;
@@ -2227,6 +2228,22 @@ async function onMessageCommitted(params: {
     recentMessages: params.recentMessages,
     apiConfig: params.apiConfig,
   });
+  const continuityResult = applyConversationUpdate(params.conversation, publicMessage, structuredRoomState);
+  const continuityEvents = continuityResult.changedItems.map((item) => createRuntimeEventV2({
+    conversationId: params.conversation.id, kind: 'action_resolution', visibility: 'public',
+    actorIds: [publicMessage.senderId], targetIds: item.participantIds,
+    evidenceMessageIds: publicMessage.id ? [publicMessage.id] : [],
+    summary: item.summary,
+    payload: { eventType: 'conversation_item_updated', decisionSource: 'model', ...item },
+  }));
+  if (continuityResult.room && !areRuntimeValuesEqual(continuityResult.room, structuredRoomState)) {
+    continuityEvents.push(createRuntimeEventV2({
+      conversationId: params.conversation.id, kind: 'room_shift', visibility: 'public',
+      actorIds: [publicMessage.senderId], evidenceMessageIds: publicMessage.id ? [publicMessage.id] : [],
+      summary: '已发送的发言更新了房间关系态势。',
+      payload: { eventType: 'conversation_room_updated', decisionSource: 'model', roomState: continuityResult.room },
+    }));
+  }
   const incoming = publicMessage.type === 'ai' && publicMessage.incomingInteractionHint?.targetId === publicMessage.senderId
     && publicMessage.incomingInteractionHint.actorId !== publicMessage.senderId
     ? publicMessage.incomingInteractionHint : null;
@@ -2242,7 +2259,8 @@ async function onMessageCommitted(params: {
   }) : null;
   const mergedWorldState = {
     ...nextWorldState,
-    structuredRoomState,
+    structuredRoomState: continuityResult.room,
+    ...(continuityResult.continuity ? { conversationContinuity: continuityResult.continuity } : {}),
     recentEvent: mergeRecentEvent(nextWorldState.recentEvent, buildStructuredSummary(interaction, params.characters)),
   };
   const nextStructuredEvents = runtimeEventsV2.slice((params.conversation.runtimeEventsV2 || []).length);
@@ -2264,7 +2282,7 @@ async function onMessageCommitted(params: {
       createdAt: Date.now(),
     }] : []),
     ...worldRuntimeEvents,
-    ...buildStructuredLegacyEvents(nextStructuredEvents, effectiveRelationshipLedger, structuredRoomState, params.characters),
+    ...buildStructuredLegacyEvents([...nextStructuredEvents, ...continuityEvents], effectiveRelationshipLedger, continuityResult.room, params.characters),
   ];
   const withdrawalRuntimeEventsV2: RuntimeEventV2[] = publicMessage.metadata?.withdrawal?.withdrawn ? [
     createRuntimeEventV2({
@@ -2316,7 +2334,7 @@ async function onMessageCommitted(params: {
         });
       })()
     : null;
-  const nextRuntimeEventsV2 = [...runtimeEventsV2, ...(incomingEvent ? [incomingEvent] : []), ...withdrawalRuntimeEventsV2].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
+  const nextRuntimeEventsV2 = [...runtimeEventsV2, ...continuityEvents, ...(incomingEvent ? [incomingEvent] : []), ...withdrawalRuntimeEventsV2].slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS);
   const runtimeEventsWithRuleEval = worldInfluenceRuleEvalEvent
     ? mergeCompactedRuntimeEvents(nextRuntimeEventsV2, [], [worldInfluenceRuleEvalEvent]).slice(-MAX_OPEN_CHAT_RUNTIME_EVENTS)
     : nextRuntimeEventsV2;

@@ -91,7 +91,7 @@ describe('resolveDirectorIntent', () => {
     expect(intent.pressure).toBeGreaterThan(0.8);
   });
 
-  it('turns an active conflict into a conflict pressure', () => {
+  it.each([0.8, 0])('retains conflict focus at severity %s without renewing cold pressure', (severity) => {
     const intent = resolveDirectorIntent({
       chat: buildChat({
         worldState: {
@@ -101,7 +101,7 @@ describe('resolveDirectorIntent', () => {
               id: 'conflict-1',
               scope: 'group',
               type: 'value_conflict',
-              severity: 0.8,
+              severity,
               stage: 'escalating',
               summary: '甲乙正在争夺解释权',
               participantIds: ['a'],
@@ -123,7 +123,8 @@ describe('resolveDirectorIntent', () => {
       messages: [buildMessage({ type: 'ai', senderId: 'a', senderName: '甲', content: '这事不是这么算的。' })],
     });
     expect(intent.source).toBe('conflict');
-    expect(intent.beatType).toBe('invite');
+    expect(intent.beatType).toBe(severity === 0 ? 'answer' : 'invite');
+    if (severity === 0) expect(intent.pressure).toBe(0.18);
     expect(intent.targetActorIds).toEqual(['b', 'a']);
     expect(intent.targetLineId).toBe('conflict-1');
   });

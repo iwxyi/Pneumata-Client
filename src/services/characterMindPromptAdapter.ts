@@ -165,9 +165,7 @@ function buildRoomLines(
 ) {
   const activeRoomLines = includeActiveRoomLineSummaries
     ? cleanValues(projection.room.activeLines, visibility, 3)
-    : projection.room.activeLines.length
-      ? ['Active room lines exist; react to their pressure without copying recent transcript text.']
-      : [];
+    : [];
   const lines = [
     includeRoomTopic && projection.room.topic ? `- Current room topic: ${stripInternalIds(compactText(projection.room.topic))}` : '',
     bullet('Room pressure and constraints', cleanValues(projection.room.constraints, visibility, 4)),

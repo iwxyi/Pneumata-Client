@@ -91,7 +91,7 @@ describe('characterMindPromptAdapter', () => {
     expect(output.promptBlock).toContain('Core Character Continuity');
     expect(output.promptBlock).toContain('User continuity exists');
     expect(output.promptBlock).toContain('Relationship continuity exists');
-    expect(output.promptBlock).toContain('Active room lines exist');
+    expect(output.promptBlock).not.toContain('Active room lines');
     expect(output.promptBlock).not.toContain('用户不喜欢太甜');
     expect(output.promptBlock).not.toContain('雨夜便利店');
     expect(output.promptBlock).not.toContain('那次雨夜我不是故意失约');
@@ -214,7 +214,7 @@ describe('characterMindPromptAdapter', () => {
     });
 
     expect(output.currentRoomBlock).toContain('Current room topic');
-    expect(output.currentRoomBlock).toContain('Active room lines exist');
+    expect(output.currentRoomBlock).not.toContain('Active room lines');
     expect(output.currentRoomBlock).toContain('成长线');
     expect(output.currentRoomBlock).toContain('主线');
     expect(output.coreContinuityBlock.split('\n').length).toBeLessThanOrEqual(5);
@@ -228,7 +228,7 @@ describe('characterMindPromptAdapter', () => {
     });
 
     expect(output.currentRoomBlock).toContain('Room pressure and constraints');
-    expect(output.currentRoomBlock).toContain('Active room lines');
+    expect(output.currentRoomBlock).not.toContain('Active room lines');
     expect(output.currentRoomBlock).not.toContain('Expression guidance');
     expect(output.currentRoomBlock).not.toContain('注意力暂时落在阿远');
   });
@@ -259,6 +259,6 @@ describe('characterMindPromptAdapter', () => {
     });
 
     expect(output.currentRoomBlock).not.toContain('Current room topic');
-    expect(output.currentRoomBlock).toContain('Active room lines exist');
+    expect(output.currentRoomBlock).not.toContain('Active room lines');
   });
 });

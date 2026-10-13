@@ -486,6 +486,7 @@ export type ConflictDevelopmentHook =
   | 'trigger_memory_recall';
 
 export interface ConflictFocusPayload {
+  conflictId?: string | null;
   present: boolean;
   type?: ConflictType;
   severity?: number;

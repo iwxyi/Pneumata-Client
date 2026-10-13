@@ -852,6 +852,7 @@ export interface ConversationConflictAxis {
 }
 
 export interface ConversationWorldState {
+  conversationContinuity?: import('./conversationContinuity').ConversationContinuityState;
   phase: ConversationPhase;
   mood: string;
   focus: string;

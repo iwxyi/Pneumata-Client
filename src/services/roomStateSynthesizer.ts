@@ -200,7 +200,7 @@ export function calculateRoomShift(
     || item.kind === 'pile_on'
     || item.kind === 'exclude');
   const pileOn = modelAuthored ? undefined : interactions.find((item) => item.kind === 'pile_on' && item.targetId);
-  const dominantThread = interaction.targetId ? [interaction.actorId, interaction.targetId] as [string, string] : base.dominantThread;
+  const dominantThread = interaction?.targetId ? [interaction.actorId, interaction.targetId] as [string, string] : base.dominantThread;
   const alliances = allianceInteractions.reduce(
     (list, item) => item.targetId ? pushUniquePair(list, [item.actorId, item.targetId]) : list,
     removePairs(base.alliances, allianceBreakingInteractions),
@@ -223,7 +223,7 @@ export function calculateRoomShift(
     dominantThread,
     alliances,
     conflictPairs,
-    pileOnTarget: pileOn?.targetId || (conflictInteractions.some((item) => item.targetId === base.pileOnTarget) ? base.pileOnTarget : null),
+    pileOnTarget: modelAuthored ? base.pileOnTarget : pileOn?.targetId || (conflictInteractions.some((item) => item.targetId === base.pileOnTarget) ? base.pileOnTarget : null),
     silencedActors: newlySilencedActors.length
       ? Array.from(new Set([...base.silencedActors.filter((actorId) => !releasedActors.has(actorId)), ...newlySilencedActors])).slice(-6)
       : base.silencedActors.filter((actorId) => !releasedActors.has(actorId) && !interactions.some((item) => item.actorId === actorId)).slice(-6),

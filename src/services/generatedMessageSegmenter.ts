@@ -1,4 +1,14 @@
 import type { GeneratedRoundMessage } from './chatEngine';
+import type { ConversationUpdate } from '../types/conversationContinuity';
+
+function continuityForSegment(update: ConversationUpdate | undefined, parts: string[], index: number) {
+  if (!update) return undefined;
+  const owns = (evidence: string) => parts[index].includes(evidence) && !parts.slice(0, index).some((part) => part.includes(evidence));
+  const items = update.items.filter((item) => owns(item.evidenceText));
+  const room = update.room && owns(update.room.evidenceText) ? update.room : undefined;
+  const settled = update.settled && owns(update.settled.evidenceText) ? update.settled : undefined;
+  return items.length || room || settled ? { items, ...(room ? { room } : {}), ...(settled ? { settled } : {}) } : undefined;
+}
 
 // Compatibility-only protection for legacy extraMessages. The model-facing
 // room limit is deliberately softer and may be exceeded when meaning requires it.
@@ -49,6 +59,7 @@ export function splitGeneratedRoundMessage(message: GeneratedRoundMessage) {
       content: part.content,
       metadata: {
         ...(part.metadata || {}),
+        conversationUpdate: continuityForSegment(message.metadata?.conversationUpdate, parts.map((item) => item.content), index),
         turnSegment: {
           index,
           count: parts.length,
@@ -93,6 +104,7 @@ export function splitGeneratedRoundMessage(message: GeneratedRoundMessage) {
         manualSpeaker: baseMessage.metadata?.manualSpeaker,
         turnParameters: baseMessage.metadata?.turnParameters,
       }),
+      conversationUpdate: continuityForSegment(message.metadata?.conversationUpdate, parts, index),
       turnSegment: {
         index,
         count: parts.length,

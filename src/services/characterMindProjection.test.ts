@@ -124,6 +124,13 @@ function chat(type: 'direct' | 'group' = 'direct') {
 }
 
 describe('characterMindProjection', () => {
+  it.each([0, 30, -40])('interprets cohesion on its signed scale (%s)', (cohesion) => {
+    const room = chat('group');
+    room.worldState.structuredRoomState = { ...room.worldState.structuredRoomState!, cohesion };
+    const speaker = character();
+    const projection = buildCharacterMindProjection({ chat: room, character: speaker, characters: [speaker], messages: [], now: 2000 });
+    expect(projection.room.constraints.some((line) => line.includes('凝聚度偏低'))).toBe(cohesion <= -35);
+  });
   it.each([80, -80])('preserves all six relationship axes without prescribing tone (%s)', (value) => {
     const target = character({ id: 'char-b', name: '小铁' });
     const speaker = character({ relationships: [{
@@ -551,7 +558,7 @@ describe('characterMindProjection', () => {
     const block = buildCharacterMindProjectionPromptBlock(projection);
 
     expect(block).toContain('Relationship continuity exists');
-    expect(block).toContain('Active room lines exist');
+    expect(block).not.toContain('Active room lines');
     expect(block).not.toContain('雨夜便利店');
     expect(block).not.toContain('那次雨夜我不是故意失约');
     expect(block).not.toContain('3c78729f-e52d-4dde-b27f-01a949960bb8b');

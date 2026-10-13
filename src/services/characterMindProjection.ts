@@ -373,7 +373,7 @@ function buildRoomPressure(params: {
     params.targetId && room.alliances.some((pair) => pair.includes(params.targetId as string)) ? '目标牵涉当前可见联盟。' : '',
     params.targetId && room.conflictPairs.some((pair) => pair.includes(params.targetId as string)) ? '目标牵涉当前可见冲突。' : '',
     room.heat >= 65 ? '房间热度较高，普通话需要考虑公开压力。' : '',
-    room.cohesion <= 35 ? '房间凝聚度偏低，成员更容易各说各话。' : '',
+    room.cohesion <= -35 ? '房间凝聚度偏低，成员更容易各说各话。' : '',
   ], 6);
 }
 

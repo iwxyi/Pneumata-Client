@@ -8,6 +8,7 @@ import { projectFactionClusters } from './factionProjection';
 import { formatScenarioBoardKind, formatScenarioRoleLabel } from './scenarioPresentation';
 import { buildPublicSafeRelationshipSemanticSummary } from './relationshipSemanticPrivacy';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
+import { usesConversationContinuity } from './conversationContinuity';
 
 export type NarrativeLineType = 'conflict' | 'relationship' | 'topic' | 'goal' | 'mystery' | 'faction' | 'growth' | 'scenario';
 export type NarrativeLineStatus = 'latent' | 'active' | 'escalating' | 'cooling' | 'resolved' | 'abandoned';
@@ -194,14 +195,14 @@ function buildConflictLines(chat: GroupChat, now: number): NarrativeLineProjecti
         status: mapConflictStatus(conflict.stage),
         tension,
         momentum,
-        salience: clamp01(tension * 0.62 + momentum * 0.38),
+        salience: Math.max(0.34, clamp01(tension * 0.62 + momentum * 0.38)),
         sourceEventIds: conflict.sourceEventIds || [],
         lastTouchedAt: conflict.updatedAt || now,
         openQuestions: conflict.developmentHooks.includes('invite_target_response') ? ['被点名或被攻击的一方是否回应？'] : [],
         possibleNextBeats: [{
-          beatType: mapConflictBeat(conflict.nextPressure),
+          beatType: tension === 0 ? 'answer' : mapConflictBeat(conflict.nextPressure),
           targetActorIds,
-          pressure: clamp01(0.46 + conflict.severity * 0.42),
+          pressure: tension === 0 ? 0.18 : clamp01(0.46 + conflict.severity * 0.42),
           reason: conflict.summary || '当前矛盾需要有人回应。',
         }],
       } satisfies NarrativeLineProjection;
@@ -575,6 +576,16 @@ export function projectNarrativeLines(params: {
   const topicLine = buildTopicLine(params.chat, params.messages, now);
   const scenarioLine = buildScenarioLine(params.chat, params.characters || [], now);
   return [
+    ...(usesConversationContinuity(params.chat) ? params.chat.worldState.conversationContinuity?.items || [] : [])
+      .filter((item) => item.status === 'open')
+      .map((item): NarrativeLineProjection => ({
+        id: `continuity:${item.key}`, conversationId: params.chat.id, type: 'goal',
+        title: item.kind === 'condition' ? '尚未满足的条件' : item.kind === 'commitment' ? '尚待兑现的承诺' : '未决事项',
+        summary: item.summary, participantIds: item.participantIds, visibility: 'public', status: 'active',
+        tension: 0, momentum: 0.5, salience: 0.64,
+        sourceEventIds: [], lastTouchedAt: item.updatedAt, openQuestions: [item.summary],
+        possibleNextBeats: [{ beatType: 'invite', targetActorIds: item.participantIds, pressure: 0.5, reason: item.summary }],
+      })),
     ...buildConflictLines(params.chat, now),
     ...buildRoomLines(params.chat, now),
     ...buildRelationshipLines(params.chat, params.characters || [], now),
@@ -591,5 +602,5 @@ export function projectNarrativeLines(params: {
 }
 
 export function selectPrimaryNarrativeLine(lines: NarrativeLineProjection[]) {
-  return lines.find((line) => line.salience >= 0.32) || null;
+  return lines.find((line) => line.status !== 'resolved' && line.status !== 'abandoned' && line.salience >= 0.32) || null;
 }

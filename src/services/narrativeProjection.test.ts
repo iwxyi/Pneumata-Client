@@ -106,7 +106,7 @@ describe('projectNarrativeLines', () => {
     expect(topic?.lastTouchedAt).toBe(0);
   });
 
-  it('projects the primary conflict as the highest-salience line', () => {
+  it.each([0.9, 0])('keeps an unresolved conflict at severity %s without escalating a cold one', (severity) => {
     const lines = projectNarrativeLines({
       chat: buildChat({
         worldState: {
@@ -116,7 +116,7 @@ describe('projectNarrativeLines', () => {
               id: 'conflict-1',
               scope: 'group',
               type: 'value_conflict',
-              severity: 0.9,
+              severity,
               stage: 'escalating',
               summary: '甲乙的价值冲突正在升级',
               participantIds: ['a'],
@@ -139,7 +139,9 @@ describe('projectNarrativeLines', () => {
     });
     expect(lines[0]?.id).toBe('conflict-1');
     expect(lines[0]?.type).toBe('conflict');
-    expect(lines[0]?.possibleNextBeats[0]?.beatType).toBe('escalate');
+    expect(lines[0]?.possibleNextBeats[0]?.beatType).toBe(severity === 0 ? 'answer' : 'escalate');
+    expect(lines[0]?.status).toBe('escalating');
+    if (severity === 0) expect(lines[0]?.possibleNextBeats[0]?.pressure).toBe(0.18);
   });
 
   it('filters draft actor ids from conflict narrative participants', () => {

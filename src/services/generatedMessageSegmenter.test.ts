@@ -27,6 +27,18 @@ function buildMessage(content: string, messageCount = 1): GeneratedRoundMessage 
 }
 
 describe('generatedMessageSegmenter', () => {
+  it('writes continuity only with the bubble containing its evidence, once', () => {
+    const base = buildMessage('先说到这。');
+    const segments = splitGeneratedRoundMessage({ ...base, extraMessages: ['我答应明天回来。', '我答应明天回来。'],
+      metadata: { ...base.metadata, conversationUpdate: { items: [{ key: 'return', kind: 'commitment', status: 'established',
+        participantIds: ['char-1'], summary: '明天回来', evidenceText: '我答应明天回来' }],
+        settled: { evidenceText: '先说到这' } } },
+    });
+    expect(segments[0].metadata?.conversationUpdate?.items).toEqual([]);
+    expect(segments[0].metadata?.conversationUpdate?.settled).toBeTruthy();
+    expect(segments[1].metadata?.conversationUpdate?.items).toHaveLength(1);
+    expect(segments[2].metadata?.conversationUpdate).toBeUndefined();
+  });
   it('keeps long speech as one committed bubble when only legacy beat count is requested', () => {
     const content = '不是我说，这个办法能用。但是你得先把前面的坑补上，不然后面全是连环炸。还有，别再把锅扣给别人了。';
     const segments = splitGeneratedMessageText(content, 2);

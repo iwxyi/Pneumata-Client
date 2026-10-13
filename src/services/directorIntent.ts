@@ -167,10 +167,16 @@ export function resolveDirectorIntent(params: {
     return resolveUserMessageDirectorIntent(latestMessage, params.characters);
   }
 
+  const primaryLine = selectPrimaryNarrativeLine((params.narrativeLines || []).filter((line) =>
+    line.visibility === 'public' || line.visibility === 'derived_public'));
+  const factualLine = selectPrimaryNarrativeLine((params.narrativeLines || []).filter((line) =>
+    line.type !== 'relationship' && (line.visibility === 'public' || line.visibility === 'derived_public')));
+
   if (pending?.targetIds.length) {
     return finalize({
       // AI-to-AI reply debt must not acquire user guidance locks.
       source: 'conversation_reply',
+      targetLineId: factualLine?.id,
       beatType: 'answer',
       targetActorIds: pending.targetIds,
       pressure: clampPressure((pending.strength === 'strong' ? 0.82 : 0.58) + Math.min(0.16, pending.unmetTurns * 0.04)),
@@ -180,9 +186,8 @@ export function resolveDirectorIntent(params: {
     });
   }
 
-  const primaryLine = selectPrimaryNarrativeLine(params.narrativeLines || []);
   if (primaryLine) {
-    return finalize(resolveLineIntent(primaryLine));
+    return finalize(resolveLineIntent(factualLine || primaryLine));
   }
 
   const primaryConflict = params.chat.worldState.conflictState?.primaryConflict || null;
@@ -194,9 +199,9 @@ export function resolveDirectorIntent(params: {
     return finalize({
       source: 'conflict',
       targetLineId: primaryConflict.id,
-      beatType: resolveConflictBeat(primaryConflict.nextPressure),
+      beatType: primaryConflict.severity === 0 ? 'answer' : resolveConflictBeat(primaryConflict.nextPressure),
       targetActorIds,
-      pressure: clampPressure(0.46 + primaryConflict.severity * 0.42),
+      pressure: clampPressure(primaryConflict.severity === 0 ? 0.18 : 0.46 + primaryConflict.severity * 0.42),
       reason: primaryConflict.summary || '主要矛盾仍在生效。',
     });
   }

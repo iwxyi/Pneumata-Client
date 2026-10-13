@@ -273,9 +273,27 @@ describe('openChatEngine.onMessageCommitted', () => {
       .filter((event) => event.kind === 'interaction')
       .flatMap((event) => event.targetIds || []);
     expect(interactionTargets).toEqual(expect.arrayContaining(['b', 'c']));
-    expect(nextChat.worldState.structuredRoomState?.conflictPairs).toContainEqual(['a', 'b']);
-    expect(nextChat.worldState.structuredRoomState?.alliances).toContainEqual(['a', 'c']);
+    expect(nextChat.worldState.structuredRoomState?.conflictPairs).toEqual([]);
+    expect(nextChat.worldState.structuredRoomState?.alliances).toEqual([]);
     expect(nextChat.worldState.structuredRoomState?.cohesion).toBe(0);
+  });
+
+  it('commits sourced continuity and explicit room structure through the real engine patch', async () => {
+    const chat = buildChat();
+    const result = await openChatEngine.onMessageCommitted({ conversation: chat,
+      characters: [buildCharacter('a', '甲'), buildCharacter('b', '乙')],
+      message: { id: 'evidence', timestamp: 20, type: 'ai', senderId: 'a', content: '我会站在你这边。先到这里。',
+        metadata: { conversationUpdate: { items: [{ key: 'support', kind: 'commitment', status: 'established',
+          summary: '甲承诺支持乙', participantIds: ['a', 'b'], evidenceText: '我会站在你这边' }],
+          room: { addAlliances: [['a', 'b']], evidenceText: '我会站在你这边' },
+          settled: { evidenceText: '先到这里' } } } },
+    });
+    const next = applyResultToChat(chat, result);
+    expect(next.worldState.conversationContinuity?.items[0].sourceMessageIds).toEqual(['evidence']);
+    expect(next.worldState.conversationContinuity?.settledAt).toBe(20);
+    expect(next.worldState.structuredRoomState?.alliances).toEqual([['a', 'b']]);
+    expect(readRuntimeEvents(result).filter((event) => event.evidenceMessageIds?.includes('evidence'))
+      .map((event) => event.kind)).toEqual(expect.arrayContaining(['action_resolution', 'room_shift']));
   });
 
   it('normalizes non-array social event hints during commit', async () => {

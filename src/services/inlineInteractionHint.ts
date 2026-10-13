@@ -9,6 +9,9 @@ import { hasVisibleStoryEvents, normalizeStoryEvents, resolveStoryBeatPlan } fro
 import { resolveStoryReaderRole } from './storyChoices';
 import { resolveSessionFamilyKey } from './sessionEngineKeys';
 import { getPromptSpeakerLabel, getPromptTurnTypeLabel, isHumanDirectedMessage } from './chatMessageSemantics';
+import { buildConversationContinuityContext, normalizeConversationUpdate, usesConversationContinuity } from './conversationContinuity';
+import type { ConversationUpdate } from '../types/conversationContinuity';
+import { sanitizeUserFacingText } from './displayTextSanitizer';
 
 export interface InlineStoryChoice {
   label: string;
@@ -90,6 +93,7 @@ export interface InlineDeliberationArtifacts {
 }
 
 export interface InlineInteractionEnvelope {
+  conversationUpdate?: ConversationUpdate | null;
   content: string;
   messages?: Array<{
     content: string;
@@ -306,6 +310,7 @@ function sanitizeEnvelope(envelope: InlineInteractionEnvelope): InlineInteractio
     messages,
     socialEventHints: normalizeSocialEventHints(envelope.socialEventHints),
     conflictFocus: sanitizeConflictFocus(envelope.conflictFocus),
+    conversationUpdate: normalizeConversationUpdate(envelope.conversationUpdate),
     storyEvents: normalizeStoryEvents(envelope.storyEvents),
     deliberationArtifacts: sanitizeDeliberationArtifacts(envelope.deliberationArtifacts),
     presenceUpdate: sanitizePresenceUpdate(envelope.presenceUpdate),
@@ -573,6 +578,14 @@ ${transcriptScope}${recentSocialEvents ? `\n\nRecent social events to avoid dupl
     : '';
 
   const interactionKinds = 'support|challenge|mock|dismiss|defend|evade|probe|pile_on|redirect|apologize|concede|take_responsibility|include|exclude|boundary|side_comment';
+  const continuityEnabled = usesConversationContinuity(params.chat);
+  const continuityContext = continuityEnabled ? buildConversationContinuityContext(params.chat, params.characters) : '';
+  const continuityRule = continuityEnabled ? `\nconversationUpdate extracts durable changes supported by this speaker's visible sends. Use null when nothing changes. Otherwise use {"items":[{"key":"short-stable-key","kind":"issue|commitment|decision|condition","status":"open|established|resolved|retracted","summary":"the actual issue, promise, decision or condition","participantIds":[],"evidenceText":"short exact quote from this turn"}],"room":null,"settled":null}.
+Reuse the known key when updating an item. Omitted items remain unchanged. Record an issue or unmet condition as open; an explicitly accepted decision or promise as established. Resolve only the actual issue addressed, retract only a visibly withdrawn promise or decision. A role assignment is not permission to start a battle; agreement about one part does not settle unspoken prerequisites. Do not invent obstacles, deadlines, motives or conflict. Extract what is said, including a concrete unanswered point or commitment, without requiring one every turn. Empty participantIds means a roomwide issue. Never use hidden/private material as public evidence.
+Keep each item atomic: its exact quote must support the whole summary, not just one part. participantIds identifies the people responsible for or directly involved in that item; include the speaker for their own promise. Assigning a task to someone else is an open proposal until that person accepts it; the assignment alone cannot establish their commitment. A speaker's own explicit promise can be established immediately. Track a new concrete promise even if the same turn also confirms an older decision; reuse a key only for the same obligation. An open proposal may become an established decision under the same key, with an explicit kind/status update. A partial acceptance must preserve who has not yet accepted; it cannot establish everyone's commitment.
+room optionally reports explicit structural changes: {"addAlliances":[],"removeAlliances":[],"addConflictPairs":[],"removeConflictPairs":[],"pileOnTarget":null,"silencedActors":[],"evidenceText":"short exact quote from this turn"}. Pairs use two valid member ids. Omit unchanged fields; null pileOnTarget explicitly clears it. Agreement alone does not form an alliance; disagreement alone does not form a lasting opposition.
+settled is {"evidenceText":"short exact quote from this turn"} only when the visible exchange can pause here, with no immediate answer still requested. Unfinished matters may remain for later; do not repeatedly reconfirm a completed decision or invent a new issue to keep airtime. This pauses automatic chat, not the unresolved facts. These are internal protocol fields, never visible dialogue.
+Known public continuity (keys are only for writeback):\n${continuityContext || '(none recorded)'}` : '';
   const interactionRule = isOrdinaryConversation
     ? `${compactInteractionRule}${aiDirectInteractionRules}`
     : `Before writing, appraise the latest visible human turn's immediate effect on the current speaker. If that latest turn is from the user or director and it clearly warms, needles, embarrasses, pressures, reassures, alarms, or excites this speaker, emit incomingImpact as {"kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from the human turn","reason":"why that quote has this effect","immediateImpact":{"targetEmotionDelta":{"irritation":8,"insecurity":4}}}; otherwise incomingImpact is null. The incoming targetEmotionDelta is the immediate effect on the current speaker, not a relationship change. Let that appraisal genuinely shape the visible reply before reporting it. interactionHints is the outgoing fast-affect channel: emit it whenever the speaker's own words clearly land on a particular member by warming them, needling them, embarrassing them, putting them on the spot, defending them, dismissing them, apologizing or conceding to them, taking responsibility toward them, including or excluding them, setting a boundary, making them wary, or making them excited. Do not omit a hint merely because the exchange is ordinary or because the slow relationship does not change. Use null only when no member-specific emotional effect is visible. When used, targetId must be a member id: {"primary":{"targetId":"member-id","kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from this reply","reason":"why the quote has this effect","immediateImpact":{"speakerEmotionDelta":{"irritation":-8},"targetEmotionDelta":{"insecurity":12},"roomDelta":{"heat":5,"cohesion":-2,"topicDrift":0}},"relationship":null},"secondary":[]}. immediateImpact is your semantic judgement of this visible line, not a local keyword score: use signed integer deltas, emotion axes within -40..40 and room axes within -20..20. Positive raises an axis and negative releases it. Put the whole-turn speaker release and room effect on primary only; secondary hints contain only their own targetEmotionDelta so effects are not duplicated. Omit zero axes. evidenceText is required, must be a short exact substring of the visible source turn, and must support the chosen kind, tone, and impact by itself; never use the whole reply as evidence. Classify what the quoted words actually do, not their hoped-for outcome: admitting fault is apologize or take_responsibility, yielding a point is concede, and naming who was left out is exclude rather than support. intensity is the immediate spike (1-5), not a permanent score: one sharp line may be 4-5, a small sting or warmth 1-2. The interaction event may exist without any lasting relationship change. Include relationship only when this turn itself gives evidence for a slow relationship update: {"delta":{"warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0},"labels":["meaning"],"stance":"stance"}. attachment and deference are especially slow axes: omit them or keep them within -2..2 unless this turn contains a real turning point. Omit uncertain hints.${aiDirectInteractionRules}`;
@@ -580,18 +593,23 @@ ${transcriptScope}${recentSocialEvents ? `\n\nRecent social events to avoid dupl
   const socialRule = `socialEventHints: null unless the visible turn itself proposes, commits to, updates, or cancels a concrete activity or social event. It is the only model-authored source for those events; the runtime will not infer them from keywords. For an outing, include member-id participantIds/targetIds, title, activityType, timeHint, locationHint, participantStates, and the existing dedupeKey when updating. Include "user" when the user is an invited or participating member.`;
   return `${mediaCapabilityInstruction}\n## Output Contract
 Return exactly one JSON object. It must be parseable. messages is the ordered list of this speaker's visible sends, including a single send; use null for absent fields and never expose protocol text.
-{"messages":[{"content":"visible send"${mediaExample}}],"intentionalRepeat":false${deliberationExample}${studyUpdateExample},"presenceUpdate":null,"conflictFocus":null,"incomingImpact":null,"interactionHints":null,"addressedTargets":null,"socialEventHints":null${toolRequestExample}}
+{"messages":[{"content":"visible send"${mediaExample}}],"intentionalRepeat":false${deliberationExample}${studyUpdateExample},"presenceUpdate":null,"conflictFocus":null,"incomingImpact":null,"interactionHints":null,"addressedTargets":null,"socialEventHints":null${continuityEnabled ? ',"conversationUpdate":null' : ''}${toolRequestExample}}
 
 Each messages[] item has non-empty content and optional mediaDecision. No duplicate top-level content or extraMessages is needed. Audio must be the only media in its item. Write only this speaker. Unless a formal deliverable is requested, this is chat even when the topic is serious: punctuation follows the voice and moment, not a mandatory full stop on every bubble.${sendBoundaryRule}${deliveryPolicyRules}
 
 intentionalRepeat is false unless repeating wording, cadence, or a marker is the deliberate social move; do not use it to excuse template drift. presenceUpdate is null unless the speaker explicitly goes away, returns, or states an actual availability change.
 ${interactionRule}
 ${addressedTargetRule}
+${continuityRule}
 ${socialRule}
 ${isStudyRoom ? 'studyUpdate is required for every learning-progress reply: this is the teacher\'s explicit judgement of the most recent learner turn, not optional bookkeeping. Return a non-null object with phase and knowledgeObservations. Record only knowledge actually introduced, practiced, demonstrated, corrected, or checked in the visible exchange. For the same underlying knowledge point already in the known learning map, copy its exact knowledgeItemId as one ID token even if you phrase its title differently; never shorten the ID or append the title to it. Use null only for a genuinely new point. Use exposed for newly introduced material, practicing when the learner attempts it, usable when they apply it successfully with some support, and verified only after clear independent evidence. If the learner gives no assessable answer, still return knowledgeObservations:[] with the phase; never use null merely because the turn is conversational. Never infer mastery from encouragement, topic mention, or one untested explanation. evidenceSummary must point to the exact learner attempt or the concrete material just taught.' : ''}
 Valid member ids:
 ${buildMemberReference({ chat: params.chat, characters: params.characters, speakerId: params.speaker.id })}
-conflictFocus tracks the current live contradiction, not only brand-new conflicts. If a concrete contradiction is visible in the recent transcript, keep it non-null and mark whether this turn opens, escalates, cools, redirects, resolves, or leaves it unresolved. Use null only when there is genuinely no live contradiction; never invent one merely to add drama.${mediaRules}${expressiveAudioOverride}${deliberationRules}
+conflictFocus tracks the current live contradiction, not only brand-new conflicts. Use {"present":true,"conflictId":null,"type":"goal_conflict","severity":0.6,"stage":"open","summary":"concrete contradiction","participantIds":[],"primaryTargetIds":[],"nextPressure":"stabilize","developmentHooks":[],"why":"visible grounds"}. Valid stages: latent, emerging, open, escalating, fragmented, cooling, resolved. Use the existing conflictId to update, cool or resolve the same contradiction. Lower severity is allowed for an existing conflict; cooling is not resolution. Null means no update, never resolution. Do not invent a contradiction merely to add drama.
+Known conflicts for writeback: ${JSON.stringify(Array.from(new Map([
+    ...(params.chat.worldState?.conflictState?.primaryConflict ? [params.chat.worldState.conflictState.primaryConflict] : []),
+    ...(params.chat.worldState?.conflictState?.activeConflicts || []),
+  ].map((conflict) => [conflict.id, conflict])).values()).map((conflict) => ({ conflictId: conflict.id, summary: sanitizeUserFacingText(conflict.summary, params.characters), stage: conflict.stage })))}.${mediaRules}${expressiveAudioOverride}${deliberationRules}
 ${toolRule}
 Recent transcript scope: ${transcriptScope}${recentSocialEvents ? `\nRecent social events: ${recentSocialEvents}` : ''}`;
 }

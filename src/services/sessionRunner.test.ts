@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import { runSessionLoop } from './sessionRunner';
+import { runSessionLoop, shouldPauseSettledConversation } from './sessionRunner';
 import { GenerationCancelledError } from './generationCancellation';
 
 const runOneRoundMock = vi.fn();
@@ -234,6 +234,19 @@ function buildLoopParams(chat: GroupChat) {
 }
 
 describe('runSessionLoop', () => {
+  it('pauses a newly settled group only after pending replies are answered', () => {
+    const before = buildChat({ mode: 'open_chat', sessionKind: { topology: 'group', family: 'conversation', scenarioId: 'open-chat', surfaceProfile: 'text' } });
+    const after = { ...before, worldState: { ...before.worldState, conversationContinuity: { items: [], settledAt: 10 } } };
+    const characters = buildLoopParams(before).characters;
+    const request: Message = { id: 'request', chatId: before.id, type: 'ai', senderId: 'a', senderName: '甲',
+      content: '乙，你说呢？', timestamp: 1, emotion: 0, isDeleted: false, addressedTargetIds: ['b'], primaryAddressedTargetId: 'b' };
+    expect(shouldPauseSettledConversation(before, after, characters, [request])).toBe(false);
+    expect(shouldPauseSettledConversation(before, after, characters, [request,
+      { ...request, id: 'answer', senderId: 'b', content: '今天先到这。', addressedTargetIds: [], primaryAddressedTargetId: null },
+    ])).toBe(true);
+    expect(shouldPauseSettledConversation(after, after, characters, [])).toBe(false);
+    expect(shouldPauseSettledConversation(before, { ...after, type: 'direct' }, characters, [])).toBe(false);
+  });
   it.each(['direct', 'ai_direct'] as const)('pauses %s after committing every bubble from one generation', async (type) => {
     runSessionCommitPipelineMock.mockImplementation(async (args) => buildCommitPipelineResult(args));
     runOneRoundMock.mockImplementation(async (_chat, _characters, _messages, _api, hooks) => {
