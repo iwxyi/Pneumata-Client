@@ -165,6 +165,7 @@ function MessageImageAttachment({
     <Box
       sx={{
         display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr)',
         gap: 0.45,
         width,
         minWidth: 0,
@@ -174,6 +175,8 @@ function MessageImageAttachment({
     >
       <Box
         sx={{
+          minWidth: 0,
+          maxWidth: '100%',
           borderRadius: 1.5,
           overflow: 'hidden',
           bgcolor: 'action.hover',
@@ -200,6 +203,7 @@ function MessageImageAttachment({
             }}
             sx={{
               width: '100%',
+              boxSizing: 'border-box',
               height: 'auto',
               maxHeight: isSticker ? 'min(56vh, 240px)' : 'min(56vh, 520px)',
               objectFit: 'contain',
@@ -335,7 +339,9 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
     const width = getAttachmentDisplayWidth({ displaySize: knownSize, ratioValue, maxWidth, maxHeight });
     return {
       width,
+      minWidth: 0,
       maxWidth: '100%',
+      boxSizing: 'border-box' as const,
       maxHeight: isSticker ? 'min(56vh, 240px)' : 'min(56vh, 520px)',
       justifySelf: 'start',
       aspectRatio: ratio,
@@ -369,7 +375,7 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
       return (
         <Box key={attachment.id} sx={getMediaFrameStyle(attachment)}>
           <Box sx={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', p: 1.5, textAlign: 'center' }}>
-            <Box sx={{ display: 'grid', gap: 0.75, maxWidth: '85%' }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.75, minWidth: 0, maxWidth: '85%' }}>
               <Typography variant="caption" color={attachment.status === 'failed' ? 'error' : 'text.secondary'}>
                 {getAttachmentStatusLabel(attachment)}
               </Typography>
@@ -380,7 +386,7 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
                 </Typography>
               ) : null}
               {canRetryAttachment && onRetryMedia ? (
-                <Button size="small" variant="outlined" color={attachment.status === 'failed' ? 'error' : 'primary'} onClick={() => void onRetryMedia?.(message, attachment.id)}>
+                <Button size="small" variant="outlined" color={attachment.status === 'failed' ? 'error' : 'primary'} sx={{ minWidth: 0 }} onClick={() => void onRetryMedia?.(message, attachment.id)}>
                   重试
                 </Button>
               ) : null}
@@ -399,8 +405,8 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
       const estimatedDurationMs = estimateAudioDurationMs(attachment);
       const loadingWidth = Math.round(Math.min(300, Math.max(142, 118 + (estimatedDurationMs / 1000) * 9)));
       return (
-        <Box key={attachment.id} sx={{ width: loadingWidth, maxWidth: '100%', borderRadius: 999, border: '1px solid', borderColor: 'divider', px: 1.25, py: 0.75, bgcolor: 'action.hover' }}>
-          <Typography variant="caption" color={attachment.status === 'failed' ? 'error.main' : 'text.secondary'}>
+        <Box key={attachment.id} sx={{ width: loadingWidth, minWidth: 0, maxWidth: '100%', overflow: 'hidden', borderRadius: 999, border: '1px solid', borderColor: 'divider', px: 1.25, py: 0.75, bgcolor: 'action.hover' }}>
+          <Typography variant="caption" color={attachment.status === 'failed' ? 'error.main' : 'text.secondary'} sx={{ overflowWrap: 'anywhere' }}>
             {attachment.status === 'failed' ? getAttachmentStatusDetail(attachment) : getAttachmentStatusLabel(attachment)}
           </Typography>
           {attachment.status !== 'failed' ? <LinearProgress sx={{ mt: 0.5 }} /> : null}
@@ -414,7 +420,7 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
     }
     if (attachment.kind === 'file') {
       return (
-        <Box key={attachment.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, maxWidth: 360 }}>
+        <Box key={attachment.id} sx={{ display: 'flex', alignItems: 'center', gap: 1, p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5, minWidth: 0, maxWidth: 'min(360px, 100%)', width: 'fit-content' }}>
           <Typography variant="body2" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.fileName || attachment.altText}</Typography>
           <Button size="small" onClick={() => downloadChatFile({ name: attachment.fileName || attachment.altText, mimeType: attachment.mimeType, url: attachment.url, textContent: attachment.textContent })}>下载</Button>
         </Box>
@@ -422,8 +428,10 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
     }
     return null;
   };
+  // An auto grid track keeps media's intrinsic width even after the bubble
+  // shrinks. Allow the track itself to shrink so maxWidth on attachments applies.
   return (
-    <Box sx={{ display: 'grid', gap: 0.9, width: compactMediaLayout ? 'fit-content' : 'auto', minWidth: 0, maxWidth: '100%' }}>
+    <Box sx={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 0.9, width: compactMediaLayout ? 'fit-content' : 'auto', minWidth: 0, maxWidth: '100%' }}>
       {visibleContentParts.map((part, index) => {
         if (part.kind === 'text') {
           if (!part.text.trim()) return null;
@@ -441,7 +449,7 @@ export function MessageContent({ message, onRetryMedia, onOpenImage, onOpenPromp
         const attachment = findAttachmentBySlotId(part.slotId);
         if (!attachment) {
           return (
-            <Box key={`missing-attachment-${part.slotId}-${index}`} sx={{ borderRadius: 1.5, border: '1px dashed', borderColor: 'divider', px: 1.25, py: 1, color: 'text.secondary' }}>
+            <Box key={`missing-attachment-${part.slotId}-${index}`} sx={{ minWidth: 0, maxWidth: '100%', overflowWrap: 'anywhere', borderRadius: 1.5, border: '1px dashed', borderColor: 'divider', px: 1.25, py: 1, color: 'text.secondary' }}>
               <Typography variant="caption">{part.altText || '图片'}的生成任务数据缺失</Typography>
             </Box>
           );

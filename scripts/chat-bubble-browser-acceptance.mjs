@@ -42,6 +42,7 @@ await new Promise((res, rej) => { socket.addEventListener('open', res, { once: t
 let nextId = 0;
 const pending = new Map();
 const errors = [];
+let pendingPageLoad;
 socket.addEventListener('message', ({ data }) => {
   const event = JSON.parse(data.toString());
   if (event.id) {
@@ -51,6 +52,8 @@ socket.addEventListener('message', ({ data }) => {
     clearTimeout(entry.timeout);
     if (event.error) entry.reject(new Error(JSON.stringify(event.error)));
     else entry.resolve(event.result);
+  } else if (event.method === 'Page.loadEventFired') {
+    pendingPageLoad?.();
   } else if (event.method === 'Runtime.exceptionThrown') {
     errors.push(event.params.exceptionDetails.exception?.description || event.params.exceptionDetails.text);
   }
@@ -78,6 +81,20 @@ async function evaluate(expression) {
   return result.result?.value;
 }
 const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+async function reloadPage() {
+  let timeout;
+  const loaded = new Promise((resolve, reject) => {
+    pendingPageLoad = resolve;
+    timeout = setTimeout(() => reject(new Error('Page reload load-event timeout')), 30000);
+  });
+  try {
+    await send('Page.reload');
+    await loaded;
+  } finally {
+    clearTimeout(timeout);
+    pendingPageLoad = undefined;
+  }
+}
 async function waitFor(expression) {
   for (let attempt = 0; attempt < 200; attempt++) {
     if (await evaluate(`Boolean(${expression})`)) return;
@@ -105,10 +122,11 @@ try {
     for (const store of [useSettingsStore, useChatStore, useCharacterStore, useMessageStore, useUIStore]) {
       if (!store.persist.hasHydrated()) await store.persist.rehydrate();
     }
-    await Promise.all([useChatStore.getState().loadChats(), useCharacterStore.getState().loadCharacters()]);
+    await Promise.all([useChatStore.getState().loadChats(), useCharacterStore.getState().loadCharacters(), useSettingsStore.getState().loadSettings()]);
     useSchedulerStore.getState().stop();
     useSchedulerStore.getState().pause();
-    useSettingsStore.setState({enableStreamingDisplayAnimation: true, developerMode: false});
+    useSettingsStore.setState({enableStreamingDisplayAnimation: true, developerMode: false,
+      aiProfiles: [${JSON.stringify(profile)}], api: ${JSON.stringify(profile)}});
     const now = Date.now();
     const base = {avatar: '', personality: types.DEFAULT_PERSONALITY, behavior: types.DEFAULT_CHARACTER_BEHAVIOR,
       expertise: [], relationships: [], memory: types.DEFAULT_CHARACTER_MEMORY, intervention: types.DEFAULT_CHARACTER_INTERVENTION,
@@ -199,8 +217,11 @@ try {
       await writeFile(resolve(reportDir, `${type}-${name}.png`), Buffer.from(screenshot.data, 'base64'));
     }
     await send('Emulation.clearDeviceMetricsOverride');
-    await send('Page.reload');
-    await wait(1000);
+    results.push(result);
+    await writeFile(resolve(reportDir, 'report.json'), JSON.stringify({results, errors}, null, 2));
+    await reloadPage();
+    // Let the application load its store modules before resolving importLive.
+    await waitFor('document.querySelector("[data-chat-message-list]")');
     await evaluate(`(async () => {
       const [{useChatStore}, {useCharacterStore}] = await Promise.all([importLive('/src/stores/useChatStore.ts'), importLive('/src/stores/useCharacterStore.ts')]);
       await Promise.all([useChatStore.getState().loadChats(), useCharacterStore.getState().loadCharacters()]);
@@ -211,7 +232,6 @@ try {
     await wait(600);
     result.afterReload = await evaluate(`Array.from(document.querySelectorAll('[data-message-id]')).map(el => el.dataset.messageId)`);
     for (const m of result.messages) if (!result.afterReload.includes(m.id)) result.failures.push(`Bubble lost after reload: ${m.id}`);
-    results.push(result);
     console.log(JSON.stringify(result));
   }
 } catch (error) {

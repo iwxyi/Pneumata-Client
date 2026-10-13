@@ -150,7 +150,7 @@ export function VoicePlaybackBar({
       '--voice-accent': theme.palette.primary.main,
       '--voice-secondary': theme.palette.secondary.main,
       '--voice-muted': theme.palette.mode === 'dark' ? 'rgba(255,255,255,.24)' : 'rgba(15,23,42,.18)',
-      display: 'grid', gap: transcript ? 0.55 : 0, width: 'min(320px, 100%)', maxWidth: '100%',
+      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: transcript ? 0.55 : 0, width: 'min(320px, 100%)', minWidth: 0, maxWidth: '100%',
     })}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.65, px: 0.9, py: 0.55, borderRadius: 2.5, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
         <audio {...audioProps} style={{ display: 'none' }} />
@@ -165,7 +165,7 @@ export function VoicePlaybackBar({
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={Math.round(progress * 100)}
-          sx={{ position: 'relative', flex: 1, height: 30, cursor: 'pointer', touchAction: 'none', outline: 'none', '&:focus-visible': { borderRadius: 1, boxShadow: '0 0 0 2px rgba(255,112,67,.48)' }, '@keyframes voiceEchoRing': { '0%': { transform: 'scale(.55)', opacity: 0 }, '35%': { opacity: 0.75 }, '100%': { transform: 'scale(1.08)', opacity: 0 } }, '@keyframes voiceStarPulse': { '0%, 100%': { transform: 'scale(.72)', opacity: 0.55 }, '50%': { transform: 'scale(1.35)', opacity: 1 } }, '@keyframes voiceHelix': { '0%, 100%': { transform: 'translateY(-5px)' }, '50%': { transform: 'translateY(5px)' } }, '@keyframes voiceComet': { from: { strokeDashoffset: 280 }, to: { strokeDashoffset: -30 } }, '@media (prefers-reduced-motion: reduce)': { '& .voice-playback-motion': { animation: 'none !important' } } }}
+          sx={{ position: 'relative', flex: 1, minWidth: 0, height: 30, cursor: 'pointer', touchAction: 'none', outline: 'none', '&:focus-visible': { borderRadius: 1, boxShadow: '0 0 0 2px rgba(255,112,67,.48)' }, '@keyframes voiceEchoRing': { '0%': { transform: 'scale(.55)', opacity: 0 }, '35%': { opacity: 0.75 }, '100%': { transform: 'scale(1.08)', opacity: 0 } }, '@keyframes voiceStarPulse': { '0%, 100%': { transform: 'scale(.72)', opacity: 0.55 }, '50%': { transform: 'scale(1.35)', opacity: 1 } }, '@keyframes voiceHelix': { '0%, 100%': { transform: 'translateY(-5px)' }, '50%': { transform: 'translateY(5px)' } }, '@keyframes voiceComet': { from: { strokeDashoffset: 280 }, to: { strokeDashoffset: -30 } }, '@media (prefers-reduced-motion: reduce)': { '& .voice-playback-motion': { animation: 'none !important' } } }}
           onPointerDown={(event) => { event.currentTarget.setPointerCapture(event.pointerId); seekAt(event.clientX); }}
           onPointerMove={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) seekAt(event.clientX); }}
           onPointerUp={(event) => { if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); seekAt(event.clientX); }}
