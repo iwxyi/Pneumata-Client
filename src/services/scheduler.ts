@@ -216,7 +216,7 @@ function getForcedUserGuidanceActorIds(directorIntent?: DirectorIntent | null) {
   return directorIntent.beatType === 'answer' ? directorIntent.targetActorIds : [];
 }
 
-export function resolvePendingReplyContext(characters: AICharacter[], recentMessages: Message[]): PendingReplyContext | null {
+export function resolvePendingReplyContext(characters: AICharacter[], recentMessages: Message[], chat?: GroupChat): PendingReplyContext | null {
   const recentAiMessages = recentMessages.filter((message) => message.type === 'ai' && !message.isDeleted);
   if (!recentAiMessages.length) return null;
 
@@ -237,7 +237,12 @@ export function resolvePendingReplyContext(characters: AICharacter[], recentMess
     const possibleTargets = explicit
       .concat(getReplyWorthyInteractionTargetIds(candidate, characters))
       .filter((targetId, index, array): targetId is string => Boolean(targetId) && array.indexOf(targetId) === index)
-      .filter((targetId) => targetId !== candidate.senderId && characters.some((character) => character.id === targetId));
+      .filter((targetId) => targetId !== candidate.senderId && characters.some((character) => (
+        character.id === targetId && !character.deletedAt && (!chat || !isChatMemberMuted(chat, targetId))
+        && isCharacterAvailableForScheduling(character)
+        && !((character.presence?.lastAwayAt
+          ?? (character.presence?.unavailableUntil ? character.presence.updatedAt : 0)) > candidate.timestamp)
+      )));
     const unresolvedTargets = possibleTargets.filter((targetId) => (
       !recentWindow.slice(sourceIndex + 1).some((message) => message.senderId === targetId)
     ));

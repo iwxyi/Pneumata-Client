@@ -27,6 +27,15 @@ function buildMessage(content: string, messageCount = 1): GeneratedRoundMessage 
 }
 
 describe('generatedMessageSegmenter', () => {
+  it('commits departure only once with its evidence bubble for modern messages', () => {
+    const base = buildMessage('先说一件事。');
+    const segments = splitGeneratedRoundMessage({ ...base,
+      messageParts: [{ content: '先说一件事。' }, { content: '我去襄阳了。' }, { content: '我去襄阳了。' }],
+      metadata: { activityUpdate: { title: '探路', kind: 'travel', status: 'in_progress', startsNow: true,
+        availability: 'away', evidenceText: '我去襄阳了' } },
+    });
+    expect(segments.map((item) => Boolean(item.metadata?.activityUpdate))).toEqual([false, true, false]);
+  });
   it('writes continuity only with the bubble containing its evidence, once', () => {
     const base = buildMessage('先说到这。');
     const segments = splitGeneratedRoundMessage({ ...base, extraMessages: ['我答应明天回来。', '我答应明天回来。'],

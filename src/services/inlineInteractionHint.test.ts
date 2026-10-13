@@ -5,6 +5,15 @@ import { normalizeInteractionHintCollection } from '../types/runtimeEvent';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
 
 describe('parseInlineInteractionEnvelope story events', () => {
+  it('preserves calendar fields and a multi-day departure in the production envelope', () => {
+    const parsed = parseInlineInteractionEnvelope(JSON.stringify({ messages: [{ content: '我去襄阳，三日后回来。' }],
+      activityUpdate: { title: '探路', kind: 'travel', status: 'in_progress', startsNow: true,
+        durationMinutes: 4320, locationHint: '襄阳', availability: 'away', evidenceText: '三日后回来' },
+      presenceUpdate: { status: 'away', durationMinutes: 4320, evidenceText: '三日后回来' },
+    }));
+    expect(parsed?.activityUpdate).toMatchObject({ kind: 'travel', durationMinutes: 4320, locationHint: '襄阳' });
+    expect(parsed?.presenceUpdate?.durationMinutes).toBe(4320);
+  });
   it('preserves normalized continuity writeback from the production messages envelope', () => {
     const parsed = parseInlineInteractionEnvelope(JSON.stringify({
       messages: [{ content: '每天戌时我来点粮。' }],
@@ -469,8 +478,12 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     });
 
     expect(contract).toContain('socialEventHints: null unless the visible turn itself proposes');
-    expect(contract).toContain('runtime will not infer them from keywords');
-    expect(contract).toContain('participantIds/targetIds');
+    expect(contract).toContain('"eventKind":"social_outing"');
+    expect(contract).toContain('eventKind is REQUIRED');
+    expect(contract).toContain('"participantIds"');
+    expect(contract).toContain('"targetIds"');
     expect(contract).toContain('existing dedupeKey when updating');
+    expect(contract).toContain('availability changes ONLY this speaker');
+    expect(contract).toContain('future plans are planned and never set current availability');
   });
 });

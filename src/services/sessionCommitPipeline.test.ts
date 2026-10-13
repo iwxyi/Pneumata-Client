@@ -161,6 +161,25 @@ function buildDistilledCandidate(ownerId: string, text: string, kind: MemoryCand
 }
 
 describe('runSessionCommitPipeline', () => {
+  it('persists an activity and departure through the legacy updateChat commit path', async () => {
+    const chat = buildChat();
+    const updateChat = vi.fn(async () => undefined);
+    const updateCharacter = vi.fn(async () => undefined);
+    const result = await runPersistedSessionCommitRuntime({ api: DEFAULT_API_CONFIG, chatId: chat.id, chat,
+      characters: [buildCharacter('char-a', '甲'), buildCharacter('char-b', '乙')],
+      message: { id: 'departure', chatId: chat.id, type: 'ai', senderId: 'char-a', senderName: '甲',
+        content: '我去睡了。', emotion: 0, timestamp: Date.now(), isDeleted: false,
+        metadata: { activityUpdate: { title: '睡觉', kind: 'rest', status: 'in_progress', startsNow: true,
+          durationMinutes: 480, availability: 'away', evidenceText: '我去睡了' } } },
+      currentMessages: [], onCommit: async () => ({ chatPatch: {}, characterPatches: [], runtimeEvents: [] }),
+      updateCharacter, updateChat, appendEventMessage: vi.fn(async () => undefined), recordSpeak: vi.fn(),
+    });
+    expect(updateChat).toHaveBeenCalledWith(chat.id, expect.objectContaining({ runtimeEventsV2: [expect.objectContaining({ kind: 'calendar_item_patch' })] }));
+    expect(updateCharacter).toHaveBeenCalledWith('char-a', expect.objectContaining({ presence: expect.objectContaining({ status: 'away' }) }));
+    expect(result.nextChat.runtimeEventsV2).toHaveLength(1);
+    expect(result.nextCharacters[0].presence?.status).toBe('away');
+    await __flushDeferredCalendarAutoPatchForTests();
+  });
   it('persists memory reactivation events after old memories are used in a generated reply', async () => {
     const chat = buildChat();
     const archivedMemory: MemoryItem = {

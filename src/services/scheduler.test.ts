@@ -312,6 +312,24 @@ describe('scheduler speaker scoring', () => {
     });
   });
 
+  it('drops reply debt for departed actors and does not revive it after their return', () => {
+    const addressed = { id: 'departure-question', type: 'ai', senderId: 'a', content: '路上小心。',
+      timestamp: Date.now() - 1000, addressedTargetIds: ['b'], primaryAddressedTargetId: 'b' } as Message;
+    const b = buildCharacter('b', '乙', { presence: { status: 'away', updatedAt: Date.now(), unavailableUntil: Date.now() + 60_000 } });
+    const a = buildCharacter('a', '甲');
+    expect(resolvePendingReplyContext([a, b], [addressed])).toBeNull();
+    expect(resolvePendingReplyContext([a, { ...b, presence: { ...b.presence!, status: 'online' } }], [addressed])).toBeNull();
+    expect(resolvePendingReplyContext([a, buildCharacter('b', '乙')], [addressed])?.primaryTargetId).toBe('b');
+  });
+
+  it('keeps reply debt when an online actor merely updates their activity', () => {
+    const addressed = Object.assign(buildMessage({ senderId: 'a', timestamp: 1000 }), {
+      addressedTargetIds: ['b'], primaryAddressedTargetId: 'b',
+    });
+    const b = buildCharacter('b', '乙', { presence: { status: 'online', updatedAt: 2000, activity: '修器械' } });
+    expect(resolvePendingReplyContext([buildCharacter('a', '甲'), b], [addressed])?.primaryTargetId).toBe('b');
+  });
+
   it('settles an earlier reply debt after the addressed member speaks', () => {
     const characters = [buildCharacter('a', '甲'), buildCharacter('b', '乙'), buildCharacter('c', '丙')];
     const addressed = buildMessage({ id: 'm1', senderId: 'a', senderName: '甲', content: '乙，这件事你来答。', timestamp: 1 }) as Message & {

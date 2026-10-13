@@ -691,6 +691,9 @@ export default function WorldCalendarPanel({
                         {scheduleHint ? <Chip size="small" icon={<ScheduleIcon />} sx={calendarMetaChipSx} label={scheduleHint} /> : null}
                         {item.locationHint ? <Chip size="small" icon={<PlaceIcon />} sx={calendarMetaChipSx} label={item.locationHint} /> : null}
                         {item.participantNames.length ? <Chip size="small" icon={<GroupsIcon />} sx={calendarMetaChipSx} label={item.participantNames.join('、')} /> : null}
+                        {Object.entries(item.availabilityByActor || {}).map(([actorId, availability]) => (
+                          <Chip key={actorId} size="small" sx={calendarMetaChipSx} label={`${item.participantNames[item.participantIds.indexOf(actorId)] || (isZh ? '成员' : 'Member')} · ${availability === 'away' ? (isZh ? '活动期间暂离' : 'Away during activity') : (isZh ? '活动期间可聊天' : 'Available during activity')}`} />
+                        ))}
                         {Object.keys(item.participantStates).length ? (
                           <Chip
                             size="small"

@@ -2570,6 +2570,7 @@ function buildMessageMetadata(params: {
   runtimeDecision?: MessageMetadata['runtimeDecision'];
   deliberationArtifacts?: MessageMetadata['deliberationArtifacts'] | null;
   presenceUpdate?: MessageMetadata['presenceUpdate'] | null;
+  activityUpdate?: MessageMetadata['activityUpdate'] | null;
   conversationUpdate?: MessageMetadata['conversationUpdate'] | null;
   studyUpdate?: MessageMetadata['studyUpdate'] | null;
   storyEvents?: MessageMetadata['storyEvents'] | null;
@@ -2585,7 +2586,7 @@ function buildMessageMetadata(params: {
   const storyChoices = normalizeStoryChoiceSuggestions(params.storyChoices);
   const storyEvents = params.storyEventsNormalized ? (params.storyEvents || []) : [];
   const storyQuality = params.storyQuality || null;
-  if (!decision && !params.runtimeDecision && !params.deliberationArtifacts && !params.presenceUpdate && !params.conversationUpdate && !params.studyUpdate && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length && !params.storyAssets) return undefined;
+  if (!decision && !params.runtimeDecision && !params.deliberationArtifacts && !params.presenceUpdate && !params.activityUpdate && !params.conversationUpdate && !params.studyUpdate && !params.narrativeTurn && !storyChoices?.length && !storyEvents.length && !params.storyAssets) return undefined;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const contextText = params.narrativeTurn?.blocks.map((block) => block.text).filter(Boolean).join('\n\n') || params.content;
   const attachments: MessageAttachment[] = [];
@@ -2660,6 +2661,7 @@ function buildMessageMetadata(params: {
     ...(params.runtimeDecision ? { runtimeDecision: params.runtimeDecision } : {}),
     ...(params.deliberationArtifacts ? { deliberationArtifacts: params.deliberationArtifacts } : {}),
     ...(params.presenceUpdate ? { presenceUpdate: params.presenceUpdate } : {}),
+    ...(params.activityUpdate ? { activityUpdate: params.activityUpdate } : {}),
     ...(params.conversationUpdate ? { conversationUpdate: params.conversationUpdate } : {}),
     ...(params.studyUpdate ? { studyUpdate: params.studyUpdate } : {}),
   };
@@ -3640,7 +3642,8 @@ async function generateNonDuplicateResponse(params: {
           reason,
         });
       }
-      if (contentExplicitlySignalsAway(evaluationResponse) && !generated.parsedEnvelope?.presenceUpdate) {
+      if (contentExplicitlySignalsAway(evaluationResponse) && !generated.parsedEnvelope?.presenceUpdate
+        && generated.parsedEnvelope?.activityUpdate?.availability !== 'away') {
         const reason = '可见回复表示离开、睡觉或忙碌，但模型没有返回下线状态标记；消息已保留，角色在线状态不变。';
         logDeveloperDiagnostic('chat-run:presence-metadata-missing', {
           chatId: params.chat.id,
@@ -4483,6 +4486,7 @@ export async function generateSpeakerMessage(params: {
     storyChoices,
     deliberationArtifacts: generated.parsedEnvelope?.deliberationArtifacts || null,
     presenceUpdate: generated.parsedEnvelope?.presenceUpdate || null,
+    activityUpdate: generated.parsedEnvelope?.activityUpdate || null,
     conversationUpdate: generated.parsedEnvelope?.conversationUpdate || null,
     studyUpdate: generated.parsedEnvelope?.studyUpdate || null,
     runtimeDecision: runtimeDecisionMetadata,
@@ -4612,7 +4616,7 @@ export const runOneRound = async (
   };
 
   const activeMessages = messages.filter((m) => !m.isDeleted);
-  const pendingReplyContext = chat.type === 'group' ? resolvePendingReplyContext(autoSpeakableMembers, activeMessages) : null;
+  const pendingReplyContext = chat.type === 'group' ? resolvePendingReplyContext(autoSpeakableMembers, activeMessages, chat) : null;
   const runtimePressure = projectRuntimePressure({ chat, characters: autoSpeakableMembers, messages: activeMessages, pendingReplyContext });
   const narrativeLines = runtimePressure.narrativeLines;
   const directorIntent = runtimePressure.directorIntent;

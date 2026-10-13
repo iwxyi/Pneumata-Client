@@ -1,9 +1,18 @@
 import type { AICharacter, CharacterPresenceState } from '../types/character';
-import type { DriverMessageCommitTransition } from '../types/chat';
-import type { MessagePresenceUpdate } from '../types/message';
+import type { DriverMessageCommitTransition, GroupChat } from '../types/chat';
+import type { Message, MessageActivityUpdate, MessagePresenceUpdate } from '../types/message';
+import type { RuntimeEventV2 } from '../types/runtimeEvent';
 
 const MIN_AWAY_MINUTES = 3;
-const MAX_AWAY_MINUTES = 12 * 60;
+const MAX_AWAY_MINUTES = 30 * 24 * 60;
+
+type PresenceMessage = Pick<Message, 'id' | 'senderId' | 'metadata'> & Partial<Pick<Message, 'content' | 'type' | 'isDeleted'>>;
+
+function canCommitActivity(message: PresenceMessage) {
+  return message.senderId !== 'user' && (!message.type || message.type === 'ai')
+    && !message.isDeleted && !message.metadata?.withdrawal?.withdrawn
+    && (!message.metadata?.visibility || message.metadata.visibility === 'public');
+}
 
 function normalizeDurationMinutes(value: number | undefined) {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 30;
@@ -16,11 +25,12 @@ function cleanPresenceText(value: string | undefined, max = 80) {
 }
 
 export function buildPresencePatchFromMessage(params: {
-  message: Pick<import('../types/message').Message, 'id' | 'senderId' | 'metadata'>;
+  message: PresenceMessage;
   now?: number;
 }): Partial<AICharacter> | null {
-  const update = params.message.metadata?.presenceUpdate;
-  if (!update || params.message.senderId === 'user') return null;
+  const update = normalizePresenceUpdate(params.message.metadata?.presenceUpdate);
+  if (!update || !canCommitActivity(params.message)
+    || (update.evidenceText && !params.message.content?.includes(update.evidenceText))) return null;
   const now = typeof params.now === 'number' && Number.isFinite(params.now) ? Math.round(params.now) : Date.now();
   const status = update.status === 'away' ? 'away' : 'online';
   const presence: CharacterPresenceState = {
@@ -31,6 +41,7 @@ export function buildPresencePatchFromMessage(params: {
       ? now + normalizeDurationMinutes(update.durationMinutes) * 60_000
       : undefined,
     updatedAt: now,
+    lastAwayAt: status === 'away' ? now : undefined,
     sourceMessageId: params.message.id,
   };
   return { presence };
@@ -38,14 +49,88 @@ export function buildPresencePatchFromMessage(params: {
 
 export function applyPresenceUpdateToTransition(params: {
   transition: DriverMessageCommitTransition;
-  message: Pick<import('../types/message').Message, 'id' | 'senderId' | 'metadata'>;
+  message: PresenceMessage;
+  chat?: GroupChat;
+  characters?: AICharacter[];
   now?: number;
 }): DriverMessageCommitTransition {
-  const patch = buildPresencePatchFromMessage({ message: params.message, now: params.now });
-  if (!patch || !params.message.senderId) return params.transition;
+  const now = params.now ?? Date.now();
+  let patch = buildPresencePatchFromMessage({ message: params.message, now });
+  if (!canCommitActivity(params.message) || (params.chat && !params.chat.memberIds.includes(params.message.senderId))) return params.transition;
+  const speaker = params.characters?.find((character) => character.id === params.message.senderId);
+  const lastAwayAt = speaker?.presence?.lastAwayAt
+    ?? (speaker?.presence?.status === 'away' ? speaker.presence.updatedAt : undefined);
+  const activity = normalizeActivityUpdate(params.message.metadata?.activityUpdate);
+  const validActivity = activity && params.message.content?.includes(activity.evidenceText) ? activity : null;
+  const calendarItemId = validActivity?.calendarItemId || `actor-activity-${params.message.id}`;
+  const events: RuntimeEventV2[] = [];
+  const addEvent = (id: string, payload: Record<string, unknown>, summary: string) => {
+    if (!params.chat) return;
+    events.push({ id, conversationId: params.chat.id, kind: 'calendar_item_patch', createdAt: now,
+      actorIds: [params.message.senderId], evidenceMessageIds: [params.message.id],
+      summary, visibility: 'public', payload: { ...payload, source: 'actor_activity' } });
+  };
+  if (validActivity && params.chat) {
+    patch = null;
+    // Only the speaker's own activity records can be updated through this channel.
+    const existing = validActivity.calendarItemId && params.chat.runtimeEventsV2?.find((event) => (
+      (event.payload as Record<string, unknown>).calendarItemId === validActivity.calendarItemId
+      && event.actorIds?.includes(params.message.senderId)
+    ));
+    if (validActivity.calendarItemId && !existing && speaker?.presence?.calendarItemId !== validActivity.calendarItemId) return params.transition;
+    const startAt = validActivity.startsNow ? now : validActivity.startAt
+      ?? (validActivity.status === 'in_progress' ? now : undefined);
+    const durationMinutes = validActivity.durationMinutes
+      ?? (validActivity.availability === 'away' ? 30 : undefined);
+    const endAt = startAt !== undefined && durationMinutes !== undefined ? startAt + durationMinutes * 60_000 : undefined;
+    const isCurrent = validActivity.status === 'in_progress' && startAt !== undefined && startAt <= now
+      && (endAt === undefined || endAt > now);
+    const participantIds = Array.from(new Set([params.message.senderId,
+      ...(validActivity.participantIds || []).filter((id) => params.chat?.memberIds.includes(id))]));
+    addEvent(`actor-activity-event-${params.message.id}`, {
+      calendarItemId, title: validActivity.title, kind: validActivity.kind,
+      status: validActivity.status === 'in_progress' && !isCurrent ? 'planned' : validActivity.status,
+      participantIds, participantStates: Object.fromEntries(participantIds.map((id) => [id, id === params.message.senderId ? 'going' : 'invited'])),
+      startAt, endAt: validActivity.status === 'completed' || validActivity.status === 'cancelled' ? now : endAt,
+      durationMinutes, timeHint: validActivity.timeHint, locationHint: validActivity.locationHint,
+      availabilityByActor: validActivity.availability ? { [params.message.senderId]: validActivity.availability } : undefined,
+      evidenceText: validActivity.evidenceText,
+    }, validActivity.title);
+    if (isCurrent && validActivity.availability) {
+      patch = { presence: { status: validActivity.availability, activity: validActivity.title,
+        unavailableUntil: validActivity.availability === 'away' ? endAt : undefined,
+        updatedAt: now, sourceMessageId: params.message.id, calendarItemId,
+        locationHint: validActivity.locationHint } };
+    }
+    if ((validActivity.status === 'completed' || validActivity.status === 'cancelled')
+      && speaker?.presence?.calendarItemId === calendarItemId) {
+      patch = { presence: { status: 'online', updatedAt: now, sourceMessageId: params.message.id } };
+    }
+  } else if (patch?.presence?.status === 'away') {
+    patch.presence.calendarItemId = calendarItemId;
+    addEvent(`actor-activity-event-${params.message.id}`, {
+      calendarItemId, kind: 'activity', status: 'in_progress', title: patch.presence.activity || '暂时离开',
+      participantIds: [params.message.senderId], participantStates: { [params.message.senderId]: 'going' },
+      startAt: now, endAt: patch.presence.unavailableUntil,
+      durationMinutes: (patch.presence.unavailableUntil! - now) / 60_000,
+      availabilityByActor: { [params.message.senderId]: 'away' },
+    }, patch.presence.activity || '暂时离开');
+  }
+  if (patch?.presence && speaker?.presence?.calendarItemId
+    && patch.presence.calendarItemId !== speaker.presence.calendarItemId
+    && validActivity?.calendarItemId !== speaker.presence.calendarItemId) {
+    addEvent(`actor-return-event-${params.message.id}`, {
+      calendarItemId: speaker.presence.calendarItemId, status: 'completed', endAt: now,
+      durationMinutes: Math.max(1, (now - speaker.presence.updatedAt) / 60_000),
+    }, '角色已结束此前活动');
+  }
+  if (patch?.presence) {
+    patch.presence.lastAwayAt = patch.presence.status === 'away' ? now : lastAwayAt;
+  }
+  if (!patch && !events.length) return params.transition;
   const characterPatches = [...params.transition.characterPatches];
   const existingIndex = characterPatches.findIndex((item) => item.characterId === params.message.senderId);
-  if (existingIndex >= 0) {
+  if (patch && existingIndex >= 0) {
     characterPatches[existingIndex] = {
       ...characterPatches[existingIndex],
       patch: {
@@ -53,15 +138,33 @@ export function applyPresenceUpdateToTransition(params: {
         ...patch,
       },
     };
-  } else {
+  } else if (patch) {
     characterPatches.push({
       characterId: params.message.senderId,
       patch,
     });
   }
+  const previousDelta = params.transition.chatRuntimeDelta?.runtimeEventsV2;
+  const eventById = new Map((params.transition.chatPatch.runtimeEventsV2 || params.chat?.runtimeEventsV2 || []).map((event) => [event.id, event]));
+  previousDelta?.upserts.forEach((event) => eventById.set(event.id, event));
+  events.forEach((event) => eventById.set(event.id, event));
+  const orderedIds = Array.from(new Set([
+    ...(previousDelta?.orderedIds || Array.from(eventById.keys())), ...events.map((event) => event.id),
+  ]));
   return {
     ...params.transition,
     characterPatches,
+    chatPatch: events.length ? {
+      ...params.transition.chatPatch,
+      runtimeEventsV2: orderedIds.flatMap((id) => eventById.get(id) || []),
+    } : params.transition.chatPatch,
+    ...(events.length ? { chatRuntimeDelta: {
+      ...params.transition.chatRuntimeDelta,
+      runtimeEventsV2: {
+        orderedIds,
+        upserts: [...(params.transition.chatRuntimeDelta?.runtimeEventsV2?.upserts || []), ...events],
+      },
+    } } : {}),
   };
 }
 
@@ -90,5 +193,25 @@ export function normalizePresenceUpdate(value: MessagePresenceUpdate | null | un
     activity: cleanPresenceText(value.activity, 60),
     reason: cleanPresenceText(value.reason, 100),
     durationMinutes: status === 'away' ? normalizeDurationMinutes(value.durationMinutes) : undefined,
+    evidenceText: typeof value.evidenceText === 'string' ? value.evidenceText.trim().slice(0, 240) : undefined,
+  };
+}
+
+export function normalizeActivityUpdate(value: MessageActivityUpdate | null | undefined): MessageActivityUpdate | null {
+  if (!value || typeof value !== 'object') return null;
+  const title = cleanPresenceText(value.title, 80);
+  const evidenceText = typeof value.evidenceText === 'string' ? value.evidenceText.trim().slice(0, 240) : '';
+  if (!title || !evidenceText || !['activity', 'travel', 'rest', 'preparation', 'blocked_time', 'reminder'].includes(value.kind)
+    || !['planned', 'in_progress', 'completed', 'cancelled'].includes(value.status)) return null;
+  return {
+    title, evidenceText, kind: value.kind, status: value.status,
+    calendarItemId: cleanPresenceText(value.calendarItemId, 160),
+    participantIds: Array.isArray(value.participantIds) ? value.participantIds.filter((id) => typeof id === 'string') : undefined,
+    startsNow: value.startsNow === true,
+    startAt: typeof value.startAt === 'number' && Number.isFinite(value.startAt) && value.startAt >= 0 ? value.startAt : undefined,
+    durationMinutes: typeof value.durationMinutes === 'number' && Number.isFinite(value.durationMinutes) && value.durationMinutes > 0
+      ? normalizeDurationMinutes(value.durationMinutes) : undefined,
+    timeHint: cleanPresenceText(value.timeHint, 100), locationHint: cleanPresenceText(value.locationHint, 100),
+    availability: value.availability === 'away' || value.availability === 'online' ? value.availability : undefined,
   };
 }

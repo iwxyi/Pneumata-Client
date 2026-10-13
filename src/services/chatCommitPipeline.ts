@@ -128,6 +128,8 @@ export async function runChatCommitPipeline(params: {
     const commitContext = buildChatCommitContext(nextMessages);
     const transition = applyPresenceUpdateToTransition({
       message: persistedMessage,
+      chat: params.chat,
+      characters: params.characters,
       transition: await finalizeChatCommitRuntime({
         api: params.api,
         chat: params.chat,

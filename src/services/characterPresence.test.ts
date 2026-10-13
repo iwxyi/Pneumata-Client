@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Message } from '../types/message';
+import type { AICharacter } from '../types/character';
+import { normalizeConversation } from '../types/chat';
+import { projectWorldCalendar } from './worldRuntimeProjection';
 import { applyPresenceUpdateToTransition, buildPresencePatchFromMessage, isCharacterAvailableForScheduling } from './characterPresence';
 
 function message(patch: Partial<Message> = {}): Message {
@@ -18,6 +21,97 @@ function message(patch: Partial<Message> = {}): Message {
 }
 
 describe('characterPresence', () => {
+  const chat = normalizeConversation({ id: 'chat-1', memberIds: ['a', 'b'], mode: 'open_chat',
+    modeConfig: { freeSpeaking: true, allowInterruptions: true, allowPrivateThreads: true, allowDirectorInterventions: true, showRoleActions: true },
+    modeState: { phase: 'free' }, name: '群聊', topic: '', style: 'free', speed: 1, isActive: false,
+    allowIntervention: true, topicSeed: '', createdAt: 1, updatedAt: 1, lastMessageAt: 1 });
+  const transition = { chatPatch: {}, characterPatches: [], runtimeEvents: [] };
+
+  it('commits a three-day solo departure to calendar and availability with location', () => {
+    const result = applyPresenceUpdateToTransition({ chat, transition, now: 1000,
+      message: message({ content: '我去襄阳探路，三日回来。', metadata: { activityUpdate: {
+        title: '襄阳探路', kind: 'travel', status: 'in_progress', startsNow: true,
+        durationMinutes: 4320, locationHint: '襄阳', availability: 'away', evidenceText: '三日回来',
+      } } }),
+    });
+    expect(result.characterPatches[0].patch.presence).toMatchObject({ status: 'away', unavailableUntil: 1000 + 4320 * 60_000 });
+    const items = projectWorldCalendar([{ ...chat, runtimeEventsV2: result.chatRuntimeDelta!.runtimeEventsV2!.upserts }], [], { now: 1000 }).items;
+    expect(items[0]).toMatchObject({ title: '襄阳探路', kind: 'travel', status: 'in_progress', participantIds: ['a'],
+      locationHint: '襄阳', durationMinutes: 4320, availabilityByActor: { a: 'away' } });
+    expect(projectWorldCalendar([{ ...chat, runtimeEventsV2: result.chatRuntimeDelta!.runtimeEventsV2!.upserts }], [], { now: 1000 + 4320 * 60_000 }).items[0].status).toBe('completed');
+  });
+
+  it('records future plans without making the speaker unavailable, even with a duplicate legacy away field', () => {
+    const result = applyPresenceUpdateToTransition({ chat, transition, now: 1000,
+      message: message({ content: '明天出门。', metadata: { presenceUpdate: { status: 'away' }, activityUpdate: {
+        title: '出门', kind: 'travel', status: 'planned', startAt: 100_000, durationMinutes: 60,
+        availability: 'away', evidenceText: '明天出门',
+      } } }),
+    });
+    expect(result.characterPatches).toEqual([]);
+    expect(result.chatRuntimeDelta?.runtimeEventsV2?.upserts).toHaveLength(1);
+  });
+
+  it('records an activity already in progress without inventing its past start time', () => {
+    const result = applyPresenceUpdateToTransition({ chat, transition, now: 1000,
+      message: message({ content: '我正在修器械，过会儿再聊。', metadata: { activityUpdate: {
+        title: '修器械', kind: 'preparation', status: 'in_progress', startsNow: false,
+        durationMinutes: 60, availability: 'away', evidenceText: '我正在修器械',
+      } } }),
+    });
+    expect(result.chatPatch.runtimeEventsV2?.[0].payload).toMatchObject({ status: 'in_progress', startAt: 1000 });
+    expect(result.characterPatches[0].patch.presence?.unavailableUntil).toBe(1000 + 60 * 60_000);
+  });
+
+  it('allows chatting during a shared activity and never changes another participant presence', () => {
+    const result = applyPresenceUpdateToTransition({ chat, transition, now: 1000,
+      message: message({ content: '我在营里修器械，你来帮忙吧。', metadata: { activityUpdate: {
+        title: '修器械', kind: 'activity', status: 'in_progress', startsNow: true,
+        participantIds: ['a', 'b', 'unknown'], availability: 'online', evidenceText: '我在营里修器械',
+      } } }),
+    });
+    expect(result.characterPatches.map((item) => item.characterId)).toEqual(['a']);
+    expect(result.characterPatches[0].patch.presence?.status).toBe('online');
+    expect(result.chatRuntimeDelta?.runtimeEventsV2?.upserts[0].payload).toMatchObject({ participantIds: ['a', 'b'], participantStates: { a: 'going', b: 'invited' } });
+  });
+
+  it('ends the linked activity early on an explicit return', () => {
+    const character = { id: 'a', presence: { status: 'away', updatedAt: 1000, calendarItemId: 'trip', unavailableUntil: 100_000 } } as AICharacter;
+    const result = applyPresenceUpdateToTransition({ chat, characters: [character], transition, now: 5000,
+      message: message({ content: '我回来了。', metadata: { presenceUpdate: { status: 'online', evidenceText: '我回来了' } } }),
+    });
+    expect(result.characterPatches[0].patch.presence?.status).toBe('online');
+    expect(result.chatRuntimeDelta?.runtimeEventsV2?.upserts[0].payload).toMatchObject({ calendarItemId: 'trip', status: 'completed', endAt: 5000 });
+    expect(result.characterPatches[0].patch.presence?.lastAwayAt).toBe(1000);
+  });
+
+  it('closes the previous interval when the speaker starts a different activity', () => {
+    const character = { id: 'a', presence: { status: 'away', updatedAt: 1000, calendarItemId: 'trip', unavailableUntil: 100_000 } } as AICharacter;
+    const result = applyPresenceUpdateToTransition({ chat, characters: [character], transition, now: 5000,
+      message: message({ content: '探路结束，我去营里歇一个时辰。', metadata: { activityUpdate: {
+        title: '营里休息', kind: 'rest', status: 'in_progress', startsNow: true,
+        durationMinutes: 120, availability: 'away', evidenceText: '我去营里歇一个时辰',
+      } } }),
+    });
+    const items = projectWorldCalendar([{ ...chat, ...result.chatPatch }], [], { now: 5000 }).items;
+    expect(items.find((item) => item.id === 'trip')?.status).toBe('completed');
+    expect(items.find((item) => item.id === 'actor-activity-m1')?.status).toBe('in_progress');
+    expect(result.characterPatches[0].patch.presence).toMatchObject({ status: 'away', lastAwayAt: 5000 });
+  });
+
+  it.each([
+    { isDeleted: true }, { metadata: { visibility: 'role_private' } },
+    { metadata: { withdrawal: { withdrawn: true } } },
+  ] as Partial<Message>[])('rejects nonpublic or removed departure writes: %j', (patch) => {
+    const result = applyPresenceUpdateToTransition({ chat, transition, message: message({ ...patch,
+      metadata: { ...patch.metadata, presenceUpdate: { status: 'away' } } }), now: 1000 });
+    expect(result).toBe(transition);
+  });
+
+  it('does not derive departure from prose or unsupported evidence', () => {
+    expect(buildPresencePatchFromMessage({ message: message() })).toBeNull();
+    expect(buildPresencePatchFromMessage({ message: message({ metadata: { presenceUpdate: { status: 'away', evidenceText: '不存在的原文' } } }) })).toBeNull();
+  });
   it('builds a global away patch from model-provided presence metadata', () => {
     const patch = buildPresencePatchFromMessage({
       message: message({

@@ -302,6 +302,8 @@ export async function runPersistedSessionCommitRuntime(params: {
   const recentMessages = params.currentMessages.filter((message) => !message.isDeleted && message.id !== params.message.id && !isLocalInterceptionMessage(message));
   const transition = applyPresenceUpdateToTransition({
     message: params.message,
+    chat: params.chat,
+    characters: params.characters,
     transition: await finalizeChatCommitRuntime({
       api: params.api,
       chat: params.chat,

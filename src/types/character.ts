@@ -216,8 +216,11 @@ export interface CharacterPresenceState {
   activity?: string;
   reason?: string;
   unavailableUntil?: number;
+  lastAwayAt?: number;
   updatedAt: number;
   sourceMessageId?: string;
+  calendarItemId?: string;
+  locationHint?: string;
 }
 
 import type { MemoryItem } from '../services/memoryTypes';

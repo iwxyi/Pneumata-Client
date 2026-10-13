@@ -1,6 +1,7 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
-import type { MediaGenerationDecision, Message, MessagePresenceUpdate, StudyTurnUpdate } from '../types/message';
+import type { MediaGenerationDecision, Message, MessageActivityUpdate, MessagePresenceUpdate, StudyTurnUpdate } from '../types/message';
+import { normalizeActivityUpdate, normalizePresenceUpdate } from './characterPresence';
 import type { AddressedTargetHintEnvelope, ConflictFocusPayload, InteractionHintCollection, InteractionHintEnvelope, RecentSocialEventSummary, SocialEventHintEnvelope } from '../types/runtimeEvent';
 import { normalizeSocialEventHints } from '../types/runtimeEvent';
 import type { TurnPlan } from './turnPlanner';
@@ -114,6 +115,7 @@ export interface InlineInteractionEnvelope {
   storyChoices?: InlineStoryChoice[] | null;
   deliberationArtifacts?: InlineDeliberationArtifacts | null;
   presenceUpdate?: MessagePresenceUpdate | null;
+  activityUpdate?: MessageActivityUpdate | null;
   studyUpdate?: StudyTurnUpdate | null;
   toolRequest?: {
     type: 'web_search';
@@ -247,20 +249,7 @@ function sanitizeDeliberationArtifacts(value: InlineDeliberationArtifacts | null
 }
 
 function sanitizePresenceUpdate(value: MessagePresenceUpdate | null | undefined): MessagePresenceUpdate | null {
-  if (!value || typeof value !== 'object') return null;
-  const status = value.status === 'away' ? 'away' : value.status === 'online' ? 'online' : null;
-  if (!status) return null;
-  const activity = cleanArtifactText(value.activity, 60);
-  const reason = cleanArtifactText(value.reason, 100);
-  const durationMinutes = typeof value.durationMinutes === 'number' && Number.isFinite(value.durationMinutes)
-    ? Math.max(3, Math.min(720, Math.round(value.durationMinutes)))
-    : status === 'away' ? 30 : undefined;
-  return {
-    status,
-    activity,
-    reason,
-    durationMinutes,
-  };
+  return normalizePresenceUpdate(value);
 }
 
 function sanitizeStudyTurnUpdate(value: StudyTurnUpdate | null | undefined): StudyTurnUpdate | null {
@@ -314,6 +303,7 @@ function sanitizeEnvelope(envelope: InlineInteractionEnvelope): InlineInteractio
     storyEvents: normalizeStoryEvents(envelope.storyEvents),
     deliberationArtifacts: sanitizeDeliberationArtifacts(envelope.deliberationArtifacts),
     presenceUpdate: sanitizePresenceUpdate(envelope.presenceUpdate),
+    activityUpdate: normalizeActivityUpdate(envelope.activityUpdate),
     studyUpdate: sanitizeStudyTurnUpdate(envelope.studyUpdate),
   };
 }
@@ -556,7 +546,7 @@ Story-reader visible body rule:
 5. storyAssets is required for story-reader turns. It is the authoritative structured reading of this turn: include only assets actually established or changed on screen, and use empty arrays/null when there is no new item. Do not copy visible prose wholesale into every field.
 
 social_outing diagnostics:
-socialEventHints is the only model-authored source for activity creation and updates; the runtime will not invent or patch a social_outing from local keyword matching. When the visible storyEvents clearly propose, arrange, update, or commit to a shared concrete activity, socialEventHints must include one social_outing object with participantIds/targetIds as member ids, confidence 0-1, urgency, seedIntent, visibilityPlan, expectedArtifacts, title, activityType, timeHint, locationHint, dedupeKey, and optional participantStates. Use participantStates values mentioned/invited/interested/maybe/going/declined/withdrawn. Include "user" when the user is invited or participating.
+socialEventHints is the model-authored source for shared social outing creation and updates; the runtime will not invent or patch a social_outing from local keyword matching. When the visible storyEvents clearly propose, arrange, update, or commit to a shared concrete activity, socialEventHints must include one object with eventKind="social_outing" (required), participantIds/targetIds as member ids, confidence 0-1, urgency, seedIntent, visibilityPlan, expectedArtifacts, title, activityType, timeHint, locationHint, dedupeKey, and optional participantStates. Use participantStates values mentioned/invited/interested/maybe/going/declined/withdrawn. Include "user" when the user is invited or participating.
 Valid member ids:
 ${buildMemberReference({ chat: params.chat, characters: params.characters })}
 
@@ -590,14 +580,27 @@ Known public continuity (keys are only for writeback):\n${continuityContext || '
     ? `${compactInteractionRule}${aiDirectInteractionRules}`
     : `Before writing, appraise the latest visible human turn's immediate effect on the current speaker. If that latest turn is from the user or director and it clearly warms, needles, embarrasses, pressures, reassures, alarms, or excites this speaker, emit incomingImpact as {"kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from the human turn","reason":"why that quote has this effect","immediateImpact":{"targetEmotionDelta":{"irritation":8,"insecurity":4}}}; otherwise incomingImpact is null. The incoming targetEmotionDelta is the immediate effect on the current speaker, not a relationship change. Let that appraisal genuinely shape the visible reply before reporting it. interactionHints is the outgoing fast-affect channel: emit it whenever the speaker's own words clearly land on a particular member by warming them, needling them, embarrassing them, putting them on the spot, defending them, dismissing them, apologizing or conceding to them, taking responsibility toward them, including or excluding them, setting a boundary, making them wary, or making them excited. Do not omit a hint merely because the exchange is ordinary or because the slow relationship does not change. Use null only when no member-specific emotional effect is visible. When used, targetId must be a member id: {"primary":{"targetId":"member-id","kind":"${interactionKinds}","tone":"warm|annoyed|defensive|excited|sarcastic|cold","intensity":3,"confidence":0.86,"evidenceText":"exact short quote from this reply","reason":"why the quote has this effect","immediateImpact":{"speakerEmotionDelta":{"irritation":-8},"targetEmotionDelta":{"insecurity":12},"roomDelta":{"heat":5,"cohesion":-2,"topicDrift":0}},"relationship":null},"secondary":[]}. immediateImpact is your semantic judgement of this visible line, not a local keyword score: use signed integer deltas, emotion axes within -40..40 and room axes within -20..20. Positive raises an axis and negative releases it. Put the whole-turn speaker release and room effect on primary only; secondary hints contain only their own targetEmotionDelta so effects are not duplicated. Omit zero axes. evidenceText is required, must be a short exact substring of the visible source turn, and must support the chosen kind, tone, and impact by itself; never use the whole reply as evidence. Classify what the quoted words actually do, not their hoped-for outcome: admitting fault is apologize or take_responsibility, yielding a point is concede, and naming who was left out is exclude rather than support. intensity is the immediate spike (1-5), not a permanent score: one sharp line may be 4-5, a small sting or warmth 1-2. The interaction event may exist without any lasting relationship change. Include relationship only when this turn itself gives evidence for a slow relationship update: {"delta":{"warmth":0,"competence":0,"trust":0,"threat":0,"attachment":0,"deference":0},"labels":["meaning"],"stance":"stance"}. attachment and deference are especially slow axes: omit them or keep them within -2..2 unless this turn contains a real turning point. Omit uncertain hints.${aiDirectInteractionRules}`;
   const addressedTargetRule = `addressedTargets tracks reply debt, not every person mentioned or emotionally affected. Emit {"targetIds":["member-id"],"primaryTargetId":"member-id","confidence":0.9,"reason":"why this member is expected to answer next"} only when the visible reply directly asks, calls on, challenges, or hands the floor to one or more members. A member discussed in the past tense, compared with someone else, or merely affected by the line is not addressed unless the speaker now expects their response. Use null when nobody is expected to answer next. targetIds and primaryTargetId must use the valid member ids below.`;
-  const socialRule = `socialEventHints: null unless the visible turn itself proposes, commits to, updates, or cancels a concrete activity or social event. It is the only model-authored source for those events; the runtime will not infer them from keywords. For an outing, include member-id participantIds/targetIds, title, activityType, timeHint, locationHint, participantStates, and the existing dedupeKey when updating. Include "user" when the user is an invited or participating member.`;
+  const ownActivityRecords = new Map<string, string>();
+  for (const event of params.chat.runtimeEventsV2 || []) {
+    if (event.kind !== 'calendar_item_patch' || !event.actorIds?.includes(params.speaker.id)) continue;
+    const payload = event.payload as Record<string, unknown>;
+    if (typeof payload.calendarItemId === 'string' && typeof payload.title === 'string') {
+      ownActivityRecords.set(payload.calendarItemId, payload.title);
+    }
+  }
+  const ownActivityContext = Array.from(ownActivityRecords).slice(-8)
+    .map(([id, title]) => ({ calendarItemId: id, title }));
+  const socialRule = `socialEventHints: null unless the visible turn itself proposes, commits to, updates, or cancels a concrete social event. For a shared outing, use [{"eventKind":"social_outing","title":"actual activity","activityType":"actual type","participantIds":["member-id"],"targetIds":["member-id"],"timeHint":"time as stated","locationHint":"place as stated","participantStates":{"member-id":"invited"},"dedupeKey":"stable-activity-key","confidence":0.9}]. eventKind is REQUIRED. Reuse the existing dedupeKey when updating. Participant states: mentioned, invited, interested, maybe, going, declined, withdrawn. Include "user" when invited or participating. This channel proposes shared social events; use activityUpdate for the speaker's own actual activity or departure, and never emit both channels for the same activity.`;
+  const activityRule = `activityUpdate records an actual calendar arrangement, including solo activities: {"title":"actual activity","kind":"activity|travel|rest|preparation|blocked_time|reminder","status":"planned|in_progress|completed|cancelled","participantIds":["member-id"],"startsNow":true,"startAt":null,"durationMinutes":60,"timeHint":"time as spoken","locationHint":"place as spoken","availability":"away|online","calendarItemId":null,"evidenceText":"short exact quote from one visible send"}. Use null when nothing changes. Describe only what this turn actually establishes. Other participants are invited, never forced offline. availability changes ONLY this speaker and is optional: doing an activity may still allow chatting. Use away when actually leaving now; a goodbye with no expected immediate reply has addressedTargets=null. Do not keep saying goodbye to someone who has left. startsNow is true only for actually starting now; future plans are planned and never set current availability. startAt is Unix milliseconds only when an exact real-world time is known, otherwise omit it and keep timeHint; never convert a fictional historical date to today's date. Duration is minutes, 3..43200, default away duration 30 when unknown. A three-day report interval is not a three-day absence: set 4320 only if the absence itself lasts three days. For returning or cancelling use the known calendarItemId, completed/cancelled; presenceUpdate online also ends the linked absence. Current speaker activity key: ${params.speaker.presence?.calendarItemId || '(none)'}. Do not expose these internal fields in dialogue.`;
   return `${mediaCapabilityInstruction}\n## Output Contract
 Return exactly one JSON object. It must be parseable. messages is the ordered list of this speaker's visible sends, including a single send; use null for absent fields and never expose protocol text.
-{"messages":[{"content":"visible send"${mediaExample}}],"intentionalRepeat":false${deliberationExample}${studyUpdateExample},"presenceUpdate":null,"conflictFocus":null,"incomingImpact":null,"interactionHints":null,"addressedTargets":null,"socialEventHints":null${continuityEnabled ? ',"conversationUpdate":null' : ''}${toolRequestExample}}
+{"messages":[{"content":"visible send"${mediaExample}}],"intentionalRepeat":false${deliberationExample}${studyUpdateExample},"presenceUpdate":null,"activityUpdate":null,"conflictFocus":null,"incomingImpact":null,"interactionHints":null,"addressedTargets":null,"socialEventHints":null${continuityEnabled ? ',"conversationUpdate":null' : ''}${toolRequestExample}}
 
 Each messages[] item has non-empty content and optional mediaDecision. No duplicate top-level content or extraMessages is needed. Audio must be the only media in its item. Write only this speaker. Unless a formal deliverable is requested, this is chat even when the topic is serious: punctuation follows the voice and moment, not a mandatory full stop on every bubble.${sendBoundaryRule}${deliveryPolicyRules}
 
-intentionalRepeat is false unless repeating wording, cadence, or a marker is the deliberate social move; do not use it to excuse template drift. presenceUpdate is null unless the speaker explicitly goes away, returns, or states an actual availability change.
+intentionalRepeat is false unless repeating wording, cadence, or a marker is the deliberate social move; do not use it to excuse template drift. presenceUpdate is null unless the speaker explicitly goes away, returns, or states an actual availability change. Its shape is {"status":"away|online","activity":"what the speaker does","reason":"visible grounds","durationMinutes":30,"evidenceText":"short exact quote from one visible send"}. Prefer activityUpdate when the activity has calendar details; do not duplicate presenceUpdate for that activity.
+${activityRule}
+For activityUpdate, participantIds means people doing or explicitly invited to THIS activity, never the people receiving this message. Solo activity uses [] or only the speaker id. People staying behind, seeing the speaker off, waiting for a report, or merely addressed are not participants. Being in the same room is not participation. An activity already in progress uses status=in_progress even when its original start time is unknown; the runtime records it from now, without inventing elapsed time. First revealing a concrete ongoing activity in this turn is a calendar change even if the speaker can keep chatting; record it with availability=online when stated. Unknown time, duration or place may be omitted; do not invent them or require them before recording the activity. durationMinutes is the remaining planned duration, not how long the speaker has already been doing it. Use the exact known calendarItemId for updates, not a newly invented key. Known speaker activity records: ${JSON.stringify(ownActivityContext)}.
 ${interactionRule}
 ${addressedTargetRule}
 ${continuityRule}

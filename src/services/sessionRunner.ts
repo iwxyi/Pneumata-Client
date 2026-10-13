@@ -21,7 +21,7 @@ export function shouldPauseSettledConversation(before: GroupChat, after: GroupCh
   const settledAt = after.worldState.conversationContinuity?.settledAt;
   return after.type === 'group' && resolveSessionFamilyKey(after) === 'conversation'
     && Boolean(settledAt && settledAt !== before.worldState.conversationContinuity?.settledAt)
-    && !resolvePendingReplyContext(characters, messages);
+    && !resolvePendingReplyContext(characters, messages, after);
 }
 
 function sleep(ms: number) {

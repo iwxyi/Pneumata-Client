@@ -27,6 +27,7 @@ export interface WorldCalendarItem {
   durationMinutes?: number | null;
   timeHint?: string | null;
   locationHint?: string | null;
+  availabilityByActor?: Record<string, 'online' | 'away'>;
   summary: string;
   sourceRefs: WorldCalendarSourceRef[];
   conflict?: {
@@ -538,6 +539,12 @@ function applyCalendarPatch(
   const durationMinutes = (typeof rawDurationMinutes === 'number' && rawDurationMinutes <= 0) ? null : rawDurationMinutes;
   const timeHint = payload.clearTimeHint === true ? null : (getString(payload.timeHint) || base.timeHint || null);
   const locationHint = payload.clearLocationHint === true ? null : (getString(payload.locationHint) || base.locationHint || null);
+  const availabilityByActor = { ...base.availabilityByActor };
+  if (payload.availabilityByActor && typeof payload.availabilityByActor === 'object') {
+    Object.entries(payload.availabilityByActor).forEach(([id, status]) => {
+      if (participantIds.includes(id) && (status === 'online' || status === 'away')) availabilityByActor[id] = status;
+    });
+  }
 
   return {
     ...base,
@@ -553,6 +560,7 @@ function applyCalendarPatch(
     durationMinutes,
     timeHint,
     locationHint,
+    availabilityByActor,
     summary: getString(payload.summary) || event.summary || base.summary,
     sourceRefs: mergeSourceRef(base.sourceRefs, sourceRef),
     conflict: base.conflict || null,

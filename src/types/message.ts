@@ -118,6 +118,22 @@ export interface MessagePresenceUpdate {
   activity?: string;
   reason?: string;
   durationMinutes?: number;
+  evidenceText?: string;
+}
+
+export interface MessageActivityUpdate {
+  calendarItemId?: string;
+  title: string;
+  kind: 'activity' | 'travel' | 'rest' | 'preparation' | 'blocked_time' | 'reminder';
+  status: 'planned' | 'in_progress' | 'completed' | 'cancelled';
+  participantIds?: string[];
+  startAt?: number;
+  startsNow?: boolean;
+  durationMinutes?: number;
+  timeHint?: string;
+  locationHint?: string;
+  availability?: 'online' | 'away';
+  evidenceText: string;
 }
 
 export type NarrativeActorKind = 'narrator' | 'character' | 'director' | 'system';
@@ -315,6 +331,7 @@ export interface MessageMetadata {
   };
   attachments?: MessageAttachment[];
   presenceUpdate?: MessagePresenceUpdate;
+  activityUpdate?: MessageActivityUpdate;
   generationDecision?: MediaGenerationDecision;
   generation?: {
     status?: 'queued' | 'generating' | 'ready' | 'failed';

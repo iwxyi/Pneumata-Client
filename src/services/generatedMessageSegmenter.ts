@@ -1,6 +1,12 @@
 import type { GeneratedRoundMessage } from './chatEngine';
 import type { ConversationUpdate } from '../types/conversationContinuity';
 
+function stateUpdateForSegment<T extends { evidenceText?: string }>(update: T | undefined, parts: string[], index: number) {
+  if (!update) return undefined;
+  const owner = update.evidenceText ? parts.findIndex((part) => part.includes(update.evidenceText!)) : 0;
+  return owner === index ? update : undefined;
+}
+
 function continuityForSegment(update: ConversationUpdate | undefined, parts: string[], index: number) {
   if (!update) return undefined;
   const owns = (evidence: string) => parts[index].includes(evidence) && !parts.slice(0, index).some((part) => part.includes(evidence));
@@ -59,6 +65,8 @@ export function splitGeneratedRoundMessage(message: GeneratedRoundMessage) {
       content: part.content,
       metadata: {
         ...(part.metadata || {}),
+        presenceUpdate: stateUpdateForSegment(message.metadata?.presenceUpdate, parts.map((item) => item.content), index),
+        activityUpdate: stateUpdateForSegment(message.metadata?.activityUpdate, parts.map((item) => item.content), index),
         conversationUpdate: continuityForSegment(message.metadata?.conversationUpdate, parts.map((item) => item.content), index),
         turnSegment: {
           index,
@@ -105,6 +113,8 @@ export function splitGeneratedRoundMessage(message: GeneratedRoundMessage) {
         turnParameters: baseMessage.metadata?.turnParameters,
       }),
       conversationUpdate: continuityForSegment(message.metadata?.conversationUpdate, parts, index),
+      presenceUpdate: stateUpdateForSegment(message.metadata?.presenceUpdate, parts, index),
+      activityUpdate: stateUpdateForSegment(message.metadata?.activityUpdate, parts, index),
       turnSegment: {
         index,
         count: parts.length,
