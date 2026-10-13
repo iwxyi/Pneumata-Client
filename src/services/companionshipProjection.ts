@@ -10,6 +10,7 @@ import { userProfileMemoryPayloadOf } from './directUserProfileMemory';
 import { isMemoryAnchorCandidate } from './memoryLifecycle';
 import { normalizeRelationshipLedgerEntry } from './relationshipLedger';
 import { getCompanionshipRuntimeConfig } from './companionshipRuntimeConfig';
+import { cleanSeedForReflection } from './diaryCompanionshipBackflow';
 
 const USER_ACTOR_ID = 'user';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -1389,8 +1390,7 @@ function buildPendingCareTopics(chat: GroupChat, characterId: string, profile: U
     .map((event): PendingCareTopic | null => {
       const payload = diaryReflectionPayloadOf(event);
       if (!payload || payload.characterId !== characterId || payload.reflectionType !== 'care') return null;
-      const userId = payload.userId || USER_ACTOR_ID;
-      if (userId !== USER_ACTOR_ID && !payload.participantIds.includes(USER_ACTOR_ID)) return null;
+      if (payload.userId !== USER_ACTOR_ID && !payload.participantIds.includes(USER_ACTOR_ID)) return null;
       const confidence = typeof payload.confidence === 'number' && Number.isFinite(payload.confidence) ? payload.confidence : 0.6;
       if (confidence < 0.55) return null;
       return {
@@ -3270,7 +3270,8 @@ function diaryReflectionPayloadOf(event: RuntimeEventV2): CompanionshipDiaryRefl
   const characterId = typeof payload.characterId === 'string' ? payload.characterId : '';
   const reflectionId = typeof payload.reflectionId === 'string' ? payload.reflectionId : '';
   const diaryEntryId = typeof payload.diaryEntryId === 'string' ? payload.diaryEntryId : '';
-  const text = typeof payload.text === 'string' ? compactText(payload.text, 180) : '';
+  // Normalize legacy events too, before truncation can hide the seed delimiter.
+  const text = typeof payload.text === 'string' ? cleanSeedForReflection(payload.text) : '';
   const reflectionType = payload.reflectionType;
   if (!characterId || !reflectionId || !diaryEntryId || !text) return null;
   if (reflectionType !== 'care'

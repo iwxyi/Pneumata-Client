@@ -24,7 +24,8 @@ import { useSettingsStore } from '../stores/useSettingsStore';
 import { readPersistentUiValue } from '../utils/persistentUiState';
 import { useMessageStore } from '../stores/useMessageStore';
 import type { SyncScopeSnapshot } from '../stores/syncScopeMetadata';
-import { hasUsableDefaultTextAI } from '../types/settings';
+import { getUsableDefaultTextAIProfile, hasUsableDefaultTextAI } from '../types/settings';
+import { getLocalDataUserId } from '../services/authStorageScope';
 import ChatCard from '../components/chat/ChatCard';
 import EmptyState from '../components/common/EmptyState';
 import NoCharactersDialog from '../components/common/NoCharactersDialog';
@@ -712,21 +713,56 @@ export default function HomePage() {
   const companionshipSettings = useSettingsStore((state) => state.companionship);
   const showCompanionshipStatusHints = shouldShowCompanionshipStatusHints(companionshipSettings);
   useEffect(() => {
+    setCompanionshipSnapshot(null);
     if (!showCompanionshipStatusHints) {
-      setCompanionshipSnapshot(null);
       return undefined;
     }
     let cancelled = false;
     const now = Date.now();
     const buildSnapshot = () => {
-      void import('../services/companionshipProjection').then(({ buildHomeCompanionshipSnapshot }) => {
+      void (async () => {
+        const { buildHomeCompanionshipSnapshot } = await import('../services/companionshipProjection');
         if (cancelled) return;
-        setCompanionshipSnapshot(buildHomeCompanionshipSnapshot({
+        const snapshot = buildHomeCompanionshipSnapshot({
           chats: recentChats,
           characters,
           messages: knownMessages,
           now,
-        }));
+        });
+        const { companionshipGenerationKey, readGeneratedHomeCompanionship, readLatestHomeCompanionshipSnapshot, generateHomeCompanionship } = await import('../services/homeCompanionshipGeneration');
+        if (cancelled) return;
+        if (!snapshot) {
+          const saved = readLatestHomeCompanionshipSnapshot({ chats: recentChats, characters, now });
+          setCompanionshipSnapshot(saved);
+          return;
+        }
+        const character = characters.find((item) => item.id === snapshot.characterId);
+        const chat = recentChats.find((item) => item.id === snapshot.chatId);
+        if (!character || !chat) return;
+        const inputKey = companionshipGenerationKey(snapshot, character);
+        const cached = readGeneratedHomeCompanionship(chat, inputKey, now);
+        if (cached) { setCompanionshipSnapshot({ ...snapshot, text: cached }); return; }
+        const config = getUsableDefaultTextAIProfile(aiProfiles);
+        if (!config) return;
+        const scope = getLocalDataUserId();
+        const event = await generateHomeCompanionship({ snapshot, character, config, scope: String(scope) });
+        // Leaving Home cancels UI updates, but completed content still belongs
+        // in this account's conversation so it can be read on return.
+        if (getLocalDataUserId() !== scope) return;
+        const currentChat = useChatStore.getState().chats.find((item) => item.id === chat.id);
+        if (!currentChat || currentChat.deletedAt != null) return;
+        const text = (event.payload as Record<string, unknown>).text;
+        if (typeof text !== 'string') throw new Error('陪伴信息缺少正文');
+        await useChatStore.getState().applyChatRuntimeDelta(chat.id, {
+          runtimeEventsV2: {
+            orderedIds: [...(currentChat.runtimeEventsV2 || []).map((item) => item.id), event.id],
+            upserts: [event],
+          },
+        });
+        if (cancelled) return;
+        setCompanionshipSnapshot({ ...snapshot, text });
+      })().catch((error: unknown) => {
+        console.error('[home-companionship] generation failed', error);
       });
     };
     const scheduler = (window as typeof window & {
@@ -740,7 +776,7 @@ export default function HomePage() {
       if (idleHandle != null) window.cancelIdleCallback?.(idleHandle);
       if (timeoutHandle != null) window.clearTimeout(timeoutHandle);
     };
-  }, [characters, knownMessages, recentChats, showCompanionshipStatusHints]);
+  }, [aiProfiles, characters, knownMessages, recentChats, showCompanionshipStatusHints]);
   const syncOverview = useMemo(() => buildHomeSyncOverview({
     cloudSyncAvailable: !needsLogin,
     cloudSyncEnabled,
@@ -1268,7 +1304,7 @@ export default function HomePage() {
 
         <SurfaceCard>
           <SectionHeader title={recentChatsTitle} action={<Button size="small" variant="outlined" onClick={() => navigate(`/chats?tab=${recentChatsActionTab}`)}>查看全部</Button>} />
-          {companionshipSnapshot ? (
+          {companionshipSnapshot?.text ? (
             <Box
               role="button"
               tabIndex={0}

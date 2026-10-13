@@ -3,7 +3,7 @@ import { normalizeConversation } from '../types/chat';
 import type { GroupChat } from '../types/chat';
 import type { CharacterArtifactEntry } from '../stores/useCharacterArtifactStore';
 import type { CharacterDailyDiaryContext } from './characterExperienceArtifacts';
-import { buildDiaryCompanionshipReflectionEvents, pickChatsForDiaryCompanionshipBackflow } from './diaryCompanionshipBackflow';
+import { buildDiaryCompanionshipReflectionEvents, cleanSeedForReflection, pickChatsForDiaryCompanionshipBackflow } from './diaryCompanionshipBackflow';
 
 function entry(overrides: Partial<CharacterArtifactEntry> = {}): CharacterArtifactEntry {
   return {
@@ -53,6 +53,10 @@ function chat(id: string, type: GroupChat['type'], memberIds: string[], updatedA
 }
 
 describe('diaryCompanionshipBackflow', () => {
+  it('preserves ordinary reflection prose that uses 可以', () => {
+    expect(cleanSeedForReflection('你可以慢慢来，我会等你。')).toBe('你可以慢慢来，我会等你。');
+  });
+
   it('builds companionship runtime events from private diary seeds', () => {
     const events = buildDiaryCompanionshipReflectionEvents({
       entry: entry(),
@@ -79,6 +83,35 @@ describe('diaryCompanionshipBackflow', () => {
       }),
     });
     expect(events[1]?.payload).toMatchObject({ reflectionType: 'care' });
+    expect(events[0]?.payload).toMatchObject({ text: '用户说好周末告诉苏苏面试结果。' });
+    expect(events[1]?.payload).toMatchObject({ text: '用户最近面试压力很大。' });
+  });
+
+  it('keeps writing instructions and third-party care out of user reflections', () => {
+    const events = buildDiaryCompanionshipReflectionEvents({
+      entry: entry(),
+      context: context([
+        '对刘备的关系纹理可以私下写成余波，不要写成系统记录：放心不下：担心刘备最近压力太大。',
+        '未完成关心事项可以在日记里回流成“想问但没有急着问出口”的私下牵挂：用户明天面试。',
+        '对刘备可以写一点没有公开说出的在意、护短、信赖或别扭靠近。',
+      ]),
+      character: { id: 'char-a', name: '苏苏' },
+      relatedCharacters: [{ id: 'char-b', name: '刘备' }],
+      conversationId: 'chat-1',
+    });
+
+    expect(events).toHaveLength(2);
+    expect(events[0]?.payload).toMatchObject({
+      reflectionType: 'care',
+      text: '放心不下：担心刘备最近压力太大。',
+      participantIds: ['char-a', 'char-b'],
+    });
+    expect(events[0]?.payload).toMatchObject({ userId: undefined });
+    expect(events[1]?.payload).toMatchObject({
+      text: '用户明天面试。',
+      userId: 'user',
+      participantIds: ['char-a', 'user'],
+    });
   });
 
   it('routes diary companionship phrase seeds to shared phrase reflections', () => {

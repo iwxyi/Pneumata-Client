@@ -412,6 +412,10 @@ class AdminApiClient {
     return this.request<Record<string, unknown>>('PUT', `/ai/providers/${encodeURIComponent(providerCode)}/config`, payload);
   }
 
+  refreshAceCatalog() {
+    return this.request<{ count: number }>('POST', '/ai/providers/acedata/catalog/refresh');
+  }
+
   getAiProviderKeys(providerCode: string, params?: { typeId?: string; keyword?: string }) {
     return this.request<{ items: Array<Record<string, unknown>>; raw?: Record<string, unknown> }>('GET', `/ai/providers/${encodeURIComponent(providerCode)}/keys${this.buildQuery({ typeId: params?.typeId, keyword: params?.keyword })}`);
   }

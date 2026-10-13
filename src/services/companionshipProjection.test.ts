@@ -4839,6 +4839,67 @@ describe('companionshipProjection', () => {
     expect(signature?.debugLines.join('\n')).toContain('unsentDraft=');
   });
 
+  it('normalizes legacy diary writing seeds before displaying companionship status', () => {
+    const latestUserAt = 900;
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [diaryReflectionEvent({
+      payload: {
+        eventType: 'companionship_diary_reflection',
+        characterId: 'char-a',
+        userId: 'user',
+        reflectionId: 'legacy-care',
+        diaryEntryId: 'legacy-diary',
+        reflectionType: 'care',
+        participantIds: ['char-a', 'user'],
+        text: '未完成关心事项可以在日记里回流成“想问但没有急着问出口”的私下牵挂：用户明天面试。',
+        confidence: 0.66,
+        decisionSource: 'local_fallback',
+      },
+    })]);
+    const params = {
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '先聊到这里。', timestamp: latestUserAt })],
+      now: latestUserAt + 13 * 60 * 60 * 1000,
+    };
+    const status = buildCompanionshipStatusSignature(params);
+    const snapshot = buildHomeCompanionshipSnapshot({
+      chats: [directChat], characters: [params.character], messages: params.messages, now: params.now,
+    });
+
+    expect(status?.text).toContain('用户明天面试');
+    expect(status?.offlineTrace).toContain('用户明天面试');
+    expect(snapshot?.text).toContain('用户明天面试');
+    expect([status?.text, status?.offlineTrace, status?.unsentDraft, snapshot?.text].join('\n')).not.toMatch(/日记|回流|私下牵挂/);
+  });
+
+  it('does not treat diary care for another character as pending user care', () => {
+    const directChat = chat('direct', [relationship({ warmth: 68, trust: 64, competence: 10, threat: 4 })], [diaryReflectionEvent({
+      payload: {
+        eventType: 'companionship_diary_reflection',
+        characterId: 'char-a',
+        reflectionId: 'third-party-care',
+        diaryEntryId: 'third-party-diary',
+        reflectionType: 'care',
+        participantIds: ['char-a', 'char-b'],
+        text: '对刘备的关系纹理可以私下写成余波，不要写成系统记录：放心不下：以追问、试探或关心回应。',
+        confidence: 0.66,
+        decisionSource: 'local_fallback',
+      },
+    })]);
+    const params = {
+      chat: directChat,
+      character: character(),
+      messages: [message({ content: '先聊到这里。', timestamp: 900 })],
+      now: 900 + 7 * 60 * 60 * 1000,
+    };
+
+    expect(buildUserCompanionshipProjection(params).userBond?.pendingCareTopics).toEqual([]);
+    expect(buildCompanionshipStatusSignature(params)?.offlineTrace).not.toMatch(/刘备|追问|提示|纹理|系统记录/);
+    expect(buildHomeCompanionshipSnapshot({
+      chats: [directChat], characters: [params.character], messages: params.messages, now: params.now,
+    })?.text).not.toMatch(/刘备|追问|纹理|系统记录/);
+  });
+
   it('does not create unsent drafts when the user prefers no proactive contact', () => {
     const latestUserAt = 200;
     const signature = buildCompanionshipStatusSignature({

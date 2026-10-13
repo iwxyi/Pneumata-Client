@@ -25,7 +25,7 @@ function classifyDiaryCompanionshipSeed(seed: string): CompanionshipDiaryReflect
 
 function inferParticipants(seed: string, character: Partial<AICharacter>, relatedCharacters: Array<{ id: string; name: string }>) {
   const ids = [character.id || ''];
-  if (/(用户|对方|你|ta|TA)/.test(seed)) ids.push(USER_ACTOR_ID);
+  if (/(用户|对方|你|\bta\b)/i.test(cleanSeedForReflection(seed))) ids.push(USER_ACTOR_ID);
   relatedCharacters.forEach((item) => {
     if (item.id && item.name && seed.includes(item.name)) ids.push(item.id);
   });
@@ -33,11 +33,16 @@ function inferParticipants(seed: string, character: Partial<AICharacter>, relate
   return Array.from(new Set(ids.filter(Boolean))).slice(0, 6);
 }
 
-function cleanSeedForReflection(seed: string) {
-  return compactText(seed
-    .replace(/^(公开动态|私密日记|日记|关系余波|共同梗\/约定|未完成约定|待关心事项|小秘密|共同秘密)\s*[:：]/, '')
-    .replace(/^(可以|只能|不要|把|写成|在日记里成为|公开动态可以)/, '')
-    .trim(), 180);
+export function cleanSeedForReflection(seed: string) {
+  const text = seed.replace(/\s+/g, ' ').trim();
+  const separator = text.search(/[:：]/);
+  const prefix = separator < 0 ? text : text.slice(0, separator);
+  // Seeds contain writing instructions followed by material. Only the material
+  // may flow back into relationship state; instructions without it are not facts.
+  const isInstruction = /(?:不要写成|避免机械复读|不点名用户)/.test(prefix)
+    || (/(?:可以|可作为|只能)/.test(prefix) && /(?:日记|动态|写成|写一点|公开遮罩|关系余波|私密回声|私下回声)/.test(prefix));
+  if (isInstruction) return separator < 0 ? '' : compactText(text.slice(separator + 1), 180);
+  return compactText(text.replace(/^(公开动态|私密日记|日记|关系余波|共同梗\/约定|未完成约定|待关心事项|小秘密|共同秘密)\s*[:：]/, ''), 180);
 }
 
 export function buildDiaryCompanionshipReflectionEvents(params: {
@@ -53,6 +58,7 @@ export function buildDiaryCompanionshipReflectionEvents(params: {
   const seen = new Set<string>();
   const seeds = (params.context.companionshipSeeds || [])
     .map((seed) => ({ seed, reflectionType: classifyDiaryCompanionshipSeed(seed) }))
+    .filter((item) => Boolean(cleanSeedForReflection(item.seed)))
     .filter((item): item is { seed: string; reflectionType: CompanionshipDiaryReflectionEventPayload['reflectionType'] } => Boolean(item.reflectionType))
     .filter((item) => {
       const key = `${item.reflectionType}:${compactText(item.seed, 80).replace(/\s+/g, '')}`;
@@ -63,7 +69,7 @@ export function buildDiaryCompanionshipReflectionEvents(params: {
     .slice(0, MAX_REFLECTION_EVENTS);
 
   return seeds.map((item, index): RuntimeEventV2 => {
-    const text = cleanSeedForReflection(item.seed) || compactText(item.seed, 180);
+    const text = cleanSeedForReflection(item.seed);
     const participantIds = inferParticipants(item.seed, params.character, params.relatedCharacters);
     const reflectionId = `diary-${params.entry.id}-${index}`;
     const payload: CompanionshipDiaryReflectionEventPayload = {

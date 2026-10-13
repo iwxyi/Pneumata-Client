@@ -658,6 +658,7 @@ export default function AdminAIProviderPage() {
   const isMoacode = providerCode === 'moacode' || providerCode === 'moacode-team';
   const isNanoBanana = providerCode === 'nanobanana';
   const isAceNanoBanana = providerCode === 'ace-nanobanana';
+  const isAce = providerCode === 'acedata';
   const isImageProvider = isNanoBanana || isAceNanoBanana;
   const providerDisplayName = isApi2d ? 'API2D' : isDeepSeek ? 'DeepSeek' : providerCode === 'moacode' ? 'Moacode' : providerCode === 'moacode-team' ? 'Moacode Team' : isNanoBanana ? 'NanoBanana' : isAceNanoBanana ? 'Ace-NanoBanana' : providerCode.toUpperCase();
   const canQueryAccountBalance = isApi2d || isDeepSeek || isMoacode || isNanoBanana;
@@ -746,7 +747,7 @@ export default function AdminAIProviderPage() {
   const nanobananaBalanceSummary = isNanoBanana ? getNanoBananaBalanceSummary(accountBalance) : {};
   const publicModelGroups = buildPublicModelGroups(publicModels);
   const publicModelOptions = buildPublicModelOptions(publicModels);
-  const hasPublicModelPricing = isMoacode || isNanoBanana;
+  const hasPublicModelPricing = isMoacode || isNanoBanana || isAce;
   const publicModelTabIndex = hasPublicModelPricing ? 1 : -1;
   const userManagementTabIndex = hasPublicModelPricing ? 2 : 1;
   const usageStatsTabIndex = hasPublicModelPricing ? 3 : 2;
@@ -763,8 +764,6 @@ export default function AdminAIProviderPage() {
       setPublicModels(result.items || []);
       setPublicModelTotal(toPageTotal(result.total));
     } catch (loadError) {
-      setPublicModels([]);
-      setPublicModelTotal(0);
       setPublicModelError(getAdminErrorMessage(loadError));
     } finally {
       setPublicModelLoading(false);
@@ -900,6 +899,7 @@ export default function AdminAIProviderPage() {
         payload.tokenPricing = buildNanoBananaPricing(form.nanobananaPricing);
         if (isAceNanoBanana) (payload.tokenPricing as Record<string, unknown>).models = Object.fromEntries(form.acedataModels.map((model) => [model.code.trim(), { requestCost: Number(model.prices[form.nanobananaImageSize] || 0) }]));
       }
+      else if (isAce) payload.tokenPricing = { billingMultiplier: Number(form.deepseekPricing.billingMultiplier) };
       else if (usesInternalLedger) payload.tokenPricing = buildInternalLedgerTokenPricing(providerCode, form.deepseekPricing);
       if (isMoacode) {
         payload.metadata = {
@@ -1325,7 +1325,7 @@ export default function AdminAIProviderPage() {
                   label="启用图片模型"
                 />
               ) : null}
-              {!isAceNanoBanana ? <Box sx={endpointGridSx}>
+              {!isAceNanoBanana && !isAce ? <Box sx={endpointGridSx}>
                 <TextField label="AI 调用 Base URL" value={form.baseUrl} onChange={(e) => setForm((prev) => ({ ...prev, baseUrl: e.target.value }))} fullWidth sx={compactTextFieldSx} />
                 {isApi2d || isMoacode ? (
                   <TextField
@@ -1373,7 +1373,7 @@ export default function AdminAIProviderPage() {
                   /> : null}
                 </Box>
               ) : null}
-              {!isAceNanoBanana ? <TextField
+              {!isAceNanoBanana && !isAce ? <TextField
                 label={isApi2d ? 'API2D 主账号管理 Token（不是模型调用 Key）' : `${providerDisplayName} 主账号 API Key`}
                 value={form.adminToken}
                 onChange={(e) => setForm((prev) => ({ ...prev, adminToken: e.target.value }))}
@@ -1560,7 +1560,9 @@ export default function AdminAIProviderPage() {
 
           {usesInternalLedger ? (
             <AdminSection title={`${providerDisplayName} 扣费配置`}>
-              {isImageProvider ? (
+              {isAce ? (
+                <TextField label="计费倍率" type="number" slotProps={{ htmlInput: { min: 0.01, step: 0.1 } }} value={form.deepseekPricing.billingMultiplier} onChange={(event) => updateDeepSeekPricing('billingMultiplier', event.target.value)} sx={compactTextFieldSx} />
+              ) : isImageProvider ? (
                 <Stack spacing={1.25}>
                   {isAceNanoBanana ? <AceImageModelFields models={form.acedataModels} disabled={saving} onChange={(acedataModels) => setForm((prev) => ({ ...prev, acedataModels }))} /> : null}
                   <Box sx={shortConfigGridSx}>
@@ -1726,7 +1728,12 @@ export default function AdminAIProviderPage() {
                 <Button
                   variant="outlined"
                   disabled={publicModelLoading}
-                  onClick={() => void loadPublicModels(publicModelSearch)}
+                  onClick={() => {
+                    if (!isAce) { void loadPublicModels(publicModelSearch); return; }
+                    setPublicModelLoading(true);
+                    setPublicModelError(null);
+                    void adminApi.refreshAceCatalog().then(() => loadPublicModels(publicModelSearch)).catch((error: unknown) => { setPublicModelError(getAdminErrorMessage(error)); setPublicModelLoading(false); });
+                  }}
                   sx={{ height: 40 }}
                 >
                   刷新
@@ -1734,7 +1741,22 @@ export default function AdminAIProviderPage() {
               </Stack>
               {publicModelError ? <Alert severity="error">{publicModelError}</Alert> : null}
               {!publicModels.length && !publicModelLoading && !publicModelError ? <Alert severity="info">暂无模型价格</Alert> : null}
-              {publicModels.length && isNanoBanana ? (
+              {publicModels.length && isAce ? (
+                <AdminTableFrame minWidth={850}>
+                  <Table size="small">
+                    <TableHead><TableRow><TableCell>模型</TableCell><TableCell>分类</TableCell><TableCell>品牌</TableCell><TableCell>ACE 价格（积分）</TableCell><TableCell>状态</TableCell><TableCell>更新时间</TableCell></TableRow></TableHead>
+                    <TableBody>{publicModels.map((row) => {
+                      const pricing = getRecord(row.pricing);
+                      return <TableRow key={String(row.modelName)}>
+                        <TableCell sx={{ overflowWrap: 'anywhere', maxWidth: 330 }}>{String(row.displayName)}<Typography variant="caption" sx={{ display: 'block' }}>{String(row.modelName)}</Typography></TableCell>
+                        <TableCell>{String(row.modality)}</TableCell><TableCell>{String(row.providerName)}</TableCell>
+                        <TableCell>{pricing.kind === 'tokens' ? `输入 ${String(pricing.input_credits ?? '-')}; 输出 ${String(pricing.output_credits ?? '-')} / 百万 token` : `${String(pricing.min_credits ?? '-')} ~ ${String(pricing.max_credits ?? '-')} / ${String(row.unit || '次')}`}</TableCell>
+                        <TableCell>{row.callable ? '可用' : '未提供接口或价格'}</TableCell><TableCell>{row.pricingUpdatedAt ? new Date(Number(row.pricingUpdatedAt)).toLocaleString() : '-'}</TableCell>
+                      </TableRow>;
+                    })}</TableBody>
+                  </Table>
+                </AdminTableFrame>
+              ) : publicModels.length && isNanoBanana ? (
                 <AdminTableFrame minWidth={760}>
                   <Table size="small">
                     <TableHead>
