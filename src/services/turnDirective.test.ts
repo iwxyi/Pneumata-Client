@@ -201,9 +201,9 @@ describe('turnDirective', () => {
     expect(directive?.relationshipEffect).toContain('relational consequence');
     expect(directive?.situationalConstraints).toEqual([]);
     const prompt = buildTurnDirectivePrompt(directive);
-    expect(prompt).toContain('believable, watchable character interaction');
-    expect(prompt).toContain('live attention is on 陈越');
-    expect(prompt).toContain('only if saying it performs a real social action');
+    expect(prompt).toContain('Speak as this person among people who share this exchange');
+    expect(prompt).toContain('not an assigned recipient');
+    expect(prompt).not.toContain('live attention is on');
     expect(prompt).not.toContain('Active target: 陈越');
   });
 
@@ -228,11 +228,12 @@ describe('turnDirective', () => {
       forbiddenDrift: [],
     });
 
-    expect(prompt).toContain('private planning language, not dialogue');
-    expect(prompt).toContain('not a shared acknowledgement template');
+    expect(prompt).toContain('private context, not dialogue');
+    expect(prompt).toContain('Choose what catches their attention');
     expect(prompt).not.toContain('先接住/我来回应/这句我认');
-    expect(prompt).toContain('Quiet moments can have personality');
-    expect(prompt.length).toBeLessThan(2800);
+    expect(prompt).toContain('warmth, bite, hesitation or delight');
+    expect(prompt).not.toContain('Do not manufacture a second point');
+    expect(prompt.length).toBeLessThan(1500);
   });
 
   it('treats scalar social posture as subordinate to concrete relationship evidence', () => {
@@ -299,8 +300,8 @@ describe('turnDirective', () => {
     expect(directive?.emotionalUndercurrent).toContain('no strong carried feeling is currently recorded');
     expect(directive?.emotionalUndercurrent).not.toContain('low internal pressure');
     expect(prompt).toContain('not a verdict on the live exchange');
-    expect(prompt).toContain('infer the present reaction');
-    expect(prompt).toContain('important words land');
+    expect(prompt).toContain('the exchange decides the shape');
+    expect(prompt).toContain('warmth, bite, hesitation or delight');
   });
 
   it('keeps calm turns emotionally legible through personality and relationship', () => {
@@ -321,8 +322,8 @@ describe('turnDirective', () => {
     const prompt = buildTurnDirectivePrompt(directive);
 
     expect(directive?.requiredChange).toContain('no mandatory plot or task change');
-    expect(prompt).toContain('Quiet moments can have personality');
-    expect(prompt).toContain('wording, timing, omissions and choices');
+    expect(prompt).toContain('Speak as this person among people who share this exchange');
+    expect(prompt).toContain('the exchange decides the shape');
   });
 
   it('keeps user guidance above AI-to-AI room momentum', () => {
@@ -367,10 +368,10 @@ describe('turnDirective', () => {
 
     expect(prompt).toContain('不让朋友在众人面前被当成可牺牲的那一个');
     expect(prompt).toContain('先看谁在替别人吞下代价');
-    expect(prompt).toContain('Relationship pull: not predetermined');
+    expect(prompt).toContain('Relationship context:');
     expect(prompt).toContain('warmth 30');
     expect(prompt).toContain('Personal meaning:');
-    expect(prompt).toContain('Standing desires and fears are background');
+    expect(prompt).toContain('Standing desire:');
     expect(prompt).not.toContain('They may want to');
     expect(prompt).not.toContain('while risking');
   });
@@ -402,8 +403,8 @@ describe('turnDirective', () => {
     const prompt = buildTurnDirectivePrompt(directive);
 
     expect(prompt).toContain('一个人在楼下坐到天亮');
-    expect(prompt).toContain('not a moderator');
-    expect(prompt).toContain('Infer what this person wants to say');
+    expect(prompt).toContain('Speak as this person among people who share this exchange');
+    expect(prompt).toContain('what they actually want to say now');
     expect(prompt).not.toContain('make it visible as');
     expect(prompt).not.toContain('Required state change:');
   });
@@ -510,11 +511,11 @@ describe('turnDirective', () => {
     expect(prompt).not.toContain('impulse:');
     expect(prompt).not.toContain('pressure:');
     expect(prompt).not.toContain('policyHits');
-    expect(prompt).toContain('private planning language, not dialogue');
-    expect(prompt).toContain('earlier unresolved moments remain available');
+    expect(prompt).toContain('private context, not dialogue');
+    expect(prompt).toContain('including earlier unfinished moments');
   });
 
-  it('folds long-run and name-addressing drift into situational constraints', () => {
+  it('does not prescribe reply length or addressing from recent character counts', () => {
     const longLine = '这件事如果认真讲，'.repeat(24);
     const directive = buildTurnDirective({
       chat: chat(),
@@ -533,8 +534,31 @@ describe('turnDirective', () => {
     });
     const constraints = directive?.situationalConstraints.join('\n') || '';
 
-    expect(constraints).toContain('recent room replies are getting long');
+    expect(constraints).not.toContain('recent room replies are getting long');
+    expect(constraints).not.toContain('chars');
     expect(constraints).not.toContain('overusing visible name-addressing');
     expect(buildTurnDirectivePrompt(directive)).toContain('Situational constraints');
+  });
+
+  it('does not turn projected relationship axes into an unresolved plot question', () => {
+    const input = {
+      chat: chat(), speaker: character('rui', '瑞瑞'),
+      members: [character('rui', '瑞瑞'), character('chen', '陈越')],
+      messages: [message()], styleProfile: 'casual_room', intent,
+      innerLife, conversationMovePlan: movePlan, turnPlan,
+    };
+    const baseline = buildTurnDirectivePrompt(buildTurnDirective(input));
+    const projected = buildTurnDirectivePrompt(buildTurnDirective({
+      ...input,
+      narrativeLines: [{
+        id: 'relationship:rui->chen', conversationId: 'chat-1', type: 'relationship',
+        title: '瑞瑞与陈越', summary: '亲和偏高，信任偏高。',
+        participantIds: ['rui', 'chen'], visibility: 'public', status: 'active',
+        tension: 0, momentum: 0.5, salience: 0.9, sourceEventIds: [], lastTouchedAt: 1,
+        openQuestions: ['瑞瑞会保护陈越、暴露偏心，还是因在意而要求更多？'],
+        possibleNextBeats: [],
+      }],
+    }));
+    expect(projected).toBe(baseline);
   });
 });

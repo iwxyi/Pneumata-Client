@@ -2802,7 +2802,7 @@ function acceptanceAiMessage(chatId, senderId, senderName, content, timestamp, p
 
 function runtimeChatflowScenarios() {
   const now = Date.now();
-  return [
+  const scenarios = [
     {
       name: 'direct_emotional_repair_room',
       roomKind: 'direct',
@@ -3469,6 +3469,34 @@ function runtimeChatflowScenarios() {
       ],
     },
   ];
+  const underworld = scenarios.find((scenario) => scenario.name === 'underworld_hierarchy_emotion_room');
+  if (!underworld) throw new Error('Underworld character fixture missing');
+  const backgrounds = {
+    yan: '幽都最高裁决者，与夜巡属下共事多年。',
+    judge: '负责卷宗与审判记录，与牛头马面长期协作。',
+    niu: '幽都夜巡鬼差，常与马面搭班，重视自己的判断而不只是出力。',
+    ma: '幽都夜巡鬼差，与牛头是多年搭档，嘴快但在意搭档。',
+  };
+  scenarios.push({
+    name: 'underworld_open_topic_room',
+    roomKind: 'open_chat',
+    turns: Math.max(6, Math.min(config.chatflowTurns, 12)),
+    rubricHint: '开放话题而非查案交付。观察人物是否以不同的关注、关系和现场感受聊天，而非轮流认可上一句再补工作安排。不要求制造案件、情绪升级、固定短答或多气泡配额；允许自然深入或停留。',
+    chat: {
+      id: 'acceptance-chatflow-underworld-open',
+      name: '幽都灯下闲谈',
+      topic: '钟馗捉鬼卷宗：一盏灯下究竟是谁在敲门。',
+      memberIds: [...underworld.chat.memberIds],
+    },
+    characters: underworld.characters.map((character) => ({
+      ...character,
+      background: backgrounds[character.id],
+    })),
+    seedMessages: [
+      acceptanceUserMessage('acceptance-chatflow-underworld-open', '钟馗捉鬼卷宗：一盏灯下究竟是谁在敲门。', now - 20_000),
+    ],
+  });
+  return scenarios;
 }
 
 function assertRuntimeChatflowTranscript(scenario, transcript, errors) {
@@ -4577,26 +4605,40 @@ async function runChatflowCase(model) {
         '1. 先看可见对话里的角色差异、用户插话承接、语气变化与实际推进，再检查持久化气泡数和玩法状态。',
         '2. 故事房的一个生成回合可以含多个 narration/speech 事件；事件数量不是消息气泡数。生成前的节奏和长度规划是倾向，不是成稿硬约束。',
         '3. 指出跨场景重复出现的具体问题；不要把单场景评语当作新的事实，也不要因暂未独立验证知识而要求学习进度提前升为 verified。',
+        '4. 按各房间的 executionScope、seedMessages 与 visibleBubbles 判断：单轮暂停合法，段落不是发送边界；普通聊天无需故事、审议或学习的专属状态，简短确认也无需每轮重述已有方案。',
       ].join('\n'), {
-        scenarios: Object.fromEntries(Object.entries(runs).map(([name, run]) => [name, {
-          roomKind: scenarios.find((scenario) => scenario.name === name)?.roomKind,
-          hardError: run.hardError || run.error || null,
-          seedUserMessages: run.seedUserMessages,
-          userInjectionLog: run.userInjectionLog,
-          transcript: run.transcript.map((turn) => ({
-            turn: turn.turn,
-            senderName: turn.senderName,
-            content: turn.content,
-            generatedBubbleCount: turn.generatedBubbleCount,
-            persistedBubbleCount: turn.persistedBubbleCount,
-            visibleStoryBlocks: turn.visibleStoryBlocks,
-            scenarioStateBefore: turn.scenarioStateBefore,
-            scenarioStateAfter: turn.scenarioStateAfter,
-            studyUpdate: turn.studyUpdate,
-            deliberationArtifacts: turn.deliberationArtifacts,
-          })),
-          finalScenarioState: run.finalScenarioState,
-        }])),
+        scenarios: Object.fromEntries(Object.entries(runs).map(([name, run]) => {
+          const scenario = scenarios.find((item) => item.name === name);
+          return [name, {
+            roomKind: scenario?.roomKind,
+            seedMessages: scenario?.seedMessages.map((message) => ({
+              type: message.type,
+              senderName: message.senderName,
+              content: message.content,
+            })),
+            executionScope: {
+              generatedTurns: run.transcript.length,
+              pausesAfterReply: scenario?.chat.type === 'direct' || scenario?.chat.type === 'ai_direct' || scenario?.roomKind === 'study',
+            },
+            hardError: run.hardError || run.error || null,
+            seedUserMessages: run.seedUserMessages,
+            userInjectionLog: run.userInjectionLog,
+            transcript: run.transcript.map((turn) => ({
+              turn: turn.turn,
+              senderName: turn.senderName,
+              content: turn.content,
+              generatedBubbleCount: turn.generatedBubbleCount,
+              persistedBubbleCount: turn.persistedBubbleCount,
+              visibleBubbles: turn.visibleBubbles,
+              visibleStoryBlocks: turn.visibleStoryBlocks,
+              scenarioStateBefore: turn.scenarioStateBefore,
+              scenarioStateAfter: turn.scenarioStateAfter,
+              studyUpdate: turn.studyUpdate,
+              deliberationArtifacts: turn.deliberationArtifacts,
+            })),
+            finalScenarioState: run.finalScenarioState,
+          }];
+        })),
       }, { throwOnFail: false, maxTokens: 3600 });
     } catch (error) {
       aggregateJudgeError = String(error?.message || error);

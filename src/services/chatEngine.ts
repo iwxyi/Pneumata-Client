@@ -1743,6 +1743,12 @@ Current speaking intent:
 
 function buildPrivateTurnPriorityPrompt(chat: GroupChat) {
   if (chat.type !== 'direct' && chat.type !== 'ai_direct') return '';
+  if (shouldUseUnifiedTurnDirective(chat)) {
+    return `\n## Private Turn Priority
+${chat.type === 'ai_direct' ? '- This is an AI private thread between these two people.' : '- This is a user direct chat with this person.'}
+- Interpret the counterpart's words in this relationship and moment. A question can be curiosity, teasing, a bid for care, a challenge, or an actual request for work; the exchange determines what it means.
+- When the user requests a deliverable, honor its substance and format in this character's voice. Otherwise this is an ongoing exchange, not a job to complete.`;
+  }
   const counterpartLine = chat.type === 'ai_direct'
     ? '- This is an AI private thread: respond to the counterpart as a situated private partner, not as a group performer.'
     : '- This is a user direct chat: answer or care for the user-facing need before drifting into ambient companionship.';
@@ -1764,9 +1770,9 @@ function buildVisibleMessageSurfaceContractPrompt(chat: GroupChat, showRoleActio
     ? '- Brief role actions are only allowed if this room explicitly uses them and they are short, non-standalone, and not a narrator camera.'
     : '- Role actions are disabled here: do not include parenthesized actions, gesture beats, stage directions, or narrated camera movement.';
   return `\n## Visible Message Surface Contract
-- The content field is one speaker's visible chat message, not a script page, transcript editor, or narrator prose.
+- Each messages[] item is one visible send from this speaker, not a script page, transcript editor, or narrator prose.
 ${roleActionLine}
-- Do not write another character's line inside this speaker's content. Use messages[] for later bubbles from the same speaker, never for another actor.
+- All messages[] items belong to this speaker, never another actor.
 - If recent transcript contains stage directions or parenthesized scene beats, treat them as invalid old surface drift and do not continue that form.${analysisLine}`;
 }
 
@@ -2309,13 +2315,13 @@ function buildUserGuidancePrompt(guidance: UserGuidanceIntent | null | undefined
     ? `\n- Voice request: the user explicitly wants to hear this reply as audio. If TTS capability is available, set mediaDecision.audio.shouldGenerate=true and make audio.text the exact spoken content. Keep this as a voice-first reply rather than merely discussing the request.`
     : '';
   const actorLine = requestedActors.length
-    ? `\n- Requested actor(s): ${requestedActors.join('、')}. ${isRequestedActor ? 'You are one of them; satisfy the request before normal banter.' : 'You are not the requested actor; do not hijack the request.'}`
+    ? `\n- Requested actor(s): ${requestedActors.join('、')}. ${isRequestedActor ? 'The user is addressing you; respond from your own position in this exchange.' : 'You are not the requested actor; do not hijack the request.'}`
     : '';
   const topicLine = guidance.kind === 'topic_shift'
     ? '\n- Topic guidance: this replaces the previous tangent. Your first semantic move must directly answer, question, or take a stance on this exact focus. If the user gave a question, answer that question first. Do not continue the old joke unless you tie it back to the new topic in the same sentence.\n- Do not reply to the previous AI line first. Anchor the reply in the user guidance, then you may add characterful banter.'
     : '';
   const directLine = guidance.kind === 'direct_reply'
-    ? '\n- Direct reply guidance: answer the user-requested point first, then optionally react socially. Do not dodge into room banter before answering. If a specific actor was requested, that actor should treat this as a direct task, not a casual mention.\n- Honor explicit output form, quantity, and length requirements in the user guidance. If the user asks for an essay, article, analysis, list, answer, or other deliverable, produce that deliverable in this speaker’s own voice instead of merely discussing the topic.\n- For article/essay/longform deliverables, preserve readable paragraphs in the content string with escaped newline sequences, for example \\n\\n between paragraphs. Do not put a heading marker, separator, and the whole article on one line.\n- When multiple requested actors are listed, each requested actor must provide their own substantive response for the same task. Do not summarize what the group thinks and do not pass the task to someone else.'
+    ? '\n- Direct reply guidance: respond to what the user means in this exchange. Being addressed gives you the floor, not a required answer-then-comment structure. A conversational question, challenge, or bid for closeness is part of the interaction; choose the response that fits your relationship and present feelings.\n- Honor explicit output form, quantity, and length requirements in the user guidance. If the user asks for an essay, article, analysis, list, or other deliverable, produce that deliverable in this speaker’s own voice instead of merely discussing the topic.\n- For article/essay/longform deliverables, preserve readable paragraphs in the content string with escaped newline sequences, for example \\n\\n between paragraphs. Do not put a heading marker, separator, and the whole article on one line.\n- When multiple requested actors are listed, each speaks for themselves. If the user explicitly asks each actor for a deliverable, each must complete their own; otherwise their contributions can differ in form and size.'
     : '';
   const constraintLine = guidance.hasHardConstraints
     ? `\n- Constraint guidance: the user gave a live constraint or boundary. Keep it active in the next room move, especially for named people, budget, limits, exclusions, priority, or “do not ignore” wording. Do not treat it as background trivia.${guidance.hardConstraintActorIds?.length ? ` Constraint anchor(s): ${guidance.hardConstraintActorIds.map((id) => getCharacterNameById(characters, id)).join('、')}.` : ''}\n- A constraint anchor is not automatically the required next speaker. Other characters may speak if they actively protect, apply, or ask about that constraint instead of ignoring it.`
@@ -2350,7 +2356,7 @@ function buildGuidanceRetryPrompt(params: {
   const topicRetry = params.guidance.kind === 'topic_shift'
     ? '\n- The user changed the topic. Your next JSON content must directly take a stance, answer, or ask a focused question about that topic before any old banter.'
     : params.guidance.kind === 'direct_reply'
-      ? '\n- The user asked for a direct reply. Your next JSON content must answer the requested point first.'
+      ? '\n- The user addressed you. Respond to their actual meaning in context, in your own voice; complete any explicitly requested deliverable.'
       : '';
   const suppressionRetry = params.guidance.suppressedActorIds?.length && !params.guidance.actorIds.includes(params.speaker.id)
     ? `\n- You are not the requested actor. Do not answer or decide for the requested actor. Return only one short handoff sentence that names ${requestedActors.join('、') || 'the requested actor'} and gives the floor back. No plan, no summary, no "I will handle it".`
@@ -3119,14 +3125,11 @@ function shouldAddJsonProtocolReminder(chat: Pick<GroupChat, 'mode' | 'sessionKi
   return isDeepSeekLikeConfig(config);
 }
 
-function buildJsonProtocolReminder(chat: Pick<GroupChat, 'mode' | 'sessionKind'>): ReturnType<typeof buildChatMessages>[number] {
+function buildJsonProtocolReminder(chat: Pick<GroupChat, 'mode' | 'sessionKind'>): string {
   const isAnalysisRoom = resolveSessionFamilyKey(chat) === 'analysis';
-  return {
-    role: 'user',
-    content: isAnalysisRoom
-      ? '格式校验：只返回一个可解析 JSON 对象，不要直接输出聊天正文。JSON 必须包含 content 字符串；如果本轮提出了观点、证据、问题、裁决或小结，必须在 deliberationArtifacts 中写入对应数组。'
-      : '格式校验：只返回一个可解析 JSON 对象，不要直接输出正文。JSON 必须遵守本轮输出协议；如果需要连续发送多条文字、图片或语音消息，使用 messages 数组，每项包含 content 和自己的 mediaDecision，语音项必须独立成条。角色具备的图片/语音能力应通过结构化字段提交，不要声称无法发送，也不要把协议说明写进可见正文。',
-  };
+  return isAnalysisRoom
+    ? '格式校验：只返回一个可解析 JSON 对象，不要直接输出聊天正文。JSON 必须包含 content 字符串；如果本轮提出了观点、证据、问题、裁决或小结，必须在 deliberationArtifacts 中写入对应数组。'
+    : '格式校验：只返回一个可解析 JSON 对象，不要直接输出正文。JSON 必须遵守本轮输出协议；如果需要连续发送多条文字、图片或语音消息，使用 messages 数组，每项包含 content 和自己的 mediaDecision，语音项必须独立成条。角色具备的图片/语音能力应通过结构化字段提交，不要声称无法发送，也不要把协议说明写进可见正文。';
 }
 
 async function generateWithPrompt(params: {
@@ -3146,11 +3149,14 @@ async function generateWithPrompt(params: {
   signal?: AbortSignal;
 }) {
   const streamBridge = createStreamingDisplayBridge(params.speaker, params.showRoleActions, params.onChunk);
-  const jsonPrompt = `${params.systemPrompt}\n\nThe response must be exactly one valid JSON object. Do not wrap it in markdown.`;
+  // Formatting is an application instruction, not a new turn from a person.
+  // Keep the last transcript message intact as the conversational input.
+  const protocolReminder = shouldAddJsonProtocolReminder(params.chat, params.resolvedApi)
+    ? buildJsonProtocolReminder(params.chat)
+    : 'The response must be exactly one valid JSON object. Do not wrap it in markdown.';
+  const jsonPrompt = `${params.systemPrompt}\n\n${protocolReminder}`;
   const useJsonResponseFormat = shouldUseJsonResponseFormat(params.chat, params.resolvedApi);
-  const requestMessages = shouldAddJsonProtocolReminder(params.chat, params.resolvedApi)
-    ? [...params.chatMessages, buildJsonProtocolReminder(params.chat)]
-    : params.chatMessages;
+  const requestMessages = params.chatMessages;
   const requestStartedAt = nowMs();
   let firstRawChunkLogged = false;
   const rawChunkHandler = !useJsonResponseFormat && params.onChunk
@@ -4100,11 +4106,11 @@ export async function generateSpeakerMessage(params: {
       const targetNames = params.pendingReplyContext.targetIds
         .map((targetId) => characterMap.get(targetId)?.name)
         .filter(Boolean);
-      return `\nPending reply expectation (structured social context):
-- ${sourceName} left an explicit reply expectation${targetNames.length > 1 ? ` for ${targetNames.join('、')}` : ''}; you are one of the unresolved recipients.
+      return `\nRecent social cue (structured context):
+- ${sourceName} left a point that may have been meant for${targetNames.length > 1 ? ` ${targetNames.join('、')}` : ' you'}; it is one thread in the room, not a command.
 - Source turn: ${sourceQuote ? `「${sourceQuote}」` : 'the addressed turn is in the recent transcript'}
-- Treat this as a live social obligation, not a command to repeat the source wording. Answer the part that actually reaches you, in your own stance and relationship voice; you may resist, misunderstand, answer briefly, or ask for clarification.
-- If you answer this obligation, return addressedTargets for the person(s) you genuinely expect to answer next. Use null when your visible reply leaves no one with a reply debt.`;
+- Decide from the whole exchange whether this deserves attention now. You may answer part of it, answer indirectly, interrupt, return to it later, or let it pass when that is more natural for this person.
+- If your visible reply genuinely creates a new expectation for someone, return addressedTargets for those person(s); otherwise use null.`;
     })()
     : '';
   const mediaProfiles = resolveMediaProfiles(params.apiConfig, params.profiles);
@@ -4212,16 +4218,19 @@ export async function generateSpeakerMessage(params: {
     { id: 'expression_feedback', layer: 'runtime', priority: 20, content: buildExpressionFeedbackPrompt(expressionFeedbackTrace) },
     { id: 'turn_directive', layer: 'task', priority: 48, content: buildTurnDirectivePrompt(unifiedTurnDirective) },
     { id: 'natural_chat_rhythm', layer: 'style', priority: 10, content: buildNaturalChatRhythmPrompt(activeMessages, innerLife, responseSurface, richDelivery) },
-    { id: 'conversation_move', layer: 'task', priority: 50, content: buildConversationMovePrompt(conversationMovePlan, params.chat, conversationMovePlan.targetActorId ? characterMap.get(conversationMovePlan.targetActorId)?.name : null) },
-    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan: finalTurnPlan }) },
-    { id: 'turn_length_variety', layer: 'style', priority: 30, content: buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
-    { id: 'turn_format_variety', layer: 'style', priority: 40, content: buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
-    { id: 'turn_plan', layer: 'runtime', priority: 30, content: buildTurnPlanPrompt(finalTurnPlan) },
-    { id: 'runtime_role_constraint', layer: 'runtime', priority: 40, content: buildRuntimeRoleConstraintPrompt(runtimeBundleWithMovePlan) },
+    // Ordinary conversation has one expression owner: Turn Directive. The
+    // other blocks are useful for dedicated task/scenario rooms, but stacking
+    // them here turns a social turn into a list of semantic chores.
+    { id: 'conversation_move', layer: 'task', priority: 50, content: usesUnifiedGroupTurn ? '' : buildConversationMovePrompt(conversationMovePlan, params.chat, conversationMovePlan.targetActorId ? characterMap.get(conversationMovePlan.targetActorId)?.name : null) },
+    { id: 'expression_surface_choice', layer: 'style', priority: 20, content: usesUnifiedGroupTurn ? '' : buildExpressionSurfaceChoicePrompt({ chat: params.chat, speaker: params.speaker, messages: activeMessages, intent, surface: responseSurface, turnPlan: finalTurnPlan }) },
+    { id: 'turn_length_variety', layer: 'style', priority: 30, content: usesUnifiedGroupTurn ? '' : buildTurnLengthVarietyPrompt(activeMessages, params.speaker.id, responseSurface, runtimeBundleWithMovePlan) },
+    { id: 'turn_format_variety', layer: 'style', priority: 40, content: usesUnifiedGroupTurn ? '' : buildTurnFormatVarietyPrompt(activeMessages, params.speaker.id, responseSurface) },
+    { id: 'turn_plan', layer: 'runtime', priority: 30, content: usesUnifiedGroupTurn ? '' : buildTurnPlanPrompt(finalTurnPlan) },
+    { id: 'runtime_role_constraint', layer: 'runtime', priority: 40, content: usesUnifiedGroupTurn ? '' : buildRuntimeRoleConstraintPrompt(runtimeBundleWithMovePlan) },
     { id: 'response_surface', layer: 'style', priority: 50, content: buildResponseSurfacePrompt(responseSurface) },
     { id: 'style_quarantine', layer: 'style', priority: 60, content: buildStyleQuarantinePrompt(responseSurface) },
     { id: 'visible_message_surface_contract', layer: 'output', priority: 0, content: buildVisibleMessageSurfaceContractPrompt(params.chat, showRoleActions) },
-    { id: 'focused_situational_job_contract', layer: 'output', priority: 5, content: buildFocusedSituationalJobContract(activeMessages, params.speaker, responseSurface) },
+    { id: 'focused_situational_job_contract', layer: 'output', priority: 5, content: usesUnifiedGroupTurn ? '' : buildFocusedSituationalJobContract(activeMessages, params.speaker, responseSurface) },
     { id: 'natural_chat_surface_contract', layer: 'output', priority: 7, content: buildNaturalChatSurfaceContract(activeMessages, responseSurface, showRoleActions) },
     { id: 'generation_constraints', layer: 'output', priority: 10, content: buildGenerationConstraints(params.chat, activeMessages, params.speaker.id, responseSurface) },
     { id: 'inline_interaction_contract', layer: 'output', priority: 20, content: buildInlineInteractionContract({ chat: params.chat, speaker: params.speaker, characters: effectiveMembers, recentMessages: activeMessages, turnPlan: finalTurnPlan, mediaCapabilities, richDelivery, mediaRequested: Boolean(userGuidance?.mediaRequest), webSearchEnabled }) },

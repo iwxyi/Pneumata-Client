@@ -1,7 +1,6 @@
 import type { AICharacter } from '../types/character';
 import type { GroupChat } from '../types/chat';
 import type { Message } from '../types/message';
-import { getChannelSemantics } from './channelSemanticsRegistry';
 import { getTranscriptSpeakerLabel, isHumanDirectedMessage } from './chatMessageSemantics';
 
 export type ProjectedChatMessage = {
@@ -76,15 +75,6 @@ function buildTranscriptLine(message: Message, characters: Map<string, AICharact
   return `${buildTranscriptHeader(message, characters, currentSpeakerId)}: ${[compactTranscriptContent(message.content), buildImageAttachmentText(message), buildAudioAttachmentText(message), buildOtherAttachmentText(message)].filter(Boolean).join('\n')}`;
 }
 
-function buildTranscriptInstruction(chatType: GroupChat['type']) {
-  const semantics = getChannelSemantics({ type: chatType });
-  return [
-    'Conversation transcript for context only:',
-    'The complete recent transcript is provided separately as chat messages and is not repeated here.',
-    semantics.transcriptInstruction,
-  ].join('\n');
-}
-
 function buildAssistantHistoryPrompt(history: string) {
   return history;
 }
@@ -121,14 +111,9 @@ export function projectConversationForModel(input: ConversationProjectionInput):
     .slice(-(input.limit ?? 12));
   const options = input.options || {};
   const currentSpeakerId = options.currentSpeakerId;
-  const roomTranscript = visible.filter((message) => !(message.type === 'ai' && currentSpeakerId && message.senderId === currentSpeakerId));
   const projected: ProjectedChatMessage[] = [];
-  if (roomTranscript.length) {
-    projected.push({
-      role: 'user',
-      content: buildTranscriptInstruction(options.chatType || 'group'),
-    });
-  }
+  // Channel instructions belong to the system prompt. Every projected item
+  // corresponds to a visible send, including consecutive sends by one person.
   for (const message of visible) {
     const attachments = shouldProjectImageAttachments(message, visible, options.imageAttachmentMode)
       ? buildProjectedImageAttachments(message)

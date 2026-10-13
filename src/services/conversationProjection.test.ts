@@ -19,6 +19,24 @@ function message(patch: Partial<Message>): Message {
 }
 
 describe('projectConversationForModel', () => {
+  it.each(['group', 'direct', 'ai_direct', 'assistant'] as const)('projects only actual sends in %s without merging consecutive bubbles', (chatType) => {
+    const projected = projectConversationForModel({
+      messages: [
+        message({ id: 'first', content: '等一下', timestamp: 1 }),
+        message({ id: 'second', content: '刚才那件事还没说完', timestamp: 2 }),
+        message({ id: 'third', senderId: 'char-b', senderName: '乙', content: '嗯？', timestamp: 3 }),
+      ],
+      characters: new Map<string, AICharacter>(),
+      options: { currentSpeakerId: 'char-a', chatType },
+    });
+
+    expect(projected).toEqual([
+      { role: 'assistant', content: '等一下' },
+      { role: 'assistant', content: '刚才那件事还没说完' },
+      { role: 'user', content: '乙: 嗯？' },
+    ]);
+  });
+
   it('uses assistant only for the current speaker own prior turns', () => {
     const projected = projectConversationForModel({
       messages: [
@@ -31,7 +49,6 @@ describe('projectConversationForModel', () => {
     });
 
     expect(projected).toEqual([
-      { role: 'user', content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is room state and thread evidence, not a style sample to imitate.' },
       { role: 'user', content: '用户: 你们怎么看？' },
       { role: 'assistant', content: '我觉得可以。' },
       { role: 'user', content: '乙: 我不同意。' },
@@ -49,7 +66,6 @@ describe('projectConversationForModel', () => {
     });
 
     expect(projected).toEqual([
-      { role: 'user', content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is pair-private relationship context, not a generic room script.' },
       { role: 'user', content: '阿远: 你刚才在群里有点冲。' },
       { role: 'assistant', content: '我知道，我有点后悔。' },
     ]);
@@ -67,7 +83,6 @@ describe('projectConversationForModel', () => {
     });
 
     expect(projected).toEqual([
-      { role: 'user', content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is private context and direct input, not a public-room writing sample.' },
       { role: 'user', content: '用户: 继续说' },
     ]);
   });
@@ -82,10 +97,10 @@ describe('projectConversationForModel', () => {
       options: { currentSpeakerId: 'char-a', chatType: 'group' },
     });
 
-    expect(projected[1]?.content).toBe('话题引导: 围绕赛博茶馆开场。');
-    expect(projected[1]?.content).not.toContain('User:');
-    expect(projected[1]?.content).not.toContain('用户:');
-    expect(projected[2]?.content).toBe('用户: 继续推进');
+    expect(projected[0]?.content).toBe('话题引导: 围绕赛博茶馆开场。');
+    expect(projected[0]?.content).not.toContain('User:');
+    expect(projected[0]?.content).not.toContain('用户:');
+    expect(projected[1]?.content).toBe('用户: 继续推进');
   });
 
   it('strips embedded serialized role fragments from transcript content', () => {
@@ -103,9 +118,9 @@ describe('projectConversationForModel', () => {
       options: { currentSpeakerId: 'char-a', chatType: 'group' },
     });
 
-    expect(projected[1]?.content).toBe('用户: 前半句正常。');
-    expect(projected[1]?.content).not.toContain('"role"');
-    expect(projected[1]?.content).not.toContain('污染的下一条');
+    expect(projected[0]?.content).toBe('用户: 前半句正常。');
+    expect(projected[0]?.content).not.toContain('"role"');
+    expect(projected[0]?.content).not.toContain('污染的下一条');
   });
 
   it('keeps historical image attachments as text context only when attachments are not explicitly projected', () => {
@@ -135,8 +150,8 @@ describe('projectConversationForModel', () => {
       options: { currentSpeakerId: 'char-a', chatType: 'group', imageAttachmentMode: 'none' },
     });
 
-    expect(projected[1]?.content).toContain('[图片] 旧参考图');
-    expect(projected[1]?.attachments).toBeUndefined();
+    expect(projected[0]?.content).toContain('[图片] 旧参考图');
+    expect(projected[0]?.attachments).toBeUndefined();
   });
 
   it('projects only the latest user image attachments when latest-user mode is enabled', () => {
@@ -183,8 +198,8 @@ describe('projectConversationForModel', () => {
       options: { currentSpeakerId: 'char-a', chatType: 'group', imageAttachmentMode: 'latest-user' },
     });
 
-    expect(projected[1]?.attachments).toBeUndefined();
-    expect(projected[2]?.attachments).toEqual([{ url: 'data:image/png;base64,BBB', mimeType: undefined }]);
+    expect(projected[0]?.attachments).toBeUndefined();
+    expect(projected[1]?.attachments).toEqual([{ url: 'data:image/png;base64,BBB', mimeType: undefined }]);
   });
 
   it('formats audio and other resources as compact semantic transcript markers', () => {
@@ -204,8 +219,8 @@ describe('projectConversationForModel', () => {
       options: { currentSpeakerId: 'char-b', chatType: 'group' },
     });
 
-    expect(projected[1]?.content).toContain('[语音] 晚安。');
-    expect(projected[1]?.content).toContain('[表情] 挥手');
-    expect(projected[1]?.content).not.toContain('附带语音');
+    expect(projected[0]?.content).toContain('[语音] 晚安。');
+    expect(projected[0]?.content).toContain('[表情] 挥手');
+    expect(projected[0]?.content).not.toContain('附带语音');
   });
 });

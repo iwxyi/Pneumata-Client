@@ -76,7 +76,7 @@ function describeSocialJob(plan: ConversationMovePlan, intent: SpeakIntent) {
   if (plan.moveType === 'ask_followup' || plan.moveType === 'ask_evidence' || plan.moveType === 'test_assumption') return 'ask one situated question that tests the point';
   if (plan.moveType === 'bring_back_prior_point') return 'pull back one dropped earlier point';
   if (plan.moveType === 'name_tradeoff') return 'name one practical tradeoff the room has not faced';
-  if (plan.moveType === 'answer_unresolved_question') return 'answer the unresolved address directly, then stop or pivot only if natural';
+  if (plan.moveType === 'answer_unresolved_question') return 'decide whether the unresolved address deserves attention now; if it does, answer only the part that genuinely reaches this person';
   if (intent.stance === 'support' || intent.stance === 'back_up') return 'show social support while keeping independent judgment';
   if (intent.stance === 'side_comment' || intent.delivery === 'side_remark') return 'drop a side comment that changes the room temperature or angle';
   return 'make one locally specific conversational move';
@@ -97,6 +97,9 @@ function describeRelationship(targetName?: string) {
 
 function describeNarrativePressure(input: BuildTurnDirectiveInput, targetActorId?: string) {
   const relevant = (input.narrativeLines || [])
+    // Relationship lines are numeric projections, not established live plot.
+    // The relationship context already supplies their underlying evidence.
+    .filter((line) => line.type !== 'relationship')
     .filter((line) => line.participantIds.includes(input.speaker.id))
     .sort((left, right) => {
       const leftTargets = targetActorId && left.participantIds.includes(targetActorId) ? 1 : 0;
@@ -142,20 +145,12 @@ function describeSituationalConstraints(input: BuildTurnDirectiveInput) {
   const visible = input.messages.filter((message) => !message.isDeleted && message.type !== 'system' && message.type !== 'event');
   const previous = visible.at(-1);
   const previousSpeakerSame = previous?.type === 'ai' && previous.senderId === input.speaker.id;
-  const recentAiLengths = visible
-    .filter((message) => message.type === 'ai')
-    .slice(-6)
-    .map((message) => message.content.trim().length)
-    .filter((length) => length > 0);
-  const longCount = recentAiLengths.filter((length) => length >= 120).length;
-  const longRunRisk = recentAiLengths.length >= 3 && longCount >= Math.ceil(recentAiLengths.length * 0.5);
   const recentOwnCount = visible
     .filter((message) => message.type === 'ai' && message.senderId === input.speaker.id)
     .slice(-3).length;
   const constraints = [
     previousSpeakerSame ? 'the previous visible speaker was also this character; continue only if the situation has moved' : '',
     recentOwnCount ? `this character has ${recentOwnCount} recent own visible line(s); use them only as no-repeat evidence` : '',
-    longRunRisk ? `recent room replies are getting long (${recentAiLengths.join(' / ')} chars); it is natural to cool back down with one concrete line if the current need allows it` : '',
   ].filter(Boolean);
   if (constraints.length) {
     constraints.push('preserve the current unresolved need; do not switch to a fresh logistical action, new fact, deadline, or softening move merely to be different');
@@ -221,21 +216,16 @@ export function buildTurnDirective(input: BuildTurnDirectiveInput): TurnDirectiv
 
 export function buildTurnDirectivePrompt(directive: TurnDirective | null | undefined) {
   if (!directive) return '';
-  const targetLine = directive.targetName ? ` The live attention is on ${directive.targetName}, but their name belongs in the visible reply only if saying it performs a real social action.` : '';
   const userLine = directive.userConstraint ? `\n- User constraint: ${directive.userConstraint}.` : '';
   const situationalLine = directive.situationalConstraints.length
     ? `\n- Situational constraints: ${directive.situationalConstraints.join('; ')}.`
     : '';
-  const relationshipAction = directive.characterDrive.relationalAction === 'situated'
-    ? 'not predetermined; infer it from the target-specific evidence below'
-    : directive.characterDrive.relationalAction;
+  // Project evidence, not a locally assigned recipient or expression checklist.
   return `\n## Turn Directive — This Person in This Moment
-- Aim for believable, watchable character interaction: speak from this person's position, from inside their lived situation, not a moderator. Let important words land through wording, timing, omissions and choices. Quiet moments can have personality; scene-level tension can rise, ease or linger without escalation every turn.${targetLine}
-- Personal meaning: ${directive.characterDrive.stake}. Recorded feeling: ${directive.characterDrive.feltReaction}. Standing desires and fears are background, not this turn's assigned goal or reaction.
-- Relationship pull: ${relationshipAction}. ${directive.relationshipEffect}
-- Authored attention patterns: ${directive.characterDrive.attentionLens}. Infer what this person wants to say from the whole exchange; choose which habits matter now rather than executing one every turn; earlier unresolved moments remain available, not only the last line.
-- Emotional weather: ${directive.emotionalUndercurrent}; infer the present reaction from the exchange, history and relationship. Expression may sharpen, soften, conceal or ease feeling; an empty stored state does not decide the live reaction.
-- Possible consequence, not a quota: ${directive.requiredChange}. Dramatic line: ${directive.narrativePressure || 'none; do not invent one'}.
-- Visible shape: ${directive.expressionShape}.${userLine}${situationalLine}
-- These labels are private planning language, not dialogue. Use this person's own voice, not a shared acknowledgement template; the transcript supplies events, not sentence patterns. Established facts and task correctness come first: no invented shared history, secrets or forced emotional confession.`;
+Speak as this person among people who share this exchange. Choose what catches their attention and what they actually want to say now. Their words may have warmth, bite, hesitation or delight; the exchange decides the shape.
+- Personal meaning: ${directive.characterDrive.stake}. Felt residue: ${directive.characterDrive.feltReaction}.
+- Attention habits: ${directive.characterDrive.attentionLens}.
+- Emotional and dramatic context: ${directive.emotionalUndercurrent}. ${directive.narrativePressure ? `An unresolved line is present: ${directive.narrativePressure}.` : 'No dramatic escalation is required.'} ${directive.requiredChange}.
+- Relationship context: ${directive.relationshipEffect}. This is available history, not an assigned recipient. Choose from the whole exchange, including earlier unfinished moments.${userLine}${situationalLine}
+Established facts and explicit user requests still apply. These are private context, not dialogue.`;
 }

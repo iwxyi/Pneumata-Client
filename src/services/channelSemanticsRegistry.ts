@@ -46,7 +46,7 @@ const registry = new Map<ChannelSemanticKey, ChannelSemanticDefinition>([
   ['direct', {
     key: 'direct',
     label: 'User-private channel',
-    promptPrefix: 'This is a user-private channel. The primary job is to answer the user directly, not to simulate a public room.',
+    promptPrefix: 'This is a private conversation between this person and the user. Interpret the user\'s words within their relationship and the ongoing exchange; an explicit request for help or a deliverable remains a request, not every remark is a task.',
     transcriptInstruction: 'Recent transcript is private context and direct input, not a public-room writing sample.',
     targetPriority: 'latest_human',
     memoryMode: 'user_private',

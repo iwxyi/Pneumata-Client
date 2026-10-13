@@ -1141,6 +1141,8 @@ function getRelationshipSnapshot(character: AICharacter, chat: GroupChat, target
     competence: ledger.current.competence,
     trust: ledger.current.trust,
     threat: ledger.current.threat,
+    attachment: ledger.current.attachment,
+    deference: ledger.current.deference,
     note: ledger.derived?.semantic?.summary || '',
     updatedAt: ledger.lastUpdatedAt,
   };
@@ -1149,10 +1151,28 @@ function getRelationshipSnapshot(character: AICharacter, chat: GroupChat, target
 function buildRelationalConsequencePrompt(params: {
   chat: GroupChat;
   character: AICharacter;
+  characters: Map<string, AICharacter>;
   target?: AICharacter;
   relationshipSnapshot: AICharacter['relationships'][number] | null;
   mind: ReturnType<typeof buildCharacterMindAdapterOutput>;
 }) {
+  if (params.chat.type === 'group' && usesMindOwnedConversationContract(params.chat)) {
+    const relationships = params.chat.memberIds
+      .filter((id) => id !== params.character.id)
+      .map((id) => params.characters.get(id))
+      .filter((member): member is AICharacter => Boolean(member))
+      .flatMap((member) => {
+        const relationship = getRelationshipSnapshot(params.character, params.chat, member);
+        if (!relationship) return [];
+        return [`- ${params.character.name} toward ${member.name}: warmth ${relationship.warmth ?? 0}, competence ${relationship.competence ?? 0}, trust ${relationship.trust ?? 0}, threat ${relationship.threat ?? 0}, attachment ${relationship.attachment ?? 0}, deference ${relationship.deference ?? 0}.`];
+      });
+    const sharedFacts = (params.chat.relationshipStructure?.sharedFacts || [])
+      .filter((fact) => fact.memberIds.includes(params.character.id))
+      .map((fact) => fact.statement.trim())
+      .filter(Boolean);
+    if (!relationships.length && !sharedFacts.length) return '';
+    return `\n## Member Relationship Context\n${relationships.join('\n')}\n${Array.from(new Set(sharedFacts)).map((fact) => `- Shared reality: ${fact}`).join('\n')}`;
+  }
   if (!params.target) return '';
   const hasRelationshipEvidence = Boolean(params.relationshipSnapshot)
     || params.mind.projection.continuity.relationshipMemories.length > 0
@@ -1245,6 +1265,7 @@ export function buildPromptAssemblyWithContext(character: AICharacter, chat: Gro
     buildRelationalConsequencePrompt({
       chat,
       character,
+      characters,
       target: memoryContext.target,
       relationshipSnapshot: memoryContext.relationshipSnapshot,
       mind,

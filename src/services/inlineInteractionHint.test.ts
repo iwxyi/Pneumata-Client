@@ -177,12 +177,15 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       },
     });
 
-    expect(contract).toContain('"messages":null');
-    expect(contract).toContain('messages[] is the ordered list only when');
-    expect(contract).toContain('When messages[] is used');
-    expect(contract).toContain('first compose the complete thing this person would send now');
-    expect(contract).toContain('A second bubble is not a second paragraph');
-    expect(contract).toContain('the person sends, then sends again');
+    expect(contract).toContain('"messages":[{"content":"visible send"');
+    expect(contract).toContain('including a single send');
+    expect(contract).not.toContain('"messages":null');
+    expect(contract).toContain('a contribution to an ongoing exchange, not a complete answer to everything');
+    expect(contract).toContain('semantic, expressive, or temporal');
+    expect(contract).toContain('natural rhythm of thought, feeling, or addressing different people');
+    expect(contract).not.toContain('first compose the complete thing');
+    expect(contract).not.toContain('only when there is a real temporal boundary');
+    expect(contract).not.toContain('Keep one coherent response in one bubble');
     expect(contract).toContain('One send is the usual default');
     expect(contract).not.toContain('need not be self-contained');
     expect(contract.match(/Send boundaries:/g)).toHaveLength(1);
@@ -192,7 +195,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).not.toContain('Most ordinary turns stay in one bubble');
     expect(contract).toContain('this is chat even when the topic is serious');
     expect(contract).toContain('punctuation follows the voice and moment');
-    expect(contract).toContain('set content equal to messages[0].content');
+    expect(contract).toContain('No duplicate top-level content or extraMessages is needed');
     expect(contract).toContain('Audio must be the only media in its item');
     expect(contract).toContain('splitting mechanically');
   });
@@ -234,7 +237,7 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('Short-term emotion is not a lasting relationship change');
     expect(contract).toContain('"presenceUpdate":null');
     expect(contract).toContain('"conflictFocus":null');
-    expect(contract).toContain('"messages":null');
+    expect(contract).toContain('"messages":[{"content":"visible send"');
     const analysisContract = buildInlineInteractionContract({
       ...params,
       chat: { ...params.chat, sessionKind: { topology: 'group', family: 'analysis', scenarioId: 'opinion-review', surfaceProfile: 'text' } } as GroupChat,
@@ -279,6 +282,24 @@ describe('buildInlineInteractionContract analysis room detection', () => {
     expect(contract).toContain('splitting mechanically');
   });
 
+  it.each(['structured', 'balanced'] as const)('projects %s organization without imposing conversational splitting', (organization) => {
+    const contract = buildInlineInteractionContract({
+      chat: { id: 'chat-1', type: 'direct', memberIds: ['speaker'], runtimeEventsV2: [] } as unknown as GroupChat,
+      speaker: { id: 'speaker', name: '说话人' } as AICharacter,
+      characters: [{ id: 'speaker', name: '说话人' } as AICharacter], recentMessages: [],
+      richDelivery: { multiBubble: { proactivity: 'low', maxBubbles: 5, organization }, image: { proactivity: 'off', explicitRequest: true }, audio: { proactivity: 'off', explicitRequest: true }, sticker: { proactivity: 'off', explicitRequest: true } },
+      turnPlan: { rhythm: 'full_reply', maxBubbleCount: 5, lengthBand: 'long', allowExtraMessages: true, waitSensitive: false, reasons: ['test'] },
+    });
+
+    expect(contract).toContain(organization === 'structured'
+      ? 'keep connected reasoning or steps together with paragraphs or lists'
+      : 'whether this is a brief reaction, a developed answer, or several conversational beats');
+    expect(contract).not.toContain('In conversational chat');
+    expect(contract).toContain('semantic, expressive, or temporal');
+    expect(contract).not.toContain('first compose the complete thing');
+    expect(contract).not.toContain('only when there is a real temporal boundary');
+  });
+
   it('keeps a one-bubble turn policy consistent with the shared message format', () => {
     const contract = buildInlineInteractionContract({
       chat: { id: 'chat-1', type: 'direct', memberIds: ['speaker'], runtimeEventsV2: [] } as unknown as GroupChat,
@@ -304,6 +325,21 @@ describe('buildInlineInteractionContract analysis room detection', () => {
       { content: '第一句', mediaDecision: null },
       { content: '第二句', mediaDecision: { audio: { shouldGenerate: true, text: '第二句' } } },
     ]);
+  });
+
+  it('uses the send list as the single source for one or several bubbles', () => {
+    for (const contents of [['嗯'], ['等等', '这事我得想一下']]) {
+      const parsed = parseInlineInteractionEnvelope(JSON.stringify({
+        messages: contents.map(content => ({ content })),
+      }));
+      expect(parsed?.content).toBe(contents[0]);
+      expect(parsed?.messages?.map(part => part.content)).toEqual(contents);
+    }
+    const parsed = parseInlineInteractionEnvelope(JSON.stringify({
+      content: '旧字段不能覆盖发送列表',
+      messages: [{ content: '实际发送' }],
+    }));
+    expect(parsed?.content).toBe('实际发送');
   });
 
   it('uses a defensive message cap without dropping overflow text', () => {

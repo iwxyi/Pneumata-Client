@@ -378,7 +378,7 @@ describe('conversationMovePlanner', () => {
     expect(prompt).toContain('nearby everyday angle');
   });
 
-  it('keeps ordinary thread focus optional while preserving explicit reply debt', () => {
+  it('keeps ordinary thread focus optional, including scheduler-selected reply debt', () => {
     const ordinary = buildConversationMovePrompt({
       speakerId: 'a',
       targetActorId: 'b',
@@ -401,9 +401,9 @@ describe('conversationMovePlanner', () => {
       reason: 'pending_direct_address',
       confidence: 0.96,
     }, chat('conversation'), '乙');
-    expect(direct).toContain('Reply obligation');
-    expect(direct).toContain('real direct question');
-    expect(direct).not.toContain('Attention cue only');
+    expect(direct).toContain('Attention cue only');
+    expect(direct).toContain('not a required reply');
+    expect(direct).not.toContain('Reply obligation');
   });
 
 });

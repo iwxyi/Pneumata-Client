@@ -8,7 +8,6 @@ import type { AIModelProfile } from '../types/settings';
 import { __chatEngineTestUtils, generateSpeakerMessage, runOneRound } from './chatEngine';
 import { evaluateDuplicateGuard } from './duplicateGuard';
 import { buildInlineInteractionContract, parseInlineInteractionEnvelope } from './inlineInteractionHint';
-import type { SpeakIntent } from './intentEngine';
 import type { DirectorIntent } from './directorIntent';
 import { useSettingsStore } from '../stores/useSettingsStore';
 
@@ -30,15 +29,6 @@ afterEach(() => {
 });
 
 const speaker = { name: '喜羊羊' } as AICharacter;
-const defaultIntent: SpeakIntent = {
-  shouldSpeak: true,
-  reason: 'test',
-  target: 'group',
-  stance: 'challenge',
-  emotionalTone: 'annoyed',
-  delivery: 'short_reply',
-  messageShape: 'single_sentence',
-};
 
 function buildCharacter(id: string, name: string, patch: Partial<AICharacter> = {}): AICharacter {
   return {
@@ -225,6 +215,12 @@ describe('chatEngine streaming preview', () => {
     expect(__chatEngineTestUtils.buildStreamingDisplayContent('{"content":"喜羊羊：先别急', speaker)).toBe('先别急');
     expect(__chatEngineTestUtils.buildStreamingDisplayContent('{"content":"那也不至于', speaker)).toBe('那也不至于');
     expect(__chatEngineTestUtils.buildStreamingDisplayContent('直接纯文本', speaker)).toBe('直接纯文本');
+  });
+
+  it('previews only the first send from a list-only streaming envelope', () => {
+    expect(__chatEngineTestUtils.buildStreamingDisplayContent('{"messages":[', speaker)).toBeNull();
+    expect(__chatEngineTestUtils.buildStreamingDisplayContent('{"messages":[{"content":"先别急', speaker)).toBe('先别急');
+    expect(__chatEngineTestUtils.buildStreamingDisplayContent('{"messages":[{"content":"先别急"},{"content":"还没说完"}]}', speaker)).toBe('先别急');
   });
 
   it('keeps a natural multi-clause reply intact when finalizing the committed message', () => {
@@ -429,7 +425,7 @@ describe('chatEngine streaming preview', () => {
     expect(contract).toContain('Media is optional');
     expect(contract).toContain('images is an array of 1-9 distinct image tasks');
     expect(contract).toContain('Text, audio, and images may be combined in one turn');
-    expect(contract).toContain('visible first bubble');
+    expect(contract).toContain('including a single send');
     expect(contract).toContain('repeating wording, cadence, or a marker is the deliberate social move');
     expect(contract).toContain('do not use it to excuse template drift');
     expect(contract).toContain('socialEventHints: null unless the visible turn itself proposes');
@@ -652,13 +648,47 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).not.toContain('## Natural Chat Rhythm');
     expect(prompt).not.toContain('## Style Quarantine');
     expect(prompt).not.toContain('## Turn Plan');
-    expect(prompt).toContain('believable, watchable character interaction');
+    expect(prompt).toContain('Speak as this person among people who share this exchange');
     expect(prompt).not.toContain('## Expression Surface Choice');
     expect(prompt).toContain('阎君统辖幽都，牛头受其差遣并负责夜巡');
-    expect(prompt).toContain('Relationship pull: not predetermined');
-    expect(prompt).toContain('Possible consequence, not a quota:');
+    expect(prompt).toContain('not an assigned recipient');
+    expect(prompt).toContain('Emotional and dramatic context:');
     expect(prompt).not.toContain('## Current speaking intent');
     expect(prompt.match(/## Turn Directive/g)).toHaveLength(1);
+  });
+
+  it('keeps scheduler reply debt as an optional attention cue in the model prompt', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '嗯，先放这儿。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const source = buildCharacter('source', '甲');
+    const target = buildCharacter('target', '乙');
+    await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['source', 'target'] }),
+      speaker: target,
+      characters: [source, target],
+      messages: [buildAiMessage('source', '甲', '你这件事还没说完。', 1)],
+      pendingReplyContext: {
+        targetIds: ['target'],
+        primaryTargetId: 'target',
+        sourceSpeakerId: 'source',
+        sourceMessageId: 'source-message',
+        unmetTurns: 1,
+        strength: 'strong',
+      },
+      apiConfig: buildProfiles(),
+    });
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+    expect(prompt).toContain('Recent social cue');
+    expect(prompt).toContain('not a command');
+    expect(prompt).toContain('let it pass');
+    expect(prompt).not.toContain('Pending reply expectation');
+    expect(prompt).not.toContain('live social obligation');
+    expect(prompt).not.toContain('Reply obligation');
   });
 
   it('removes leaked runtime field names from generated visible content', async () => {
@@ -916,7 +946,7 @@ describe('chatEngine streaming preview', () => {
 
     expect(prompt).toContain('## Turn Directive');
     expect(prompt).toContain('## Character Grounding');
-    expect(prompt).toContain("speak from this person's position");
+    expect(prompt).toContain('Speak as this person among people who share this exchange');
     expect(prompt).toContain('do not sprawl to keep airtime');
     expect(prompt).not.toContain('## Persona Activation');
     expect(prompt).not.toContain('## Live Presence');
@@ -972,7 +1002,8 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('produce that deliverable');
     expect(prompt).toContain('escaped newline sequences');
     expect(prompt).toContain('Do not put a heading marker, separator, and the whole article on one line');
-    expect(prompt).toContain('Do not put a heading marker, separator, and the whole article on one line');
+    expect(prompt).toContain('If the user explicitly asks each actor for a deliverable, each must complete their own');
+    expect(prompt).not.toContain('their own substantive response for the same task');
     expect(message.content).toContain('\n\n它更像一面放大镜');
     expect(message.metadata?.runtimeDecision?.directorIntent?.targetActorIds).toEqual(['susu', 'luxun']);
     expect(message.metadata?.runtimeDecision?.speakerSelection).toMatchObject({
@@ -1030,6 +1061,9 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('Speaker suppression');
     expect(prompt).toContain('Correction handling');
     expect(prompt).toContain('answer in your own voice');
+    expect(prompt).toContain('Being addressed gives you the floor');
+    expect(prompt).not.toContain('answer the user-requested point first, then optionally react socially');
+    expect(prompt).not.toContain('treat this as a direct task');
     expect(message.metadata?.runtimeDecision?.directorIntent?.userGuidance).toMatchObject({
       suppressedActorIds: ['zhou'],
     });
@@ -1495,7 +1529,6 @@ describe('chatEngine streaming preview', () => {
   it('keeps per-segment image and audio decisions from the structured messages protocol', async () => {
     generateResponseMock.mockReset();
     generateResponseMock.mockResolvedValue(JSON.stringify({
-      content: '第一条',
       messages: [
         { content: '第一条', mediaDecision: null },
         { content: '第二条图片', mediaDecision: { images: [{ shouldGenerate: true, prompt: '一朵小花', altText: '小花' }] } },
@@ -2516,7 +2549,7 @@ describe('chatEngine streaming preview', () => {
     const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
 
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('Visible shape:');
+    expect(prompt).toContain('the exchange decides the shape');
     expect(prompt).not.toContain('## Turn Format Variety');
     expect(message.content).toBe('（轻叹一声，目光落向窗外竹影）\n\n热闹自有热闹的好，冷清也有冷清的趣。\n\n（转回视线，语气淡了几分）你且去别处热闹罢。');
   });
@@ -2573,6 +2606,38 @@ describe('chatEngine streaming preview', () => {
 
     expect(message.content).toBe('一');
     expect(message.extraMessages).toEqual(['二', '三']);
+  });
+
+  it.each(['group', 'direct', 'ai_direct'] as const)('keeps DeepSeek protocol outside the %s transcript and preserves separate sends', async (type) => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      messages: [{ content: '嗯？' }, { content: '刚才不是还说不去吗。' }],
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const a = buildCharacter('a', '甲');
+    const b = buildCharacter('b', '乙');
+    const profiles: AIModelProfile[] = [{
+      id: 'deepseek-text', name: 'DeepSeek', type: 'text', provider: 'deepseek',
+      apiKey: 'test-key', baseUrl: 'https://api.deepseek.test', model: 'deepseek-chat', isDefault: true,
+    }];
+    const message = await generateSpeakerMessage({
+      chat: buildChat({ type, memberIds: type === 'direct' ? ['a'] : ['a', 'b'] }),
+      speaker: a,
+      characters: [a, b],
+      messages: [type === 'direct'
+        ? buildUserMessage('我改主意了，一起去吧。', 1)
+        : buildAiMessage('b', '乙', '我改主意了，一起去吧。', 1)],
+      apiConfig: profiles,
+    });
+    expect(generateResponseMock).toHaveBeenCalledTimes(1);
+    expect(generateResponseMock.mock.calls[0]?.[1]).toContain('格式校验');
+    expect(generateResponseMock.mock.calls[0]?.[2]?.at(-1)?.content).toContain('我改主意了，一起去吧。');
+    expect(generateResponseMock.mock.calls[0]?.[2]?.some((item) => item.content.includes('格式校验'))).toBe(false);
+    expect(message.content).toBe('嗯？');
+    expect(message.messageParts?.map((part) => part.content)).toEqual(['嗯？', '刚才不是还说不去吗。']);
+    expect(message.metadata?.runtimeDecision?.turnPlan?.actualBubbleCount).toBe(2);
   });
 
   it('retries a draft that exactly repeats a recent room line', async () => {
@@ -2911,10 +2976,12 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(generateResponseMock.mock.calls[0]?.[3]).toEqual(expect.any(Function));
     expect(generateResponseMock.mock.calls[0]?.[4]).toMatchObject({ responseFormat: 'text' });
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('格式校验');
     expect(generateResponseMock.mock.calls[0]?.[2]?.at(-1)).toMatchObject({
       role: 'user',
-      content: expect.stringContaining('格式校验'),
+      content: expect.stringContaining('经济压力会不会让愿意费心的人也没电？'),
     });
+    expect(generateResponseMock.mock.calls[0]?.[2]?.some((item) => item.content.includes('格式校验'))).toBe(false);
     expect(onChunk).toHaveBeenCalled();
     expect(message.metadata?.deliberationArtifacts?.claims?.[0]?.text).toBe('资源压力会削弱合租中的主动照顾');
     expect(onLocalInterception).toHaveBeenCalledWith(expect.objectContaining({
@@ -3180,8 +3247,9 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('This is a user direct chat');
     expect(prompt).toContain('## Turn Directive');
     expect(prompt).not.toContain('Response surface: live chat');
-    expect(prompt).toContain('The primary job is to answer the user directly');
-    expect(prompt).toContain('Established facts and task correctness come first');
+    expect(prompt).toContain('private conversation between this person and the user');
+    expect(prompt).toContain('explicit request for help or a deliverable');
+    expect(prompt).toContain('Established facts and explicit user requests still apply');
     expect(prompt).not.toContain('Usually write one sentence');
     expect(prompt).not.toContain('prefer concise, non-intrusive wording');
     expect(message.content).toContain('合同违约责任');
@@ -3258,7 +3326,7 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).not.toContain('## Style Quarantine');
-    expect(prompt).toContain('the transcript supplies events, not sentence patterns');
+    expect(prompt).toContain('Speak as this person among people who share this exchange');
     expect(prompt).not.toContain('Prefer sentence breaks, commas, or plain full stops over em dash');
     expect(prompt).toContain('The complete recent transcript is provided separately as chat messages');
     expect(prompt).not.toContain('这话扎心');
@@ -3301,8 +3369,7 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain("Use this person's own voice, not a shared acknowledgement template");
-    expect(prompt).toContain('the transcript supplies events, not sentence patterns');
+    expect(prompt).toContain('Choose what catches their attention and what they actually want to say now');
     expect(prompt).not.toContain('## Turn Length Variety');
     expect(prompt).not.toContain('你这个问题问到了实务中的痛点');
     expect(prompt).not.toContain('你这个问题问到了实务中的另一个关键点');
@@ -3452,7 +3519,7 @@ describe('chatEngine streaming preview', () => {
     expect(generateResponseMock).toHaveBeenCalledTimes(1);
     expect(onLocalInterception).not.toHaveBeenCalled();
     expect(prompt).toContain('## Turn Directive');
-    expect(prompt).toContain('Visible shape:');
+    expect(prompt).toContain('the exchange decides the shape');
     expect(prompt).not.toContain('## Expression Surface Choice');
     expect(message.content).toBe('我也有点想排队了😂');
   });
@@ -3668,7 +3735,8 @@ describe('chatEngine streaming preview', () => {
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('## Companionship Context');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('Mode: direct_private');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('## Private Turn Priority');
-    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('complete that job first');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('the exchange determines what it means');
+    expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).not.toContain('complete that job first');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).not.toContain('make a real relationship move');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('明天面试');
     expect(String(generateResponseMock.mock.calls[0]?.[1] || '')).toContain('Recorded emotional lead:');
@@ -3700,7 +3768,9 @@ describe('chatEngine streaming preview', () => {
     expect(prompt).toContain('Mode: direct_private');
     expect(prompt).toContain('## Private Turn Priority');
     expect(prompt).toContain('This is an AI private thread');
-    expect(prompt).toContain('complete that job first');
+    expect(prompt).toContain('the exchange determines what it means');
+    expect(prompt).toContain('When the user requests a deliverable');
+    expect(prompt).not.toContain('complete that job first');
     expect(prompt).not.toContain('make a real relationship move');
     expect(prompt).not.toContain('Mode: general_group');
     expect(prompt).toContain('Recorded emotional lead:');
@@ -4203,6 +4273,36 @@ describe('chatEngine streaming preview', () => {
     expect(errors).toHaveLength(0);
     expect(completed).toHaveLength(1);
     expect((completed[0] as { content: string }).content).toBe('我先接一句。');
+  });
+
+  it('gives ordinary conversation one expression owner instead of stacked task menus', async () => {
+    generateResponseMock.mockReset();
+    generateResponseMock.mockResolvedValue(JSON.stringify({
+      content: '我突然想起一件小事。',
+      interactionHints: null,
+      socialEventHints: null,
+      conflictFocus: null,
+    }));
+    const mei = buildCharacter('mei', '美羊羊');
+    const hui = buildCharacter('hui', '灰太狼');
+
+    await generateSpeakerMessage({
+      chat: buildChat({ memberIds: ['mei', 'hui'] }),
+      speaker: mei,
+      characters: [mei, hui],
+      messages: [buildAiMessage('hui', '灰太狼', '昨晚那件事我还没想明白。', 1)],
+      apiConfig: buildProfiles(),
+    });
+
+    const prompt = String(generateResponseMock.mock.calls[0]?.[1] || '');
+    expect(prompt).toContain('## Turn Directive');
+    expect(prompt).not.toContain('## Conversation Move Guidance');
+    expect(prompt).not.toContain('## Expression Surface Choice');
+    expect(prompt).not.toContain('## Turn Length Variety');
+    expect(prompt).not.toContain('## Turn Format Variety');
+    expect(prompt).not.toContain('## Turn Plan');
+    expect(prompt).not.toContain('## Runtime Role Constraint');
+    expect(prompt).not.toContain('## Focused Situational Job Contract');
   });
 
   it('idles group auto scheduling when fewer than two participants can speak', async () => {

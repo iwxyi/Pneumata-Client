@@ -176,10 +176,10 @@ describe('buildSystemPromptWithContext', () => {
       [target.id, target],
     ]));
 
-    expect(prompt).toContain('## Relational Consequence For This Turn');
+    expect(prompt).toContain('## Member Relationship Context');
     expect(prompt).toContain('阎君');
-    expect(prompt).toContain('evidence, not a required visible relationship action');
-    expect(prompt).toContain('A consequence can show through a small choice, or remain unspoken');
+    expect(prompt).toContain('toward 阎君: warmth -12');
+    expect(prompt).not.toContain('Current counterpart:');
     expect(prompt).not.toContain('Make one consequence perceptible');
   });
 
@@ -228,10 +228,6 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12);
 
     expect(rendered).toEqual([
-      {
-        role: 'user',
-        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is room state and thread evidence, not a style sample to imitate.',
-      },
       { role: 'user', content: '话题引导: 新话题：狼抓羊有过错吗？' },
     ]);
   });
@@ -244,10 +240,6 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12, { currentSpeakerId: 'char-a', chatType: buildDirectChat().type });
 
     expect(rendered).toEqual([
-      {
-        role: 'user',
-        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is private context and direct input, not a public-room writing sample.',
-      },
       { role: 'user', content: '用户: 能具体讲讲第一章发生了什么吗？' },
       { role: 'assistant', content: '第一章从废弃大楼里的命案展开。' },
       { role: 'user', content: '用户: 第二章又讲了什么？' },
@@ -262,10 +254,6 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12, { currentSpeakerId: 'char-b', chatType: buildChat().type });
 
     expect(rendered).toEqual([
-      {
-        role: 'user',
-        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is room state and thread evidence, not a style sample to imitate.',
-      },
       { role: 'user', content: '用户: 你们换一种接法。' },
       { role: 'user', content: '甲: 收到，那我负责带锅底，八点见。' },
       { role: 'assistant', content: '收到，那我负责带蘸料，八点见。' },
@@ -399,10 +387,6 @@ describe('buildSystemPromptWithContext', () => {
     ], new Map(), 12, { currentSpeakerId: 'char-a', chatType: buildAiDirectChat().type });
 
     expect(rendered).toEqual([
-      {
-        role: 'user',
-        content: 'Conversation transcript for context only:\nThe complete recent transcript is provided separately as chat messages and is not repeated here.\nRecent transcript is pair-private relationship context, not a generic room script.',
-      },
       { role: 'assistant', content: '我刚才在群里是不是说重了？' },
       { role: 'user', content: '阿远: 有一点，但我知道你不是故意的。' },
     ]);
@@ -436,11 +420,14 @@ describe('buildSystemPromptWithContext', () => {
     expect(trace.targetReason).toBe('来自上一条消息的最近发言者');
   });
 
-  it('keeps the behavior planner target aligned with the relationship posture', () => {
+  it('keeps the planner target for retrieval without assigning the group reply recipient', () => {
     const speaker = buildCharacter({
       id: 'char-a',
       name: '牛头',
-      relationships: [{ characterId: 'char-c', warmth: 6, competence: 72, trust: 38, threat: 24, deference: 70, note: '对阎君既熟悉又敬畏。' }],
+      relationships: [
+        { characterId: 'char-c', warmth: 6, competence: 72, trust: 38, threat: 24, deference: 70, note: '对阎君既熟悉又敬畏。' },
+        { characterId: 'char-b', warmth: 60, competence: 50, trust: 65, threat: 0, attachment: 42, note: '和马面相处熟稔。' },
+      ],
     });
     const latestAi = buildCharacter({ id: 'char-b', name: '马面' });
     const plannedTarget = buildCharacter({ id: 'char-c', name: '阎君' });
@@ -464,10 +451,34 @@ describe('buildSystemPromptWithContext', () => {
 
     expect(assembly.memoryTrace.targetActorId).toBe(plannedTarget.id);
     expect(assembly.memoryTrace.targetReason).toBe('来自本回合行为规划的当前对象');
-    expect(assembly.systemPrompt).toContain('Current counterpart: 阎君');
+    expect(assembly.systemPrompt).toContain('牛头 toward 阎君: warmth 6');
+    expect(assembly.systemPrompt).toContain('牛头 toward 马面: warmth 60');
     expect(assembly.systemPrompt).toContain('Shared reality: 阎君统辖幽都，牛头受其差遣。');
     expect(assembly.systemPrompt).toContain('deference 70');
-    expect(assembly.systemPrompt).not.toContain('Current counterpart: 马面');
+    expect(assembly.systemPrompt).not.toContain('Current counterpart:');
+    expect(assembly.systemPrompt).not.toContain('和马面相处熟稔。');
+  });
+
+  it('includes group relationship evidence without a recent reply target and excludes absent members', () => {
+    const speaker = buildCharacter({
+      id: 'char-a',
+      name: '牛头',
+      relationships: [
+        { characterId: 'char-b', warmth: 60, competence: 50, trust: 65, threat: 0, attachment: 42, deference: 10 },
+        { characterId: 'char-c', warmth: 30, competence: 40, trust: 30, threat: 5 },
+      ],
+    });
+    const member = buildCharacter({ id: 'char-b', name: '马面' });
+    const absent = buildCharacter({ id: 'char-c', name: '外群成员' });
+    const assembly = buildPromptAssemblyWithContext(speaker, {
+      ...buildChat(), memberIds: [speaker.id, member.id],
+    }, 0, [], new Map([[speaker.id, speaker], [member.id, member], [absent.id, absent]]));
+
+    expect(assembly.memoryTrace.targetActorId).toBeUndefined();
+    expect(assembly.systemPrompt).toContain('牛头 toward 马面: warmth 60');
+    expect(assembly.systemPrompt).toContain('attachment 42, deference 10');
+    expect(assembly.systemPrompt).not.toContain('外群成员');
+    expect(assembly.systemPrompt).not.toContain('Current counterpart:');
   });
 
   it('targets the latest AI speaker in group prompts when that message explicitly addresses the current speaker', () => {
@@ -499,7 +510,7 @@ describe('buildSystemPromptWithContext', () => {
         pairKey: 'char-a->char-b',
         actorId: 'char-a',
         targetId: 'char-b',
-        current: { warmth: 56, competence: 0, trust: 68, threat: 4 },
+        current: { warmth: 56, competence: 0, trust: 68, threat: 4, attachment: 32, deference: 12 },
         derived: {
           semantic: {
             stage: '互相信任',
@@ -525,6 +536,7 @@ describe('buildSystemPromptWithContext', () => {
     expect(prompt).toContain('## Character Mind Projection');
     expect(prompt).toContain('Stance toward 灰太狼');
     expect(prompt).toContain('亲和 56');
+    expect(prompt).toContain('attachment 32, deference 12');
     expect(prompt).not.toContain('更容易靠近、维护或给对方留余地');
     expect(prompt).not.toContain('互相信任：会替对方留余地');
   });

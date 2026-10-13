@@ -391,7 +391,7 @@ export function buildConversationMovePrompt(
     challenge_playfully: 'push back lightly or playfully without turning hostile',
     add_boundary_condition: 'add a boundary condition, cost, risk, or limitation to the current claim instead of merely backing it',
     bring_back_prior_point: 'bring back a relevant earlier point instead of only following the latest line',
-    answer_unresolved_question: 'answer or directly engage the unresolved question',
+    answer_unresolved_question: 'consider whether the unresolved question deserves attention now',
     synthesize: 'synthesize without flattening disagreements',
     shift_topic_softly: 'softly shift to a nearby topic',
     test_assumption: 'test an assumption behind the current claim',
@@ -400,11 +400,9 @@ export function buildConversationMovePrompt(
     ask_evidence: 'ask what evidence or condition would make the claim hold',
     name_tradeoff: 'name a tradeoff the room has not made explicit',
   };
-  const hasExplicitReplyDebt = plan.moveType === 'answer_unresolved_question'
-    || plan.reason === 'pending_direct_address'
-    || plan.reason === 'user_guidance_lock';
+  const hasHardReplyNeed = plan.reason === 'user_guidance_lock';
   const targetLine = plan.targetClaimText
-    ? hasExplicitReplyDebt
+    ? hasHardReplyNeed
       ? `\n- Reply obligation: address the selected unresolved thread from the transcript. This is a real direct question, handoff, or explicit request; answer it in the character's own way, and do not pad the answer with a second generic acknowledgement.${targetName ? ` The thread is associated with ${targetName}.` : ''}`
       : `\n- Attention cue only: the selected prior thread is available as context, not a required reply. You may pick up one detail, react indirectly, return to an older thread, introduce your own nearby thought, or leave it untouched if the character's attention is elsewhere.${targetName ? ` It is associated with ${targetName}; do not address them by name unless that is a natural social act.` : ''}`
     : '';

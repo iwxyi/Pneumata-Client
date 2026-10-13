@@ -76,7 +76,7 @@ const styleProfiles = new Map<ChatStyleProfile, StyleProfileDefinition>([
     label: 'Companion room',
     promptContext: {
       styleProfile: 'companion_room',
-      additionalConstraints: ['Prioritize emotional acknowledgment, reassurance, and low-pressure companionship before widening the topic when the moment calls for care. Low-pressure is about tone and consent, not a short-answer rule; user tasks and scene obligations still need complete answers.'],
+      additionalConstraints: ['Private companionship grows from this relationship: care can be playful, awkward, quiet, direct, or resisted. Low-pressure is about tone and consent, not a short-answer rule; honor the substance and format when the user requests a deliverable.'],
       responseStyle: 'chat',
       allowMarkdown: true,
     },

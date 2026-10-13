@@ -10,7 +10,8 @@ describe('styleProfileRegistry', () => {
 
     expect(constraints).toContain('Low-pressure is about tone and consent');
     expect(constraints).toContain('not a short-answer rule');
-    expect(constraints).toContain('user tasks and scene obligations still need complete answers');
+    expect(constraints).toContain('when the user requests a deliverable');
+    expect(constraints).not.toContain('Prioritize emotional acknowledgment, reassurance');
   });
 
   it('maps the user-selected conversation style to the runtime expression profile', () => {
